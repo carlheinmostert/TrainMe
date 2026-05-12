@@ -195,6 +195,38 @@ class StickyDefaults {
     return next.copyWith(sets: newSets);
   }
 
+  /// Apply the **global** capture-time defaults to fields that are still
+  /// null after sticky-defaults pre-fill. This is the "first-ever capture
+  /// for this client" / "no sticky default for this field" fallback:
+  ///
+  ///   * `preferredTreatment` → [Treatment.grayscale] (B&W). Replaces the
+  ///     pre-2026-05-12 implicit fallback of [Treatment.line], which lives
+  ///     at READ time (`ex.preferredTreatment ?? Treatment.line`). By
+  ///     writing the value EXPLICITLY on new captures we shift the
+  ///     default-default without disturbing existing NULL rows in the
+  ///     database.
+  ///   * `bodyFocus` → `false` (off). Same logic — the existing read-time
+  ///     fallback (`bodyFocus ?? true`) keeps legacy NULL rows on the old
+  ///     body-focus-ON behaviour while new captures land with an explicit
+  ///     `false`.
+  ///
+  /// Sticky-defaults always win: this helper only fills fields that are
+  /// STILL null after [prefillCapture]. Existing exercises in the DB are
+  /// untouched (this only runs on the freshly-minted capture path).
+  ///
+  /// Rest periods skip both fields entirely (they have neither concept).
+  static ExerciseCapture applyGlobalCaptureDefaults(ExerciseCapture exercise) {
+    if (exercise.isRest) return exercise;
+    final needsTreatment = exercise.preferredTreatment == null;
+    final needsBodyFocus = exercise.bodyFocus == null;
+    if (!needsTreatment && !needsBodyFocus) return exercise;
+    return exercise.copyWith(
+      preferredTreatment:
+          needsTreatment ? Treatment.grayscale : exercise.preferredTreatment,
+      bodyFocus: needsBodyFocus ? false : exercise.bodyFocus,
+    );
+  }
+
   /// Fire-and-forget: write a single override back into the client's
   /// sticky defaults.
   static void recordOverride({
