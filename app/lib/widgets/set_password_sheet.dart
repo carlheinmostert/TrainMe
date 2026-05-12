@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -88,32 +89,81 @@ class _SetPasswordSheetState extends State<SetPasswordSheet> {
       if (!mounted) return;
       unawaited(HapticFeedback.mediumImpact());
       Navigator.of(context).pop(true);
-    } on AuthException catch (e) {
+    } on AuthException catch (e, st) {
+      dev.log(
+        'setPassword failed (AuthException): ${e.message}',
+        name: 'SetPasswordSheet',
+        level: 900, // WARNING
+        error: e,
+        stackTrace: st,
+      );
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _errorText = _friendlyError(e);
+        _errorText = _friendlyError(e.message);
       });
-    } catch (_) {
+    } catch (e, st) {
+      dev.log(
+        'setPassword failed (non-AuthException): $e',
+        name: 'SetPasswordSheet',
+        level: 900, // WARNING
+        error: e,
+        stackTrace: st,
+      );
       if (!mounted) return;
+      // Strip the leading "FooException: " prefix so a raw PostgrestException
+      // / TimeoutException reads as the underlying server message, not as a
+      // stack-trace fragment. Falls back to a generic-but-honest line if the
+      // exception has no useful toString().
+      final cleanedFirstLine = e is Exception
+          ? e
+              .toString()
+              .split('\n')
+              .first
+              .replaceFirst(RegExp(r'^[A-Za-z]+Exception:\s*'), '')
+          : 'Unexpected error';
       setState(() {
         _saving = false;
-        _errorText = "Couldn't save password. Try again.";
+        _errorText = _friendlyError(cleanedFirstLine);
       });
     }
   }
 
   /// Per voice.md: short, what-happened-plus-what-to-do. Supabase's own
-  /// strings leak "weak password" in various shapes — normalise.
-  String _friendlyError(AuthException e) {
-    final msg = e.message.toLowerCase();
+  /// strings leak "weak password" in various shapes — normalise the common
+  /// ones, then fall through to the actual server message (truncated) so
+  /// Carl-on-device can diagnose the masked layer instead of staring at a
+  /// useless generic. Loud-swallow pattern, per Carl's preference.
+  String _friendlyError(String rawMessage) {
+    final msg = rawMessage.toLowerCase();
     if (msg.contains('weak') || msg.contains('short')) {
       return 'Pick a stronger password.';
     }
     if (msg.contains('same') || msg.contains('match')) {
       return "That's already your password.";
     }
-    return "Couldn't save password. Try again.";
+    if (msg.contains('reauth')) {
+      return 'Sign in again to change your password.';
+    }
+    if (msg.contains('expired') || msg.contains('session')) {
+      return 'Your session expired — sign in again.';
+    }
+    if (msg.contains('rate') || msg.contains('too many')) {
+      return 'Too many attempts — try in a few minutes.';
+    }
+    if (msg.contains('network') ||
+        msg.contains('connection') ||
+        msg.contains('timeout')) {
+      return 'No connection — check your network.';
+    }
+    // Fall through: surface the real message so the cause is visible on
+    // device. Cap at 120 chars so it fits the error row without wrapping
+    // into a wall of text.
+    final trimmed = rawMessage.trim();
+    if (trimmed.isEmpty) return "Couldn't save password. Try again.";
+    final capped =
+        trimmed.length > 120 ? '${trimmed.substring(0, 117)}...' : trimmed;
+    return 'Server said: $capped';
   }
 
   @override

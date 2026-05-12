@@ -11,11 +11,18 @@
 ///
 /// Single source of truth — call sites should never `Uri.parse` a
 /// hard-coded `https://manage.homefit.studio/...` string.
+///
+/// Origin is env-aware (CI/CD release-train cutover, 2026-05-12): a
+/// staging build resolves to `https://staging.manage.homefit.studio`.
+/// See [AppConfig.portalOrigin] in `app/lib/config.dart`.
 
 library;
 
-/// Base origin of the practitioner-facing web portal.
-const String portalOrigin = 'https://manage.homefit.studio';
+import '../config.dart';
+
+/// Base origin of the practitioner-facing web portal. Backed by
+/// [AppConfig.portalOrigin] so it switches with `--dart-define=ENV=...`.
+String get portalOrigin => AppConfig.portalOrigin;
 
 /// Build a [Uri] for [path] (e.g. `/credits`, `/dashboard`) on the
 /// portal, optionally tagging the active [practiceId] as a query param.

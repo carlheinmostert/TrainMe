@@ -203,14 +203,27 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     //   - On Studio (page 0): canPop=true → edge-swipe + Studio AppBar
     //     back chevron pop the shell to ClientSessions (preserves the
     //     PR #281 hotfix that gave Studio a way out).
-    //   - On Camera (page 1): canPop=false → edge-swipe is intercepted
-    //     in `onPopInvokedWithResult` and routed via PageController to
-    //     swipe back to Studio. This fixes the regression introduced
-    //     when PR #281 dropped the blanket `PopScope(canPop: false)`
-    //     wrapper — previously the whole shell was un-poppable, which
-    //     trapped Studio (the bug PR #281 fixed) AND happened to keep
-    //     Camera's edge-swipe inert. Now we keep Studio poppable while
-    //     re-protecting Camera.
+    //   - On Camera (page 1): canPop=false → AppBar/Navigator pop calls
+    //     are intercepted in `onPopInvokedWithResult` and routed via
+    //     PageController to swipe back to Studio.
+    //
+    // PR #303 follow-up — the PopScope ALONE wasn't enough on iOS:
+    // `_CupertinoBackGestureDetector` in Material routes with nested
+    // PageViews doesn't always consult `PopScope.canPop` before
+    // committing the pop (flutter/flutter#138737-class). The interactive
+    // back-swipe gesture bypasses our PopScope, route gets popped, and
+    // `onPopInvokedWithResult` fires with didPop=true — too late to
+    // redirect. The Close-X (which calls `_goToStudio` directly) works
+    // because it never goes through the system gesture path.
+    //
+    // Belt: keep the PopScope so the AppBar chevron + Android back still
+    // route through `_goToStudio` on Camera.
+    // Braces: overlay a transparent left-edge gesture catcher on Camera
+    // ONLY, ~30px wide (slightly wider than iOS's ~20px back-gesture zone),
+    // that swallows horizontal drags and routes them to `_goToStudio`
+    // BEFORE the system gesture recognizer engages. On Studio (page 0)
+    // the overlay is absent, so iOS edge-swipe still pops to
+    // ClientSessions as expected.
     return PopScope(
       canPop: _currentPage == 0,
       onPopInvokedWithResult: (didPop, _) {
@@ -225,36 +238,68 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
         backgroundColor: AppColors.surfaceBg,
         // Allow camera mode to draw behind safe areas; each mode handles its
         // own SafeArea where needed.
-        body: PageView(
-          controller: _pageController,
-          onPageChanged: (page) {
-            // When the bio swipes between Studio and Camera, kill any
-            // in-flight delete-undo banner / snackbar. Otherwise it can
-            // persist across modes and occlude the camera shutter.
-            final messenger = ScaffoldMessenger.of(context);
-            messenger.hideCurrentMaterialBanner();
-            messenger.clearSnackBars();
-            // Belt-and-braces: the scroll listener should already have
-            // synced `_currentPage`, but make sure canPop is correct
-            // once the snap settles.
-            if (page != _currentPage) {
-              setState(() => _currentPage = page);
-            }
-          },
-          physics: const ClampingScrollPhysics(),
+        body: Stack(
           children: [
-            StudioModeScreen(
-              session: _session,
-              storage: widget.storage,
-              onSessionChanged: (s) => setState(() => _session = s),
-              onOpenCapture: _goToCapture,
+            PageView(
+              controller: _pageController,
+              onPageChanged: (page) {
+                // When the bio swipes between Studio and Camera, kill any
+                // in-flight delete-undo banner / snackbar. Otherwise it can
+                // persist across modes and occlude the camera shutter.
+                final messenger = ScaffoldMessenger.of(context);
+                messenger.hideCurrentMaterialBanner();
+                messenger.clearSnackBars();
+                // Belt-and-braces: the scroll listener should already have
+                // synced `_currentPage`, but make sure canPop is correct
+                // once the snap settles.
+                if (page != _currentPage) {
+                  setState(() => _currentPage = page);
+                }
+              },
+              physics: const ClampingScrollPhysics(),
+              children: [
+                StudioModeScreen(
+                  session: _session,
+                  storage: widget.storage,
+                  onSessionChanged: (s) => setState(() => _session = s),
+                  onOpenCapture: _goToCapture,
+                ),
+                CaptureModeScreen(
+                  session: _session,
+                  storage: widget.storage,
+                  onCapturesChanged: _refreshSession,
+                  onExitToStudio: _goToStudio,
+                ),
+              ],
             ),
-            CaptureModeScreen(
-              session: _session,
-              storage: widget.storage,
-              onCapturesChanged: _refreshSession,
-              onExitToStudio: _goToStudio,
-            ),
+            // Left-edge gesture catcher — Camera-only. Must NOT render on
+            // Studio (page 0), or it would block Studio's iOS edge-swipe
+            // path to ClientSessions. The HorizontalDragGestureRecognizer
+            // here claims the gesture arena before iOS's system back-gesture
+            // detector can commit the route pop.
+            if (_currentPage > 0)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 30,
+                child: GestureDetector(
+                  // Translucent so taps that AREN'T horizontal drags
+                  // (e.g. a tap on a Camera-mode button that happens to
+                  // live in the leftmost 30px) can still reach the widget
+                  // underneath via the gesture arena's normal flow.
+                  behavior: HitTestBehavior.translucent,
+                  onHorizontalDragEnd: (details) {
+                    // Any rightward drag in the edge zone = "back to Studio".
+                    // We don't gate on a velocity threshold beyond "positive"
+                    // because iOS's own back-gesture is forgiving here too.
+                    final v = details.primaryVelocity;
+                    if (v != null && v > 0) {
+                      _goToStudio();
+                    }
+                  },
+                ),
+              ),
           ],
         ),
       ),
