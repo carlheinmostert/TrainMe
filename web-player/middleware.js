@@ -1,6 +1,3 @@
-const SUPABASE_URL = 'https://yrwcofhovrcydootivjx.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
-
 // Vercel Edge Middleware that serves bot-friendly HTML with OG meta tags
 // for WhatsApp / iMessage / Slack / Twitter etc. link previews.
 //
@@ -9,6 +6,19 @@ const SUPABASE_ANON_KEY = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
 // Milestone C locked anon SELECT on those tables; direct reads return
 // empty, which silently broke every WhatsApp preview since the lockdown
 // landed. Same contract used by `web-player/api.js`.
+//
+// Supabase URL + key are read from Vercel-injected env vars at edge
+// runtime (NOT hardcoded). Strict-fail policy mirrors `build.sh`: if
+// `NEXT_PUBLIC_SUPABASE_URL` is missing the middleware passes through
+// (returns undefined) so the SPA can render — never silently routes to
+// prod. The Vercel-Supabase integration provides per-environment values
+// so staging deployments hit the staging branch DB and prod hits prod.
+// Without this, bot user-agents hitting `staging.session.homefit.studio`
+// would query PROD Supabase and 404 on every staging-published share.
+//
+// The OG-card URL host is derived from the incoming request's origin so
+// a staging request gets a `staging.session.*` URL in the unfurl card
+// rather than the hardcoded prod host. Critical for staging share links.
 
 export default async function middleware(request) {
   const url = new URL(request.url);
@@ -19,7 +29,34 @@ export default async function middleware(request) {
   const isBot = /WhatsApp|facebookexternalhit|Twitterbot|LinkedInBot|Slackbot|TelegramBot/i.test(ua);
   if (!isBot) return; // Normal browser, let SPA handle it
 
+  // Strict-fail env resolution: prefer publishable-key shape, fall back
+  // to the legacy anon-key name (same precedence as `build.sh`). If
+  // either is missing we log + pass through — never fall back to prod.
+  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const SUPABASE_ANON_KEY =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error(
+      '[middleware] NEXT_PUBLIC_SUPABASE_URL or anon/publishable key is not set. '
+        + 'Bot unfurl pass-through. Configure the Vercel-Supabase integration for '
+        + 'this environment.',
+    );
+    return; // Pass through; SPA handles the request.
+  }
+
   const planId = match[1];
+
+  // Derive the OG `og:url` from the incoming request origin so staging
+  // unfurls show `staging.session.homefit.studio/...` instead of the
+  // prod host. Falls back to the full URL if origin can't be parsed.
+  let originHost;
+  try {
+    originHost = new URL(request.url).origin;
+  } catch (_) {
+    originHost = 'https://session.homefit.studio';
+  }
 
   try {
     // Anon-safe read via SECURITY DEFINER RPC (param name is p_plan_id,
@@ -59,7 +96,7 @@ export default async function middleware(request) {
       || exercises.filter((e) => e && e.media_type !== 'rest').length;
     const description = `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} ready for you`;
     const thumbnail = firstVisible?.thumbnail_url || '';
-    const planUrl = `https://session.homefit.studio/p/${planId}`;
+    const planUrl = `${originHost}/p/${planId}`;
 
     // Return minimal HTML with OG tags + redirect.
     // Brand: always "homefit.studio" (lowercase, one word). The bot sees
