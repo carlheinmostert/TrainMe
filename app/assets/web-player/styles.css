@@ -3747,3 +3747,262 @@ html.is-exporting .lobby-export-footer {
   .lobby-start-btn,
   .lobby-self-grant-btn { transition: none; }
 }
+
+/* ===================================================================== */
+/*  Import-to-app CTA + sheet + toast                                    */
+/*  TestFlight v2 stub. Tap CTA → sheet → "Send" fires a no-op coming-  */
+/*  soon toast. Wired in lobby.js. Backend lands in a follow-up PR.     */
+/* ===================================================================== */
+
+.lobby-import-cta {
+  margin: 18px 16px 0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  border-radius: 12px;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.lobby-import-cta:hover { background: rgba(255, 107, 53, 0.18); }
+.lobby-import-cta:active { transform: scale(0.99); }
+
+.lobby-import-glyph {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: #0f1117;
+  border: 1px solid var(--surface-border, #2e3140);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lobby-import-glyph-matrix {
+  display: grid;
+  grid-template-columns: repeat(8, 2px);
+  gap: 1px;
+}
+
+.lobby-import-glyph-matrix .lic {
+  width: 2px;
+  height: 4px;
+  background: var(--ink-muted, #6b7280);
+  border-radius: 0.5px;
+}
+
+.lobby-import-glyph-matrix .lic.b { background: var(--brand-default, #ff6b35); }
+.lobby-import-glyph-matrix .lic.r {
+  background: var(--rest, #86efac);
+  height: 1.5px;
+  align-self: center;
+}
+
+.lobby-import-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lobby-import-title {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-primary, #f0f0f5);
+  line-height: 1.25;
+}
+
+.lobby-import-sub {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-secondary, #9ca3af);
+  line-height: 1.4;
+}
+
+.lobby-import-go {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  color: var(--brand-default, #ff6b35);
+}
+
+/* Hidden during snapshot export so the CTA doesn't bleed into the
+   shareable lobby image. */
+html.is-exporting .lobby-import-cta { display: none; }
+
+/* ---------- Import sheet ---------- */
+
+.lobby-import-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.lobby-import-sheet[hidden] { display: none; }
+
+.lobby-import-sheet[data-state="visible"] { pointer-events: auto; }
+
+.lobby-import-sheet-veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.lobby-import-sheet[data-state="visible"] .lobby-import-sheet-veil {
+  opacity: 1;
+}
+
+.lobby-import-sheet-panel {
+  position: relative;
+  background: var(--surface-base, #1a1d27);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  padding: 12px 20px 26px;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4);
+  transform: translateY(100%);
+  transition: transform 280ms cubic-bezier(0.2, 0, 0, 1);
+  max-width: 480px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.lobby-import-sheet[data-state="visible"] .lobby-import-sheet-panel {
+  transform: translateY(0);
+}
+
+.lobby-import-sheet-grabber {
+  width: 36px;
+  height: 4px;
+  background: var(--surface-border, #2e3140);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+
+.lobby-import-sheet-title {
+  font-family: 'Montserrat', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  letter-spacing: -0.2px;
+  color: var(--ink-primary, #f0f0f5);
+}
+
+.lobby-import-sheet-body {
+  font-size: 13px;
+  color: var(--ink-secondary, #9ca3af);
+  margin: 0 0 16px;
+  line-height: 1.45;
+}
+
+.lobby-import-sheet-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink-muted, #6b7280);
+  margin-bottom: 6px;
+}
+
+.lobby-import-sheet-input {
+  width: 100%;
+  height: 46px;
+  background: var(--surface-raised, #242733);
+  border: 1px solid var(--surface-border, #2e3140);
+  border-radius: 12px;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--ink-primary, #f0f0f5);
+  outline: none;
+  transition: border-color 160ms ease;
+}
+
+.lobby-import-sheet-input:focus {
+  border-color: var(--brand-default, #ff6b35);
+}
+
+.lobby-import-sheet-input::placeholder {
+  color: var(--ink-muted, #6b7280);
+}
+
+.lobby-import-sheet-send {
+  margin-top: 12px;
+  width: 100%;
+  height: 46px;
+  background: var(--brand-default, #ff6b35);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+
+.lobby-import-sheet-send:hover { filter: brightness(1.04); }
+.lobby-import-sheet-send:active { transform: scale(0.99); }
+
+.lobby-import-sheet-privacy {
+  font-size: 11px;
+  color: var(--ink-muted, #6b7280);
+  margin: 12px 0 0;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.lobby-import-sheet-privacy a {
+  color: var(--ink-secondary, #9ca3af);
+  text-decoration: underline;
+}
+
+/* ---------- Tiny self-dismissing toast ---------- */
+
+.lobby-toast {
+  position: fixed;
+  z-index: 95;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 16px);
+  background: var(--surface-raised, #242733);
+  color: var(--ink-primary, #f0f0f5);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--surface-border, #2e3140);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 200ms ease, transform 200ms ease;
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+
+.lobby-toast[data-state="visible"] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.lobby-toast[hidden] { display: none; }
