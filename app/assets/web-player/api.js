@@ -259,6 +259,21 @@
       grayscale_segmented_url: e.grayscale_segmented_url || null,
       original_segmented_url: e.original_segmented_url || null,
       mask_url: e.mask_url || null,
+      // Wave Three-Treatment-Thumbs (videos: 2026-05-05) + Bundle 2b
+      // (photos: 2026-05-13). The cloud `get_plan_full` RPC emits these
+      // for both media types when the variant file exists in storage
+      // (existence-checked against `storage.objects`). NULL means the
+      // file isn't available (legacy / pre-pipeline plans) and the web
+      // player's `pickTreatmentPoster` / `resolveExerciseHero`
+      // fallback chain handles it (degrades to the single legacy
+      // `thumbnail_url`).
+      //
+      // The embedded preview bridge (Flutter
+      // `unified_preview_scheme_bridge.dart`) emits these as opaque
+      // `homefit-local://` URLs already; the normaliser keeps the same
+      // key names so both surfaces converge.
+      thumbnail_url_line: e.thumbnail_url_line || null,
+      thumbnail_url_color: e.thumbnail_url_color || null,
       // Milestone X — per-exercise soft-trim window (Wave 20).
       // Both null = no trim, full clip plays. Both set = mobile + web
       // player clamp `<video>.currentTime` to [start, end] in ms and

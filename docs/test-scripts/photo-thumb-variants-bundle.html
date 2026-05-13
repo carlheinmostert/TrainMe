@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-13 — Photo Thumb Variant Pipeline (Bundle 2b · audit PR 6)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-13 · Photo Thumb Variants — Bundle 2b of audit</div>
+    <h1>Device QA — Photo Three-Treatment Thumb Variant Pipeline (Bundle 2b · audit PR 6)</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> Bundle 2b of the photo-vs-video treatment audit migration. Ships the symmetric photo thumbnail variant pipeline that the audit's F21 ("capture → convert → preview → publish breaks for photos") rooted to. Videos have produced three thumbnail variants (B&amp;W <code>_thumb.jpg</code>, color <code>_thumb_color.jpg</code>, line <code>_thumb_line.jpg</code>) on disk since the 2026-05-05 Wave Three-Treatment-Thumbs wave; photos stamped <code>thumbnailPath = rawFilePath</code> directly with NO variant pipeline. The bridge's <code>replaceFirst('_thumb.jpg', '_thumb_line.jpg')</code> for <code>hero_line</code> / <code>hero_color</code> was a silent no-op for photos (the photo's <code>thumbnailPath</code> didn't end in <code>_thumb.jpg</code>), and the cloud <code>get_plan_full</code> RPC filtered the new <code>thumbnail_url_*</code> fields to <code>media_type = 'video'</code> exclusively.
+      <br><br>
+      <strong>Fixes in this PR:</strong>
+      <br>· <strong>Step 1 (conversion):</strong> <code>conversion_service.dart</code> photo branch (around <code>:325</code>) now produces three thumbnail variants per photo capture via an OpenCV isolate (<code>_extractPhotoThumbnailVariants</code>). All three land in <code>{Documents}/thumbnails/</code> with the same naming convention videos use. <code>thumbnailPath</code> points at the B&amp;W variant (parity with video pipeline).
+      <br>· <strong>Step 2 (SQLite):</strong> No new column needed. The single <code>thumbnail_path</code> column keeps holding the B&amp;W variant; the other two are derived via filename <code>replaceFirst</code> exactly like the video pipeline does. No <code>_dbVersion</code> bump.
+      <br>· <strong>Step 3 (bridge):</strong> <code>unified_preview_scheme_bridge.dart</code> <code>_resolveMediaPath</code> switch cases <code>hero_line</code> / <code>hero_color</code> work unchanged — the photo's <code>thumbnailPath</code> now ends in <code>_thumb.jpg</code> so the existing <code>replaceFirst</code> resolves correctly.
+      <br>· <strong>Step 4 (cloud upload):</strong> <code>upload_service.dart</code> color-thumb upload loop (around <code>:1707</code>) widened from <code>mediaType.name != 'video'</code> to allow both video and photo. Defensive guards on the line-thumb backfill loops (<code>:1004-1016</code>, <code>:1054-1075</code>) skip when the <code>replaceFirst</code> would be a no-op (legacy photo rows pre-Bundle-2b).
+      <br>· <strong>Step 4b (Supabase migration):</strong> <code>supabase/migrations/20260513161415_photo_thumb_variants.sql</code> re-creates <code>get_plan_full</code> with the <code>thumbnail_url_line</code> + <code>thumbnail_url_color</code> CASE arms widened from <code>e.media_type = 'video'</code> to <code>e.media_type IN ('video', 'photo')</code>. All other CASE arms preserved verbatim from the 2026-05-12 env-aware-thumb-line migration. Existence checks remain the gate.
+      <br>· <strong>Step 5 (api.js):</strong> <code>web-player/api.js</code> <code>_normaliseExercise</code> at <code>:253</code> now normalises <code>thumbnail_url_line</code> + <code>thumbnail_url_color</code> so cloud-fetched plans expose them to <code>pickTreatmentPoster</code> / <code>resolveExerciseHero</code>. Mirror at <code>app/assets/web-player/api.js</code> via <code>dart run tool/sync_web_player_bundle.dart</code>.
+      <br><br>
+      <strong>Backfill (Step 6):</strong> existing photos in the database do NOT have the new variant files. Option C accepted (smallest change). Future photo captures get the full three-treatment pipeline; existing photos render line-only treatment in their respective surfaces until re-captured. Documented as limitation, no eager backfill script. Carl can decide later if backfill is worth complexity.
+      <br><br>
+      <strong>R-10 parity:</strong> <code>web-player/api.js</code> mirrored to <code>app/assets/web-player/api.js</code>. <code>diff</code> shows no drift.
+      <br><br>
+      <strong>In scope:</strong> photo variant extraction (Dart isolate + OpenCV) · cloud upload symmetry · Supabase RPC media_type filter · api.js normalization · embedded + cloud surface photo treatments.
+      <br><br>
+      <strong>Out of scope:</strong> Bundle 2a's exercise_hero_resolver Flutter widget · person-crop refinement on photo thumbs (could be follow-up) · backfill of pre-Bundle-2b photos · web-portal · referral / payments.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Install the staging build on Carl's iPhone via <code>./install-device.sh</code>. Confirm the AppBar build chip shows the new branch SHA before testing.</li>
+        <li>Create a fresh client with a fresh session (so existing photo captures don't pollute the test).</li>
+        <li>Grant the new client <strong>Grayscale</strong> + <strong>Original</strong> consent in the consent accordion (B&amp;W and Original need those to render). Line treatment renders regardless.</li>
+        <li>Capture at least three photos in a single session (so the filmstrip can render the 3-cell case, which Bundle 2b doesn't fix — F17 is a separate PR — but we want to verify Bundle 2b doesn't regress the existing photo behaviour).</li>
+        <li>Have a separate older session with ALREADY-captured photos available (any session pre-dating Bundle 2b install) for the backfill limitation check (test 10).</li>
+      </ul>
+    </div>
+
+    <h2>Task 1 · Photo variant files exist on disk after capture</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      A fresh photo capture produces the three variant files in <code>{Documents}/thumbnails/</code>, symmetric to the video pipeline. <code>thumbnailPath</code> points at the B&amp;W variant.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open Camera, capture a new photo (short-press the shutter). Conversion runs (≤ 5 seconds on modern iPhone). Open the iPhone Files app → On My iPhone → homefit → thumbnails/. Three files matching <code>{exerciseId}_thumb.jpg</code>, <code>{exerciseId}_thumb_color.jpg</code>, <code>{exerciseId}_thumb_line.jpg</code> exist for the new capture. (To get the exerciseId: capture, observe Studio, the exercise ID is the UUID stamped in any post-capture log line; or just identify the THREE most recently-modified files in thumbnails/.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Spot-check the three JPGs visually (long-press → Preview in Files): <code>_thumb.jpg</code> is greyscale; <code>_thumb_color.jpg</code> is colour; <code>_thumb_line.jpg</code> is the line-drawing (white outlines on dark / light bg). All three are reasonably sized (~720px on the long edge — matches video pipeline parity).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Verify <code>thumbnailPath</code> points at the B&amp;W variant. Quick proxy: Studio's small per-exercise thumbnail on the card (for the new photo) renders in B&amp;W — same visual treatment as a video card's static Hero. (Photos pre-Bundle-2b would have rendered in colour because <code>thumbnailPath = rawFilePath</code>.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 2 · Embedded preview lobby — photo treatments</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open the workflow Preview (Studio → Preview button). Photos render the chosen treatment in lobby rows. Switch lobby treatment pills to verify all three resolve to disk files.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Studio → Preview on the test session. Lobby loads. Each new-capture photo row renders the line-drawing variant (default Line treatment with no per-exercise override). Tap the gear → flip to <strong>B&amp;W</strong>. The photo rows re-render with grayscale Hero (this comes from the bridge's <code>hero_color</code> path serving <code>_thumb_color.jpg</code> with <code>.is-grayscale</code> CSS class applied, OR <code>hero</code> serving <code>_thumb.jpg</code> directly — both visually correct).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Flip to <strong>Original</strong>. Photos re-render in full colour (the <code>hero_color</code> bridge path serves the <code>_thumb_color.jpg</code> variant). No grayscale tint. Flip to <strong>Line</strong> — photos re-render with line drawings (the <code>hero_line</code> path serves <code>_thumb_line.jpg</code>).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 3 · Embedded preview deck — photo treatments</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Same plan, deck view (after Start workout). Photos render the active treatment.
+    </p>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">In the embedded preview, tap Start workout. The first photo slide enters prep then plays. The <code>&lt;img&gt;</code> on the active slide renders the active treatment correctly. Swipe between photo slides — each one's <code>&lt;img&gt;</code> + CSS class match the active treatment. (For photos the active slide is always an <code>&lt;img&gt;</code> — no <code>&lt;video&gt;</code> swap.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 4 · Embedded preview prep hero — photo treatments</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The Hero behind the 15s prep countdown for a photo slide matches the active treatment. Bundle 1's resolver routes this through the per-row poster path.
+    </p>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Hit a prep countdown for a photo slide. The Hero behind the digit matches the active treatment: Line → line drawing; B&amp;W → grayscale; Original → colour. No more colour-flash before B&amp;W playback or B&amp;W-flash before Line. Repeat at least once for each treatment.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 5 · Cloud publish — staging web player photo treatments</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Publish the test plan to staging cloud. Open <code>staging.session.homefit.studio/p/&lt;planId&gt;</code> on iPhone Safari (NOT embedded). Check that posters now resolve to treatment-correct cloud URLs instead of the legacy <code>thumbnail_url</code> only.
+    </p>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Studio → publish the test session (1 credit). After upload completes, open <code>staging.session.homefit.studio/p/&lt;planId&gt;</code> in iPhone Safari. The lobby renders. Each photo row's poster matches its effective treatment — Line photos show the line variant, B&amp;W photos show greyscale, Original photos show colour. (Pre-Bundle-2b: all three would have rendered the same legacy <code>thumbnail_url</code> regardless.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">In Safari devtools (or Studio's debug build-chip console), inspect the network request to <code>get_plan_full</code>. Each photo exercise has both <code>thumbnail_url_line</code> (public <code>/storage/v1/object/public/media/{plan}/{ex}_thumb_line.jpg</code>) AND <code>thumbnail_url_color</code> (a signed URL into <code>raw-archive/</code>) populated. (Pre-migration: both fields were NULL for photos.) Existence-checked, so if the upload skipped a variant the field stays NULL and the player falls back gracefully.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 6 · Live web player snapshot — photo posters</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Bundle 1 introduced the snapshot bake (D13). For photos, the bake is unnecessary (photos already use <code>&lt;img&gt;</code> + <code>.is-grayscale</code> CSS class which html2canvas onclone handles correctly). Verify the share PNG for a photo-only plan renders treatment-correct posters.
+    </p>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">In the lobby, set treatment to <strong>Line</strong>. Tap share. PNG renders within a few seconds. Each photo row in the PNG is the line-drawing variant — white outlines on dark/light. Flip to <strong>B&amp;W</strong>, share again — every photo row is greyscale. Flip to <strong>Original</strong>, share again — every photo row is colour.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 7 · R-10 parity across surfaces (photos)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Same photo plan, same active treatment → visually consistent across embedded lobby, embedded deck, embedded prep, live web player snapshot.
+    </p>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Pick a single photo exercise. Open in (a) embedded preview lobby, (b) embedded preview deck (Start workout, navigate to it), (c) embedded preview prep (its prep countdown), (d) live web player snapshot. Set every surface to the same treatment (eg. B&amp;W). All four surfaces render visually consistent — same treatment colour palette, same poster orientation, same crop. Repeat for Line and Original.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 8 · SQLite migration not required (sanity check)</h2>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">Open an existing session created BEFORE Bundle 2b install. Photo exercises in that session still load (the legacy <code>thumbnailPath = rawFilePath</code> fallback in the new conversion-service code path keeps them functional). No crash; Studio renders them as before. <code>_dbVersion</code> still 39 (no migration step needed).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 9 · Backfill limitation documented</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Pre-Bundle-2b photo captures do NOT have <code>_thumb_color.jpg</code> / <code>_thumb_line.jpg</code> on disk. They render the line-drawing or legacy <code>thumbnail_url</code> in non-Line treatments and that's documented as expected.
+    </p>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">Open an older session in embedded preview lobby. Set treatment to B&amp;W. Pre-Bundle-2b photos either (a) render via the legacy <code>thumbnail_url</code> (raw photo, with <code>.is-grayscale</code> CSS class applied — visually B&amp;W-correct), or (b) gracefully fall back to the line-drawing variant. Either is acceptable. No broken-image glyphs, no crashes.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">Re-capture an old photo (delete the old exercise via swipe, add a new one). The fresh capture goes through the Bundle 2b pipeline → three variants land on disk → treatment switching works fully. The "future captures get the full pipeline" promise holds.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 10 · Regression check — videos still work</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Bundle 2b widened cloud RPC + upload paths to include photos. Sanity-check that videos didn't regress.
+    </p>
+    <ul class="checklist">
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">Capture a new video → wait for conversion (≤ 10s) → embedded preview lobby renders the video row's static Hero in the active treatment. Flip treatment pills — video heroes flip correctly. Publish to staging cloud → live web player lobby + deck + prep all render correctly for videos. No regression in the video pipeline.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">In a mixed-media session (videos + photos), open embedded preview lobby. Both media types render correctly in the same lobby with consistent treatment. Filmstrip on the session card (back in Client Sessions screen) still renders videos as B&amp;W tiles + a single photo fallback (F17 NOT fixed in Bundle 2b — that's a separate PR).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 11 · CI green — drift guard + Supabase preview</h2>
+    <ul class="checklist">
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text">Open the PR on GitHub. <strong>web-player-drift-guard</strong> check passes. <strong>Flutter app (analyze + test)</strong> passes. <strong>Flutter build iOS (debug, no codesign)</strong> passes. <strong>Web portal (lint + typecheck + build)</strong> passes (no portal changes; should be unaffected).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">Supabase Preview branch DB created for the PR. <code>get_plan_full</code> on the preview DB returns the new wider <code>thumbnail_url_line</code> + <code>thumbnail_url_color</code> for photo rows. Verify via Postgrest call or the staging web player against a preview-branch URL.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bundle 2b of 6 from <code>docs/audits/photo-video-treatment-audit-2026-05-13.md</code>. Audit's PR 6 directly. Bundle 2a (exercise hero resolver + Studio/MediaViewer Flutter migration) runs in parallel and lands separately. Sensitive code touched: <code>conversion_service.dart</code> photo branch → Carl, please review the OpenCV variant extraction isolate before merge per <code>feedback_sensitive_code_review_before_merge.md</code>.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'photo-thumb-variants-bundle.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'photo-thumb-variants-bundle', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

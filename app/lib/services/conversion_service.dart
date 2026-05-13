@@ -334,14 +334,79 @@ class ConversionService extends ChangeNotifier {
             );
           }
 
-          // Round 4 — point thumbnailPath at the raw photo so Studio /
-          // ClientSessions / Camera peek render the picture instead of
-          // the placeholder glyph. The video branch above does this via
-          // a dedicated extracted JPEG; for photos the raw IS already a
-          // JPEG/HEIC that Flutter's FileImage decodes natively — no
-          // separate extraction needed.
-          if (done.thumbnailPath == null && exercise.rawFilePath.isNotEmpty) {
-            done = done.copyWith(thumbnailPath: exercise.rawFilePath);
+          // Bundle 2b — three-treatment thumbnail variant pipeline for
+          // photos, symmetric to the video extractFrame trio above. Until
+          // this pass we stamped `thumbnailPath = rawFilePath`, which
+          // worked for the small-thumb surface but broke the lobby's
+          // `pickTreatmentPoster` (it `.replaceFirst('_thumb.jpg',
+          // '_thumb_line.jpg')` on the path — for photos the filename
+          // ended in `.heic` / `.jpg`, never `_thumb.jpg`, so the
+          // replace was a no-op and every "treatment" pulled the raw
+          // colour photo).
+          //
+          // The three files mirror the video naming convention so the
+          // bridge's `_resolveMediaPath` switch (`hero` / `hero_line` /
+          // `hero_color`) works without media-type branching, and the
+          // cloud upload + `get_plan_full` RPC route them through the
+          // same path-pattern infrastructure videos already use.
+          //
+          //   `{id}_thumb.jpg`        — B&W (greyscale) variant, default
+          //                              practitioner-facing surface
+          //                              (Studio cards, peek, filmstrip).
+          //   `{id}_thumb_color.jpg`  — raw colour, used by Original
+          //                              treatment + B&W via CSS filter.
+          //   `{id}_thumb_line.jpg`   — line-drawing JPG, used by Line
+          //                              treatment.
+          //
+          // OpenCV (already imported for line conversion) handles HEIC
+          // decoding on iOS and emits a JPEG output. The whole pass runs
+          // off the UI thread inside `_extractPhotoThumbnailVariants`
+          // via `compute()`. Failure here is non-fatal — the line
+          // drawing (gating publish) has already shipped, and the
+          // fallback below keeps the legacy thumbnailPath-as-raw
+          // behaviour so existing surfaces don't regress.
+          try {
+            final dir = await getApplicationDocumentsDirectory();
+            final thumbDir = p.join(dir.path, 'thumbnails');
+            await Directory(thumbDir).create(recursive: true);
+            final bwPath =
+                p.join(thumbDir, '${exercise.id}_thumb.jpg');
+            final colorPath =
+                p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
+            final linePath =
+                p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
+
+            final rawAbs = exercise.absoluteRawFilePath;
+            final convertedAbs = done.absoluteConvertedFilePath;
+
+            await compute(_extractPhotoThumbnailVariants, _PhotoThumbArgs(
+              rawPath: rawAbs,
+              convertedPath: convertedAbs,
+              bwOutPath: bwPath,
+              colorOutPath: colorPath,
+              lineOutPath: linePath,
+            ));
+
+            if (await File(bwPath).exists()) {
+              done = done.copyWith(
+                thumbnailPath: PathResolver.toRelative(bwPath),
+              );
+            }
+          } catch (e) {
+            debugPrint(
+              'Photo thumbnail variant extraction failed for '
+              '${exercise.id}: $e — falling back to legacy '
+              'thumbnailPath = rawFilePath',
+            );
+            // Fallback to legacy behaviour so existing UI surfaces don't
+            // regress when the variant pipeline fails (e.g. malformed
+            // HEIC). The treatment variants will be missing, but Studio
+            // / ClientSessions / peek render the raw colour photo as
+            // before.
+            if (done.thumbnailPath == null &&
+                exercise.rawFilePath.isNotEmpty) {
+              done = done.copyWith(thumbnailPath: exercise.rawFilePath);
+            }
           }
         }
 
@@ -1572,4 +1637,134 @@ cv.Mat _frameToLineDrawingSync(
   boosted.dispose();
 
   return result;
+}
+
+// =============================================================================
+// Photo three-treatment thumbnail variants (Bundle 2b — audit PR 6)
+// =============================================================================
+
+/// Arguments crossing into the photo thumbnail-variant isolate.
+///
+/// Plain-data only — all file paths are absolute. The isolate has no
+/// access to the parent's storage / path-resolver state, so `bwOutPath`,
+/// `colorOutPath`, `lineOutPath` MUST be resolved upstream (e.g. via
+/// `path_provider` + `path.join`) before the [compute] call.
+class _PhotoThumbArgs {
+  final String rawPath;
+  final String? convertedPath;
+  final String bwOutPath;
+  final String colorOutPath;
+  final String lineOutPath;
+
+  const _PhotoThumbArgs({
+    required this.rawPath,
+    required this.convertedPath,
+    required this.bwOutPath,
+    required this.colorOutPath,
+    required this.lineOutPath,
+  });
+}
+
+/// Top-level isolate entry that produces the three treatment thumbnail
+/// variants for a captured photo, symmetric to the video pipeline's
+/// `extractFrame` trio:
+///
+///   * `{id}_thumb.jpg`        — B&W (greyscale) from the raw photo. The
+///                                canonical practitioner-facing thumb.
+///   * `{id}_thumb_color.jpg`  — raw colour copy (downscale at parity
+///                                with the video pipeline; same source,
+///                                JPEG quality 95).
+///   * `{id}_thumb_line.jpg`   — line-drawing copy of the converted JPG.
+///
+/// Photos don't need motion-peak / person-crop (the raw IS the Hero
+/// frame; per `mini_preview.dart:351-353`). They DO benefit from a
+/// modest downscale so the on-disk variant sizes track the video
+/// pipeline rather than serving full-resolution images to small
+/// surfaces like the filmstrip / Studio card.
+///
+/// The downscale target matches the video pipeline's
+/// `extractFrame`-extracted JPEG (≈720px on the long edge). The line
+/// variant copies the converted JPG verbatim (already at converted
+/// resolution; line drawings are visually OK at smaller sizes too, so
+/// we apply the same downscale).
+///
+/// Failure inside this isolate throws back to the caller, which logs
+/// and falls back to the legacy `thumbnailPath = rawFilePath` stamp.
+void _extractPhotoThumbnailVariants(_PhotoThumbArgs args) {
+  // Long-edge target — matches the video pipeline's extractFrame default
+  // (the native side resizes to ≤ 720 on the long edge). Keeping parity
+  // means the filmstrip / Studio cards consume similarly-sized assets
+  // across both media types.
+  const int targetLongEdge = 720;
+
+  cv.Mat? rawColor;
+  try {
+    rawColor = cv.imread(args.rawPath, flags: cv.IMREAD_COLOR);
+    if (rawColor.isEmpty) {
+      throw Exception('Could not read raw photo: ${args.rawPath}');
+    }
+
+    final resizedColor = _resizeForThumbnail(rawColor, targetLongEdge);
+
+    // _thumb_color.jpg — raw colour, JPEG quality 95.
+    cv.imwrite(args.colorOutPath, resizedColor,
+        params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
+
+    // _thumb.jpg — B&W greyscale via single-channel cvtColor (NOT
+    // CSS-filter-style 0.299/0.587/0.114 luminance weighting via a 3x3
+    // matrix — OpenCV's BGR2GRAY uses ITU-R BT.601 weights which is
+    // visually equivalent and avoids the extra matrix-multiply pass).
+    final gray = cv.cvtColor(resizedColor, cv.COLOR_BGR2GRAY);
+    cv.imwrite(args.bwOutPath, gray,
+        params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
+    gray.dispose();
+
+    resizedColor.dispose();
+
+    // _thumb_line.jpg — copy of the converted line-drawing JPG. The
+    // photo branch of [_convert] already produces this JPG at full
+    // resolution; we resize it to match the thumbnail-tier sizing for
+    // consistency. Skipped silently if the converted JPG is missing
+    // (legacy / pre-PR rows might lack it, though current photo flow
+    // always emits one).
+    final convertedPath = args.convertedPath;
+    if (convertedPath != null && File(convertedPath).existsSync()) {
+      final lineSource = cv.imread(convertedPath, flags: cv.IMREAD_COLOR);
+      if (!lineSource.isEmpty) {
+        final resizedLine = _resizeForThumbnail(lineSource, targetLongEdge);
+        cv.imwrite(args.lineOutPath, resizedLine,
+            params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
+        resizedLine.dispose();
+      }
+      lineSource.dispose();
+    }
+  } finally {
+    rawColor?.dispose();
+  }
+}
+
+/// Resize [src] to a thumbnail-tier size while preserving aspect ratio.
+///
+/// Returns a NEW Mat — caller is responsible for `.dispose()` on the
+/// returned value. The input [src] is left untouched (caller still owns
+/// it).
+///
+/// When the source is already at or below [targetLongEdge] on the long
+/// edge, returns a clone (so disposal semantics stay consistent — no
+/// special-case branch in the caller).
+cv.Mat _resizeForThumbnail(cv.Mat src, int targetLongEdge) {
+  final w = src.cols;
+  final h = src.rows;
+  if (w <= 0 || h <= 0) return src.clone();
+
+  final longEdge = w > h ? w : h;
+  if (longEdge <= targetLongEdge) {
+    return src.clone();
+  }
+  final scale = targetLongEdge / longEdge;
+  final newW = (w * scale).round();
+  final newH = (h * scale).round();
+
+  // INTER_AREA = best for shrinking (per OpenCV docs).
+  return cv.resize(src, (newW, newH), interpolation: cv.INTER_AREA);
 }
