@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 38;
+  static const _dbVersion = 39;
 
   Database? _db;
 
@@ -211,6 +211,7 @@ class LocalStorageService {
         avatar_path TEXT,
         client_exercise_defaults TEXT NOT NULL DEFAULT '{}',
         consent_confirmed_at INTEGER,
+        consent_explicitly_set_at INTEGER,
         synced_at INTEGER,
         dirty INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
@@ -1104,6 +1105,25 @@ class LocalStorageService {
         'exercises',
         'hero_crop_offset',
         'REAL',
+      );
+    }
+    if (oldVersion < 39) {
+      // 2026-05-13 — consent_explicitly_set_at.
+      //
+      // NULL = practitioner has never explicitly set this client's
+      // consent. The ClientSessionsScreen auto-opens the consent sheet
+      // on first entry when this column is NULL. Stamped by
+      // `set_client_video_consent` (server) and locally on
+      // `SyncService.queueSetConsent`. Existing rows stay NULL on
+      // purpose so legacy clients also trigger the auto-open until
+      // their consent is confirmed (Carl-signoff 2026-05-13).
+      //
+      // Supabase mirror: 20260513065845_consent_explicitly_set_at.sql.
+      await _addColumnIfMissing(
+        db,
+        'cached_clients',
+        'consent_explicitly_set_at',
+        'INTEGER',
       );
     }
   }

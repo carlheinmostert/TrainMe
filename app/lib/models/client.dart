@@ -38,6 +38,20 @@ class PracticeClient {
   /// UI falls back to the initials monogram.
   final String? avatarPath;
 
+  /// 2026-05-13 — epoch-ms of the first-ever `set_client_video_consent`
+  /// call for this client. NULL means the practitioner has never
+  /// explicitly toggled consent for this client. ClientSessionsScreen
+  /// auto-opens the consent sheet on entry when this is NULL (covers
+  /// both newly-created clients AND legacy clients whose consent was
+  /// never explicitly set). Stamped server-side AND locally on
+  /// `SyncService.queueSetConsent` so the suppression is immediate.
+  final int? consentExplicitlySetAt;
+
+  /// True when the practitioner has explicitly toggled consent for this
+  /// client at least once. Drives the ClientSessionsScreen auto-open of
+  /// the consent sheet — NULL → open; non-NULL → don't.
+  bool get consentExplicitlySet => consentExplicitlySetAt != null;
+
   /// Line drawing is the platform baseline — never off. Represented here so
   /// the consent sheet can render it as a disabled, always-on row without
   /// branching on a constant.
@@ -52,6 +66,7 @@ class PracticeClient {
     this.avatarAllowed = false,
     this.analyticsAllowed = true,
     this.avatarPath,
+    this.consentExplicitlySetAt,
   });
 
   /// Hydrate from the JSON shape returned by the `list_practice_clients`
@@ -61,6 +76,13 @@ class PracticeClient {
     final consent = json['video_consent'];
     final consentMap = consent is Map ? Map<String, dynamic>.from(consent) : const <String, dynamic>{};
     final pathRaw = json['avatar_path'];
+    final explicit = json['consent_explicitly_set_at'];
+    int? explicitMs;
+    if (explicit is String) {
+      explicitMs = DateTime.tryParse(explicit)?.millisecondsSinceEpoch;
+    } else if (explicit is int) {
+      explicitMs = explicit;
+    }
     return PracticeClient(
       id: json['id'] as String,
       practiceId: (json['practice_id'] ?? '') as String,
@@ -70,6 +92,7 @@ class PracticeClient {
       avatarAllowed: consentMap['avatar'] == true,
       analyticsAllowed: consentMap['analytics_allowed'] != false,
       avatarPath: pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
+      consentExplicitlySetAt: explicitMs,
     );
   }
 
@@ -81,6 +104,7 @@ class PracticeClient {
     bool? analyticsAllowed,
     String? avatarPath,
     bool clearAvatarPath = false,
+    int? consentExplicitlySetAt,
   }) {
     return PracticeClient(
       id: id,
@@ -91,6 +115,8 @@ class PracticeClient {
       avatarAllowed: avatarAllowed ?? this.avatarAllowed,
       analyticsAllowed: analyticsAllowed ?? this.analyticsAllowed,
       avatarPath: clearAvatarPath ? null : (avatarPath ?? this.avatarPath),
+      consentExplicitlySetAt:
+          consentExplicitlySetAt ?? this.consentExplicitlySetAt,
     );
   }
 }

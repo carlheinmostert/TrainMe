@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-13 — consent first-entry + filmstrip refresh</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-13 · UX hygiene wave</div>
+    <h1>Device QA — consent first-entry + filmstrip refresh</h1>
+    <p class="lede">
+      <strong>Scope:</strong> two coupled UX-hygiene fixes shipped in one PR against <code>staging</code>.
+      <br><br>
+      <strong>Fix 1 &middot; Auto-open consent on first client entry.</strong> Capture defaults default to B&amp;W + body-focus-off (PR #309). If the client's <code>video_consent.grayscale</code> is off, B&amp;W playback fails. Practitioner doesn't learn this until plans break. New behaviour: ClientSessionsScreen auto-opens the consent sheet on the first-ever entry to a client (covers BOTH newly-created clients AND legacy clients whose consent was never explicitly toggled — no backfill on purpose).
+      <br>Backed by new column <code>clients.consent_explicitly_set_at TIMESTAMPTZ</code> stamped by every call to the <code>set_client_video_consent</code> RPC. ClientSessionsScreen.initState checks <code>consentExplicitlySetAt == null</code> and opens the sheet on the next frame.
+      <br><br>
+      <strong>Fix 2 &middot; Session card filmstrip refresh on session exit.</strong> Capture a new exercise inside a session, exit back to ClientSessions — the card's filmstrip should show the new hero. Pre-fix, the parent's <code>_loadSessions()</code> fires before the converter has stamped <code>thumbnail_path</code>, so the new exercise had no hero to render. Fix subscribes ClientSessionsScreen to <code>ConversionService.onConversionUpdate</code> and re-pulls SQLite whenever a conversion completes for any session in our list. Refresh fires on session EXIT only (not on entry — Carl signoff).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This PR merged to <code>staging</code> + staging Supabase branch applied the migration <code>20260513065845_consent_explicitly_set_at.sql</code>.</li>
+        <li>App built from staging with the SQLite v38 &rarr; v39 ADD COLUMN migration. After install, check Settings &middot; About shows the build SHA.</li>
+        <li>At least one EXISTING legacy client whose consent has never been touched (older clients from before today).</li>
+        <li>One brand-new client created post-install for the fresh-create path.</li>
+      </ul>
+    </div>
+
+    <h2>Fix 1 &middot; Consent auto-open</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>New client &rarr; consent sheet auto-opens on first entry.</strong> From Home, tap <strong>New client</strong> (FAB). The client appears with a default <code>New client #XXXX</code> name. Tap into the client. <strong>Expected:</strong> the consent bottom sheet auto-opens (expanded, full content visible) immediately after the screen renders. No tap required.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Toggle anything + save &rarr; sheet stops auto-opening.</strong> On the just-opened sheet from item 1, toggle ANY consent value (e.g. flip <strong>Black &amp; white</strong> on or back off) and tap <strong>Save</strong>. The sheet closes. Tap back to Home, then tap back into the same client. <strong>Expected:</strong> the sheet does NOT auto-open. The detail page renders normally; consent is reachable via the existing tap path (toggle row, etc.).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Legacy client &rarr; sheet auto-opens on first entry post-deploy.</strong> Find a client created BEFORE the migration was applied (its <code>consent_explicitly_set_at</code> is NULL because no backfill). Tap into it. <strong>Expected:</strong> the consent sheet auto-opens, exactly like a fresh client. The fact this triggers re-asking on every legacy client is intentional — Carl-signoff.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>No regression: already-set clients DON'T auto-open.</strong> Find a client whose consent has been explicitly toggled in this session (i.e. you already closed an item-2 save). Tap back into them — twice if needed. <strong>Expected:</strong> sheet does NOT auto-open on any entry. Same behaviour as before this PR.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>SQLite v38 &rarr; v39 ADD COLUMN survives upgrade.</strong> Before this build was installed, the app was on v38. Open Settings &middot; About to confirm the build SHA. Tap into any client. <strong>Expected:</strong> no SQLite error, no missing-column crash. Clients list still renders; cached_clients.consent_explicitly_set_at exists (legacy rows return NULL &rarr; auto-open fires per item 3).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Fix 2 &middot; Filmstrip refresh on session exit</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Capture a video inside a session &rarr; filmstrip updates on exit.</strong> Open any client, tap <strong>New Session</strong>. Capture one video. Exit back to ClientSessions (back chevron on Studio). <strong>Expected:</strong> the session card's filmstrip background shows the new video's Hero frame (B&amp;W). Wait up to ~5s if the converter is still running — the filmstrip should auto-refresh the moment conversion finishes (no pull-to-refresh required).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Capture a photo &rarr; filmstrip updates.</strong> Re-enter the same session, capture one photo. Exit. <strong>Expected:</strong> if there were no videos in the session, the filmstrip now shows the photo's line drawing. If there were already videos, the filmstrip still shows the (up to 4) videos — photo is not promoted unless there are zero videos. Either way no stale render.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Delete an exercise &rarr; filmstrip updates.</strong> Enter the session, swipe to delete one of the exercises that's currently in the filmstrip. Exit back to ClientSessions. <strong>Expected:</strong> the filmstrip on the card no longer shows the deleted exercise's hero — the remaining heroes flex to fill the card width. No ghost cell.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I'll triage. <code>8 items</code> across 2 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-13-consent-first-entry-and-filmstrip.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
