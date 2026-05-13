@@ -20,10 +20,15 @@ import 'conversion_error_log_sheet.dart';
 /// unreadable noise.
 const int _kFilmstripMaxCells = 4;
 
-/// Hero pick rule per Option B: take the first N video exercises in
-/// session order; if zero videos, fall back to the first photo; if zero
-/// photos either, return empty (caller paints the coral-tinted dark
-/// surface that's the card's existing default).
+/// Hero pick rule (audit F17, 2026-05-13): take the first N video
+/// exercises in session order; if zero videos, take up to N photos
+/// (was: first photo only, which was the F17 bug). If zero photos
+/// either, return empty (caller paints the coral-tinted dark surface
+/// that's the card's existing default).
+///
+/// Mixing — videos take precedence whole; photos only fill cells
+/// when there are NO videos in the session (documented mixed-treatment
+/// aesthetic: B&W videos OR line photos, never side-by-side).
 List<ExerciseCapture> _pickFilmstripHeroes(Session session) {
   final videos = <ExerciseCapture>[];
   for (final ex in session.exercises) {
@@ -34,12 +39,17 @@ List<ExerciseCapture> _pickFilmstripHeroes(Session session) {
     }
   }
   if (videos.isNotEmpty) return videos;
-  // No videos — fall back to the first photo (single cell).
+  // No videos — fall back to up to N photos (audit F17 fix; was
+  // clamped to a single photo by design pre-2026-05-13).
+  final photos = <ExerciseCapture>[];
   for (final ex in session.exercises) {
     if (ex.isRest) continue;
-    if (ex.mediaType == MediaType.photo) return [ex];
+    if (ex.mediaType == MediaType.photo) {
+      photos.add(ex);
+      if (photos.length >= _kFilmstripMaxCells) break;
+    }
   }
-  return const [];
+  return photos;
 }
 
 /// Visual session card — one row in a client's session list.
@@ -857,10 +867,12 @@ class _DashedUnderlinePainter extends CustomPainter {
 /// a single Hero frame in B&W (matches existing card thumbnails — Carl
 /// signed off Option B as POPIA-friendly). Cells flex equally, so 1
 /// video → 1 cell at 100%, 2 videos → 2 at 50%, 3 → 3 at 33%, 4 → 4 at
-/// 25%. If the session has zero videos but at least one photo, a single
-/// cell is rendered using the first photo's line-drawing thumbnail.
-/// Rest-only sessions (zero videos AND zero photos) render the default
-/// coral-tinted dark surface (mock spec: fall back to current chrome).
+/// 25%. If the session has zero videos but at least one photo, up to
+/// [_kFilmstripMaxCells] photo cells render the line-drawing thumbnails
+/// (audit F17 fix — pre-2026-05-13 the photo path clamped to a single
+/// cell). Rest-only sessions (zero videos AND zero photos) render the
+/// default coral-tinted dark surface (mock spec: fall back to current
+/// chrome).
 ///
 /// Static — no carousel / crossfade. Animation question (#3) was
 /// closed at "static" because filmstrip rotation in a list view fights
