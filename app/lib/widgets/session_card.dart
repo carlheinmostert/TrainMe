@@ -878,9 +878,11 @@ class _DashedUnderlinePainter extends CustomPainter {
 /// scroll perception and burns CPU on long client lists.
 ///
 /// Performance:
-///   - Each cell uses [Image.file] with `cacheWidth: 240` so retina
-///     decode size stays bounded — small enough for ~120px-tall cards
-///     yet sharp on 3x displays.
+///   - Each cell uses [Image.file] with `cacheWidth` scaled to the
+///     cell's rendered width (240 → 720 px depending on cell count).
+///     The original flat 240 px ceiling was sized for a 4-cell strip
+///     and read soft on single-photo / single-video sessions where the
+///     cell stretches across the whole card. 2026-05-13 round 2 fix.
 ///   - The card itself lives inside a `ListView.builder`; Flutter's
 ///     lazy build keeps off-screen filmstrips out of memory.
 ///   - Cloud-only state (raw mp4 not yet on disk after a fresh
@@ -901,11 +903,39 @@ class _SessionFilmstripBackground extends StatelessWidget {
       // overlay continues to read against `surfaceBase` underneath.
       return const SizedBox.shrink();
     }
+    // Decode width scales with cell count — the original `cacheWidth:
+    // 240` was sized for a 4-cell strip (~97px wide on iPhone-class
+    // widths). On a 1-cell or 2-cell layout the cell stretches across
+    // the full card, and a 240px-wide decode reads soft (4.8× upscale
+    // on a 375px iPhone for a single photo).
+    //
+    // 2026-05-13 round 2 — fix the soft single-photo filmstrip case
+    // surfaced by Carl's QA. Math:
+    //   1 cell  → 720px decode (covers retina 3x on 375px width plus a
+    //             little headroom for iPad / wide iPhone displays)
+    //   2 cells → 480px decode
+    //   3 cells → 320px decode
+    //   4 cells → 240px decode (legacy baseline)
+    // Memory is still bounded — long client lists scroll lazily and
+    // off-screen cards drop their image cache.
+    final cells = heroes.length;
+    final cacheWidthPerCell = cells <= 1
+        ? 720
+        : cells == 2
+            ? 480
+            : cells == 3
+                ? 320
+                : 240;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < heroes.length; i++) ...[
-          Expanded(child: _FilmstripCell(exercise: heroes[i])),
+          Expanded(
+            child: _FilmstripCell(
+              exercise: heroes[i],
+              cacheWidth: cacheWidthPerCell,
+            ),
+          ),
           // Hairline 1px black separator between adjacent cells (per
           // mockup CSS). Skipped after the last cell.
           if (i < heroes.length - 1)
@@ -925,7 +955,8 @@ class _SessionFilmstripBackground extends StatelessWidget {
 /// raw, which not every device has cached on a fresh re-install).
 class _FilmstripCell extends StatelessWidget {
   final ExerciseCapture exercise;
-  const _FilmstripCell({required this.exercise});
+  final int cacheWidth;
+  const _FilmstripCell({required this.exercise, required this.cacheWidth});
 
   @override
   Widget build(BuildContext context) {
@@ -946,9 +977,12 @@ class _FilmstripCell extends StatelessWidget {
       file,
       fit: BoxFit.cover,
       alignment: align,
-      // 240 = practical max retina decode for a ~120px-tall card cell.
-      // Bigger doesn't read; smaller goes mushy on 3x.
-      cacheWidth: 240,
+      // Decode width scales with the actual cell width — see parent
+      // (_SessionFilmstripBackground.build) for the per-cell-count math.
+      // Single-cell strips upgrade to 720px so a full-width photo on a
+      // 375px iPhone (3x → 1125px logical, but Flutter's image cache
+      // works in DIPs so 720 px is the right knob) doesn't decode-soft.
+      cacheWidth: cacheWidth,
       gaplessPlayback: true,
       errorBuilder: (context, error, stackTrace) => const ColoredBox(
         color: AppColors.surfaceBase,
