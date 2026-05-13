@@ -200,14 +200,34 @@
    *   - startWorkout()
    *   - rebindVideoSources()       (re-renders the deck with current treatment)
    *   - applyTreatmentOverrideToAllExercises(treatment)
-   *   - getDefaultTreatment()      -> the practitioner's effective treatment
-   *   - reFetchPlan()              -> refetch + replace plan in-place
+   *   - getEffective(exercise, prop)  -> per-exercise effective state
+   *                                       (replaces getDefaultTreatment;
+   *                                       Bundle 1 hero-resolver migration)
+   *   - reFetchPlan()                 -> refetch + replace plan in-place
    */
   function showLobby(args) {
     api = args.helpers;
     plan = args.plan;
     slides = args.slides || [];
-    activeTreatment = api.getDefaultTreatment ? api.getDefaultTreatment() : 'line';
+    // The lobby treatment-pill picker still surfaces ONE selected
+    // treatment ("which one is highlighted"). Seed it from the first
+    // non-rest slide's effective treatment so the picker matches what
+    // the client actually sees. Each row then renders with its OWN
+    // per-exercise effective treatment via the resolver — no more
+    // lobby-global B6 leak.
+    activeTreatment = (function () {
+      if (!api.getEffective) return 'line';
+      for (let i = 0; i < slides.length; i++) {
+        const s = slides[i];
+        if (s && s.media_type !== 'rest') {
+          let t = api.getEffective(s, 'treatment') || 'line';
+          if (t === 'bw' && !(api.planHasGrayscaleConsent && api.planHasGrayscaleConsent())) t = 'line';
+          if (t === 'original' && !(api.planHasOriginalConsent && api.planHasOriginalConsent())) t = 'line';
+          return t;
+        }
+      }
+      return 'line';
+    })();
 
     renderMeta();
     renderMatrix();
@@ -1099,114 +1119,120 @@
   }
 
   /**
-   * Render the hero element (img or video) for a slide based on the
-   * current `activeTreatment`. Photos always render as <img>. Videos
-   * (incl. Line — Wave 5 fix per Q7 of the spec) render as <video> with
-   * `preload="none"` + poster; the scroll-driven row coupler lazy-loads
-   * when the row enters the viewport (current ± 1) and pauses others.
+   * Resolve the per-exercise effective treatment for THIS slide in the
+   * lobby. Reads the per-exercise override / practitioner default via
+   * `api.getEffective` (exposed on `HomefitLobbyHandoff`), falling back
+   * to the lobby-global `activeTreatment` when `getEffective` isn't
+   * available (defensive — shouldn't happen post-handoff).
    *
-   * Treatment URLs (resolveTreatmentUrl from app.js):
-   *   - line     → line_drawing_url (the actual line-drawing video; falls
-   *                back to legacy media_url via the api.js normaliser).
-   *   - bw       → grayscale_url (consent-gated; segmented body-pop variant
-   *                preferred over the untouched original).
-   *   - original → original_url.
-   * Photos: line_drawing_url / grayscale_url / original_url all point at
-   * a JPG; we render a static <img> and apply the B&W CSS filter when
-   * applicable. (Wave 22 photo three-treatment parity.)
+   * Returns a treatment string with consent fall-back applied: if the
+   * picked treatment isn't consented for this plan it collapses to
+   * 'line' (so we never emit a URL the caller can't actually render).
+   *
+   * 2026-05-13 (Bundle 1 of the hero-resolver migration, PR #?) — was
+   * a single lobby-global `activeTreatment` driving every row. That's
+   * the B6-Part-1 leak: setting the FIRST exercise to Line caused
+   * every row to render Line. Now the lobby's treatment-pill picker
+   * still applies a plan-global OVERRIDE via
+   * `applyTreatmentOverrideToAllExercises` (writes per-exercise
+   * overrides for every slide), but the renderer reads each row's
+   * effective treatment independently — so an out-of-band per-exercise
+   * preference (eg. an exercise that was Original then the user picks
+   * Line at the lobby) propagates correctly.
    */
-  /**
-   * Wave Three-Treatment-Thumbs (2026-05-05) — pick the static poster
-   * URL for a slide based on the active treatment, with graceful
-   * fallback to the legacy `thumbnail_url` (B&W from raw, the only
-   * variant older plans have).
-   *
-   *   line     → thumbnail_url_line  (line-drawing JPG, public)
-   *   bw       → thumbnail_url_color (color JPG; CSS .is-grayscale
-   *              filter is applied to the <img> by the caller)
-   *   original → thumbnail_url_color (color JPG, no filter)
-   *
-   * For photos, slide.thumbnail_url already serves the line surface;
-   * the caller's CSS filter handles B&W. Color falls back to thumbnail_url
-   * since photos don't have a separate color thumb pipeline today.
-   */
-  function pickTreatmentPoster(slide, treatment) {
-    if (!slide) return '';
-    const legacy = slide.thumbnail_url || '';
-    if (treatment === 'line') {
-      return slide.thumbnail_url_line || legacy;
-    }
-    // bw + original both want the color JPG; CSS filter on <img class="is-grayscale">
-    // renders the B&W variant.
-    return slide.thumbnail_url_color || legacy;
+  function getEffectiveTreatmentFor(slide) {
+    if (!slide) return 'line';
+    var t = (api && api.getEffective)
+      ? api.getEffective(slide, 'treatment')
+      : null;
+    if (!t) t = activeTreatment || 'line';
+    // Apply plan-level consent gates so we don't ask the resolver to
+    // emit a URL the client hasn't consented to. (The resolver itself
+    // collapses to Line when the per-exercise URL is missing; this
+    // upstream gate handles the consent-aware case where the URL IS
+    // present but plan-level consent was revoked.)
+    if (t === 'bw' && !(api.planHasGrayscaleConsent && api.planHasGrayscaleConsent())) return 'line';
+    if (t === 'original' && !(api.planHasOriginalConsent && api.planHasOriginalConsent())) return 'line';
+    return t;
   }
 
+  function getEffectiveBodyFocusFor(slide) {
+    if (!slide || !api || !api.getEffective) return true;
+    var v = api.getEffective(slide, 'bodyFocus');
+    return v !== false;
+  }
+
+  /**
+   * Render the hero element for a slide on the lobby surface. Delegates
+   * to `window.HomefitHero.resolve` (web-player/exercise_hero.js) which
+   * picks the treatment-correct primary URL + poster URL + caps for
+   * THIS exercise. Photos always render as <img>. Videos render as
+   * <img> with `data-video-src` carrying the mp4; the scroll-driven
+   * `swapToVideoOnActiveRow` lifts it to <video> on the active row
+   * only (single-active-video guarantee per the iOS WKWebView decoder
+   * cap — see swapToVideoOnActiveRow comment).
+   *
+   * Bundle 1 of the hero-resolver migration (audit B6 part 1): the
+   * resolver is called PER ROW with `getEffective(slide, 'treatment')`
+   * rather than the lobby-global `activeTreatment`, so a plan with
+   * mixed-treatment exercises renders each row in its own treatment.
+   * The lobby's treatment-pill picker still propagates a plan-global
+   * override via `applyTreatmentOverrideToAllExercises` — that just
+   * writes per-exercise overrides for every slide BEFORE this function
+   * runs, which the resolver then sees as the effective treatment.
+   */
   function renderHeroHTML(slide, objPos) {
     const escape = api.escapeHTML;
-    const isPhoto = slide.media_type === 'photo' || slide.media_type === 'image';
-    const url = api.resolveTreatmentUrl
-      ? api.resolveTreatmentUrl(slide, activeTreatment)
-      : (slide.line_drawing_url || slide.thumbnail_url || null);
-    // v51 — POSTER source must be a real image URL only. NEVER fall back to
-    // a video URL (line_drawing_url) when thumbnail_url is missing. iOS
-    // WKWebView is lenient enough to render motion from a video shoved
-    // into <img src=>, which allocates HW decoders invisibly (counted as
-    // 0 by `document.querySelectorAll('video')` queries) and tips the cap.
-    // That was the actual freeze cause through PR #254. If thumbnail_url
-    // is missing, the skeleton placeholder takes over below.
-    //
-    // Wave Three-Treatment-Thumbs (2026-05-05) — pick the poster matching
-    // the active treatment so inactive rows render in the user's chosen
-    // treatment (was: always the legacy B&W). Falls back to the legacy
-    // `thumbnail_url` when the new variants aren't on the plan (older
-    // publishes pre-this-wave).
-    const posterSrc = pickTreatmentPoster(slide, activeTreatment);
-
-    if (!url && !posterSrc) {
+    if (!slide) return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
+    if (!window.HomefitHero || !window.HomefitHero.resolve) {
+      // Defensive — exercise_hero.js failed to load. Render skeleton
+      // rather than crash; the rest of the lobby still works.
       return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
     }
 
+    const treatment = getEffectiveTreatmentFor(slide);
+    const bodyFocus = getEffectiveBodyFocusFor(slide);
+    const hero = window.HomefitHero.resolve(slide, {
+      treatment: treatment,
+      bodyFocus: bodyFocus,
+      surface: 'lobby',
+    });
+
+    if (hero.mediaTag === 'skeleton') {
+      return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
+    }
+
+    const isPhoto = slide.media_type === 'photo' || slide.media_type === 'image';
+    const grayscale = hero.domClass ? ' ' + hero.domClass : '';
+
     if (isPhoto) {
-      // Photos are always static. The treatment URL IS a JPG (Wave 22 photo
-      // three-treatment parity), so it's safe as <img src>. Falling back
-      // to the poster is fine too — also a JPG. CSS grayscale filter
-      // handles B&W treatment.
-      const src = url || posterSrc;
-      const grayscale = (activeTreatment === 'bw') ? ' is-grayscale' : '';
+      // Photos are always static <img>. CSS .is-grayscale handles B&W.
+      const src = hero.src || hero.posterSrc || '';
       return `
         <img class="lobby-hero-media${grayscale}"
-             src="${escape(src || '')}"
+             src="${escape(src)}"
              alt="${escape(slide.name || 'Exercise')}"
              style="object-position: ${escape(objPos)};"
              loading="lazy"
-             data-treatment="${activeTreatment}">
+             data-treatment="${escape(treatment)}">
       `;
     }
 
-    // Video — render <img> as the static placeholder. swapToVideoOnActiveRow
-    // replaces the <img> with a freshly-created <video> when this row becomes
-    // active, and swaps it back to <img> when it loses focus. Structural
-    // single-video guarantee: only ONE <video> element ever exists in the
-    // DOM at any moment, so iOS WKWebView's HW decoder cap can't be tipped.
-    // (v47 tried to manage <video> per row via src on/off + load(); on iOS
-    // multiple decoders still ended up engaged. v48 sidesteps that by keeping
-    // inactive rows as plain <img>.)
-    // videoSrc is the actual VIDEO URL — used by swapToVideoOnActiveRow
-    // when this row becomes active. It MAY be the line_drawing_url (mp4)
-    // or any treatment URL. NEVER use it as <img src=> — that's the
-    // iOS-WKWebView-renders-mp4-as-img trap that cost us PRs #251–#254.
-    const videoSrc = url || posterSrc;
-    const grayscale = (activeTreatment === 'bw') ? ' is-grayscale' : '';
-    // If posterSrc is empty (no thumbnail_url available), render the
-    // skeleton placeholder. The active row will still get its <video>
-    // via swap, but the inactive presentation falls back to a coral
-    // skeleton — better than allocating HW decoders behind every
-    // inactive row by pointing <img src> at an mp4.
+    // Video. Render <img> as the static placeholder; swapToVideoOnActiveRow
+    // lifts it to <video> when the row becomes active. The mp4 URL travels
+    // on `data-video-src` — NEVER on `<img src>` (iOS WKWebView renders
+    // mp4-in-img motion invisibly and allocates HW decoders; cost us
+    // PRs #251–#254 to track down — see v51 fix).
+    const videoSrc = hero.videoSrc || '';
+    const posterSrc = hero.posterSrc || '';
     if (!posterSrc) {
+      // No poster available → skeleton in <img>'s place. The active row
+      // still gets its <video> via swap, but inactive presentation is a
+      // coral skeleton rather than a broken-image / mp4-in-img tip.
       return `
         <div class="lobby-hero-skeleton lobby-hero-media" aria-hidden="true"
              style="object-position: ${escape(objPos)};"
-             data-treatment="${activeTreatment}"
+             data-treatment="${escape(treatment)}"
              data-video-src="${escape(videoSrc)}"
              data-poster-src=""
              data-trim-start="${Number(slide.start_offset_ms) || 0}"
@@ -1219,7 +1245,7 @@
            alt="${escape(slide.name || 'Exercise')}"
            style="object-position: ${escape(objPos)};"
            loading="lazy"
-           data-treatment="${activeTreatment}"
+           data-treatment="${escape(treatment)}"
            data-video-src="${escape(videoSrc)}"
            data-poster-src="${escape(posterSrc)}"
            data-trim-start="${Number(slide.start_offset_ms) || 0}"
@@ -2398,6 +2424,62 @@
       const imgCount = $lobby.querySelectorAll('img').length;
       const videoCount = $lobby.querySelectorAll('video').length;
       diag.sources = imgCount + videoCount;
+
+      // Bundle 1 of the hero-resolver migration (audit D13). The active
+      // video's <video poster> doesn't inherit the .is-grayscale CSS
+      // filter during html2canvas rasterisation, so even when the rest
+      // of the lobby renders correctly in B&W via onclone CSS, the
+      // video row's poster shows up untreated. Bake the filter into a
+      // canvas-derived data URL BEFORE the live-DOM swap step picks it
+      // up — html2canvas reads the baked bitmap and the snapshot PNG
+      // matches the playing treatment.
+      //
+      // Inactive lobby rows are already <img> with .is-grayscale
+      // applied, and html2canvas's onclone DOES inherit class-driven
+      // CSS, so they don't need bake — just the live-DOM <video>
+      // posters.
+      //
+      // We re-key the data URL map under both the original cross-origin
+      // poster URL and (if it was swapped) under the legacy data URL
+      // already in the map. Whichever shows up in `v.poster` at swap
+      // time wins.
+      if (window.HomefitHero && window.HomefitHero.bakeFilterIntoDataUrl) {
+        const videoEls = $lobby.querySelectorAll('video');
+        for (const v of videoEls) {
+          // The hero's treatment lives on data-treatment (set by
+          // renderHeroHTML / swapToVideoOnActiveRow). Other treatments
+          // already pick treatment-correct URLs via the resolver so no
+          // bake is needed.
+          const t = v.dataset && v.dataset.treatment ? v.dataset.treatment : '';
+          if (t !== 'bw') continue;
+          const originalPoster = v.dataset.posterSrc || v.getAttribute('poster') || '';
+          if (!originalPoster) continue;
+          // Pick the source the bake should read FROM. The preload step
+          // already fetched the original URL as a data URL — use that
+          // (same-origin canvas read, no taint risk). Falls back to the
+          // original URL if preload missed.
+          const sourceForBake = dataUrlMap.get(originalPoster) || originalPoster;
+          try {
+            const baked = await window.HomefitHero.bakeFilterIntoDataUrl(
+              sourceForBake,
+              'grayscale(1) contrast(1.05)',
+            );
+            if (baked && baked !== originalPoster) {
+              // Map BOTH keys so the live-DOM swap step picks up the
+              // baked version regardless of which URL is currently on
+              // the element.
+              dataUrlMap.set(originalPoster, baked);
+              if (sourceForBake !== originalPoster) {
+                dataUrlMap.set(sourceForBake, baked);
+              }
+            } else if (!baked) {
+              diag.preloadErrors.push(`bake failed for ${shortUrl(originalPoster)}`);
+            }
+          } catch (err) {
+            diag.preloadErrors.push(`bake error: ${(err && err.message) || err}`);
+          }
+        }
+      }
 
       const root = document.documentElement;
       root.classList.add('is-exporting');
