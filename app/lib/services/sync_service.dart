@@ -964,6 +964,13 @@ class SyncService {
       // server-side `set_client_video_consent` re-stamps to its own now()
       // when the queued op flushes.
       consentConfirmedAt: nowMs,
+      // 2026-05-13 — same idea for the auto-open gate: stamp locally
+      // the instant the practitioner saves so a re-entry into this
+      // client's detail view doesn't re-open the sheet while the
+      // queued op is still flushing. Server-side RPC re-stamps to
+      // its own now() on flush; the local value is overwritten on the
+      // next sync pull either way.
+      consentExplicitlySetAt: current.consentExplicitlySetAt ?? nowMs,
       dirty: true,
     );
     await _storage.upsertCachedClient(updated);

@@ -89,11 +89,17 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         return;
       }
       setState(() => _saving = false);
+      // 2026-05-13 — propagate the consent_explicitly_set_at stamp from
+      // the cache write so the ClientSessionsScreen's auto-open check
+      // doesn't re-fire on the immediate re-build (the parent rebuilds
+      // off the returned PracticeClient before the next sync pull
+      // refreshes the cloud-side value).
       final updated = widget.client.copyWith(
         grayscaleAllowed: _grayscaleAllowed,
         colourAllowed: _colourAllowed,
         avatarAllowed: _avatarAllowed,
         analyticsAllowed: _analyticsAllowed,
+        consentExplicitlySetAt: cached.consentExplicitlySetAt,
       );
       widget.onSaved?.call(updated);
       Navigator.of(context).pop(updated);
