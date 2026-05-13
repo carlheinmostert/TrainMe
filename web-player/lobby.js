@@ -1942,86 +1942,37 @@
       }
     });
 
-    // ----- Import-to-app CTA (TestFlight v2 stub) -----
-    // Reveal the CTA whenever wireEvents runs (i.e. once the lobby is
-    // built). Submitting fires a polite "coming soon" toast — the
-    // plan_invitations + Resend magic-link backend ships in a follow-up
-    // PR. See docs/CLIENT_WORKOUTS_AND_CLASSES.md.
-    const importCta = document.getElementById('lobby-import-cta');
-    const importSheet = document.getElementById('lobby-import-sheet');
-    const importSend = document.getElementById('lobby-import-send');
-    const importInput = document.getElementById('lobby-import-email');
-    const toastEl = document.getElementById('lobby-toast');
+    // ----- Import-to-app card (TestFlight v2 — static "Coming soon") -----
+    // The PR #315 stub shipped an email-collection form whose submit
+    // was a no-op. Carl flagged that as misleading during staging QA
+    // (item 10); replaced with a static teaser card that advertises
+    // the future feature without asking for an email. When the
+    // plan_invitations + magic-link backend ships, the card gets its
+    // tap target back; the position + framing stay the same.
+    //
+    // Matrix-only logo is injected here via buildHomefitLogoSvg()
+    // (from app.js) so the chrome stays canonical — earlier the icon
+    // was hand-rolled in markup and drifted from the brand geometry.
+    const importCard = document.getElementById('lobby-import-card');
+    const importGlyph = document.getElementById('lobby-import-glyph');
 
-    if (importCta && !importCta._wired) {
-      importCta._wired = true;
-      importCta.hidden = false;
-      importCta.addEventListener('click', openImportSheet);
-    }
-
-    if (importSheet && !importSheet._wired) {
-      importSheet._wired = true;
-      importSheet.addEventListener('click', (evt) => {
-        if (evt.target.closest('[data-import-dismiss]')) {
-          closeImportSheet();
-        }
-      });
-    }
-
-    if (importSend && !importSend._wired) {
-      importSend._wired = true;
-      importSend.addEventListener('click', () => {
-        // Phase 1 (TestFlight v2): no backend yet. Show a polite
-        // coming-soon toast + dismiss the sheet so the user knows the
-        // tap landed.
-        showLobbyToast(
-          "Thanks! We'll let you know when import is live."
-        );
-        closeImportSheet();
-        if (importInput) importInput.value = '';
-      });
-    }
-
-    function openImportSheet() {
-      if (!importSheet) return;
-      importSheet.hidden = false;
-      importSheet.setAttribute('aria-hidden', 'false');
-      // Force a reflow before flipping the data-state so the slide-up
-      // transition actually animates from translateY(100%) → 0.
-      void importSheet.offsetHeight;
-      importSheet.dataset.state = 'visible';
-      // Focus the input on next tick so iOS keyboard reliably pops.
-      setTimeout(() => { if (importInput) importInput.focus(); }, 80);
-    }
-
-    function closeImportSheet() {
-      if (!importSheet) return;
-      importSheet.dataset.state = '';
-      importSheet.setAttribute('aria-hidden', 'true');
-      // Wait for the slide-out transition before flipping `hidden`,
-      // otherwise the panel snaps off-screen.
-      setTimeout(() => {
-        if (importSheet.dataset.state === '') importSheet.hidden = true;
-      }, 300);
-    }
-
-    function isImportSheetOpen() {
-      return importSheet && importSheet.dataset.state === 'visible';
-    }
-
-    function showLobbyToast(message) {
-      if (!toastEl) return;
-      toastEl.textContent = message;
-      toastEl.hidden = false;
-      void toastEl.offsetHeight;
-      toastEl.dataset.state = 'visible';
-      clearTimeout(toastEl._dismissTimer);
-      toastEl._dismissTimer = setTimeout(() => {
-        toastEl.dataset.state = '';
-        setTimeout(() => {
-          if (toastEl.dataset.state === '') toastEl.hidden = true;
-        }, 240);
-      }, 3200);
+    if (importCard && !importCard._wired) {
+      importCard._wired = true;
+      importCard.hidden = false;
+      // buildHomefitLogoSvg lives at the top level of app.js (no IIFE
+      // wrapper), so it's reachable as `window.buildHomefitLogoSvg` in
+      // a browser. We tolerate the bare name too so this works in any
+      // context that defines it on the global object.
+      const buildLogo =
+        (typeof window !== 'undefined'
+          && typeof window.buildHomefitLogoSvg === 'function')
+          ? window.buildHomefitLogoSvg
+          : (typeof buildHomefitLogoSvg === 'function'
+              ? buildHomefitLogoSvg
+              : null);
+      if (importGlyph && buildLogo) {
+        importGlyph.innerHTML = buildLogo();
+      }
     }
   }
 
