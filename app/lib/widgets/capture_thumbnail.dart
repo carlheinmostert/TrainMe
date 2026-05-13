@@ -2,19 +2,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
+import '../services/exercise_hero_resolver.dart';
 import '../theme.dart';
 import '../utils/hero_crop_alignment.dart';
 import 'hero_star_badge.dart';
-
-/// Grayscale color matrix — zeroes the saturation while preserving
-/// luminance. Matches the web player's `filter: grayscale(1)
-/// contrast(1.05)` as closely as Flutter's `ColorFilter.matrix` allows.
-const ColorFilter _kGrayscaleFilter = ColorFilter.matrix(<double>[
-  0.2126, 0.7152, 0.0722, 0, 0, //
-  0.2126, 0.7152, 0.0722, 0, 0, //
-  0.2126, 0.7152, 0.0722, 0, 0, //
-  0, 0, 0, 1, 0, //
-]);
 
 /// Reusable thumbnail widget for a captured exercise.
 ///
@@ -94,7 +85,11 @@ class CaptureThumbnail extends StatelessWidget {
   }
 
   /// Resolves the file path and optional color filter for the active
-  /// treatment. Returns `(File, ColorFilter?)`.
+  /// treatment via [resolveExerciseHero]. Returns `(File, ColorFilter?)`.
+  ///
+  /// Photo paths converge with [_PhotoFrame] in mini_preview.dart;
+  /// video paths use the resolver's per-treatment thumbnail variant
+  /// selection. Rest periods bypass treatment logic entirely.
   (File, ColorFilter?) _resolveSource() {
     final effectiveTreatment = treatment ?? Treatment.line;
 
@@ -103,23 +98,14 @@ class CaptureThumbnail extends StatelessWidget {
       return (File(exercise.displayFilePath), null);
     }
 
-    switch (effectiveTreatment) {
-      case Treatment.line:
-        // Line drawing: use the converted file (existing behaviour).
-        return (File(exercise.displayFilePath), null);
-
-      case Treatment.grayscale:
-        // B&W: use the raw file with a grayscale filter.
-        // For videos, prefer the thumbnail of the raw file (there's no
-        // separate raw thumbnail — use the archive or raw path).
-        final rawPath = exercise.absoluteRawFilePath;
-        return (File(rawPath), _kGrayscaleFilter);
-
-      case Treatment.original:
-        // Original: use the raw file with no filter.
-        final rawPath = exercise.absoluteRawFilePath;
-        return (File(rawPath), null);
-    }
+    final hero = resolveExerciseHero(
+      exercise: exercise,
+      treatment: effectiveTreatment,
+      bodyFocus: exercise.bodyFocus ?? true,
+      surface: HeroSurface.peek,
+    );
+    final file = hero.posterFile ?? File(exercise.displayFilePath);
+    return (file, hero.filter);
   }
 
   /// The thumbnail image. Treatment-aware per Wave 40.6.
@@ -140,48 +126,20 @@ class CaptureThumbnail extends StatelessWidget {
 
     final (sourceFile, colorFilter) = _resolveSource();
 
-    // For videos, show the extracted thumbnail if available,
-    // otherwise fall back to a dark placeholder with a play icon.
+    // For videos, show the extracted thumbnail variant if available,
+    // otherwise fall back to a dark placeholder with a play icon. The
+    // per-treatment variant selection ({id}_thumb_line.jpg /
+    // {id}_thumb_color.jpg / {id}_thumb.jpg) is centralised in the
+    // resolver — see _pickVideoPosterFile.
     if (exercise.mediaType == MediaType.video) {
-      // For non-line treatments, show the raw file directly (it's a
-      // video so we can't show a frame — use the thumbnail path but
-      // with the treatment filter applied). The thumbnail is always
-      // from the converted pipeline, so for B&W/Original we ideally
-      // want a raw thumbnail. Since a separate raw thumbnail doesn't
-      // exist, we show the existing thumbnail with the appropriate
-      // filter: line thumbnail with grayscale filter approximates B&W,
-      // and for Original we show the existing thumbnail unfiltered
-      // (close enough — the line-drawing thumbnail is the fallback
-      // when no raw thumbnail exists).
-      if (exercise.absoluteThumbnailPath != null) {
-        // Pick the treatment-specific thumbnail for videos.
-        // Variants generated at conversion time (Wave 40.6):
-        //   line:      {id}_thumb_line.jpg  (frame from converted video)
-        //   grayscale: {id}_thumb.jpg       (existing B&W from raw)
-        //   original:  {id}_thumb_color.jpg (color frame from raw)
-        // Falls back to the existing B&W thumbnail if variants don't exist.
-        final basePath = exercise.absoluteThumbnailPath!;
-        final effectiveTreatment = treatment ?? Treatment.line;
-        String thumbPath;
-        switch (effectiveTreatment) {
-          case Treatment.line:
-            thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
-          case Treatment.grayscale:
-            thumbPath = basePath; // the default thumbnail IS B&W
-          case Treatment.original:
-            thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
-        }
-        // Fall back to the existing thumbnail if the variant doesn't exist.
-        final thumbFile = File(thumbPath);
-        final fallbackFile = File(basePath);
-        final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
+      if (exercise.absoluteThumbnailPath != null && sourceFile.existsSync()) {
         // Wave Lobby — practitioner-authored 1:1 crop window.
         // Defaults to centred (Alignment.center) for legacy /
         // un-authored exercises; otherwise slides along the source's
         // free axis per orientation.
         final align = heroCropAlignment(exercise);
         Widget thumb = Image.file(
-          useFile,
+          sourceFile,
           fit: BoxFit.cover,
           alignment: align,
           cacheWidth: cacheWidth,
@@ -193,6 +151,9 @@ class CaptureThumbnail extends StatelessWidget {
             ),
           ),
         );
+        if (colorFilter != null) {
+          thumb = ColorFiltered(colorFilter: colorFilter, child: thumb);
+        }
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -213,8 +174,7 @@ class CaptureThumbnail extends StatelessWidget {
       );
     }
 
-    // Photo exercises. For B&W/Original, use the raw file; for Line,
-    // use the converted (line-drawing) file.
+    // Photo exercises. The resolver gives us the right file + filter.
     // Wave Lobby — apply the practitioner-authored 1:1 crop window.
     final align = heroCropAlignment(exercise);
     Widget image = Image.file(
