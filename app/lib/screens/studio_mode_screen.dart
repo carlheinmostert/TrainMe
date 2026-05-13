@@ -14,6 +14,7 @@ import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
+import '../services/exercise_hero_resolver.dart';
 import '../services/local_storage_service.dart';
 import '../services/media_prefetch_service.dart';
 import '../services/path_resolver.dart';
@@ -3864,30 +3865,19 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// on a fresh capture; "no archive" only happens for legacy photo
   /// rows whose raw file got pruned). Same binary contract as before:
   /// when this is false, the segmented control locks B&W + Original.
+  ///
+  /// Derived from [resolveExerciseHero] caps — when the resolver
+  /// reports `availableTreatments` containing grayscale/original,
+  /// the local raw source exists. Single source of truth shared with
+  /// the bundled web player + Studio cards + filmstrip.
   bool _hasArchive(ExerciseCapture e) {
-    if (_isVideo(e)) {
-      final path = e.absoluteArchiveFilePath;
-      if (path == null) return false;
-      return File(path).existsSync();
-    }
-    // Photo path — Wave 34 unlocks treatment switching for photos.
-    // The raw colour JPG is the source for both "Original" and "B&W"
-    // treatments (B&W applies a `ColorFiltered` grayscale on top, no
-    // separate file). Defensive `existsSync` so a pruned-on-disk
-    // photo still falls back to line drawing rather than crashing.
-    // Also defensive against the exotic "video converted to a still"
-    // case where rawFilePath points at a .mov — those rows have no
-    // colour photo to swap to, so leave the segments locked.
-    final raw = e.absoluteRawFilePath;
-    if (raw.isEmpty) return false;
-    final ext = raw.toLowerCase();
-    final rawIsImage =
-        ext.endsWith('.jpg') ||
-        ext.endsWith('.jpeg') ||
-        ext.endsWith('.png') ||
-        ext.endsWith('.heic');
-    if (!rawIsImage) return false;
-    return File(raw).existsSync();
+    final hero = resolveExerciseHero(
+      exercise: e,
+      treatment: Treatment.grayscale,
+      bodyFocus: e.bodyFocus ?? true,
+      surface: HeroSurface.mediaViewer,
+    );
+    return hero.caps.availableTreatments.contains(Treatment.grayscale);
   }
 
   bool _isTreatmentAvailable(Treatment t) {
@@ -3999,13 +3989,24 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   ///
   /// If the stored preference is no longer available (e.g. the archive
   /// was purged after 90 days), we silently fall back to Line rather
-  /// than showing a broken black frame.
+  /// than showing a broken black frame. Derived from
+  /// [resolveExerciseHero] caps so the fallback rule is shared with
+  /// every other practitioner-facing surface.
   Treatment _effectiveTreatmentFor(ExerciseCapture e) {
     final pref = e.preferredTreatment;
     if (pref == null) return Treatment.line;
     if (pref == Treatment.line) return Treatment.line;
-    // B&W / Original require a local archive.
-    return _hasArchive(e) ? pref : Treatment.line;
+    final hero = resolveExerciseHero(
+      exercise: e,
+      treatment: pref,
+      bodyFocus: e.bodyFocus ?? true,
+      surface: HeroSurface.mediaViewer,
+    );
+    // Resolver reports treatmentLockedTo when the requested treatment
+    // isn't available locally — same effect as the prior _hasArchive
+    // gate.
+    if (hero.caps.treatmentLockedTo == Treatment.line) return Treatment.line;
+    return pref;
   }
 
   /// Source file the active treatment should play.
@@ -4025,18 +4026,18 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// false or when the segmented file is missing (legacy captures
   /// pre-v22, conversion failed), fall through to the untouched
   /// archive so practitioner playback never goes black.
+  ///
+  /// Delegates to [resolveExerciseHero] (HeroSurface.mediaViewer) so
+  /// the playback fallback chain is shared with MiniPreview + the
+  /// bundled web player.
   String? _sourcePathForTreatment(ExerciseCapture e, Treatment t) {
-    switch (t) {
-      case Treatment.line:
-        return e.displayFilePath;
-      case Treatment.grayscale:
-      case Treatment.original:
-        if (_enhancedBackground) {
-          final seg = e.absoluteSegmentedRawFilePath;
-          if (seg != null && File(seg).existsSync()) return seg;
-        }
-        return e.absoluteArchiveFilePath;
-    }
+    final hero = resolveExerciseHero(
+      exercise: e,
+      treatment: t,
+      bodyFocus: _enhancedBackground,
+      surface: HeroSurface.mediaViewer,
+    );
+    return hero.videoFile?.path;
   }
 
   /// Wave 27 — bring up BOTH crossfade slots from the same source path.

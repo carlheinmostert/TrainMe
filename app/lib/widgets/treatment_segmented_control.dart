@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/treatment.dart';
+import '../services/exercise_hero_resolver.dart' show kHeroGrayscaleFilter;
 import '../theme.dart';
 
 /// Three-segment control sitting under the top bar — coral-accented
@@ -242,28 +243,10 @@ class TreatmentSegmentedControl extends StatelessWidget {
 /// from the original colour file. Luminance weights follow the ITU-R
 /// BT.709 recipe.
 ///
-/// Lives next to the segmented control because every caller that uses
-/// the control also needs this filter to render the grayscale frame
-/// without re-encoding the source.
-const ColorFilter grayscaleColorFilter = ColorFilter.matrix(<double>[
-  0.2126,
-  0.7152,
-  0.0722,
-  0,
-  0,
-  0.2126,
-  0.7152,
-  0.0722,
-  0,
-  0,
-  0.2126,
-  0.7152,
-  0.0722,
-  0,
-  0,
-  0,
-  0,
-  0,
-  1,
-  0,
-]);
+/// Re-exported alias for [kHeroGrayscaleFilter] (the canonical matrix
+/// in `services/exercise_hero_resolver.dart`). Kept under this name for
+/// backwards compatibility with `studio_mode_screen.dart`'s
+/// `_buildPhotoFrame` / `_buildVideoFrame` callsites — those are the
+/// full-screen MediaViewer surfaces, distinct from the static heroes
+/// the resolver handles. Single source of truth for the matrix though.
+const ColorFilter grayscaleColorFilter = kHeroGrayscaleFilter;
