@@ -63,6 +63,76 @@ The TestFlight v2 release locks the **shell** in place — two capsules on a sin
 
 ---
 
+## Vocabulary — UI ↔ Flutter ↔ Supabase
+
+The codebase has drifted on three axes over its lifetime: UI copy says one thing, the Flutter model class is named after the old UI copy, the DB column was named after an even older intent. This section is the canonical mapping. Update it whenever a new entity lands.
+
+### The "session" naming footgun
+
+The word **session** points at THREE unrelated things in this codebase. Internalise the distinction or pain will follow:
+
+| Phrase you'll hear | What it actually is | Lives in |
+|---|---|---|
+| **Session** (UI / Studio / Camera) | The workout package the practitioner captures and publishes — what the consumer plays at `session.homefit.studio/p/{uuid}` | `plans` table (yes, called "plans" on the DB) |
+| **Client session** | One anonymous visit to a published plan, for analytics | `client_sessions` table |
+| **Auth session** | A Supabase JWT login | `auth.sessions` table (managed by Supabase) |
+
+When somebody says "session" without qualifying, they usually mean the first one. The other two carry the qualifier.
+
+### Today — what exists in this PR's world
+
+| UI term | Flutter model | Supabase | Lifecycle / scope | Notes |
+|---|---|---|---|---|
+| **Practice** | `Practice` / `PracticeMembership` | `practices` + `practice_members` | Top-level tenant | Multi-tenancy boundary; auto-created on first sign-in. |
+| **Practitioner** | `AuthService.currentUser` | `auth.users` ↔ `practice_members.user_id` | Authenticated user | DB columns occasionally say `trainer_id` for legacy reasons; UI copy is **always "practitioner"** (R-06). |
+| **Client** | `PracticeClient` | `clients` | Practice-scoped (`practice_id` FK) | UI copy is always "client". |
+| **Session** (UI) | `Session` | `plans` (row) | Client-scoped (`client_id` FK) | **The renaming gap.** UI says "session"; Flutter class is `Session`; the same record is `plans` on the DB because the consumer-facing URL is `/p/{uuid}` (a plan link). One row, three names. |
+| **Plan** (URL) | (same record) | `plans.id` → `session.homefit.studio/p/{uuid}` | Same record as above | "Plan" is the consumer-facing word for the same Session — they are literally the same row. |
+| **Plan version** | `Session.version` | `plans.version` (int) | Per-Session | Increments on every Publish; the URL stays the same. |
+| **Exercise** | `ExerciseCapture` | `exercises` | Session-scoped (`session_id` / FK to `plans.id`) | Holds reps/sets/hold/notes/media path. |
+| **Circuit** | `Session.circuitCycles` (Map) + `Exercise.circuitId` | `exercises.circuit_id` + `plans.circuit_cycles` (jsonb) + `plans.circuit_names` (jsonb) | Session-scoped | A grouping; not its own table. |
+| **Rest period** | `ExerciseCapture` with `mediaType: rest` | `exercises` row with `media_type = 'rest'` | Session-scoped | Distinct *visual* category, not a distinct table. |
+| **Credit** | rendered by `HomeCreditsChip`; consumed by `consume_credit` RPC | `credit_ledger` (append-only) + `practice_credit_balance` RPC | Practice-scoped | 1 credit per Clients-mode publish ≤ 75 min, 2 credits if > 75 min. **Classes will not use credits.** |
+| **Plan analytics event** | (web-player only) | `plan_analytics_events` | Per visitor session | Consent-gated via the client's `analytics_allowed` flag. |
+| **Client visitor session** | (web-player only) | `client_sessions` | One row per anon visit | See footgun callout above. |
+| **Plan issuance (audit)** | n/a | `plan_issuances` | Per publish | Append-only audit log; consumed by the portal Audit page. |
+| **Referral code** | rendered by `NetworkShareSheet` | `referral_codes` + `practice_referrals` + `referral_rebate_ledger` | Practice-scoped | 5% lifetime rebate model (Milestone M). |
+
+### Future — what this design proposes adding
+
+| UI term | Flutter model (proposed) | Supabase (proposed) | Lifecycle / scope | Notes |
+|---|---|---|---|---|
+| **Class** | `Class` | `classes` (new table) OR `plans.kind = 'class'` (overload) — see open question **OQ-6** | Practice-scoped | Practitioner-published, consumer-buyable. Subscription or once-off. **No credits**. |
+| **Class session** | `ClassSession` (or reuse `Session`) | `exercises.class_id` (proposed FK) — if `classes` is its own table | Class-scoped | A class is composed of N sessions, same as a multi-session plan. May literally reuse the `exercises` table with a polymorphic FK. |
+| **Plan invitation** | `PlanInvitation` | `plan_invitations` (new) | Plan + email + accepted_by_user_id | The email-magic-link bridge. One row per invite. Bound to a `plan_id` and optionally to a `class_id` once classes ship. |
+| **Workout** (consumer-facing) | `ConsumerWorkout` | View joining `plan_invitations.accepted_by_user_id = current_user.id` UNION `class_purchases` | Consumer-scoped | What lands in My Workouts. A single row could be a 1-on-1 plan (from a practitioner) OR a class instance (subscribed/bought). The UI calls all of them "workouts". |
+| **Consumer profile** | `ConsumerProfile` | `auth.users` + `consumer_profiles` (new, optional metadata table) | Per auth.user, **no `practice_members` row** | Users who only consume content. Same `auth.users` table as practitioners — the absence of a `practice_members` row is what marks them as consumer-only. |
+| **Class subscription** | `ClassSubscription` | `class_subscriptions` (new) | Consumer + Class | Recurring billing (PayFast recurring or App Store IAP). |
+| **Class purchase** | `ClassPurchase` | `class_purchases` (new) | Consumer + Class | One-time payment. |
+| **Plan claim** | (action, not entity) | `claim_plan(p_token)` RPC + the `plan_invitations.accepted_by_user_id` write | — | "Claiming" a plan = accepting an invite. After claim, the public `/p/{uuid}` URL stops serving to anonymous viewers (handled inside `get_plan_full`). |
+
+### Retired — terms NOT to use
+
+| Term | Why it's retired |
+|---|---|
+| **Project** | Earlier mental model for a unifying parent that would hold both 1-on-1 Sessions and group Classes. **Superseded** by the two-parallel-scope design (Clients ‖ Classes). Don't use "project" anywhere in copy or code. |
+| **Patient** / **Bio** / **Physio** / **Trainer** / **Coach** (as role nouns) | All retired in favour of **practitioner** (Design Rule R-06). The DB column `plans.trainer_id` still exists for backwards-compat but should never appear in user-facing copy. |
+| **JIT (just-in-time client-pay)** | Considered for the revenue model, rejected (adherence-damaging). Don't propose it again. |
+
+### Naming gaps that will stay
+
+A few mismatches we'll keep on purpose because renaming would be more disruptive than the confusion is worth:
+
+- **`Session` (Flutter) ↔ `plans` (DB)** — the rename gap was already paid for once when "TrainMe / Raidme" → "homefit.studio" landed. Renaming the Flutter `Session` class to `Plan` would touch hundreds of call sites for no user-visible benefit. The UI says "session" because that's what practitioners think they're capturing; the URL says "plan" because that's what clients think they're receiving. Both are right.
+- **`trainer_id`** column on `plans` — legacy from when the role noun was "trainer". Rename would require a coordinated migration + RLS policy update; not worth it. Use it via the wrapper RPCs, never expose to UI.
+- **`raidme.db`** SQLite filename — pre-rename artifact. Not user-visible. Leave alone.
+
+### Adds a new open question to the queue
+
+- **OQ-6** — Modeling Classes: new `classes` table (clean separation, more joins) vs overload `plans.kind = 'class'` with extra columns (lower migration cost, but plans-with-everything risk)? Lean toward a new table because the lifecycles diverge (no credits, has subscription, has cohort/capacity) — validate by sketching the queries first.
+
+---
+
 ## TestFlight v2 ships (in PR #315)
 
 Front-end only. Bodies for Classes + My Workouts are **locked teasers** — mock cards behind a 62% opacity overlay with a lock glyph. The Workouts teaser shows mixed content sources (sage chip = practitioner-sent, coral chip = subscribed class) so the future model is visible.
