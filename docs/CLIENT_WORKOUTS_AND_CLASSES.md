@@ -266,14 +266,41 @@ get_plan_full(plan_id) — access check (sketch)
 
 **My Workouts representation of class membership:** does a subscribed 6-week-class-with-18-Plans show as 18 rows in the consumer's My Workouts list, or as 1 Class card that expands into 18 Plans? The mock cards in the teaser show flat workouts; the real surface likely needs a hybrid (Class as a parent card, Plans as drill-in detail). **OQ-11** below.
 
-**Data model additions** (sketch — not finalised):
+**Data model additions** (MVP scope, post-resolutions):
 
-- `class_subscriptions(consumer_user_id, class_id, started_at, cancelled_at, current_period_end)` — recurring access.
-- `class_purchases(consumer_user_id, class_id, purchased_at, snapshot_plan_ids jsonb)` — one-off access. The `snapshot_plan_ids` column resolves OQ-8 if we lean "snapshot": it records exactly which Plans were in the Class at purchase time so future additions don't grant access retroactively.
-- No `class_invitations` table needed — access is grant-on-purchase / grant-on-subscription, not invitation-token-based. (The email-magic-link bridge in section 1 stays Client-only.)
-- Possibly a `class_plan_membership` jsonb on `classes` to track ordering / labels, since Plans inside a Class need an explicit sequence. Or a `plans.class_position` int.
+- `class_purchases(consumer_user_id, class_id, purchased_at)` — one-off access. Lifetime; no expiry. Live container: covers all Plans currently in the Class AND any added later (OQ-8 resolved live).
+- No `class_invitations` table — access is grant-on-purchase, not invitation-token-based. (The email-magic-link bridge in section 1 stays Client-only.)
+- No `plans.class_position` — Plans inside a Class are ordered by `plans.created_at` ascending (OQ-12 resolved by date).
+- No `class_subscriptions` at MVP — subscriptions are a future-phase addition (decision 2026-05-13). When added, will be a second access table checked alongside `class_purchases` in `get_plan_full`.
+- Public `/p/{uuid}` URL rejects anon access for Plans with `class_id IS NOT NULL` (OQ-10 resolved — Class Plans are never anonymously playable).
 
-This section captures the surface; the actual schema + RPC design lands in a future PR after the Class data model lands (see PR sequence steps 9-10).
+**Access check** (MVP, simplified by the resolutions):
+
+```
+get_plan_full(plan_id) — access check (MVP)
+
+  IF plan.client_id IS NOT NULL:
+    -- Client-owned Plan (1-on-1) — see section 1
+    [unchanged from today + plan_invitations]
+
+  ELSE IF plan.class_id IS NOT NULL:
+    -- Class-owned Plan (MVP: once-off purchase only)
+    IF requester is practitioner of plan's practice:
+      → return plan (practitioner preview)
+    ELSE IF EXISTS (
+      SELECT 1 FROM class_purchases
+      WHERE class_id = plan.class_id
+        AND consumer_user_id = auth.uid()
+    ):
+      → return plan
+    ELSE:
+      → return "this class is by purchase" gate
+      -- anonymous requests always land here; no public URL path
+```
+
+**My Workouts UI** (OQ-11 resolved hierarchical): a Class shows as a single parent card in the consumer's list. Tap → drill into a new Class-detail screen that lists the Plans inside (ordered by `plans.created_at`). Tap a Plan → play.
+
+This section captures the surface; the actual schema + RPC design lands in PR step 9 (Classes schema) + step 10 (Class once-off purchase via PayFast or web-portal-driven, NOT iOS IAP for Reader-App compliance — same channel pattern as today's credit purchases).
 
 ### 2. My Workouts real surface
 
@@ -347,11 +374,11 @@ Still need to resolve before the relevant PRs land:
 - **OQ-3** — Offline-sync chip on My Workouts: today's `OfflineSyncChip` is wired into the practitioner's `SyncService.pendingOps`. Consumer mode has different sync needs (downloading workouts for offline play). Defer until My Workouts ships; might need a different chip with different copy.
 - **OQ-4** — Re-imports: if a consumer deletes the app and re-installs, does their imported plan come back from the cloud? (`plan_invitations.accepted_by_user_id` is durable, so technically yes, once they sign in again.)
 - **OQ-5** — Class capacity / cohort scheduling: do we ship classes as "always available" (subscribe = library access) or as scheduled cohorts (start date, end date)? Likely always-available for MVP; cohorts as a later layer.
-- **OQ-8** — One-time Class purchase: snapshot or ongoing? When a consumer pays once-off for a Class, do they get only the Plans that existed at purchase time (snapshot — captured in `class_purchases.snapshot_plan_ids`) or all future Plan additions too (live)? Lean snapshot (matches the "buy a thing" mental model and lets the practitioner price expansions as upgrades), but the subscription path is the opposite (live by definition).
-- **OQ-9** — Subscription lapse: when a Class subscription ends, what happens to the consumer's access to Plans they've already played? Three plausible answers: (a) hard cut — all Plans become inaccessible; (b) grandfather — Plans they've started stay accessible forever; (c) grace window — N days post-lapse before lockout. Each has different store-page promises and different DB checks.
-- **OQ-10** — Public-link semantics for Class-owned Plans: should `session.homefit.studio/p/{uuid}` work for a Plan whose `class_id IS NOT NULL`? Probably **no** — otherwise a subscriber forwards the URL and bypasses payment. Lean: `get_plan_full` rejects anon access for any Plan with a non-null `class_id`; Class Plans are subscription-or-purchase only, never anonymously playable.
-- **OQ-11** — My Workouts representation of a Class membership: flat list (each Class Plan shows as its own row, possibly with a small "via Beginner Mobility" pill) or hierarchical (the Class shows as one card that expands to reveal its N Plans)? Hierarchical scales better past 3-4 Plans-per-Class; flat reads simpler for short Classes. Probably hybrid — show 1-3 Plans inline, collapse the rest behind "show all 18".
-- **OQ-12** — Plan ordering inside a Class: where does the sequence live? Options: `plans.class_position` int column (simple, easy migration), `classes.plan_order` jsonb array (explicit ordering, but requires sync on Plan add/remove), or rely on Plan creation date (no explicit order, but reorder isn't supported). Lean `plans.class_position`.
+- **OQ-8** ✓ **Resolved 2026-05-13 — live.** A one-off Class purchase grants ongoing access to all Plans in the Class, including ones added later. Functionally a "lifetime access" with no recurring billing. Simplifies the data model (no `snapshot_plan_ids` jsonb on `class_purchases`) and matches the subscription path. Implication: the practitioner has incentive to keep adding content (retains subscribers, rewards one-off buyers); price one-off purchases to reflect lifetime value vs subscription NPV.
+- **OQ-9** — Subscription lapse semantics. **Moot at MVP** — no subscriptions in v1 (decision 2026-05-13: once-off only). Revisit when subscriptions ship. Three plausible answers when we do: (a) hard cut — all Plans become inaccessible; (b) grandfather — Plans they've started stay accessible forever; (c) grace window — N days post-lapse before lockout. Hard-cut is the simplest implementation (falls out of the access check naturally); grandfather requires a `class_plan_consumer_access` audit table.
+- **OQ-10** ✓ **Resolved 2026-05-13 — public link suppressed.** `session.homefit.studio/p/{uuid}` will reject anon access for any Plan with `class_id IS NOT NULL`. Class Plans are subscription-or-purchase only; never anonymously playable. Prevents subscribers from forwarding the raw URL to bypass payment.
+- **OQ-11** ✓ **Resolved 2026-05-13 — hierarchical Class card.** My Workouts shows a Class as a single parent card. Tap → drill into a new "Class detail" screen that lists the Plans inside. Tap a Plan from there → play it. The teaser mock cards stay as-is for TestFlight v2 (locked / illustrative); the real surface adds the Class card type when Classes ship.
+- **OQ-12** ✓ **Resolved 2026-05-13 — by date.** Plans inside a Class are ordered by `plans.created_at` ascending. No `plans.class_position` column needed; no explicit reorder UX. The practitioner controls sequence by the order they add Plans to the Class. Simpler MVP; explicit ordering can be a follow-up if reorder turns out to be valuable.
 
 ---
 
@@ -368,8 +395,9 @@ Rough order. Each PR is independently mergeable; the shell from PR #315 is the c
 7. **PR — In-app player for consumers** — port the web-player engine to native Flutter screens (or wrap in a WebView for v1).
 8. **PR — Studio Share → Send via email** — symmetric pipeline from the practitioner side.
 9. **PR — Classes schema + Studio Class editor** — Practice mode's Classes capsule gets a real body.
-10. **PR — Class subscription monetization (PayFast recurring or App Store IAP)** — the commercial layer.
+10. **PR — Class once-off purchase (PayFast or web-portal-driven, no IAP)** — the commercial layer, MVP scope. Reader-App compliance demands purchases happen on `manage.homefit.studio`, same channel as today's credit top-ups.
 11. **PR — Power-user "Add a workout" paste-link import** — post-MVP fallback path.
+12. **(Future phase) — Class subscriptions** — recurring billing alongside one-off purchases. Adds `class_subscriptions` table, dunning/lapse handling (OQ-9 resolution required), grace-window or grandfather policy, prorated upgrades from one-off to subscription. Deferred until once-off has validated the monetization story.
 
 Each step is small enough to design + review + ship without rework on the others. Steps 2-4 unblock the lobby CTA; steps 5-7 unblock My Workouts; steps 8-10 unblock Classes. Step 11 is independent.
 
@@ -386,7 +414,13 @@ Each step is small enough to design + review + ship without rework on the others
 - **2026-05-13** — Classes will live in a new `classes` table (NOT overloaded on `plans.kind`). Decoupled lifecycles + clean credit model. Resolves OQ-6.
 - **2026-05-13** — Class is a *peer of Client*, both owning Plans via nullable FKs on `plans` (`client_id` XOR `class_id`, CHECK-enforced). No new "class session" entity; class Plans use the same `plans` + `exercises` machinery as 1-on-1 Plans. Resolves OQ-7.
 - **2026-05-13** — Adopted internal shorthand **CPE** (Client-or-Class · Plan · Exercise) for the three-level workout content model. Engineering / design / code-review usage only — explicitly NOT for user-facing copy or practitioner conversations (collides with Continuing Professional Education in the HPCSA world).
-- **2026-05-13** — Flagged: Plan and Class are **two distinct units of sharing** with different access models. Plan-sharing is invitation-token-based (`plan_invitations`); Class-sharing is grant-on-subscription / grant-on-purchase (`class_subscriptions` / `class_purchases`). `get_plan_full` will branch on Plan parent. Four new open questions opened (OQ-8…OQ-11 covering snapshot-vs-live one-off purchases, subscription-lapse semantics, public-link policy for Class Plans, My Workouts representation) + OQ-12 on Plan ordering inside a Class. Schema sketch noted; final design lands when Classes ship.
+- **2026-05-13** — Flagged: Plan and Class are **two distinct units of sharing** with different access models. Plan-sharing is invitation-token-based (`plan_invitations`); Class-sharing is grant-on-payment. `get_plan_full` will branch on Plan parent.
+- **2026-05-13** — OQ-8 resolved **live**: one-off Class purchases grant access to all Plans currently in the Class AND future additions. Functionally "lifetime access"; no `snapshot_plan_ids` column needed on `class_purchases`.
+- **2026-05-13** — OQ-10 resolved **public link suppressed**: `/p/{uuid}` rejects anon access for any Plan with `class_id IS NOT NULL`. Class Plans are purchase-only.
+- **2026-05-13** — OQ-11 resolved **hierarchical**: My Workouts shows a Class as a single parent card; tap drills into a new Class-detail screen listing the Plans inside.
+- **2026-05-13** — OQ-12 resolved **by date**: Plans inside a Class ordered by `plans.created_at` ascending. No `plans.class_position` column. Explicit reorder UX deferred.
+- **2026-05-13** — **MVP monetization is once-off only.** No `class_subscriptions` table at v1; subscriptions are a future phase (step 12 in the PR sequence). Once-off-first lets us validate the monetization story before paying for recurring-billing complexity (auth alignment, lapse handling, dunning, prorating, grace windows). OQ-9 becomes moot at MVP; will be reopened when subscriptions ship.
+- **2026-05-13** — Class purchases (when implemented) will be **web-portal-driven**, not iOS IAP. Same Reader-App compliance pattern as today's credit purchases (no in-app payment paths; consumer is directed to `manage.homefit.studio`). Avoids Apple's 15-30% IAP fee.
 
 ---
 
