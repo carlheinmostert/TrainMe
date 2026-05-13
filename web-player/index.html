@@ -537,6 +537,11 @@
        Supabase surface lives in api.js; app.js is forbidden from calling
        fetch('.../rest/v1/...') directly. See docs/DATA_ACCESS_LAYER.md. -->
   <script src="/api.js"></script>
+  <!-- Exercise hero resolver — MUST load before app.js + lobby.js. Single
+       stateless function deciding how each surface renders an exercise's
+       hero/poster (treatment + body-focus + photo-vs-video + fallbacks).
+       See docs/audits/photo-video-treatment-audit-2026-05-13.md. -->
+  <script src="/exercise_hero.js"></script>
   <script src="/app.js"></script>
   <script src="/lobby.js"></script>
 </body>

@@ -1213,20 +1213,40 @@ function buildRestCard(slide, index) {
  * the next time the slide is rebuilt — same lifecycle as the video.
  */
 function buildPrepOverlay(slide) {
-  if (!slide || !slide.thumbnail_url) {
+  // Bundle 1 of the hero-resolver migration (audit B6 part 2). The
+  // resolver picks the treatment-correct poster URL — for 'line' that's
+  // `thumbnail_url_line` when available (embedded surface, and public
+  // surface post-Bundle-2-PR-6), falling back to legacy `thumbnail_url`
+  // otherwise. `domClass` lands `.is-grayscale` for B&W so CSS filters
+  // the poster to match the active treatment.
+  //
+  // For photos the resolver's posterSrc IS the raw colour JPG (Wave 22
+  // photo three-treatment parity), so a photo prep hero gets the same
+  // treatment-correct rendering as a video.
+  if (!slide) {
     return `
     <div class="prep-overlay" hidden>
       <div class="prep-overlay-number">15</div>
     </div>
   `;
   }
-  // Treatment is meaningful only for video / photo slides; rest slides
-  // have no thumbnail_url so they short-circuit above.
   const slideT = slideTreatment(slide);
-  const grayscaleClass = slideT === 'bw' ? ' is-grayscale' : '';
+  const bodyFocus = getEffective(slide, 'bodyFocus') !== false;
+  const hero = (window.HomefitHero && window.HomefitHero.resolve)
+    ? window.HomefitHero.resolve(slide, { treatment: slideT, bodyFocus: bodyFocus, surface: 'prep' })
+    : null;
+  const posterSrc = hero && hero.posterSrc ? hero.posterSrc : (slide.thumbnail_url || '');
+  if (!posterSrc) {
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  const grayscaleClass = (hero && hero.domClass) ? ' ' + hero.domClass : '';
   return `
     <div class="prep-overlay" hidden>
-      <img class="hero-poster${grayscaleClass}" data-treatment="${slideT}" src="${escapeHTML(slide.thumbnail_url)}" alt="" aria-hidden="true">
+      <img class="hero-poster${grayscaleClass}" data-treatment="${slideT}" src="${escapeHTML(posterSrc)}" alt="" aria-hidden="true">
       <div class="prep-overlay-number">15</div>
     </div>
   `;
@@ -1474,8 +1494,20 @@ function buildMedia(exercise, index) {
   // back to 'line' when the preferred treatment's URL is missing, so
   // resolveTreatmentUrl's null branch is only hit for rest slides
   // (handled below) or exercises with no media at all.
+  //
+  // Bundle 1 of the hero-resolver migration (audit B6 part 2): the
+  // <video poster> attribute now reads from the resolver's posterSrc
+  // (treatment-correct: thumbnail_url_line for Line on the embedded
+  // surface, falls back to legacy thumbnail_url on public for now). Was:
+  // always `exercise.thumbnail_url` regardless of active treatment, so
+  // Line playback flashed a B&W poster during decoder warm-up.
   const slideT = slideTreatment(exercise);
-  const resolvedUrl = resolveTreatmentUrl(exercise, slideT);
+  const bodyFocus = getEffective(exercise, 'bodyFocus') !== false;
+  const hero = (window.HomefitHero && window.HomefitHero.resolve)
+    ? window.HomefitHero.resolve(exercise, { treatment: slideT, bodyFocus: bodyFocus, surface: 'deck' })
+    : null;
+  const resolvedUrl = (hero && hero.src) ? hero.src : resolveTreatmentUrl(exercise, slideT);
+  const heroPoster = (hero && hero.posterSrc) ? hero.posterSrc : exercise.thumbnail_url;
 
   if (!resolvedUrl) {
     // Placeholder for exercises without media yet
@@ -1501,7 +1533,7 @@ function buildMedia(exercise, index) {
     // compliance; applyMuteStateToAllVideos() unmutes per-exercise
     // effective state inside the Start Workout user gesture.
     const mutedAttr = 'muted';
-    const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
+    const posterAttr = heroPoster ? `poster="${escapeHTML(heroPoster)}"` : '';
     // Dual-video crossfade (Wave 19.7). Two stacked <video> elements
     // share the same source — the "active" one plays normally; ~250ms
     // before it reaches `duration` we preroll the inactive one and swap
@@ -1622,19 +1654,38 @@ function buildMedia(exercise, index) {
  *
  * Returns null when the treatment has no URL (consent-absent). Callers
  * must handle this gracefully (disable segment + fall back to line).
+ *
+ * Bundle 1 of the hero-resolver migration (audit, 2026-05-13). The
+ * function signature stays public-API stable (lobby.js, the deck's
+ * URL-refresh path, and a handful of internal callers all use it), but
+ * the URL fallback chain now lives in `web-player/exercise_hero.js` so
+ * the resolver and this shim agree on semantics. The inline fallback
+ * remains as a defence for the case where exercise_hero.js failed to
+ * load — same return shape, same edge cases.
  */
 function resolveTreatmentUrl(exercise, treatment) {
   if (!exercise) return null;
   // Wave 42 — body focus is now per-exercise (PR #146 schema) overlaid
   // by client overrides via getEffective().
   const bodyFocusOn = getEffective(exercise, 'bodyFocus');
+  if (window.HomefitHero && window.HomefitHero.resolve) {
+    // Use the 'deck' surface so `src` returns the playback URL (videoSrc
+    // for videos, primary src for photos) — matches the legacy contract.
+    const hero = window.HomefitHero.resolve(exercise, {
+      treatment: treatment,
+      bodyFocus: bodyFocusOn,
+      surface: 'deck',
+    });
+    // For photos the resolver's `src` IS the JPG. For videos it's the
+    // mp4 URL. Either way it's the active-treatment playback URL.
+    return hero.src;
+  }
+  // Defensive — exercise_hero.js failed to load. Inline fallback so
+  // the player still renders something.
   if (treatment === 'bw') {
     if (bodyFocusOn) {
       return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
     }
-    // Body focus OFF — skip the segmented variant and play the
-    // untouched original. When the raw original is missing we still
-    // fall through to the segmented copy so the slide can play at all.
     return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
   }
   if (treatment === 'original') {
@@ -1643,7 +1694,6 @@ function resolveTreatmentUrl(exercise, treatment) {
     }
     return exercise.original_url || exercise.original_segmented_url || null;
   }
-  // 'line' + unknown treatments → line drawing (the always-available default).
   return exercise.line_drawing_url || exercise.media_url || null;
 }
 
@@ -5577,21 +5627,17 @@ async function init() {
         planHasGrayscaleConsent: function () { return planHasGrayscaleConsent; },
         planHasOriginalConsent: function () { return planHasOriginalConsent; },
         applyTreatmentOverrideToAllExercises: applyTreatmentOverrideToAllExercises,
-        getDefaultTreatment: function () {
-          // Pick the first exercise's effective treatment as the
-          // global default. Falls back to 'line' for empty/rest-only
-          // plans (impossible at this point but cheap defence).
-          for (let i = 0; i < slides.length; i++) {
-            const s = slides[i];
-            if (s && s.media_type !== 'rest') {
-              const t = getEffective(s, 'treatment');
-              if (t === 'bw' && !planHasGrayscaleConsent) return 'line';
-              if (t === 'original' && !planHasOriginalConsent) return 'line';
-              return t || 'line';
-            }
-          }
-          return 'line';
-        },
+        // Per-exercise effective state accessor. Lobby's hero resolver
+        // calls this per row so each slide picks up its own
+        // `preferred_treatment` (with client-override layered on top).
+        // Bundle 1 of the hero-resolver migration (audit B6 part 1):
+        // replaces the lobby-global `activeTreatment` that used to drive
+        // every row. `getDefaultTreatment` retired — the lobby's
+        // treatment-pill picker still propagates a plan-global override
+        // via `applyTreatmentOverrideToAllExercises` (writes per-exercise
+        // overrides for every slide), so the global mental model survives
+        // without a separate "global active treatment" state.
+        getEffective: getEffective,
         getPractitionerName: function () { return analyticsTrainerName; },
         rebindVideoSources: rebindVideoSources,
         startWorkout: function () {
