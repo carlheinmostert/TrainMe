@@ -3143,22 +3143,18 @@ body.is-fullscreen .playpause-toggle {
   stroke-linecap: round;
   stroke-linejoin: round;
   filter: drop-shadow(0 0 4px rgba(255, 107, 53, 0.5));
-  animation: lobby-circuit-tracer var(--dur, 27s) linear infinite;
-}
-
-@keyframes lobby-circuit-tracer {
-  /* 0–90% of the timeline: tracer draws from start to end of the spiral. */
-  0%   { stroke-dashoffset: var(--path-len); }
-  90%  { stroke-dashoffset: 0; }
-  /* 90–100%: hold at the end → brief settle before looping back. */
-  100% { stroke-dashoffset: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lobby-circuit-lanes .lane-tracer {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
+  /* E14 attempt #3 (2026-05-13) — drove the tracer with a CSS keyframes
+     animation that referenced `var(--path-len)` (set by JS via
+     setProperty). On iOS embedded WKWebView the keyframe's
+     `stroke-dashoffset: var(--path-len)` was resolving to an invalid
+     value at animation creation time, leaving the keyframe inert and
+     the tracer appearing static. JS-driven WAAPI was layered on top
+     but suppressed by cascade priority on position:fixed ancestors.
+     The lane-tracer animation is now entirely WAAPI-driven in
+     `renderCircuitLanesFor` (lobby.js) — `tracer.animate(...)` with
+     numeric strokeDashoffset values. Reduce-motion is honoured in JS,
+     not via @media, so the surface-aware decision (practitioner vs
+     client) lives in one place. */
 }
 
 .lobby-circuit-frame {

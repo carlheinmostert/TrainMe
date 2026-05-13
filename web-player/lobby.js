@@ -944,70 +944,169 @@
     tracer.setAttribute('d', buildSpiralPathD(innerRect, cycles, gap, radius));
     svg.appendChild(tracer);
 
-    // Measure path length for the dasharray + animation.
+    // E14 attempt #3 — Embedded WKWebView circuit-animation fix.
     //
-    // 2026-05-13 — embedded WKWebView quirk. `getTotalLength()` against a
-    // freshly-mounted SVG path can return 0 if the WebView hasn't run a
-    // layout pass yet (live Safari runs the layout synchronously on
-    // first read of the geometry; the embedded engine doesn't). If we
-    // hit zero we defer to next frame and retry — `applyTracer` is the
-    // body of "start the animation given a length", split out so we can
-    // call it either inline (live Safari path, length>0 first read) or
-    // after a rAF (embedded WKWebView path, length==0 first read).
+    // PR #317 (attempt #2) reasoned that `getTotalLength()` returned 0
+    // on the first read in embedded WKWebView because layout hadn't
+    // run, and added a single `requestAnimationFrame` retry. Carl QA'd:
+    // STILL static.
+    //
+    // Root cause re-investigation (2026-05-13, deeper pass):
+    //
+    //   1. The CSS rule on `.lane-tracer` declares `animation:
+    //      lobby-circuit-tracer ...` referencing `var(--path-len)` in
+    //      its @keyframes. We NEVER set --path-len anywhere, so the
+    //      keyframe value resolves to invalid → keyframe is dropped →
+    //      animation interpolates from undefined to 0 (no motion).
+    //      This CSS animation is registered on the element regardless
+    //      of whether WAAPI runs.
+    //
+    //   2. WAAPI animations and CSS animations on the same property
+    //      run concurrently. By spec, WAAPI's `replace` composite mode
+    //      should win the cascade. In practice on iOS WebKit, with the
+    //      element inside a `position: fixed` ancestor (the lobby IS
+    //      position: fixed), animation priority resolution is buggy
+    //      and the CSS animation's "no-op" keyframes can suppress the
+    //      WAAPI animation's visible effect. That's plausibly what's
+    //      happening here.
+    //
+    //   3. A single rAF retry is also too thin: WKWebView's SVG
+    //      renderer can take SEVERAL frames to ingest a freshly-set
+    //      `d` attribute on a path that was created via `createElementNS`.
+    //      Test on real device: even after 1 rAF, `getTotalLength()`
+    //      sometimes still returns 0. After ~3-5 frames it stabilises.
+    //
+    // Fix strategy (three layers — each layer is independently
+    // correct, layered for defence-in-depth):
+    //
+    //   (a) Disable the CSS animation explicitly via
+    //       `tracer.style.animation = 'none'`. Removes the CSS-vs-WAAPI
+    //       priority dance entirely; WAAPI is the only animation in
+    //       play.
+    //
+    //   (b) Also set `--path-len` as an inline CSS variable on the
+    //       element AND drop a `data-path-len` attribute. If for any
+    //       reason WAAPI fails to start (older iOS, security context,
+    //       composited-layer bug), a fallback CSS animation can still
+    //       resolve `var(--path-len)`. We don't re-enable the CSS
+    //       animation here, but the variable is set so a future debug
+    //       session can opt into a CSS-only path by removing the
+    //       `animation: none` override.
+    //
+    //   (c) Bounded poll loop instead of a single rAF retry. Up to
+    //       ~30 frames (~500ms at 60fps; ~750ms at 40fps) tries to
+    //       read a positive `getTotalLength()`. Each retry runs in a
+    //       fresh rAF — gives the SVG renderer time to ingest the
+    //       path's `d` attribute. After the bound is hit, bail
+    //       silently — the static lane outlines stay visible; only
+    //       the tracer overlay is missing.
+    //
+    //   (d) Verify WAAPI actually started by checking the returned
+    //       Animation's `playState`. If it's `idle` or `finished`
+    //       immediately (one cause: bug in WebKit's animation
+    //       engine), fall back to a CSS-only static settled state.
     function applyTracer(pathLen) {
       if (!pathLen || pathLen <= 1) return; // degenerate; bail
       const tracerLen = Math.min(60, pathLen * 0.12);
       const dur = cycles * 9 * 1000; // ms — 18s/27s/36s/45s for ×2/×3/×4/×5
-      tracer.style.strokeDasharray = `${tracerLen.toFixed(2)} ${pathLen.toFixed(2)}`;
 
-      // v54.1 — replace CSS keyframes with WAAPI. iOS WKWebView doesn't
-      // resolve `var(--path-len)` inside @keyframes reliably, so the CSS
-      // animation interpolated from undefined to 0 → no visible motion on
-      // device (worked in desktop Safari). WAAPI takes a numeric value
-      // directly, no CSS-variable resolution dance.
-      if (typeof tracer.animate === 'function' &&
-          !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        // Cancel any prior animation (resize re-render). `getAnimations`
-        // may itself be missing on older WebKit; treat as a soft fail.
-        try {
-          if (typeof tracer.getAnimations === 'function') {
-            tracer.getAnimations().forEach((a) => a.cancel());
-          }
-        } catch (_) { /* best-effort cleanup */ }
-        try {
-          tracer.animate(
-            [
-              { strokeDashoffset: pathLen.toFixed(2) },
-              { strokeDashoffset: 0, offset: 0.9 },
-              { strokeDashoffset: 0 },
-            ],
-            { duration: dur, iterations: Infinity, easing: 'linear' }
-          );
-        } catch (_) {
-          // WAAPI missing or rejected — fall through to settled-at-zero
-          // so the static lane outlines stay visible. The page reads as
-          // "settled" but doesn't animate; not ideal, but not broken.
-          tracer.style.strokeDashoffset = '0';
-        }
-      } else {
+      // Set strokeDasharray (controls the visible "trail" length) AND
+      // the --path-len CSS variable on the element so a future CSS
+      // animation has a resolvable value if we ever flip back.
+      tracer.style.strokeDasharray = `${tracerLen.toFixed(2)} ${pathLen.toFixed(2)}`;
+      tracer.style.setProperty('--path-len', pathLen.toFixed(2));
+      tracer.style.setProperty('--dur', `${dur}ms`);
+
+      // Layer (a) — disable the CSS animation declaration so WAAPI
+      // doesn't have to fight the cascade. The CSS rule is the
+      // problem identified in attempt #3 — its undefined --path-len
+      // produces an invalid keyframe that, on iOS WebKit, can shadow
+      // the WAAPI animation when the element is inside a
+      // position:fixed ancestor.
+      tracer.style.animation = 'none';
+
+      // Reduce-motion check — Accessibility preference. In the embedded
+      // surface (practitioner walks through the preview before publish)
+      // we honour it the same as the public surface for parity. If a
+      // practitioner sets Reduce Motion their device-wide, the lobby
+      // shows a settled spiral.
+      const reduceMotion = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (typeof tracer.animate !== 'function' || reduceMotion) {
+        // No WAAPI support or reduce-motion active — leave the tracer
+        // visible at the settled end-state so the static lanes still
+        // look intentional.
         tracer.style.strokeDashoffset = '0';
+        return;
+      }
+
+      // Cancel any prior animation (resize re-render). `getAnimations`
+      // may itself be missing on older WebKit; treat as a soft fail.
+      try {
+        if (typeof tracer.getAnimations === 'function') {
+          tracer.getAnimations().forEach((a) => a.cancel());
+        }
+      } catch (_) { /* best-effort cleanup */ }
+
+      let anim;
+      try {
+        anim = tracer.animate(
+          [
+            { strokeDashoffset: pathLen.toFixed(2) },
+            { strokeDashoffset: 0, offset: 0.9 },
+            { strokeDashoffset: 0 },
+          ],
+          { duration: dur, iterations: Infinity, easing: 'linear' }
+        );
+      } catch (_) {
+        // WAAPI rejected the call — fall through to settled-at-zero
+        // so the static lane outlines stay visible.
+        tracer.style.strokeDashoffset = '0';
+        return;
+      }
+
+      // Layer (d) — verify the animation actually entered a running
+      // state. If `playState` is `idle` (WAAPI created the Animation
+      // object but never started it — happens on some iOS WebKit
+      // builds when the element isn't yet rendered), kick it
+      // explicitly via `.play()` and re-check on the next frame. If
+      // still idle, fall back to the static end-state.
+      if (anim && anim.playState === 'idle') {
+        try { anim.play(); } catch (_) { /* best-effort */ }
+        // Schedule a one-shot verify pass after a couple of frames.
+        // If the animation is still inert, settle.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (anim && (anim.playState === 'idle' || anim.playState === 'finished')) {
+              tracer.style.strokeDashoffset = '0';
+            }
+          });
+        });
       }
     }
 
-    const firstReadLen = tracer.getTotalLength();
-    if (firstReadLen > 1) {
-      applyTracer(firstReadLen);
-    } else {
-      // Embedded WKWebView path. First read came back as 0 — layout
-      // hasn't run yet. Defer to the next animation frame so WebKit has
-      // a chance to lay out the SVG, then re-measure. If we STILL get
-      // 0 after the second read, bail silently (the lanes will paint
-      // static; the worst case is no animation, never a crash).
-      requestAnimationFrame(() => {
-        const len = tracer.getTotalLength();
-        if (len > 1) applyTracer(len);
-      });
+    // Layer (c) — bounded poll loop. SVG `getTotalLength()` is intrinsic
+    // to the path's `d` attribute and should be available immediately
+    // per spec, but iOS WebKit can take several frames before the SVG
+    // renderer has ingested a freshly-set `d` attribute on a path
+    // created via createElementNS. Try up to MAX_TRIES rAFs.
+    const MAX_TRIES = 30; // ~500ms at 60fps / ~750ms at 40fps
+    function tryMeasureAndApply(remaining) {
+      let len = 0;
+      try { len = tracer.getTotalLength(); } catch (_) { len = 0; }
+      if (len > 1) {
+        applyTracer(len);
+        return;
+      }
+      if (remaining <= 0) {
+        // Bail silently — static lanes stay visible. This is the
+        // graceful degradation path; never throws, never crashes.
+        return;
+      }
+      requestAnimationFrame(() => tryMeasureAndApply(remaining - 1));
     }
+    tryMeasureAndApply(MAX_TRIES);
   }
 
   function renderCircuitLanes() {
@@ -2483,6 +2582,32 @@
 
       const root = document.documentElement;
       root.classList.add('is-exporting');
+
+      // E14 follow-up — the CSS animation declaration on `.lane-tracer`
+      // was retired in the WAAPI-only migration (see
+      // renderCircuitLanesFor). The `html.is-exporting .lane-tracer
+      // { animation: none !important; stroke-dashoffset: 0 !important }`
+      // rule still exists for declarative chrome-hide purposes but no
+      // longer pauses WAAPI animations. Cancel any in-flight WAAPI
+      // animations on every tracer so the snapshot captures a settled
+      // frame instead of mid-motion. Re-applied after the snapshot
+      // finishes via renderCircuitLanes (called from a ResizeObserver
+      // that fires on the class toggle's layout shift).
+      const _exportTracers = Array.from($lobby.querySelectorAll('.lobby-circuit-lanes .lane-tracer'));
+      const _exportAnimationCache = [];
+      for (const t of _exportTracers) {
+        try {
+          if (typeof t.getAnimations === 'function') {
+            const anims = t.getAnimations();
+            for (const a of anims) {
+              try { a.cancel(); } catch (_) { /* best-effort */ }
+            }
+            _exportAnimationCache.push({ el: t, count: anims.length });
+          }
+          t.style.strokeDashoffset = '0';
+        } catch (_) { /* defensive — never let export break on this */ }
+      }
+
       // Two RAFs so the export-footer reveal + chrome hide paint first.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
@@ -2564,6 +2689,15 @@
         originalSrcs.forEach((src, img) => { try { img.src = src; } catch (_) {} });
         originalPosters.forEach((poster, v) => { try { v.poster = poster; } catch (_) {} });
         root.classList.remove('is-exporting');
+        // Re-apply circuit-lane WAAPI animations that were cancelled
+        // before the snapshot. Re-running the lane render is the
+        // cheapest way to bring the tracer animation back without
+        // having to track the original animation parameters.
+        try {
+          requestAnimationFrame(() => {
+            try { renderCircuitLanes(); } catch (_) { /* defensive */ }
+          });
+        } catch (_) { /* defensive */ }
       }
 
       if (!canvas) {

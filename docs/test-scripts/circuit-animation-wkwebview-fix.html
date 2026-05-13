@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-13 - Circuit animation in embedded WKWebView (E14 attempt #3)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-13 - Circuit Animation E14 (attempt #3)</div>
+    <h1>Device QA - Circuit animation in embedded WKWebView (E14)</h1>
+    <p class="lede">
+      <strong>Background.</strong> The lobby's coral "tracer" spiral spins around the circuit frame in Mobile Safari at <code>staging.session.homefit.studio</code> - but renders static in the iOS embedded workflow Preview (same web-player bundle, served via the <code>homefit-local://</code> custom scheme handler inside a WKWebView).
+      <br><br>
+      <strong>This is the third attempt at E14.</strong>
+      <br>- PR #317 (attempt #2) diagnosed root cause as <code>getTotalLength()</code> returning 0 before WKWebView's layout pass; added a single <code>requestAnimationFrame</code> retry + <code>try</code>/<code>catch</code> around WAAPI. Carl QA'd - <strong>still static</strong>.
+      <br>- This attempt (#3) reasons further: the CSS <code>animation</code> declaration on <code>.lane-tracer</code> referenced an undefined <code>var(--path-len)</code> in its keyframes, producing an invalid keyframe. On iOS WebKit with the element inside a <code>position: fixed</code> ancestor (the lobby IS position: fixed), the CSS animation's no-op keyframes can suppress the layered WAAPI animation's visible effect.
+      <br><br>
+      <strong>Fix - four layers of defence:</strong>
+      <br>- <strong>(a)</strong> Disable the CSS animation explicitly: <code>tracer.style.animation = 'none'</code>. Removes the CSS-vs-WAAPI cascade-priority fight entirely.
+      <br>- <strong>(b)</strong> Also remove the broken CSS keyframes / @media (prefers-reduced-motion) rule from <code>styles.css</code>. WAAPI is the sole source of truth now. Reduce-motion is honoured in JS.
+      <br>- <strong>(c)</strong> Replace the single rAF retry with a bounded poll loop (up to 30 frames / ~500ms) that re-reads <code>getTotalLength()</code> each frame until it returns a positive number, then starts the animation.
+      <br>- <strong>(d)</strong> After WAAPI <code>animate()</code> returns, verify <code>anim.playState</code> isn't <code>idle</code>; if it is, explicitly <code>.play()</code> + re-check on the next frame; settle gracefully if still inert.
+      <br><br>
+      <strong>R-10 parity:</strong> all <code>web-player/*</code> edits synced to <code>app/assets/web-player/</code> via the bundle sync tool. Byte-identical.
+      <br><br>
+      <strong>In scope:</strong> embedded preview circuit lane animation - tracer drawing motion. Live web player regression check.
+      <br><br>
+      <strong>Out of scope:</strong> lobby export (Task D in round 2), prep hero treatment, photo body-focus, filmstrip sharpness - all separate PRs.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>fix/circuit-animation-wkwebview</code> installed on Carl's iPhone via <code>./install-device.sh staging</code>.</li>
+        <li>A session with at least one circuit (multi-round, x2 or x3 cycles) containing 2-3 exercises. The static lane outlines should be visible regardless; the test is the moving tracer.</li>
+        <li>For comparison, the same plan viewable at <code>staging.session.homefit.studio/p/&lt;planId&gt;</code> in Mobile Safari.</li>
+      </ul>
+    </div>
+
+    <h2>Embedded preview - circuit tracer animates</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The core fix. The coral spiral tracer must draw clockwise around the circuit frame inside the iOS embedded preview WebView. Was static across two prior attempts (PR #316, PR #317).
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">+</button><button class="fail" type="button" aria-label="Fail 1">x</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open a session with a circuit (x2 or x3) in Studio. Tap <strong>Preview</strong> in the workflow pill. Lobby loads inside the embedded WebView. Scroll to the circuit group (semi-transparent coral background framing 2-3 cards in a stack). The coral spiral <strong>tracer line is animating</strong> - drawing clockwise around the circuit frame, repeating. Static lane outlines (lighter coral) are also visible underneath.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">+</button><button class="fail" type="button" aria-label="Fail 2">x</button></div>
+        <span class="num">2.</span>
+        <span class="text">Swap to a different slide / section that's BEFORE the circuit, then scroll back to the circuit. The tracer animation continues / re-starts cleanly. (Layout: lobby re-renders the SVG on scroll changes via the ResizeObserver wired in the lane render path.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">+</button><button class="fail" type="button" aria-label="Fail 3">x</button></div>
+        <span class="num">3.</span>
+        <span class="text">Tap <strong>Start workout</strong> from the lobby - the deck takes over. Tap pause on the deck, then tap the back arrow / close to return to the lobby (or open a fresh preview if back-nav isn't available). The lobby re-renders, the tracer is animating again - no frozen-static state on the second visit.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Live web player - no regression</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Mobile Safari at <code>staging.session.homefit.studio</code> was working before this PR. Same code now drives both surfaces; ensure no regression in the public path.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">+</button><button class="fail" type="button" aria-label="Fail 4">x</button></div>
+        <span class="num">4.</span>
+        <span class="text">Open the same plan at <code>staging.session.homefit.studio/p/&lt;planId&gt;</code> in Mobile Safari (NOT through the embedded preview - the public surface). The circuit tracer is animating. Animation duration is the same as embedded preview (cycles x 9s).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">+</button><button class="fail" type="button" aria-label="Fail 5">x</button></div>
+        <span class="num">5.</span>
+        <span class="text">Rotate to landscape on the live web player. SVG re-renders with new dimensions, tracer continues animating without clipping or freezing.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Reduce Motion accessibility setting</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The embedded preview is practitioner-facing (not client-facing). The brief asked to confirm one specific design call: should the embedded surface respect the device-wide Reduce Motion preference, or always animate? This fix honours Reduce Motion uniformly across both surfaces - the same JS branch checks <code>window.matchMedia('(prefers-reduced-motion: reduce)').matches</code> in <code>applyTracer</code>. Rationale: consistency-first; a practitioner who needs Reduce Motion still benefits from honouring it in preview.
+    </p>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">+</button><button class="fail" type="button" aria-label="Fail 6">x</button></div>
+        <span class="num">6.</span>
+        <span class="text">Open Settings &rarr; Accessibility &rarr; Motion &rarr; turn <strong>Reduce Motion</strong> ON. Re-open the embedded preview lobby. The circuit tracer renders as a <strong>static settled spiral</strong> (stroke-dashoffset 0 - the full path drawn, not animating). Lane outlines still visible.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">+</button><button class="fail" type="button" aria-label="Fail 7">x</button></div>
+        <span class="num">7.</span>
+        <span class="text">Turn <strong>Reduce Motion OFF</strong>. Re-open the embedded preview lobby. Tracer animates again. (No fresh build required; the matchMedia query re-evaluates on each lane render.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Bundle drift + regression</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">+</button><button class="fail" type="button" aria-label="Fail 8">x</button></div>
+        <span class="num">8.</span>
+        <span class="text">CI green: <code>web-player-drift-guard</code> check passes (or run <code>cd app &amp;&amp; dart run tool/sync_web_player_bundle.dart --check</code> locally - reports "web-player bundle in sync"). All <code>web-player/*</code> edits are mirrored byte-for-byte to <code>app/assets/web-player/</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">+</button><button class="fail" type="button" aria-label="Fail 9">x</button></div>
+        <span class="num">9.</span>
+        <span class="text">Lobby export (Task D / share button) still works. Tap share in the embedded preview, modal generates PNG, share sheet appears. The tracer animation pauses during export (cancelled WAAPI animations) and re-starts when the modal closes. (Regression check - the export flow was rewired in this PR to cancel + re-apply WAAPI animations instead of relying on the now-removed CSS rule.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">+</button><button class="fail" type="button" aria-label="Fail 10">x</button></div>
+        <span class="num">10.</span>
+        <span class="text">Standalone (non-circuit) exercises in the lobby render without the circuit chrome - no static lane outlines, no tracer needed. The lobby only attaches the spiral to <code>.lobby-circuit</code> elements. (Regression - confirm the fix didn't accidentally apply to non-circuits.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Optional - Safari Web Inspector debug</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      If items #1-#3 fail, this is the path to gather more info for attempt #4. Skip if everything passes.
+    </p>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">+</button><button class="fail" type="button" aria-label="Fail 11">x</button></div>
+        <span class="num">11.</span>
+        <span class="text">Connect Carl's iPhone via USB to the Mac, open Safari &rarr; Develop &rarr; iPhone CHM &rarr; the WebView labelled <strong>homefit.studio - Exercise Plan</strong> (debug build only - <code>setInspectable(true)</code> gated to Debug/Profile in <code>unified_preview_screen.dart</code>). In the Console, run <code>document.querySelectorAll('.lane-tracer').forEach(t =&gt; console.log(t.getTotalLength(), t.getAnimations().length, t.getAnimations()[0]?.playState))</code>. Expected: positive length, 1 animation, <code>"running"</code>. If <code>0</code> length OR <code>0</code> animations OR <code>idle</code> playState - attach the output to the bug report.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Attempt #3 of E14. If this still fails, the 2-hour rabbit-hole rule applies - document findings on the PR and ship a no-fix diagnostic patch for Carl to extend on his Mac.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'circuit-animation-wkwebview-fix.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'circuit-animation-wkwebview-fix', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status') || '';
+          if (status) {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
