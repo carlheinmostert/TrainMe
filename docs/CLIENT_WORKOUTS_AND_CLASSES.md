@@ -102,8 +102,8 @@ When somebody says "session" without qualifying, they usually mean the first one
 
 | UI term | Flutter model (proposed) | Supabase (proposed) | Lifecycle / scope | Notes |
 |---|---|---|---|---|
-| **Class** | `Class` | `classes` (new table) OR `plans.kind = 'class'` (overload) — see open question **OQ-6** | Practice-scoped | Practitioner-published, consumer-buyable. Subscription or once-off. **No credits**. |
-| **Class session** | `ClassSession` (or reuse `Session`) | `exercises.class_id` (proposed FK) — if `classes` is its own table | Class-scoped | A class is composed of N sessions, same as a multi-session plan. May literally reuse the `exercises` table with a polymorphic FK. |
+| **Class** | `Class` | `classes` (new table) | Practice-scoped | Practitioner-published, consumer-buyable. Subscription or once-off. **No credits**. Decision 2026-05-13 — separate table from `plans`, not an overload. |
+| **Class session** | `ClassSession` | `class_sessions` (new) + `class_exercises` (new) OR `exercises.class_session_id` FK if we keep one exercises table | Class-scoped | A class is composed of N sessions. Open: do classes share the `exercises` table with a nullable polymorphic FK, or get their own `class_exercises` mirror? Lean toward sharing `exercises` with a `class_session_id` FK so the converter/preview pipeline stays one code path — track as **OQ-7**. |
 | **Plan invitation** | `PlanInvitation` | `plan_invitations` (new) | Plan + email + accepted_by_user_id | The email-magic-link bridge. One row per invite. Bound to a `plan_id` and optionally to a `class_id` once classes ship. |
 | **Workout** (consumer-facing) | `ConsumerWorkout` | View joining `plan_invitations.accepted_by_user_id = current_user.id` UNION `class_purchases` | Consumer-scoped | What lands in My Workouts. A single row could be a 1-on-1 plan (from a practitioner) OR a class instance (subscribed/bought). The UI calls all of them "workouts". |
 | **Consumer profile** | `ConsumerProfile` | `auth.users` + `consumer_profiles` (new, optional metadata table) | Per auth.user, **no `practice_members` row** | Users who only consume content. Same `auth.users` table as practitioners — the absence of a `practice_members` row is what marks them as consumer-only. |
@@ -127,9 +127,10 @@ A few mismatches we'll keep on purpose because renaming would be more disruptive
 - **`trainer_id`** column on `plans` — legacy from when the role noun was "trainer". Rename would require a coordinated migration + RLS policy update; not worth it. Use it via the wrapper RPCs, never expose to UI.
 - **`raidme.db`** SQLite filename — pre-rename artifact. Not user-visible. Leave alone.
 
-### Adds a new open question to the queue
+### Adds new open questions to the queue
 
-- **OQ-6** — Modeling Classes: new `classes` table (clean separation, more joins) vs overload `plans.kind = 'class'` with extra columns (lower migration cost, but plans-with-everything risk)? Lean toward a new table because the lifecycles diverge (no credits, has subscription, has cohort/capacity) — validate by sketching the queries first.
+- **OQ-6** ✓ **Resolved 2026-05-13** — Classes are a separate `classes` table, not an overload on `plans.kind`. Lifecycles diverge (no credits, has subscription, has cohort/capacity), and decoupling the migration from the existing `plans` RPCs (`replace_plan_exercises`, `get_plan_full`, `consume_credit`) keeps the credit model + RLS rules clean.
+- **OQ-7** — Class-side exercises storage. Two reasonable shapes: (a) reuse the existing `exercises` table with a nullable `class_session_id` FK alongside `plan_id`, so the converter / preview / playback pipeline stays one code path; (b) mirror the table as `class_exercises` for full isolation. Lean (a) — the conversion pipeline is the most load-bearing thing in the app, and one code path beats two.
 
 ---
 
@@ -269,6 +270,7 @@ Each step is small enough to design + review + ship without rework on the others
 - **2026-05-13** — Import bridge: email-magic-link via `plan_invitations` (not clipboard sniff, not manual paste). Unified pipeline for self-service and practitioner-initiated invites.
 - **2026-05-13** — TestFlight v2 ships front-end shell only; backend deferred to a sequence of follow-up PRs (this doc).
 - **2026-05-13** — Web-player lobby CTA included in TestFlight v2 with a no-op "coming soon" toast on submit.
+- **2026-05-13** — Classes will live in a new `classes` table (NOT overloaded on `plans.kind`). Decoupled lifecycles + clean credit model. Resolves OQ-6.
 
 ---
 
