@@ -2667,6 +2667,19 @@
             useCORS: true,
             allowTaint: false,
             logging: false,
+            // D10 fix: the share-preview modal (#lobby-export-modal) is
+            // appended to <body> with position:fixed inset:0 and is
+            // visible (showing the spinner) at snapshot time. html2canvas
+            // walks the document tree and bakes any fixed-position
+            // element overlapping the snapshot bounding box into the
+            // rasterised PNG. Skip the modal explicitly so the exported
+            // image contains plan content only — never the "Your plan,
+            // ready to share" dialog the user is currently looking at.
+            ignoreElements: (el) => {
+              if (!el || typeof el.id !== 'string') return false;
+              return el.id === 'lobby-export-modal'
+                || el.id === 'lobby-self-grant-modal';
+            },
           });
         } catch (err) {
           diag.h2cError = (err && err.message) || String(err);
