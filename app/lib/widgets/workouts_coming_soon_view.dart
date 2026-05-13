@@ -64,16 +64,25 @@ class _Headline extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Your workouts, here.',
-            style: TextStyle(
-              fontFamily: 'Montserrat',
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.3,
-              color: AppColors.textOnDark,
-              height: 1.2,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Text(
+                  'Your workouts, here.',
+                  style: TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                    color: AppColors.textOnDark,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              SizedBox(width: 10),
+              _ComingSoonPill(),
+            ],
           ),
           SizedBox(height: 6),
           Text(
@@ -88,6 +97,33 @@ class _Headline extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Filled-coral pill flagging a teaser body as a future feature. Lives
+/// next to the headline so the AppBar capsule labels stay short.
+class _ComingSoonPill extends StatelessWidget {
+  const _ComingSoonPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: const Text(
+        'Coming soon',
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+          letterSpacing: 0.4,
+        ),
       ),
     );
   }

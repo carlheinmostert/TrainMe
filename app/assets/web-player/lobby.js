@@ -1931,11 +1931,49 @@
         closeSelfGrantModal();
         return;
       }
+      // Import sheet next.
+      if (isImportSheetOpen()) {
+        closeImportSheet();
+        return;
+      }
       // Then the lobby settings popover.
       if (isLobbySettingsPopoverOpen()) {
         closeLobbySettingsPopover();
       }
     });
+
+    // ----- Import-to-app card (TestFlight v2 — static "Coming soon") -----
+    // The PR #315 stub shipped an email-collection form whose submit
+    // was a no-op. Carl flagged that as misleading during staging QA
+    // (item 10); replaced with a static teaser card that advertises
+    // the future feature without asking for an email. When the
+    // plan_invitations + magic-link backend ships, the card gets its
+    // tap target back; the position + framing stay the same.
+    //
+    // Matrix-only logo is injected here via buildHomefitLogoSvg()
+    // (from app.js) so the chrome stays canonical — earlier the icon
+    // was hand-rolled in markup and drifted from the brand geometry.
+    const importCard = document.getElementById('lobby-import-card');
+    const importGlyph = document.getElementById('lobby-import-glyph');
+
+    if (importCard && !importCard._wired) {
+      importCard._wired = true;
+      importCard.hidden = false;
+      // buildHomefitLogoSvg lives at the top level of app.js (no IIFE
+      // wrapper), so it's reachable as `window.buildHomefitLogoSvg` in
+      // a browser. We tolerate the bare name too so this works in any
+      // context that defines it on the global object.
+      const buildLogo =
+        (typeof window !== 'undefined'
+          && typeof window.buildHomefitLogoSvg === 'function')
+          ? window.buildHomefitLogoSvg
+          : (typeof buildHomefitLogoSvg === 'function'
+              ? buildHomefitLogoSvg
+              : null);
+      if (importGlyph && buildLogo) {
+        importGlyph.innerHTML = buildLogo();
+      }
+    }
   }
 
   // ==========================================================================
