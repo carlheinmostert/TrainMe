@@ -364,6 +364,17 @@ class UnifiedPreviewSchemeBridge {
       // bundle via the local scheme handler so parity is mandatory.
       'rest_seconds': e.restHoldSeconds,
       'preferred_treatment': e.preferredTreatment?.wireValue,
+      // Wave 42 — per-exercise body-focus default (PR #146 schema).
+      // Mirror the cloud `get_plan_full` shape so the embedded preview
+      // matches the live web player. Without this field the web
+      // player's `getEffective(exercise, 'bodyFocus')` falls back to
+      // `exercise.body_focus !== false`, which evaluates `true` for
+      // undefined → body-focus ON. Combined with PR #309's capture
+      // default of `preferred_treatment='grayscale'`, every new
+      // capture would resolve to `grayscale_segmented_url` (the
+      // body-focus-blurred segmented mp4/JPG) — the regression Carl
+      // flagged as QA item 8 (embedded Preview heroes blurred).
+      'body_focus': e.bodyFocus,
       'line_drawing_url': lineUrl,
       'grayscale_url':
           (consent.grayscale && archiveUrl != null) ? archiveUrl : null,
