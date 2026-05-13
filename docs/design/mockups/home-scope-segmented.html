@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — Home scope segmented control mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    /* ------------------------------------------------------------------ */
+    /*  Tokens (mirrored from docs/design/project/tokens.json)            */
+    /* ------------------------------------------------------------------ */
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --ink-on-brand: #ffffff;
+
+      --font-display: "Montserrat", system-ui, sans-serif;
+      --font-body: "Inter", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 22px;
+      --radius-full: 9999px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 64px 32px 96px;
+    }
+
+    .page-header {
+      margin-bottom: 56px;
+    }
+
+    .page-header .eyebrow {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 36px;
+      letter-spacing: -0.5px;
+      margin: 0 0 12px;
+    }
+
+    .page-header p {
+      color: var(--ink-secondary);
+      max-width: 720px;
+      font-size: 15px;
+      margin: 0;
+    }
+
+    section { margin-bottom: 64px; }
+
+    section > .section-head {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--surface-border);
+      padding-bottom: 12px;
+    }
+
+    section > .section-head h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 20px;
+      margin: 0 0 4px;
+    }
+
+    section > .section-head .section-num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-right: 8px;
+    }
+
+    section > .section-head p {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 13px;
+      max-width: 680px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Phone frame                                                       */
+    /* ------------------------------------------------------------------ */
+    .phones {
+      display: flex;
+      gap: 56px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .phone-wrap { width: 380px; }
+
+    .phone-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .phone-label .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      display: inline-block;
+    }
+
+    .phone-label.muted .dot { background: var(--ink-muted); }
+
+    .phone {
+      width: 380px;
+      height: 780px;
+      background: var(--surface-bg);
+      border: 10px solid #0a0c12;
+      border-radius: 48px;
+      box-shadow:
+        0 0 0 1px #1f222d inset,
+        0 30px 60px rgba(0, 0, 0, 0.45),
+        0 8px 16px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Notch */
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 110px;
+      height: 28px;
+      background: #0a0c12;
+      border-radius: 16px;
+      z-index: 5;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Home chrome (shared across both scopes)                           */
+    /* ------------------------------------------------------------------ */
+    .status-bar {
+      height: 44px;
+      padding: 12px 24px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-primary);
+      flex-shrink: 0;
+    }
+
+    .home-chrome {
+      padding: 6px 12px 0;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .corner-icons {
+      position: absolute;
+      top: 6px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 8px;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink-primary);
+      opacity: 0.85;
+    }
+
+    .icon-btn.left { color: var(--brand-default); }
+
+    .logo-lockup {
+      padding: 20px 0 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-matrix {
+      display: grid;
+      grid-template-columns: repeat(8, 8px);
+      gap: 3px;
+    }
+
+    .logo-cell {
+      width: 8px;
+      height: 14px;
+      background: #4b5563;
+      border-radius: 2px;
+    }
+
+    .logo-cell.brand { background: var(--brand-default); }
+    .logo-cell.brand-tint { background: rgba(255, 107, 53, 0.5); }
+    .logo-cell.rest { background: #86efac; height: 5px; align-self: center; border-radius: 2px; }
+    .logo-cell.g2 { background: #6b7280; }
+    .logo-cell.g3 { background: #9ca3af; }
+
+    .logo-word {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: -0.5px;
+    }
+    .logo-word .accent { color: var(--brand-default); }
+
+    .identity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 4px 4px;
+    }
+
+    .practice-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: var(--radius-full);
+    }
+
+    .practice-chip .swap {
+      width: 12px;
+      height: 12px;
+      opacity: 0.7;
+    }
+
+    .credits-chip {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      padding: 5px 10px;
+      border-radius: var(--radius-full);
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+    }
+
+    .credits-chip .count {
+      color: var(--ink-primary);
+      margin-right: 4px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Scope segmented control                                           */
+    /* ------------------------------------------------------------------ */
+    .scope-seg {
+      margin: 10px 16px 4px;
+      height: 40px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-full);
+      padding: 3px;
+      display: flex;
+    }
+
+    .scope-seg .seg {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: var(--radius-full);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      color: var(--ink-secondary);
+      transition: background 180ms ease;
+    }
+
+    .scope-seg .seg.active {
+      background: var(--brand-default);
+      color: #ffffff;
+    }
+
+    .soon-pill {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 2px 6px;
+      border-radius: var(--radius-full);
+    }
+
+    .seg .soon-pill {
+      background: var(--brand-tint-bg);
+      color: var(--brand-default);
+    }
+
+    .seg.active .soon-pill {
+      background: rgba(255, 255, 255, 0.22);
+      color: #ffffff;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Body: Clients list                                                */
+    /* ------------------------------------------------------------------ */
+    .body { flex: 1; overflow: hidden; padding: 8px 16px 0; }
+
+    .updated-hint {
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin: 2px 4px 6px;
+    }
+
+    .client-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .client-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: var(--brand-tint-bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand-default);
+      font-weight: 700;
+      font-size: 18px;
+      font-family: var(--font-display);
+      flex-shrink: 0;
+    }
+
+    .client-meta { flex: 1; min-width: 0; }
+    .client-name {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+    .client-sub {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      margin: 2px 0 0;
+    }
+
+    .chevron {
+      color: var(--ink-muted);
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    .cta {
+      margin: 4px 16px 16px;
+      height: 52px;
+      background: var(--brand-default);
+      color: #ffffff;
+      border-radius: var(--radius-lg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .cta-icon {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Body: Classes teaser                                              */
+    /* ------------------------------------------------------------------ */
+    .teaser-headline {
+      padding: 8px 4px 0;
+    }
+
+    .teaser-headline h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.3px;
+      margin: 0 0 6px;
+      color: var(--ink-primary);
+      line-height: 1.2;
+    }
+
+    .teaser-headline p {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0;
+      line-height: 1.45;
+    }
+
+    .mock-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      opacity: 0.62;
+    }
+
+    .mock-card .mock-glyph {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      background: var(--brand-tint-bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand-default);
+      flex-shrink: 0;
+    }
+
+    .mock-meta { flex: 1; min-width: 0; }
+
+    .mock-title {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+
+    .mock-sub {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      margin: 2px 0 0;
+    }
+
+    .mock-mode-pill {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 2px 8px;
+      background: var(--brand-tint-bg);
+      color: var(--brand-default);
+      border-radius: var(--radius-full);
+    }
+
+    .lock-glyph {
+      width: 18px;
+      height: 18px;
+      color: var(--ink-secondary);
+      flex-shrink: 0;
+    }
+
+    .teaser-footnote {
+      font-size: 11px;
+      font-style: italic;
+      color: var(--ink-secondary);
+      padding: 16px 4px 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Annotation callouts                                               */
+    /* ------------------------------------------------------------------ */
+    .callouts {
+      margin-top: 32px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      max-width: 880px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .callout {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+    }
+
+    .callout h4 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      margin: 0 0 8px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .callout ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--ink-secondary);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .callout ul li { margin-bottom: 6px; }
+    .callout ul em { color: var(--ink-primary); font-style: normal; font-weight: 600; }
+
+    /* ------------------------------------------------------------------ */
+    /*  Future-state diff table                                           */
+    /* ------------------------------------------------------------------ */
+    .diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      max-width: 880px;
+      margin: 0 auto;
+    }
+
+    .diff-table th,
+    .diff-table td {
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+
+    .diff-table th {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .diff-table tr:last-child td { border-bottom: none; }
+
+    .diff-table td.element {
+      color: var(--ink-primary);
+      font-weight: 600;
+      width: 30%;
+    }
+
+    .diff-table td.today { color: var(--ink-secondary); width: 35%; }
+    .diff-table td.future { color: var(--brand-light); width: 35%; }
+
+    .diff-table tr.unchanged td.future { color: var(--ink-secondary); }
+    .diff-table tr.unchanged td.element::after {
+      content: " ✓";
+      color: var(--ink-muted);
+      font-weight: 400;
+    }
+
+    .diff-table tr.changed td.future::before {
+      content: "→ ";
+      color: var(--brand-default);
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <div class="eyebrow">design / landing page</div>
+      <h1>Home scope segmented control</h1>
+      <p>
+        Two top-level scopes — <em>Clients</em> (today) and <em>Classes</em> (future) —
+        live as a permanent segmented control just below the identity row.
+        Today the Classes segment routes to a locked teaser body advertising
+        the multi-client content model. When Classes ships, the only thing
+        that changes is the body that the second segment renders — the
+        control, the identity chrome, and the corner icons all stay put. No
+        IA reshuffle on launch day.
+      </p>
+    </header>
+
+    <!-- ---------------------------------------------------------------- -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">01</span>Two scopes, one shape</h2>
+        <p>
+          Cold-launch lands on the last-selected scope (defaults to Clients
+          on first install). The phone chrome, brand lockup, identity row,
+          and corner icons are identical between states; only the segmented
+          control's active pill and the body region differ.
+        </p>
+      </div>
+
+      <div class="phones">
+        <!-- =============================================================
+             Phone A — Clients scope (today's home)
+             ============================================================= -->
+        <div class="phone-wrap">
+          <div class="phone-label"><span class="dot"></span>Clients scope · default</div>
+          <div class="phone">
+            <div class="status-bar">
+              <span>9:41</span>
+              <span>·······</span>
+            </div>
+            <div class="home-chrome">
+              <div class="corner-icons">
+                <div class="icon-btn left">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"/><path d="M14 8h7M14 16h7M14 12h7M18 5l3 3-3 3M18 19l3-3-3-3"/></svg>
+                </div>
+                <div class="icon-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg></div>
+              </div>
+              <div class="logo-lockup">
+                <div class="logo-matrix">
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                </div>
+                <div class="logo-word">homefit<span class="accent">.</span>studio</div>
+              </div>
+              <div class="identity-row">
+                <span class="practice-chip">
+                  Carl's Practice
+                  <svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg>
+                </span>
+                <span class="credits-chip"><span class="count">28</span>credits</span>
+              </div>
+            </div>
+
+            <!-- The control -->
+            <div class="scope-seg">
+              <div class="seg active">Clients</div>
+              <div class="seg">Classes <span class="soon-pill">Soon</span></div>
+            </div>
+
+            <!-- Clients body -->
+            <div class="body">
+              <div class="updated-hint">Updated 2m ago</div>
+              <div class="client-card">
+                <div class="client-avatar">MN</div>
+                <div class="client-meta">
+                  <p class="client-name">Melissa N.</p>
+                  <p class="client-sub">8 sessions · 3h ago</p>
+                </div>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+              <div class="client-card">
+                <div class="client-avatar">JR</div>
+                <div class="client-meta">
+                  <p class="client-name">Jacques R.</p>
+                  <p class="client-sub">3 sessions · 2 days ago</p>
+                </div>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+              <div class="client-card">
+                <div class="client-avatar">TS</div>
+                <div class="client-meta">
+                  <p class="client-name">Thandi S.</p>
+                  <p class="client-sub">1 session · 5 Apr</p>
+                </div>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+              <div class="client-card">
+                <div class="client-avatar">DK</div>
+                <div class="client-meta">
+                  <p class="client-name">David K.</p>
+                  <p class="client-sub">No sessions yet</p>
+                </div>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+            </div>
+
+            <div class="cta">
+              <svg class="cta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>
+              New Client
+            </div>
+          </div>
+        </div>
+
+        <!-- =============================================================
+             Phone B — Classes scope (locked teaser)
+             ============================================================= -->
+        <div class="phone-wrap">
+          <div class="phone-label muted"><span class="dot"></span>Classes scope · locked teaser</div>
+          <div class="phone">
+            <div class="status-bar">
+              <span>9:41</span>
+              <span>·······</span>
+            </div>
+            <div class="home-chrome">
+              <div class="corner-icons">
+                <div class="icon-btn left">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"/><path d="M14 8h7M14 16h7M14 12h7M18 5l3 3-3 3M18 19l3-3-3-3"/></svg>
+                </div>
+                <div class="icon-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg></div>
+              </div>
+              <div class="logo-lockup">
+                <div class="logo-matrix">
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                </div>
+                <div class="logo-word">homefit<span class="accent">.</span>studio</div>
+              </div>
+              <div class="identity-row">
+                <span class="practice-chip">
+                  Carl's Practice
+                  <svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg>
+                </span>
+                <span class="credits-chip"><span class="count">28</span>credits</span>
+              </div>
+            </div>
+
+            <!-- The control -->
+            <div class="scope-seg">
+              <div class="seg">Clients</div>
+              <div class="seg active">Classes <span class="soon-pill">Soon</span></div>
+            </div>
+
+            <!-- Classes teaser body -->
+            <div class="body" style="overflow:hidden;">
+              <div class="teaser-headline">
+                <h3>One plan. Many clients.</h3>
+                <p>Build a class once, share it with everyone who buys or subscribes. Coming after Clients lands.</p>
+              </div>
+
+              <div class="mock-card">
+                <div class="mock-glyph"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M14 19a5 5 0 0 1 7-4.5"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Glutes &amp; Hamstrings</p>
+                  <p class="mock-sub">6-week block · 18 sessions</p>
+                  <span class="mock-mode-pill">Subscription</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+
+              <div class="mock-card">
+                <div class="mock-glyph"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M14 19a5 5 0 0 1 7-4.5"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Posture Reset</p>
+                  <p class="mock-sub">14 sessions</p>
+                  <span class="mock-mode-pill">One-time</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+
+              <div class="mock-card">
+                <div class="mock-glyph"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M14 19a5 5 0 0 1 7-4.5"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Beginner Mobility</p>
+                  <p class="mock-sub">4 sessions</p>
+                  <span class="mock-mode-pill">Subscription</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+
+              <div class="teaser-footnote">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                Examples only. Real classes unlock when this ships.
+              </div>
+            </div>
+            <!-- No primary CTA on Classes scope — when the feature ships,
+                 the same slot will hold "New Class". Today it stays empty
+                 so the teaser body has the floor. -->
+          </div>
+        </div>
+      </div>
+
+      <div class="callouts">
+        <div class="callout">
+          <h4>What sells the future</h4>
+          <ul>
+            <li>The control itself is the advert — <em>Classes</em> is permanently visible from the moment the practitioner opens the app.</li>
+            <li>The teaser body shows real-looking class cards behind a lock — feels like a product preview, not a placeholder.</li>
+            <li>The <em>Subscription</em> / <em>One-time</em> mode pills tell the commercial story without copy.</li>
+          </ul>
+        </div>
+        <div class="callout">
+          <h4>What doesn't change later</h4>
+          <ul>
+            <li>Identity row, brand lockup, corner icons, and the segmented-control geometry are pixel-identical between today and launch day.</li>
+            <li>The "Soon" pill disappears; the segment label and tap target stay where they were.</li>
+            <li>The body callsite becomes a real <em>ClassesListScreen</em> — same scrolling area, same spacing.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------------- -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">02</span>What changes when Classes ships</h2>
+        <p>
+          Single callsite change in <code>HomeScreen.build()</code> — swap
+          <code>ClassesComingSoonView()</code> for the real classes list
+          widget. Every other element on this page is unchanged.
+        </p>
+      </div>
+
+      <table class="diff-table">
+        <thead>
+          <tr>
+            <th>Element</th>
+            <th>Today (mockup)</th>
+            <th>When Classes ships</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="unchanged">
+            <td class="element">Brand lockup + identity row</td>
+            <td class="today">Logo + practice chip + credits</td>
+            <td class="future">Unchanged</td>
+          </tr>
+          <tr class="unchanged">
+            <td class="element">Segmented control geometry</td>
+            <td class="today">Two-segment capsule, 40px tall</td>
+            <td class="future">Unchanged</td>
+          </tr>
+          <tr class="changed">
+            <td class="element">"Soon" pill on Classes label</td>
+            <td class="today">Visible</td>
+            <td class="future">Removed</td>
+          </tr>
+          <tr class="changed">
+            <td class="element">Classes body</td>
+            <td class="today">Locked teaser + mock cards</td>
+            <td class="future">Real ClassesListScreen</td>
+          </tr>
+          <tr class="changed">
+            <td class="element">Classes-scope CTA slot</td>
+            <td class="today">Empty</td>
+            <td class="future">"New Class" coral button</td>
+          </tr>
+          <tr class="unchanged">
+            <td class="element">Clients scope body + CTA</td>
+            <td class="today">Clients list + "New Client"</td>
+            <td class="future">Unchanged</td>
+          </tr>
+          <tr class="unchanged">
+            <td class="element">Corner icons (Help, Settings, Share)</td>
+            <td class="today">Stack overlay, scope-agnostic</td>
+            <td class="future">Unchanged</td>
+          </tr>
+          <tr class="unchanged">
+            <td class="element">SharedPreferences scope persistence</td>
+            <td class="today">Defaults to Clients on first install</td>
+            <td class="future">Unchanged</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ---------------------------------------------------------------- -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">03</span>Why not the alternatives</h2>
+        <p>Four IA primitives considered. Segmented control wins on advertising-power per pixel and on zero-change-on-ship-day.</p>
+      </div>
+
+      <table class="diff-table">
+        <thead>
+          <tr>
+            <th>Pattern</th>
+            <th>Strength</th>
+            <th>Why not</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="element">Bottom tab bar</td>
+            <td class="today">iOS-native, persistent, scales to 3-5</td>
+            <td class="future">Steals 56px of vertical real estate forever; over-promises a third scope we haven't designed.</td>
+          </tr>
+          <tr>
+            <td class="element">Segmented control <em>(chosen)</em></td>
+            <td class="today">Single pixel-perfect IA primitive; both scopes always visible</td>
+            <td class="future">—</td>
+          </tr>
+          <tr>
+            <td class="element">Horizontal PageView swipe</td>
+            <td class="today">Gestural; reuses the existing Capture↔Studio idiom</td>
+            <td class="future">Classes is a swipe away — weaker as an advertisement; dot indicator carries little semantic weight.</td>
+          </tr>
+          <tr>
+            <td class="element">Mode chip in header</td>
+            <td class="today">Most compact</td>
+            <td class="future">Future surface hidden behind a tap — fails the "advertise it" test.</td>
+          </tr>
+          <tr>
+            <td class="element">Unified Library with sections</td>
+            <td class="today">Honest about the underlying data model</td>
+            <td class="future">Forces vertical scroll past Classes content the user can't yet use; section headers don't scale to a third domain.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</body>
+</html>
