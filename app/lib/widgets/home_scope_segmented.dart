@@ -22,14 +22,15 @@ enum HomeScope { clients, classes, workouts }
 /// — three top-level surfaces are always visible so Home's shape
 /// doesn't change between today and the day Classes / Workouts go
 /// live. Today, the Classes and Workouts segments route to locked
-/// teaser bodies; a `Soon` pill on each label tells the user they're
-/// not buyable yet.
+/// teaser bodies; the teaser body's headline carries a "Coming soon"
+/// pill so labels in the AppBar capsule stay short and never
+/// truncate.
 ///
 /// Visual model:
 ///
-///   [ Clients · Classes Soon ]      [ My Workouts Soon ]
-///        Practice capsule              Workouts capsule
-///         (flex 1.95)                    (flex 1)
+///   [ Clients · Classes ]      [ My Workouts ]
+///        Practice capsule         Workouts capsule
+///         (flex 1.95)                (flex 1)
 ///
 /// The Practice and Workouts capsules sit side-by-side with an 8px
 /// gap. Visually distinct primitives tell the truth that Practice
@@ -64,7 +65,6 @@ class HomeScopeSegmented extends StatelessWidget {
                 ),
                 _Segment(
                   label: 'Classes',
-                  soon: true,
                   active: selected == HomeScope.classes,
                   onTap: () => _select(HomeScope.classes),
                 ),
@@ -79,7 +79,6 @@ class HomeScopeSegmented extends StatelessWidget {
               children: [
                 _Segment(
                   label: 'My Workouts',
-                  soon: true,
                   active: selected == HomeScope.workouts,
                   onTap: () => _select(HomeScope.workouts),
                 ),
@@ -125,14 +124,12 @@ class _Capsule extends StatelessWidget {
 class _Segment extends StatelessWidget {
   final String label;
   final bool active;
-  final bool soon;
   final VoidCallback onTap;
 
   const _Segment({
     required this.label,
     required this.active,
     required this.onTap,
-    this.soon = false,
   });
 
   @override
@@ -152,63 +149,18 @@ class _Segment extends StatelessWidget {
             borderRadius: BorderRadius.circular(100),
           ),
           alignment: Alignment.center,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: fg,
-                    letterSpacing: 0.1,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (soon) ...[
-                const SizedBox(width: 6),
-                _SoonPill(active: active),
-              ],
-            ],
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              color: fg,
+              letterSpacing: 0.1,
+            ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SoonPill extends StatelessWidget {
-  final bool active;
-  const _SoonPill({required this.active});
-
-  @override
-  Widget build(BuildContext context) {
-    // On the active (coral-filled) segment the pill flips to a soft
-    // white tint so it still reads as a label rather than a hot
-    // accent on a hot background. Inactive, it picks up a faint
-    // coral tint — just enough to whisper "this is the new thing".
-    final bg = active
-        ? Colors.white.withValues(alpha: 0.22)
-        : AppColors.brandTintBg;
-    final fg = active ? Colors.white : AppColors.primary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(100),
-      ),
-      child: Text(
-        'Soon',
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-          color: fg,
-          letterSpacing: 0.4,
         ),
       ),
     );
