@@ -1001,17 +1001,23 @@ class UploadService {
             thumbUrls[exercise.id] = _api.publicMediaUrl(
                 path: '${session.id}/${exercise.id}_thumb.jpg');
 
-            // Backfill _thumb_line.jpg if missing in storage.
+            // Backfill _thumb_line.jpg if missing in storage. Skip when
+            // replaceFirst was a no-op (legacy photo rows whose
+            // thumbnailPath was the raw file before Bundle 2b's variant
+            // pipeline existed) — otherwise we'd upload the raw photo
+            // mis-named as `_thumb_line.jpg`.
             final lineThumbAbs =
                 thumbAbs.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
-            final lineThumbFile = File(lineThumbAbs);
-            if (await lineThumbFile.exists()) {
-              final lineStoragePath =
-                  '${session.id}/${exercise.id}_thumb_line.jpg';
-              if (!existingFiles.contains(lineStoragePath)) {
-                await _api.uploadMedia(
-                    path: lineStoragePath, file: lineThumbFile);
-                uploadedPaths.add(lineStoragePath);
+            if (lineThumbAbs != thumbAbs) {
+              final lineThumbFile = File(lineThumbAbs);
+              if (await lineThumbFile.exists()) {
+                final lineStoragePath =
+                    '${session.id}/${exercise.id}_thumb_line.jpg';
+                if (!existingFiles.contains(lineStoragePath)) {
+                  await _api.uploadMedia(
+                      path: lineStoragePath, file: lineThumbFile);
+                  uploadedPaths.add(lineStoragePath);
+                }
               }
             }
           }
@@ -1053,21 +1059,29 @@ class UploadService {
 
               // Wave Three-Treatment-Thumbs (2026-05-05) — also upload
               // the LINE-DRAWING JPG (`_thumb_line.jpg`) for the web
-              // player's line treatment. Native conversion produces
-              // this alongside `_thumb.jpg` (see conversion_service.dart
-              // line 263-278) — same Hero offset, sourced from the
-              // converted line video. Public bucket; URL reconstructed
-              // by get_plan_full at fetch time.
+              // player's line treatment. Native conversion (video) /
+              // OpenCV isolate (photo, Bundle 2b) produces this
+              // alongside `_thumb.jpg` — same Hero offset, sourced from
+              // the converted line video or line-drawing photo. Public
+              // bucket; URL reconstructed by get_plan_full at fetch
+              // time.
+              //
+              // Defensive: skip when the replaceFirst was a no-op
+              // (legacy photo rows whose `thumbnailPath` was the raw
+              // file before the Bundle 2b photo-variant pipeline). The
+              // line variant doesn't exist for those rows on disk.
               final lineThumbPath =
                   thumbPath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
-              final lineThumbFile = File(lineThumbPath);
-              if (await lineThumbFile.exists()) {
-                final lineStoragePath =
-                    '${session.id}/${exercise.id}_thumb_line.jpg';
-                if (!existingFiles.contains(lineStoragePath)) {
-                  await _api.uploadMedia(
-                      path: lineStoragePath, file: lineThumbFile);
-                  uploadedPaths.add(lineStoragePath);
+              if (lineThumbPath != thumbPath) {
+                final lineThumbFile = File(lineThumbPath);
+                if (await lineThumbFile.exists()) {
+                  final lineStoragePath =
+                      '${session.id}/${exercise.id}_thumb_line.jpg';
+                  if (!existingFiles.contains(lineStoragePath)) {
+                    await _api.uploadMedia(
+                        path: lineStoragePath, file: lineThumbFile);
+                    uploadedPaths.add(lineStoragePath);
+                  }
                 }
               }
             }
@@ -1704,18 +1718,37 @@ class UploadService {
     if (clientGrantedAnyColor) {
       for (final exercise in session.exercises) {
         if (exercise.isRest) continue;
-        if (exercise.mediaType.name != 'video') continue;
+        // Bundle 2b — photos now produce a `_thumb_color.jpg` variant
+        // alongside videos (the variant pipeline lives in
+        // conversion_service.dart's photo branch). Without this gate
+        // change every photo plan published since Bundle 2b would
+        // re-upload the raw colour image as `_thumb_color.jpg` via the
+        // `_thumb_line.jpg` replaceFirst no-op (latent bug pre-2b too).
+        // Same consent gate, same storage path — videos + photos
+        // converge.
+        final mediaName = exercise.mediaType.name;
+        if (mediaName != 'video' && mediaName != 'photo') continue;
         final thumbAbs = exercise.absoluteThumbnailPath;
         if (thumbAbs == null) continue;
-        // Convention: native conversion writes _thumb_color.jpg next to
-        // _thumb.jpg in the same {Documents}/thumbnails/ directory.
+        // Convention: native (video) / OpenCV-isolate (photo) conversion
+        // writes _thumb_color.jpg next to _thumb.jpg in the same
+        // {Documents}/thumbnails/ directory. Pre-Bundle-2b photo rows
+        // had `thumbnailPath = rawFilePath` (not under thumbnails/),
+        // so the replaceFirst was a no-op + the existsSync skipped them.
+        // Post-2b rows resolve correctly.
         final colorThumbAbs =
             thumbAbs.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+        if (colorThumbAbs == thumbAbs) {
+          // Defensive: legacy photo rows whose thumbnailPath wasn't
+          // touched by Bundle 2b (e.g. capture that pre-dated install).
+          // Skip — no variant exists on disk.
+          continue;
+        }
         final colorFile = File(colorThumbAbs);
         if (!colorFile.existsSync()) {
           debugPrint(
             'UploadService: color thumb missing for ${exercise.id} '
-            'at $colorThumbAbs — skipping.',
+            '($mediaName) at $colorThumbAbs — skipping.',
           );
           continue;
         }
@@ -1741,6 +1774,7 @@ class UploadService {
             'practice_id': practiceId,
             'plan_id': session.id,
             'exercise_id': exercise.id,
+            'media_type': mediaName,
             'storage_path': colorStoragePath,
           },
           swallow: true,
