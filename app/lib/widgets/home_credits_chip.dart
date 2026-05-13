@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
 import '../services/auth_service.dart';
@@ -14,19 +15,23 @@ import '../theme.dart';
 /// sync-age hint); this chip is the at-a-glance anchor.
 ///
 /// **Apple Reader-App compliance (App Store Review Guideline 3.1.1).**
-/// This widget is **informational only** — it never opens a payment page,
-/// never opens the practice manager, never carries a tappable link. The
-/// Reader-App pattern (Spotify, Netflix, Kindle) permits showing account
-/// state inside the iOS app but disallows any in-app affordance that
-/// nudges the user toward an external purchase flow. Concretely:
+/// This widget never opens a payment page, never carries a price, never
+/// nudges the user toward an external purchase flow. The Reader-App
+/// pattern (Spotify, Netflix, Kindle) permits showing account state
+/// inside the iOS app and permits *informational* links explaining how
+/// the account model works — what it disallows is in-app affordances
+/// that funnel users into an external buy flow. Concretely:
 ///
-///   - When `balance > 0` we show the count as a static pill (no `onTap`).
-///   - When `balance == 0` we expand to a plain-text sentence reading
-///     "You're out of credits. Top up at manage.homefit.studio when
-///     you're at your computer." — the URL renders as plain text, NOT a
-///     hyperlink, NOT a button. Reviewers consistently accept this
-///     phrasing because it's read-aloud copy and not a tappable
-///     redirect to a payment page.
+///   - When `balance > 0` we show the count as a static, non-tappable
+///     pill (no `onTap`).
+///   - When `balance == 0` we surface a **filled coral pill** containing
+///     a bold white `0` and a small `?` glyph. Tapping the `?` opens an
+///     **informational** help article at `{portalOrigin}/help/credits`
+///     in Safari View Controller. The article explains what credits are
+///     and what happens when you run out — it has no "Buy" CTA, shows
+///     no prices, and never funnels into a purchase flow. Reviewers
+///     consistently accept informational explainer pages; what they
+///     reject is anything that reads as a buy nudge.
 ///
 /// Behaviour:
 ///   - Reads the active practice id from [AuthService.currentPracticeId].
@@ -38,9 +43,10 @@ import '../theme.dart';
 ///
 /// Visual: small dark coral pill (`brandTintBg` border, coral icon +
 /// number, ink-dark text) — matches the [PracticeChip]'s aesthetic so
-/// the two read as peers in the identity row. Zero-balance state breaks
-/// out of the pill into a wider plain-text line so it can carry the
-/// full sentence without truncating.
+/// the two read as peers in the identity row. The zero-balance state
+/// breaks visual convention with a **filled** coral pill so it pulls
+/// the eye — credits at zero is the only state the practitioner needs
+/// to act on.
 class HomeCreditsChip extends StatelessWidget {
   const HomeCreditsChip({super.key});
 
@@ -56,13 +62,12 @@ class HomeCreditsChip extends StatelessWidget {
           valueListenable: SyncService.instance.creditBalances,
           builder: (context, balances, _) {
             final balance = balances[practiceId];
-            // Zero-balance state: replace the count pill with a
-            // plain-text sentence. Per the Reader-App rule the URL is
-            // NOT a hyperlink — it reads as flat copy so the
-            // practitioner's expected workflow is "switch to the
-            // laptop and visit the URL there", not "tap here".
+            // Zero-balance state: switch to a filled coral pill with a
+            // bold "0" and a help glyph. The glyph opens an
+            // informational explainer page (Reader-App compliant — no
+            // prices, no buy CTA).
             if (balance == 0) {
-              return const _OutOfCreditsLine();
+              return const _OutOfCreditsPill();
             }
             return _CreditsChipVisual(balance: balance);
           },
@@ -127,43 +132,146 @@ class _CreditsChipVisual extends StatelessWidget {
   }
 }
 
-/// Plain-text zero-balance line. Reader-App rule: when the practitioner
-/// has no credits, we MAY tell them where to top up — but only as
-/// non-interactive copy. The URL is a string of characters, not a
-/// hyperlink, not an `InkWell`, not wrapped in `launchUrl`. If the
-/// reviewer or a curious tester taps it nothing happens — exactly the
-/// behaviour the guideline expects.
+/// Out-of-credits state: a **filled coral pill** containing a bold
+/// white `0` and a small `?` glyph. Visually distinct from the
+/// non-zero pill so it pulls the eye — running out of credits is the
+/// one state the practitioner needs to act on.
 ///
-/// Layout note: the call site wraps this inside a `Row` and we can't
-/// rely on `Flexible` here because [HomeCreditsChip] is several
-/// `ValueListenableBuilder`s deep — `ParentDataWidget` only applies
-/// when it's a direct child of the `Flex`. Instead we cap the width
-/// with a `ConstrainedBox` so the sentence wraps to two lines on
-/// narrow phones without overflowing the row.
-class _OutOfCreditsLine extends StatelessWidget {
-  const _OutOfCreditsLine();
+/// The `?` is the affordance — tapping anywhere on the pill opens the
+/// help article at `{portalOrigin}/help/credits` in Safari View
+/// Controller (in-app browser). The article is **informational only**:
+/// it explains what credits are and what happens when you run out, and
+/// has zero purchase CTAs / prices (Apple Guideline 3.1.1 — see
+/// `feedback_ios_reader_app.md`).
+///
+/// Polish: one-shot fade-in on first render. No looping animation; a
+/// pulsing pill would feel like an aggressive nag.
+class _OutOfCreditsPill extends StatefulWidget {
+  const _OutOfCreditsPill();
+
+  @override
+  State<_OutOfCreditsPill> createState() => _OutOfCreditsPillState();
+}
+
+class _OutOfCreditsPillState extends State<_OutOfCreditsPill>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fadeCtrl;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+    _fade = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    // Fire-and-forget; one-shot.
+    _fadeCtrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _fadeCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openHelp() async {
+    final uri = Uri.parse('${AppConfig.portalOrigin}/help/credits');
+    bool launched = false;
+    try {
+      launched = await launchUrl(
+        uri,
+        mode: LaunchMode.inAppBrowserView,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched) {
+      try {
+        launched = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+      } catch (_) {
+        launched = false;
+      }
+    }
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't open the help page. Try again shortly.",
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            duration: Duration(seconds: 3),
+          ),
+        );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // A12 (HARDCODED-AUDIT-2026-05-12) — derive the displayed portal host
-    // from AppConfig.portalOrigin so a staging build's copy reads
-    // "staging.manage.homefit.studio". The string is non-interactive
-    // (Reader-App compliance — no tap target, no "Buy", no prices); we
-    // just keep the host accurate to the build env.
-    final displayHost =
-        AppConfig.portalOrigin.replaceFirst(RegExp(r'^https?://'), '');
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 220),
-      child: Text(
-        "You're out of credits. Top up at $displayHost "
-        "when you're at your computer.",
-        textAlign: TextAlign.right,
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 12,
-          height: 1.35,
-          fontWeight: FontWeight.w500,
-          color: AppColors.textSecondaryOnDark,
+    return FadeTransition(
+      opacity: _fade,
+      child: Semantics(
+        button: true,
+        label: 'Out of credits. Tap to learn more.',
+        child: Material(
+          color: Colors.transparent,
+          // Slightly larger radius than the normal chip (which uses
+          // 999/pill) — same circular shape, but the filled state +
+          // bolder content makes it read as visually distinct without
+          // changing geometry.
+          borderRadius: BorderRadius.circular(999),
+          child: InkWell(
+            onTap: _openHelp,
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '0',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      height: 1.0,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Icon(
+                    Icons.help_outline_rounded,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
