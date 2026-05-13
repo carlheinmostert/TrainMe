@@ -3942,11 +3942,18 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   bool get _enhancedBackground => _current.bodyFocus ?? true;
 
   /// Whether the Body Focus pill is meaningful for the current
-  /// exercise + treatment. Line drawings have no background to dim,
-  /// so the pill greys out + ignores taps when [_treatment] is
-  /// [Treatment.line]. Photos / rest rows hide the pill entirely (the
-  /// build() guard piggy-backs on `_isVideo`).
-  bool get _enhancedBackgroundEnabled => _treatment != Treatment.line;
+  /// exercise + treatment. Three disable cases:
+  ///   * media_type != 'video'   → Body focus is a video-only effect.
+  ///                               Photos route through the Wave 22
+  ///                               raw-JPG + CSS-grayscale pipeline,
+  ///                               which has no body-pop variant on
+  ///                               the playback path. 2026-05-13:
+  ///                               surface disabled with explanatory
+  ///                               tooltip per Carl's option C2.
+  ///   * _treatment == 'line'    → Line drawings have no background
+  ///                               to dim.
+  bool get _enhancedBackgroundEnabled =>
+      _isVideo(_current) && _treatment != Treatment.line;
 
   /// Wave 42 — toggle the per-exercise Body Focus default. Writes to
   /// the local `ExerciseCapture.bodyFocus` field, persists through
@@ -5136,6 +5143,13 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       active: _isMuted,
       onTap: _toggleMute,
     );
+    // Disabled-state tooltip varies by reason:
+    //   photo  → "available for video exercises only"
+    //   line   → "applies to colour playback only"
+    // (2026-05-13 round 2 — photos disable per Carl's option C2 spec.)
+    final bodyFocusDisabledTooltip = !isVideo
+        ? 'Body focus is available for video exercises only.'
+        : 'Body focus applies to colour playback only.';
     final bodyFocus = _TogglePill(
       iconWhenActive: Icons.blur_on_rounded,
       iconWhenInactive: Icons.blur_off_rounded,
@@ -5147,7 +5161,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       tooltipWhenActive: 'Body focus ON — background dimmed for clarity.',
       tooltipWhenInactive:
           'Body focus OFF — playing the untouched colour file.',
-      tooltipWhenDisabled: 'Body focus applies to colour playback only.',
+      tooltipWhenDisabled: bodyFocusDisabledTooltip,
     );
     final rotate = _RotatePill(
       onTap: _onRotateTap,
@@ -5155,7 +5169,9 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     );
 
     if (!isVideo) {
-      // Photo path — body focus only.
+      // Photo path — body focus shown as DISABLED with explanatory
+      // tooltip ("available for video exercises only"). Sets the right
+      // expectation rather than being a silent no-op.
       return bodyFocus;
     }
 
