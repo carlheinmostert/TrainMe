@@ -5,7 +5,14 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v76-env-config';
+// CACHE_NAME is auto-rewritten on every Vercel build by web-player/build.sh.
+// The placeholder suffix on the next line is replaced with the 7-char git
+// SHA of the deploy (e.g. 'homefit-player-a4bdc1c'). Bumping the cache name
+// on every deploy is what forces the SW to re-fetch the app shell — without
+// it, browsers happily serve stale HTML / headers / CSP from the cache
+// long after a fix has shipped (two real outages on 2026-05-12 traced back
+// here). See build.sh for the rewrite step.
+const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
 // App shell files — always cached
 const APP_SHELL = [
