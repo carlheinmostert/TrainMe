@@ -115,6 +115,36 @@
 
       <!-- Hero list — vertical scroll. Built by app.js's buildLobbyList(). -->
       <ul class="lobby-list" id="lobby-list" role="list"></ul>
+
+      <!-- "Import to the app" CTA. Appears below the hero list; sits
+           UNDER Start Workout in visual priority so the primary action
+           is unambiguous. Tap opens the import sheet (email collection).
+           Today (TestFlight v2), submitting is a no-op that fires a
+           polite "coming soon" toast — the backend (plan_invitations
+           + magic-link email) ships in a follow-up PR.
+           See docs/CLIENT_WORKOUTS_AND_CLASSES.md for the full spec. -->
+      <button
+        type="button"
+        class="lobby-import-cta"
+        id="lobby-import-cta"
+        aria-label="Get the homefit.studio app and import this session"
+        hidden
+      >
+        <span class="lobby-import-glyph" aria-hidden="true">
+          <span class="lobby-import-glyph-matrix">
+            <span class="lic"></span><span class="lic"></span><span class="lic"></span><span class="lic b"></span><span class="lic b"></span><span class="lic b"></span><span class="lic r"></span><span class="lic"></span>
+            <span class="lic"></span><span class="lic"></span><span class="lic"></span><span class="lic b"></span><span class="lic b"></span><span class="lic b"></span><span class="lic r"></span><span class="lic"></span>
+          </span>
+        </span>
+        <span class="lobby-import-copy">
+          <span class="lobby-import-title">Get the app &amp; import this session</span>
+          <span class="lobby-import-sub">Play offline. Future plans land here too.</span>
+        </span>
+        <svg class="lobby-import-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
+      </button>
+
       <!-- Export-only footer (Wave Free Lobby Export, 2026-05-05). Hidden
            during normal lobby viewing; shown only when html.is-exporting
            is set during the html2canvas snapshot pass. Branding + tagline. -->
@@ -126,6 +156,42 @@
         <div class="lobby-export-tagline">Visual plans clients follow.</div>
       </div>
     </div>
+
+    <!-- Import-to-app sheet (TestFlight v2 stub).
+         Backed by lobby.js handlers; the submit is a no-op + "coming
+         soon" toast until the plan_invitations backend ships. -->
+    <div class="lobby-import-sheet" id="lobby-import-sheet" hidden aria-hidden="true">
+      <div class="lobby-import-sheet-veil" data-import-dismiss></div>
+      <div class="lobby-import-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="lobby-import-sheet-title">
+        <div class="lobby-import-sheet-grabber" aria-hidden="true"></div>
+        <h3 class="lobby-import-sheet-title" id="lobby-import-sheet-title">Import to the app</h3>
+        <p class="lobby-import-sheet-body">
+          Drop your email — we'll send a link that opens this session inside the homefit.studio app. The public link will stop working for anyone else.
+        </p>
+        <label class="lobby-import-sheet-label" for="lobby-import-email">Email</label>
+        <input
+          class="lobby-import-sheet-input"
+          id="lobby-import-email"
+          type="email"
+          autocomplete="email"
+          inputmode="email"
+          spellcheck="false"
+          placeholder="you@example.com"
+        />
+        <button type="button" class="lobby-import-sheet-send" id="lobby-import-send">Send import link</button>
+        <p class="lobby-import-sheet-privacy">
+          We only use this email to send your import link.
+          <a href="https://manage.homefit.studio/privacy" target="_blank" rel="noopener">Privacy</a>
+          ·
+          <a href="https://manage.homefit.studio/terms" target="_blank" rel="noopener">Terms</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Lightweight transient toast used by the import sheet's
+         "coming soon" no-op. Self-dismissing. Lives at lobby root so
+         it survives sheet teardown. -->
+    <div class="lobby-toast" id="lobby-toast" hidden role="status" aria-live="polite"></div>
 
     <!-- Desktop export modal (Wave Free Lobby Export hardening, 2026-05-05).
          Desktop browsers (macOS Safari + Chrome) reliably block both
