@@ -15,7 +15,7 @@
 
 homefit.studio is becoming a **two-mode product** in one app shell:
 
-1. **Practice mode** (creator) — what exists today. Practitioners build plans for clients (1-on-1, credit-gated publish) and, future, classes (1-to-many, subscription / once-off monetization).
+1. **Practice mode** (creator) — what exists today. Practitioners build plans for clients (1-on-1, credit-gated publish) and, future, classes (1-to-many, once-off purchase at MVP; subscriptions a later phase).
 2. **My Workouts mode** (consumer) — what comes next. End-clients receive plans from their practitioner and/or subscribe / buy classes; they play workouts inside the app instead of in the browser.
 
 Both modes live in one binary. A user can be just-a-practitioner, just-a-consumer, or both. The IA accommodates all three.
@@ -47,7 +47,7 @@ The TestFlight v2 release locks the **shell** in place — two capsules on a sin
 | Scope row (two capsules) | Visible | Visible | Visible |
 | **Identity row (below scope row)** | Practice + Offline + Credits | Practice + Offline | **Not rendered** |
 | Practice chip | Visible | Visible | Hidden |
-| Credits chip | Visible | **Hidden** (subscription monetization) | Hidden |
+| Credits chip | Visible | **Hidden** (classes don't use credits) | Hidden |
 | Offline-sync chip | Visible (when offline / queued) | Visible | Hidden — see open question OQ-3 |
 | Network-share corner icon | Visible | Visible | Hidden (referrals are practitioner-only) |
 | Help + Settings corner icons | Visible | Visible | Visible |
@@ -154,8 +154,8 @@ This symmetry is also why the IA inside Practice mode is `[ Clients · Classes ]
 | **Plan invitation** | `PlanInvitation` | `plan_invitations` (new) | Plan + email + accepted_by_user_id | The email-magic-link bridge. One row per invite. Bound to a `plan_id` and optionally to a `class_id` once classes ship. |
 | **Workout** (consumer-facing) | `ConsumerWorkout` | View joining `plan_invitations.accepted_by_user_id = current_user.id` UNION `class_purchases` | Consumer-scoped | What lands in My Workouts. A single row could be a 1-on-1 plan (from a practitioner) OR a class instance (subscribed/bought). The UI calls all of them "workouts". |
 | **Consumer profile** | `ConsumerProfile` | `auth.users` + `consumer_profiles` (new, optional metadata table) | Per auth.user, **no `practice_members` row** | Users who only consume content. Same `auth.users` table as practitioners — the absence of a `practice_members` row is what marks them as consumer-only. |
-| **Class subscription** | `ClassSubscription` | `class_subscriptions` (new) | Consumer + Class | Recurring billing (PayFast recurring or App Store IAP). |
-| **Class purchase** | `ClassPurchase` | `class_purchases` (new) | Consumer + Class | One-time payment. |
+| **Class purchase** | `ClassPurchase` | `class_purchases(consumer_user_id, class_id, purchased_at)` (new) | Consumer + Class | One-time, lifetime access. Web-portal-driven (no iOS IAP — Reader-App compliance, same channel as today's credit purchases). The **only** Class access table at MVP. |
+| **Class subscription** | n/a at MVP | n/a at MVP | n/a at MVP | **Deferred to future phase** (PR sequence step 12). Decision 2026-05-13 — start with once-off; subscriptions add recurring auth + lapse handling + dunning + prorated upgrades, none of which is needed to validate the monetization story. |
 | **Plan claim** | (action, not entity) | `claim_plan(p_token)` RPC + the `plan_invitations.accepted_by_user_id` write | — | "Claiming" a plan = accepting an invite. After claim, the public `/p/{uuid}` URL stops serving to anonymous viewers (handled inside `get_plan_full`). |
 
 ### Retired — terms NOT to use
@@ -229,40 +229,11 @@ The unit of sharing is different for Client-owned Plans vs Class-owned Plans. Th
 **Class-owned Plan** (future model, the new complication):
 - Unit of sharing = **a Class** (which contains N Plans).
 - A consumer doesn't buy a Plan — they subscribe to or once-off purchase a Class.
-- A Class is a **live container**: the practitioner can add new Plans over time, and active subscribers should see them appear in their My Workouts list automatically.
-- A one-time-purchase consumer: do they get a snapshot (Plans available at purchase time only) OR ongoing additions? **OQ-8** below.
-- A subscriber whose subscription lapses: do they retain access to Plans they've already played / partially played? **OQ-9** below.
-- One credit is NOT consumed per Plan inside a Class — Classes monetize differently (subscription revenue / one-off purchase revenue). Confirms the Clients-only credit rule.
+- A Class is a **live container**: the practitioner can add new Plans over time, and every consumer who has purchased the Class sees the new Plans appear in their My Workouts automatically (OQ-8 resolved live — see open questions).
+- **MVP is once-off purchase only**; subscriptions are a future phase (PR sequence step 12). See decision-log entry 2026-05-13.
+- One credit is NOT consumed per Plan inside a Class — Classes monetize via purchase revenue, not credits. Confirms the Clients-only credit rule.
 
-**Access check in `get_plan_full` will branch on the Plan's parent:**
-
-```
-get_plan_full(plan_id) — access check (sketch)
-
-  IF plan.client_id IS NOT NULL:
-    -- Client-owned Plan (1-on-1)
-    IF requester is practitioner of plan's practice:
-      → return plan
-    ELSE IF plan_invitations.accepted_by_user_id matches requester:
-      → return plan
-    ELSE IF requester is anon AND no claim exists for this plan:
-      → return plan (public link path)
-    ELSE:
-      → return "this plan has been imported" gate
-
-  ELSE IF plan.class_id IS NOT NULL:
-    -- Class-owned Plan
-    IF requester is practitioner of plan's practice:
-      → return plan (practitioner preview)
-    ELSE IF class_subscriptions row matches (class_id, requester, active)
-         OR class_purchases row matches (class_id, requester, snapshot
-            includes this plan):
-      → return plan
-    ELSE:
-      → return "this class is by subscription / purchase" gate
-```
-
-**Public-link semantics for Class-owned Plans:** today's `/p/{uuid}` URL is anonymous-readable. For Class Plans we probably want the public link to NOT work — otherwise the practitioner monetizes their Class and a subscriber forwards the raw URL and bypasses payment. **OQ-10** below.
+**Public-link semantics for Class-owned Plans** (resolved — see OQ-10 below): the `/p/{uuid}` URL will reject anon access for any Plan with `class_id IS NOT NULL`. Otherwise a subscriber forwards the raw URL and bypasses payment. Access check sketch lives below in the **Data model additions** section after all the resolutions are applied.
 
 **My Workouts representation of class membership:** does a subscribed 6-week-class-with-18-Plans show as 18 rows in the consumer's My Workouts list, or as 1 Class card that expands into 18 Plans? The mock cards in the teaser show flat workouts; the real surface likely needs a hybrid (Class as a parent card, Plans as drill-in detail). **OQ-11** below.
 
@@ -313,8 +284,8 @@ When the locked teaser ships its real implementation, the body becomes a list of
 
 **Data model:**
 - `consumer_profiles` (or just lean on `auth.users` + a flag column) — keyed off the consumer's `auth.users.id`, tracks email, display name, opt-ins. No practice membership.
-- `consumer_workouts` view — joins `plan_invitations.accepted_by_user_id = current_user.id` with `plans` for the list query.
-- Future: `consumer_class_subscriptions` for class-side content.
+- `consumer_workouts` view — UNION of `plan_invitations.accepted_by_user_id = auth.uid()` JOINed with `plans` (Client-owned), and `class_purchases.consumer_user_id = auth.uid()` JOINed with `classes` JOINed with `plans` (Class-owned).
+- Future-phase (when subscriptions ship): the view extends to UNION in `class_subscriptions` as a second Class-access source.
 
 ### 3. Authentication for consumers
 
@@ -340,11 +311,13 @@ The Share sheet in Studio currently has two paths today (copy link / iOS share s
 
 The future Classes sub-tab in the Practice capsule becomes a real list of classes the practitioner has published.
 
-- New data model: `classes` table (plan-like but with subscription / one-time pricing, capacity, possibly cohort scheduling).
-- New publish flow: same Studio editor, but the "publish" action produces a class rather than a single-client plan.
-- Monetization: subscription (PayFast recurring or App Store IAP) or one-time purchase. **Credits don't apply** — the practitioner is paid per consumer-side purchase, not per publish.
-- Consumer side: a class shows up in their My Workouts list with the coral "Subscribed class" / "Purchased class" pill (mockup already shows the visual).
-- Re-uses the email-magic-link bridge from section 1 for sending class invites to specific people.
+- New data model: `classes` table — separate from `plans` (resolves OQ-6). One-time price column at MVP; cohort scheduling is OQ-5, deferred.
+- Plans inside a Class are regular `plans` rows with `class_id` set (resolves OQ-7). Ordered by `plans.created_at` ascending (resolves OQ-12). The conversion / preview / playback pipeline is unchanged from today's 1-on-1 plans.
+- Publish flow: same Studio editor; the practitioner picks the Class as the Plan's parent instead of a Client. A Class can accumulate Plans over time — there's no "publish the whole Class" moment, just per-Plan adds.
+- **Monetization at MVP = once-off purchase only** (`class_purchases`). Subscriptions are PR sequence step 12, post-MVP. **Credits don't apply** to classes — practitioners are paid per consumer-side purchase, not per Plan published.
+- **Channel:** purchases happen on `manage.homefit.studio` (web portal), same Reader-App compliance pattern as today's credit purchases. No iOS IAP — avoids Apple's 15-30%.
+- Consumer side: a Class shows up in My Workouts as a single parent card (resolves OQ-11). Tap drills into a new Class-detail screen listing the Plans inside.
+- Note: the email-magic-link bridge in section 1 stays Client-only. Class access is grant-on-purchase (no invitation token needed); the consumer signs in, pays on the portal, and the Class appears in My Workouts.
 
 ### 6. Privacy + POPIA implications
 
