@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — App shell landing page (Practice + My Workouts)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+
+      --sage: #86efac;
+      --sage-tint: rgba(134, 239, 172, 0.16);
+
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --ink-on-brand: #ffffff;
+
+      --font-display: "Montserrat", system-ui, sans-serif;
+      --font-body: "Inter", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 22px;
+      --radius-full: 9999px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 64px 32px 96px;
+    }
+
+    .page-header { margin-bottom: 56px; }
+    .page-header .eyebrow {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+      color: var(--brand-default); text-transform: uppercase; margin-bottom: 8px;
+    }
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-weight: 800; font-size: 36px; letter-spacing: -0.5px;
+      margin: 0 0 12px;
+    }
+    .page-header p {
+      color: var(--ink-secondary); max-width: 760px; font-size: 15px; margin: 0;
+    }
+    .page-header p em { color: var(--ink-primary); font-style: normal; font-weight: 600; }
+
+    section { margin-bottom: 64px; }
+    section > .section-head {
+      margin-bottom: 24px; border-bottom: 1px solid var(--surface-border); padding-bottom: 12px;
+    }
+    section > .section-head h2 {
+      font-family: var(--font-display); font-weight: 700; font-size: 20px; margin: 0 0 4px;
+    }
+    section > .section-head .section-num {
+      font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); margin-right: 8px;
+    }
+    section > .section-head p {
+      margin: 0; color: var(--ink-secondary); font-size: 13px; max-width: 760px;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /*  Phone grid                                                       */
+    /* ---------------------------------------------------------------- */
+    .phones-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 380px);
+      gap: 56px 48px;
+      justify-content: center;
+    }
+
+    .phone-wrap { width: 380px; }
+
+    .phone-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .phone-label .dot {
+      width: 6px; height: 6px; border-radius: 50%; display: inline-block;
+      background: var(--brand-default);
+    }
+    .phone-label.muted .dot { background: var(--ink-muted); }
+    .phone-label.web .dot { background: var(--sage); }
+    .phone-label small {
+      margin-left: auto;
+      color: var(--ink-disabled);
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 10px;
+    }
+
+    .phone {
+      width: 380px;
+      height: 800px;
+      background: var(--surface-bg);
+      border: 10px solid #0a0c12;
+      border-radius: 48px;
+      box-shadow:
+        0 0 0 1px #1f222d inset,
+        0 30px 60px rgba(0, 0, 0, 0.45),
+        0 8px 16px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Notch */
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 110px;
+      height: 28px;
+      background: #0a0c12;
+      border-radius: 16px;
+      z-index: 5;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /*  Shared home chrome                                               */
+    /* ---------------------------------------------------------------- */
+    .status-bar {
+      height: 44px;
+      padding: 12px 24px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-primary);
+      flex-shrink: 0;
+    }
+
+    .home-chrome {
+      padding: 6px 12px 0;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .corner-icons {
+      position: absolute;
+      top: 6px; left: 0; right: 0;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 8px;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .icon-btn {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-primary);
+      opacity: 0.85;
+    }
+    .icon-btn.left { color: var(--brand-default); }
+
+    .logo-lockup {
+      padding: 20px 0 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo-matrix {
+      display: grid;
+      grid-template-columns: repeat(8, 8px);
+      gap: 3px;
+    }
+    .logo-cell {
+      width: 8px; height: 14px; background: #4b5563; border-radius: 2px;
+    }
+    .logo-cell.brand { background: var(--brand-default); }
+    .logo-cell.brand-tint { background: rgba(255, 107, 53, 0.5); }
+    .logo-cell.rest { background: var(--sage); height: 5px; align-self: center; border-radius: 2px; }
+    .logo-cell.g2 { background: #6b7280; }
+    .logo-cell.g3 { background: #9ca3af; }
+    .logo-word {
+      font-family: var(--font-display);
+      font-weight: 800; font-size: 18px; letter-spacing: -0.5px;
+    }
+    .logo-word .accent { color: var(--brand-default); }
+
+    .identity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 4px 4px;
+      min-height: 28px;
+    }
+    .identity-row.empty { opacity: 0; }
+
+    .practice-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: var(--radius-full);
+    }
+    .practice-chip .swap {
+      width: 12px; height: 12px; opacity: 0.7;
+    }
+
+    .credits-chip {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      padding: 5px 10px;
+      border-radius: var(--radius-full);
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+    }
+    .credits-chip .count { color: var(--ink-primary); margin-right: 4px; }
+
+    /* ---------------------------------------------------------------- */
+    /*  Two-capsule scope row                                            */
+    /* ---------------------------------------------------------------- */
+    .scope-row {
+      display: flex;
+      gap: 8px;
+      margin: 10px 16px 4px;
+    }
+
+    .cap {
+      height: 40px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-full);
+      padding: 3px;
+      display: flex;
+      align-items: stretch;
+    }
+
+    .cap-practice { flex: 1.95; }
+    .cap-workouts { flex: 1; }
+
+    .seg {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border-radius: var(--radius-full);
+      font-size: 13.5px;
+      font-weight: 600;
+      letter-spacing: 0.1px;
+      color: var(--ink-secondary);
+      transition: background 180ms ease;
+      padding: 0 8px;
+    }
+
+    .seg.active {
+      background: var(--brand-default);
+      color: #ffffff;
+    }
+
+    .soon-pill {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 2px 5px;
+      border-radius: var(--radius-full);
+      background: var(--brand-tint-bg);
+      color: var(--brand-default);
+    }
+
+    .seg.active .soon-pill {
+      background: rgba(255, 255, 255, 0.22);
+      color: #ffffff;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /*  Body — Clients list (real today)                                 */
+    /* ---------------------------------------------------------------- */
+    .body { flex: 1; overflow: hidden; padding: 8px 16px 0; }
+
+    .updated-hint {
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin: 2px 4px 6px;
+    }
+
+    .row-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 11px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .avatar {
+      width: 50px; height: 50px;
+      border-radius: 14px;
+      background: var(--brand-tint-bg);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--brand-default);
+      font-weight: 700;
+      font-size: 17px;
+      font-family: var(--font-display);
+      flex-shrink: 0;
+    }
+
+    .row-meta { flex: 1; min-width: 0; }
+    .row-title {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+    .row-sub {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      margin: 2px 0 0;
+    }
+    .chev { color: var(--ink-muted); width: 16px; height: 16px; flex-shrink: 0; }
+
+    .cta {
+      margin: 4px 16px 16px;
+      height: 52px;
+      background: var(--brand-default);
+      color: #ffffff;
+      border-radius: var(--radius-lg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /*  Teaser body shared                                                */
+    /* ---------------------------------------------------------------- */
+    .teaser-headline { padding: 6px 4px 0; }
+    .teaser-headline h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.3px;
+      margin: 0 0 6px;
+      line-height: 1.2;
+    }
+    .teaser-headline p {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0;
+      line-height: 1.45;
+    }
+
+    .mock-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 11px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 9px;
+      opacity: 0.62;
+    }
+
+    .mock-glyph {
+      width: 50px; height: 50px;
+      border-radius: 12px;
+      background: var(--brand-tint-bg);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--brand-default);
+      flex-shrink: 0;
+    }
+
+    .mock-glyph.sage {
+      background: var(--sage-tint);
+      color: var(--sage);
+    }
+
+    .mock-meta { flex: 1; min-width: 0; }
+    .mock-title {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+    .mock-sub {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      margin: 2px 0 0;
+    }
+    .mode-pill {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 2px 7px;
+      background: var(--brand-tint-bg);
+      color: var(--brand-default);
+      border-radius: var(--radius-full);
+    }
+    .mode-pill.sage {
+      background: var(--sage-tint);
+      color: var(--sage);
+    }
+
+    .lock-glyph { width: 18px; height: 18px; color: var(--ink-secondary); flex-shrink: 0; }
+
+    .teaser-footnote {
+      font-size: 11px;
+      font-style: italic;
+      color: var(--ink-secondary);
+      padding: 14px 4px 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /*  Web player lobby (Phone D)                                       */
+    /* ---------------------------------------------------------------- */
+    .safari-bar {
+      flex-shrink: 0;
+      height: 60px;
+      padding: 14px 16px 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid var(--surface-border);
+    }
+
+    .safari-url {
+      flex: 1;
+      background: var(--surface-base);
+      border-radius: 10px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      font-family: var(--font-body);
+      text-align: center;
+      border: 1px solid var(--surface-border);
+    }
+
+    .safari-url .scheme { color: var(--ink-muted); }
+
+    .lobby-body {
+      flex: 1;
+      padding: 28px 24px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .lobby-title h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 24px;
+      letter-spacing: -0.4px;
+      margin: 0 0 8px;
+      line-height: 1.15;
+    }
+
+    .lobby-title .from {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0;
+    }
+
+    .lobby-stats {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .lobby-stat {
+      flex: 1;
+      min-width: 0;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+    }
+
+    .lobby-stat .k {
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      font-weight: 600;
+      margin: 0 0 4px;
+    }
+    .lobby-stat .v {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+
+    .lobby-start-btn {
+      height: 56px;
+      background: var(--brand-default);
+      color: #ffffff;
+      border-radius: var(--radius-lg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 17px;
+      letter-spacing: 0.2px;
+    }
+
+    .lobby-app-cta {
+      margin-top: auto;
+      padding: 14px 16px;
+      border: 1px solid var(--brand-tint-border);
+      background: var(--brand-tint-bg);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .lobby-app-cta .app-glyph {
+      width: 36px; height: 36px;
+      border-radius: 9px;
+      background: #0f1117;
+      border: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .lobby-app-cta .app-glyph .matrix-mini {
+      display: grid;
+      grid-template-columns: repeat(8, 2px);
+      gap: 1px;
+    }
+    .lobby-app-cta .app-glyph .matrix-mini .c {
+      width: 2px; height: 4px; background: var(--ink-muted); border-radius: 0.5px;
+    }
+    .lobby-app-cta .app-glyph .matrix-mini .c.b { background: var(--brand-default); }
+    .lobby-app-cta .app-glyph .matrix-mini .c.r { background: var(--sage); height: 1.5px; align-self: center; }
+
+    .lobby-app-cta .copy {
+      flex: 1;
+      min-width: 0;
+    }
+    .lobby-app-cta .copy h4 {
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+    .lobby-app-cta .copy p {
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      margin: 2px 0 0;
+      line-height: 1.4;
+    }
+    .lobby-app-cta .go {
+      width: 28px; height: 28px;
+      color: var(--brand-default);
+      flex-shrink: 0;
+    }
+
+    .lobby-footer {
+      padding: 16px 4px 18px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      text-align: center;
+    }
+
+    /* ----- Email collection sheet overlay (on the lobby phone) ----- */
+    .sheet-veil {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(2px);
+    }
+    .sheet {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      background: var(--surface-base);
+      border-top-left-radius: 24px;
+      border-top-right-radius: 24px;
+      padding: 12px 20px 26px;
+      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4);
+    }
+    .sheet .grabber {
+      width: 36px; height: 4px;
+      background: var(--surface-border);
+      border-radius: 2px;
+      margin: 0 auto 16px;
+    }
+    .sheet h3 {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 6px;
+      letter-spacing: -0.2px;
+    }
+    .sheet p {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0 0 16px;
+      line-height: 1.45;
+    }
+    .sheet .input {
+      height: 46px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      font-size: 15px;
+      color: var(--ink-primary);
+    }
+    .sheet .input .caret {
+      width: 1px; height: 18px; background: var(--brand-default);
+      margin-left: 1px;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+    .sheet .send-btn {
+      height: 46px;
+      background: var(--brand-default);
+      color: #ffffff;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 15px;
+      margin-top: 12px;
+    }
+    .sheet .privacy {
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin: 12px 0 0;
+      text-align: center;
+      line-height: 1.5;
+    }
+    .sheet .privacy a {
+      color: var(--ink-secondary);
+      text-decoration: underline;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /*  Diff / behavior tables                                            */
+    /* ---------------------------------------------------------------- */
+    .diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    .diff-table th, .diff-table td {
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--surface-border);
+      vertical-align: top;
+    }
+    .diff-table th {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+    .diff-table tr:last-child td { border-bottom: none; }
+    .diff-table td.element {
+      color: var(--ink-primary);
+      font-weight: 600;
+      width: 28%;
+    }
+    .diff-table td.mode-a, .diff-table td.mode-b, .diff-table td.mode-c {
+      width: 24%;
+      color: var(--ink-secondary);
+    }
+    .yes { color: var(--brand-light); font-weight: 600; }
+    .no  { color: var(--ink-muted); }
+
+    /* ---------------------------------------------------------------- */
+    /*  Callouts                                                          */
+    /* ---------------------------------------------------------------- */
+    .callouts {
+      margin-top: 32px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 1080px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .callout {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+    }
+    .callout h4 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 13px;
+      margin: 0 0 10px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .callout ul {
+      margin: 0; padding-left: 18px;
+      color: var(--ink-secondary);
+      font-size: 13px; line-height: 1.6;
+    }
+    .callout ul li { margin-bottom: 6px; }
+    .callout ul em { color: var(--ink-primary); font-style: normal; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <div class="eyebrow">design / app shell · landing</div>
+      <h1>Practice + My Workouts — one consistent shell</h1>
+      <p>
+        Three top-level surfaces, two visually-distinct controls in one
+        row. The left capsule is <em>Practice mode</em> with its internal
+        <em>Clients / Classes</em> scope split. The right capsule is
+        <em>My Workouts</em> — a separate identity (consumer, not
+        creator) with no practice context and no credits. Practice chip +
+        credits chip are anchored to the left capsule and fade when the
+        user flips to My Workouts. Today, Classes and My Workouts are
+        locked teasers; when each ships, the only thing that changes is
+        the body — the shell stays exactly where it is.
+      </p>
+    </header>
+
+    <!-- ================================================================ -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">01</span>Four states, one shell</h2>
+        <p>
+          Three in-app states (Clients real / Classes teaser / My Workouts
+          teaser) plus the web-player lobby that funnels casual viewers
+          into the app via an email-magic-link bridge.
+        </p>
+      </div>
+
+      <div class="phones-grid">
+        <!-- =========================================================== -->
+        <!-- A — Practice / Clients (today's real surface)                -->
+        <!-- =========================================================== -->
+        <div class="phone-wrap">
+          <div class="phone-label">
+            <span class="dot"></span>Practice · Clients
+            <small>default · real today</small>
+          </div>
+          <div class="phone">
+            <div class="status-bar"><span>9:41</span><span>·······</span></div>
+            <div class="home-chrome">
+              <div class="corner-icons">
+                <div class="icon-btn left"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"/><path d="M14 8h7M14 16h7M14 12h7M18 5l3 3-3 3M18 19l3-3-3-3"/></svg></div>
+                <div class="icon-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg></div>
+              </div>
+              <div class="logo-lockup">
+                <div class="logo-matrix">
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                </div>
+                <div class="logo-word">homefit<span class="accent">.</span>studio</div>
+              </div>
+              <div class="identity-row">
+                <span class="practice-chip">Carl's Practice<svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></span>
+                <span class="credits-chip"><span class="count">28</span>credits</span>
+              </div>
+            </div>
+
+            <div class="scope-row">
+              <div class="cap cap-practice">
+                <div class="seg active">Clients</div>
+                <div class="seg">Classes <span class="soon-pill">Soon</span></div>
+              </div>
+              <div class="cap cap-workouts">
+                <div class="seg">My Workouts <span class="soon-pill">Soon</span></div>
+              </div>
+            </div>
+
+            <div class="body">
+              <div class="updated-hint">Updated 2m ago</div>
+              <div class="row-card">
+                <div class="avatar">MN</div>
+                <div class="row-meta"><p class="row-title">Melissa N.</p><p class="row-sub">8 sessions · 3h ago</p></div>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+              <div class="row-card">
+                <div class="avatar">JR</div>
+                <div class="row-meta"><p class="row-title">Jacques R.</p><p class="row-sub">3 sessions · 2 days ago</p></div>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+              <div class="row-card">
+                <div class="avatar">TS</div>
+                <div class="row-meta"><p class="row-title">Thandi S.</p><p class="row-sub">1 session · 5 Apr</p></div>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+              <div class="row-card">
+                <div class="avatar">DK</div>
+                <div class="row-meta"><p class="row-title">David K.</p><p class="row-sub">No sessions yet</p></div>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+            </div>
+
+            <div class="cta">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>
+              New Client
+            </div>
+          </div>
+        </div>
+
+        <!-- =========================================================== -->
+        <!-- B — Practice / Classes (locked teaser)                       -->
+        <!-- =========================================================== -->
+        <div class="phone-wrap">
+          <div class="phone-label muted">
+            <span class="dot"></span>Practice · Classes
+            <small>locked teaser</small>
+          </div>
+          <div class="phone">
+            <div class="status-bar"><span>9:41</span><span>·······</span></div>
+            <div class="home-chrome">
+              <div class="corner-icons">
+                <div class="icon-btn left"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"/><path d="M14 8h7M14 16h7M14 12h7M18 5l3 3-3 3M18 19l3-3-3-3"/></svg></div>
+                <div class="icon-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg></div>
+              </div>
+              <div class="logo-lockup">
+                <div class="logo-matrix">
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                </div>
+                <div class="logo-word">homefit<span class="accent">.</span>studio</div>
+              </div>
+              <div class="identity-row">
+                <!-- Classes mode: practice chip still shows (you're still in a practice),
+                     credits chip is HIDDEN because Classes monetize via subscription, not credits. -->
+                <span class="practice-chip">Carl's Practice<svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></span>
+              </div>
+            </div>
+
+            <div class="scope-row">
+              <div class="cap cap-practice">
+                <div class="seg">Clients</div>
+                <div class="seg active">Classes <span class="soon-pill">Soon</span></div>
+              </div>
+              <div class="cap cap-workouts">
+                <div class="seg">My Workouts <span class="soon-pill">Soon</span></div>
+              </div>
+            </div>
+
+            <div class="body" style="overflow:hidden;">
+              <div class="teaser-headline">
+                <h3>One plan. Many clients.</h3>
+                <p>Build a class once, share it with everyone who buys or subscribes. Coming after Clients lands.</p>
+              </div>
+              <div class="mock-card">
+                <div class="mock-glyph"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M14 19a5 5 0 0 1 7-4.5"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Glutes &amp; Hamstrings</p>
+                  <p class="mock-sub">6-week block · 18 sessions</p>
+                  <span class="mode-pill">Subscription</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+              <div class="mock-card">
+                <div class="mock-glyph"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M14 19a5 5 0 0 1 7-4.5"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Posture Reset</p>
+                  <p class="mock-sub">14 sessions</p>
+                  <span class="mode-pill">One-time</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+              <div class="mock-card">
+                <div class="mock-glyph"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M14 19a5 5 0 0 1 7-4.5"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Beginner Mobility</p>
+                  <p class="mock-sub">4 sessions</p>
+                  <span class="mode-pill">Subscription</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+              <div class="teaser-footnote">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                Examples only. Real classes unlock when this ships.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========================================================== -->
+        <!-- C — My Workouts (locked teaser, consumer mode)               -->
+        <!-- =========================================================== -->
+        <div class="phone-wrap">
+          <div class="phone-label muted">
+            <span class="dot"></span>My Workouts (consumer)
+            <small>locked teaser</small>
+          </div>
+          <div class="phone">
+            <div class="status-bar"><span>9:41</span><span>·······</span></div>
+            <div class="home-chrome">
+              <div class="corner-icons">
+                <!-- Network/share icon hidden in Workouts mode; only Settings + Help remain -->
+                <div class="icon-btn left" style="opacity:0"></div>
+                <div class="icon-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg></div>
+              </div>
+              <div class="logo-lockup">
+                <div class="logo-matrix">
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                  <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
+                </div>
+                <div class="logo-word">homefit<span class="accent">.</span>studio</div>
+              </div>
+              <!-- Identity row preserved (same height) but EMPTY in Workouts mode -->
+              <div class="identity-row empty">
+                <span class="practice-chip">placeholder</span>
+              </div>
+            </div>
+
+            <div class="scope-row">
+              <div class="cap cap-practice">
+                <div class="seg">Clients</div>
+                <div class="seg">Classes <span class="soon-pill">Soon</span></div>
+              </div>
+              <div class="cap cap-workouts">
+                <div class="seg active">My Workouts <span class="soon-pill">Soon</span></div>
+              </div>
+            </div>
+
+            <div class="body" style="overflow:hidden;">
+              <div class="teaser-headline">
+                <h3>Your workouts, here.</h3>
+                <p>When your practitioner sends a plan or you join a class, it lands in your pocket. Play offline. No browser.</p>
+              </div>
+              <div class="mock-card">
+                <div class="mock-glyph sage"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/><path d="m2 21 6-6h8"/><path d="m15 21-2-4"/><path d="m20 16-3-3"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Knee rehab — Week 2</p>
+                  <p class="mock-sub">from Dr. Sarah · 6 sessions</p>
+                  <span class="mode-pill sage">From practitioner</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+              <div class="mock-card">
+                <div class="mock-glyph"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M14 19a5 5 0 0 1 7-4.5"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Beginner Mobility</p>
+                  <p class="mock-sub">4 sessions · joined 2 weeks ago</p>
+                  <span class="mode-pill">Subscribed class</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+              <div class="mock-card">
+                <div class="mock-glyph sage"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/><path d="m2 21 6-6h8"/><path d="m15 21-2-4"/><path d="m20 16-3-3"/></svg></div>
+                <div class="mock-meta">
+                  <p class="mock-title">Morning routine</p>
+                  <p class="mock-sub">from Dr. Sarah · 4 sessions</p>
+                  <span class="mode-pill sage">From practitioner</span>
+                </div>
+                <svg class="lock-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              </div>
+              <div class="teaser-footnote">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                Examples only. Real workouts unlock when this ships.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =========================================================== -->
+        <!-- D — Web player lobby with "Get the app & import" CTA         -->
+        <!-- =========================================================== -->
+        <div class="phone-wrap">
+          <div class="phone-label web">
+            <span class="dot"></span>Web player lobby (Safari)
+            <small>browser · email-magic-link bridge</small>
+          </div>
+          <div class="phone">
+            <div class="status-bar"><span>9:41</span><span>·······</span></div>
+            <div class="safari-bar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              <div class="safari-url"><span class="scheme">session.</span>homefit.studio/p/8c…f3</div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+
+            <div class="lobby-body">
+              <div class="lobby-title">
+                <h2>Knee rehab — Week 2</h2>
+                <p class="from">From Dr. Sarah · Carl's Practice</p>
+              </div>
+
+              <div class="lobby-stats">
+                <div class="lobby-stat"><p class="k">Sessions</p><p class="v">6</p></div>
+                <div class="lobby-stat"><p class="k">Duration</p><p class="v">~28 min</p></div>
+                <div class="lobby-stat"><p class="k">Equipment</p><p class="v">Band</p></div>
+              </div>
+
+              <div class="lobby-start-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Start Workout
+              </div>
+
+              <div class="lobby-app-cta">
+                <div class="app-glyph">
+                  <div class="matrix-mini">
+                    <div class="c"></div><div class="c"></div><div class="c"></div><div class="c b"></div><div class="c b"></div><div class="c b"></div><div class="c r"></div><div class="c"></div>
+                    <div class="c"></div><div class="c"></div><div class="c"></div><div class="c b"></div><div class="c b"></div><div class="c b"></div><div class="c r"></div><div class="c"></div>
+                  </div>
+                </div>
+                <div class="copy">
+                  <h4>Get the app &amp; import this session</h4>
+                  <p>Play offline. Track progress. Future plans land here too.</p>
+                </div>
+                <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 6 15 12 9 18"/></svg>
+              </div>
+
+              <div class="lobby-footer">homefit.studio · v25.05.13</div>
+
+              <!-- Email collection sheet overlay -->
+              <div class="sheet-veil"></div>
+              <div class="sheet">
+                <div class="grabber"></div>
+                <h3>Import to the app</h3>
+                <p>Drop your email — we'll send a link that opens this session inside the homefit.studio app. The public link will stop working for anyone else.</p>
+                <div class="input">david@<span style="color:var(--ink-secondary);">example.com</span><span class="caret"></span></div>
+                <div class="send-btn">Send import link</div>
+                <p class="privacy">We only use this email to send your import link. <a href="#">Privacy</a> · <a href="#">Terms</a></p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">02</span>Chrome behaviour per mode</h2>
+        <p>Practice chip and credits chip are anchored to the left capsule.
+           They appear and disappear with the mode — never floating
+           ambiguously above a tab they don't apply to.</p>
+      </div>
+
+      <table class="diff-table">
+        <thead>
+          <tr>
+            <th>Element</th>
+            <th>Practice · Clients</th>
+            <th>Practice · Classes</th>
+            <th>My Workouts</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="element">Brand lockup + logo</td>
+            <td class="mode-a"><span class="yes">Visible</span></td>
+            <td class="mode-b"><span class="yes">Visible</span></td>
+            <td class="mode-c"><span class="yes">Visible</span></td>
+          </tr>
+          <tr>
+            <td class="element">Practice chip</td>
+            <td class="mode-a"><span class="yes">Visible</span></td>
+            <td class="mode-b"><span class="yes">Visible</span></td>
+            <td class="mode-c"><span class="no">Hidden</span></td>
+          </tr>
+          <tr>
+            <td class="element">Credits chip</td>
+            <td class="mode-a"><span class="yes">Visible</span></td>
+            <td class="mode-b"><span class="no">Hidden</span> <small>(subscription, not credits)</small></td>
+            <td class="mode-c"><span class="no">Hidden</span></td>
+          </tr>
+          <tr>
+            <td class="element">Scope row (two capsules)</td>
+            <td class="mode-a"><span class="yes">Visible</span></td>
+            <td class="mode-b"><span class="yes">Visible</span></td>
+            <td class="mode-c"><span class="yes">Visible</span></td>
+          </tr>
+          <tr>
+            <td class="element">Network-share corner icon</td>
+            <td class="mode-a"><span class="yes">Visible</span></td>
+            <td class="mode-b"><span class="yes">Visible</span></td>
+            <td class="mode-c"><span class="no">Hidden</span> <small>(referrals are practitioner-only)</small></td>
+          </tr>
+          <tr>
+            <td class="element">Help + Settings corner icons</td>
+            <td class="mode-a"><span class="yes">Visible</span></td>
+            <td class="mode-b"><span class="yes">Visible</span></td>
+            <td class="mode-c"><span class="yes">Visible</span></td>
+          </tr>
+          <tr>
+            <td class="element">Bottom CTA</td>
+            <td class="mode-a">"New Client"</td>
+            <td class="mode-b">Empty (today) → "New Class" later</td>
+            <td class="mode-c">Empty (today) → "Add a workout" later</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ================================================================ -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">03</span>Three things this design pays off</h2>
+        <p>Why the two-capsule layout + email-magic-link bridge is worth committing to now, not later.</p>
+      </div>
+
+      <div class="callouts">
+        <div class="callout">
+          <h4>The shell never moves</h4>
+          <ul>
+            <li>When Classes ships: <em>locked teaser body</em> → real list. Segmented control unchanged.</li>
+            <li>When My Workouts ships: <em>locked teaser body</em> → real list. Right capsule unchanged.</li>
+            <li>Practitioners and consumers see different chrome <em>inside</em> the same shell, not different shells.</li>
+          </ul>
+        </div>
+        <div class="callout">
+          <h4>The conundrum is solved</h4>
+          <ul>
+            <li>Credits live <em>inside</em> the Clients sub-tab — never floating where they're irrelevant.</li>
+            <li>Practice chip is anchored to the left capsule — fades when the user flips to My Workouts.</li>
+            <li>Two visually-distinct capsules tell the truth that Practice and My Workouts are different identities.</li>
+          </ul>
+        </div>
+        <div class="callout">
+          <h4>The funnel is real</h4>
+          <ul>
+            <li>Public link viewer taps "Get the app &amp; import" → email sheet → magic-link → in-app sign-up.</li>
+            <li>Same <em>plan_invitations</em> pipeline serves practitioner-initiated and self-service paths.</li>
+            <li>Public link dies after claim — protects per-plan pricing and POPIA in one stroke.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
