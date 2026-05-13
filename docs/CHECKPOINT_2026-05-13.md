@@ -57,15 +57,15 @@ The CI/CD env-aware hardening wave that produced the bugs #310-#313 fixed today.
 Carl was mid-QA when this checkpoint was written. The current install on iPhone CHM is `studio.homefit.app.dev` (separate icon from TestFlight v1 `studio.homefit.app`). Open the **`.dev`** icon.
 
 1. **Build SHA marker** — Settings reads `84d0bcc`.
-2. **Capture default check** — fresh client → consent sheet auto-opens expanded (NEW from #313).
-3. **Consent persistence** — toggle consent → close → re-enter → sheet does NOT re-open.
-4. **Legacy client** — existing client whose consent was never set → first entry → sheet auto-opens.
-5. **Filmstrip refresh** — open a session → capture a new exercise → exit → session card filmstrip shows the new hero.
-6. **Out-of-credits chip** — practice with 0 credits → Home AppBar shows filled coral pill with `0 ?` (NEW from #311).
-7. **Help article** — tap `?` on the coral pill → Safari View Controller opens `staging.manage.homefit.studio/help/credits` (informational only, no Buy).
-8. **Embedded preview** — workflow Preview on a published plan → web player loads (no "No internet").
-9. **Home scope shell** — Home AppBar shows two-capsule scope (Clients · Classes Soon | My Workouts Soon) (NEW from #315).
-10. **Lobby import stub** — staging.session.* web player → bottom of lobby → "Get the app & import this session" → email sheet → submit shows "Thanks!" toast.
+2. **Capture default check** — open a fresh client → consent sheet auto-opens expanded (NEW from #313).
+3. **Capture defaults sub-test** — toggle consent → close → re-enter same client → consent sheet does NOT re-open.
+4. **Legacy client** — existing client (consent never set) → first entry → consent sheet auto-opens.
+5. **Filmstrip refresh** — open a session → capture a new exercise → exit back to ClientSessions → session card filmstrip shows the new hero.
+6. **Out-of-credits chip** — if your practice has 0 credits, Home AppBar shows filled coral pill with `0 ?` (NEW from #311).
+7. **Help article tap** — tap the `?` on the coral 0-credits pill → Safari View Controller opens `staging.manage.homefit.studio/help/credits` (no Buy CTA).
+8. **Embedded preview** — workflow Preview step on a published plan → web player loads (no "No internet" — fix from #312).
+9. **Home scope shell** (NEW from #315) — Home AppBar should show two-capsule scope (Clients · Classes Soon | My Workouts Soon). Tap each capsule, verify the right body renders.
+10. **Lobby import stub** (NEW from #315) — on staging.session.* web player, scroll to bottom of the lobby → "Get the app & import this session" CTA → tap → email sheet → submit shows "Thanks!" toast (no-op for now).
 
 **Each test script is linked from `docs/test-scripts/index.html` entries 1-4.** Local docs server at `http://localhost:3457` serves them with pass/fail tracking.
 
