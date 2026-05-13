@@ -25,6 +25,7 @@ import '../widgets/orientation_lock_guard.dart';
 import '../widgets/practice_chip.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/undo_snackbar.dart';
+import '../widgets/workouts_coming_soon_view.dart';
 import 'client_sessions_screen.dart';
 import 'settings_screen.dart';
 
@@ -134,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Scope (Clients vs Classes)
+  // Scope (Clients / Classes / Workouts)
   // ---------------------------------------------------------------------------
 
   Future<void> _loadScope() async {
@@ -142,8 +143,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_scopePrefsKey);
       if (raw == null) return;
-      final next =
-          raw == 'classes' ? HomeScope.classes : HomeScope.clients;
+      final next = HomeScope.values.firstWhere(
+        (s) => s.name == raw,
+        orElse: () => HomeScope.clients,
+      );
       if (!mounted || next == _scope) return;
       setState(() => _scope = next);
     } catch (_) {
@@ -156,10 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _scope = next);
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _scopePrefsKey,
-        next == HomeScope.classes ? 'classes' : 'clients',
-      );
+      await prefs.setString(_scopePrefsKey, next.name);
     } catch (_) {
       // Persist failure leaves the in-memory selection intact for
       // this session; the next launch falls back to Clients.
@@ -599,37 +599,48 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: HomefitLogoLockup(size: 180),
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
-              child: Row(
-                children: [
-                  PracticeChip(),
-                  SizedBox(width: 8),
-                  // Offline / pending-ops chip. Hidden when online +
-                  // queue empty; subtle ink-muted when there's
-                  // something to say.
-                  OfflineSyncChip(),
-                  // Spacer pushes the credits chip to the right edge
-                  // of the row. PracticeChip stays left-anchored;
-                  // they read as peers on the identity line.
-                  Spacer(),
-                  // Wave 29 — credit balance for the active practice.
-                  // Apple Reader-App compliance: this chip is
-                  // informational only; it never opens a payment page.
-                  // At zero balance it expands inline to a plain-text
-                  // "you're out of credits, top up at manage.homefit.studio
-                  // when you're at your computer" sentence (no
-                  // hyperlink). See [HomeCreditsChip] for the rationale.
-                  HomeCreditsChip(),
-                ],
-              ),
-            ),
-            // Top-level scope picker. Permanent IA — both segments are
+            // Top-level scope picker. Permanent IA — both capsules are
             // always present so the shape of Home doesn't change when
-            // Classes ships. See [HomeScopeSegmented].
+            // Classes / My Workouts ship. See [HomeScopeSegmented].
             HomeScopeSegmented(
               selected: _scope,
               onChanged: _setScope,
+            ),
+            // Identity row anchored UNDER the Practice capsule. Practice
+            // chip + Credits chip belong to Practice mode; on Workouts
+            // (consumer mode) the entire row collapses with an
+            // [AnimatedSize] ease so the body slides up cleanly.
+            //
+            // Per-scope render rules:
+            //   Clients  → Practice chip + Offline chip + Credits chip
+            //   Classes  → Practice chip + Offline chip only
+            //              (credits are irrelevant — classes monetize
+            //               via subscription, not credits)
+            //   Workouts → row collapsed entirely
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: _scope == HomeScope.workouts
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                      child: Row(
+                        children: [
+                          const PracticeChip(),
+                          const SizedBox(width: 8),
+                          const OfflineSyncChip(),
+                          const Spacer(),
+                          // Apple Reader-App compliance: chip is
+                          // informational only; never opens a payment
+                          // page. See [HomeCreditsChip] for the
+                          // rationale. Hidden on Classes scope because
+                          // class monetization is subscription-based.
+                          if (_scope == HomeScope.clients)
+                            const HomeCreditsChip(),
+                        ],
+                      ),
+                    ),
             ),
             // "Updated N min ago" hint, only when we have a successful
             // sync to report AND the body is the clients list (not
@@ -706,13 +717,15 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             Expanded(
-              child: _scope == HomeScope.clients
-                  ? (_loading
-                      ? _buildShimmer()
-                      : (_loadError != null
-                          ? _buildLoadErrorCard(_loadError!)
-                          : _buildBody()))
-                  : const ClassesComingSoonView(),
+              child: switch (_scope) {
+                HomeScope.clients => _loading
+                    ? _buildShimmer()
+                    : (_loadError != null
+                        ? _buildLoadErrorCard(_loadError!)
+                        : _buildBody()),
+                HomeScope.classes => const ClassesComingSoonView(),
+                HomeScope.workouts => const WorkoutsComingSoonView(),
+              },
             ),
             // Primary CTA. Coral FAB pinned above the footer so the
             // gesture lives in the thumb zone. Clients-scope only —
@@ -789,19 +802,21 @@ class _HomeScreenState extends State<HomeScreen> {
             // gear's corner placement on the opposite side so the brand
             // lockup stays uncrowded. Tap opens the NetworkShareSheet
             // (referral code + QR + share button + portal hand-off).
-            Positioned(
-              top: 4,
-              left: 4,
-              child: IconButton(
-                onPressed: _openNetworkShare,
-                icon: const Icon(
-                  Icons.group_add_outlined,
-                  color: AppColors.primary,
-                  size: 24,
+            // Hidden on Workouts scope — referrals are practitioner-only.
+            if (_scope != HomeScope.workouts)
+              Positioned(
+                top: 4,
+                left: 4,
+                child: IconButton(
+                  onPressed: _openNetworkShare,
+                  icon: const Icon(
+                    Icons.group_add_outlined,
+                    color: AppColors.primary,
+                    size: 24,
+                  ),
+                  tooltip: 'Share with another practitioner',
                 ),
-                tooltip: 'Share with another practitioner',
               ),
-            ),
           ],
         ),
       ),
