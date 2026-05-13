@@ -222,14 +222,16 @@
     }
     .logo-word .accent { color: var(--brand-default); }
 
+    /* Identity row now sits BELOW the scope row, anchored to the
+       Practice capsule. Renders only when scope ∈ {Clients, Classes};
+       absent entirely on My Workouts. */
     .identity-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 0 4px 4px;
-      min-height: 28px;
+      padding: 8px 16px 6px;
+      min-height: 32px;
     }
-    .identity-row.empty { opacity: 0; }
 
     .practice-chip {
       display: inline-flex;
@@ -783,11 +785,14 @@
         row. The left capsule is <em>Practice mode</em> with its internal
         <em>Clients / Classes</em> scope split. The right capsule is
         <em>My Workouts</em> — a separate identity (consumer, not
-        creator) with no practice context and no credits. Practice chip +
-        credits chip are anchored to the left capsule and fade when the
-        user flips to My Workouts. Today, Classes and My Workouts are
-        locked teasers; when each ships, the only thing that changes is
-        the body — the shell stays exactly where it is.
+        creator) with no practice context and no credits. The Practice
+        chip + Credits chip sit <em>below</em> the scope row, anchored
+        to whichever scope they belong to: both on Clients, Practice
+        only on Classes (credits are irrelevant when classes monetize
+        via subscription), and the row isn't rendered at all on My
+        Workouts. Today, Classes and My Workouts are locked teasers;
+        when each ships, the only thing that changes is the body — the
+        shell stays exactly where it is.
       </p>
     </header>
 
@@ -825,10 +830,6 @@
                 </div>
                 <div class="logo-word">homefit<span class="accent">.</span>studio</div>
               </div>
-              <div class="identity-row">
-                <span class="practice-chip">Carl's Practice<svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></span>
-                <span class="credits-chip"><span class="count">28</span>credits</span>
-              </div>
             </div>
 
             <div class="scope-row">
@@ -839,6 +840,12 @@
               <div class="cap cap-workouts">
                 <div class="seg">My Workouts <span class="soon-pill">Soon</span></div>
               </div>
+            </div>
+
+            <!-- Identity row anchored UNDER the Practice capsule. -->
+            <div class="identity-row">
+              <span class="practice-chip">Carl's Practice<svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></span>
+              <span class="credits-chip"><span class="count">28</span>credits</span>
             </div>
 
             <div class="body">
@@ -894,11 +901,6 @@
                 </div>
                 <div class="logo-word">homefit<span class="accent">.</span>studio</div>
               </div>
-              <div class="identity-row">
-                <!-- Classes mode: practice chip still shows (you're still in a practice),
-                     credits chip is HIDDEN because Classes monetize via subscription, not credits. -->
-                <span class="practice-chip">Carl's Practice<svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></span>
-              </div>
             </div>
 
             <div class="scope-row">
@@ -909,6 +911,13 @@
               <div class="cap cap-workouts">
                 <div class="seg">My Workouts <span class="soon-pill">Soon</span></div>
               </div>
+            </div>
+
+            <!-- Classes mode: practice chip still shows (you're still inside a
+                 practice), credits chip is OMITTED — Classes monetize via
+                 subscription, not credits. -->
+            <div class="identity-row">
+              <span class="practice-chip">Carl's Practice<svg class="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></span>
             </div>
 
             <div class="body" style="overflow:hidden;">
@@ -973,10 +982,6 @@
                   <div class="logo-cell"></div><div class="logo-cell g2"></div><div class="logo-cell g3"></div><div class="logo-cell brand"></div><div class="logo-cell brand-tint"></div><div class="logo-cell brand"></div><div class="logo-cell rest"></div><div class="logo-cell"></div>
                 </div>
                 <div class="logo-word">homefit<span class="accent">.</span>studio</div>
-              </div>
-              <!-- Identity row preserved (same height) but EMPTY in Workouts mode -->
-              <div class="identity-row empty">
-                <span class="practice-chip">placeholder</span>
               </div>
             </div>
 
@@ -1099,9 +1104,11 @@
     <section>
       <div class="section-head">
         <h2><span class="section-num">02</span>Chrome behaviour per mode</h2>
-        <p>Practice chip and credits chip are anchored to the left capsule.
-           They appear and disappear with the mode — never floating
-           ambiguously above a tab they don't apply to.</p>
+        <p>Practice chip and credits chip sit <em>below</em> the scope row,
+           anchored to whichever scope they belong to. The row collapses
+           entirely on My Workouts (no fade, no placeholder — just gone).
+           Body slides up by ~32px with a 180ms ease so the shift reads
+           as a deliberate mode change.</p>
       </div>
 
       <table class="diff-table">
@@ -1137,6 +1144,12 @@
             <td class="mode-a"><span class="yes">Visible</span></td>
             <td class="mode-b"><span class="yes">Visible</span></td>
             <td class="mode-c"><span class="yes">Visible</span></td>
+          </tr>
+          <tr>
+            <td class="element">Identity row (chip strip)</td>
+            <td class="mode-a"><span class="yes">Below scope row</span></td>
+            <td class="mode-b"><span class="yes">Below scope row</span></td>
+            <td class="mode-c"><span class="no">Not rendered</span></td>
           </tr>
           <tr>
             <td class="element">Network-share corner icon</td>
@@ -1179,9 +1192,9 @@
         <div class="callout">
           <h4>The conundrum is solved</h4>
           <ul>
-            <li>Credits live <em>inside</em> the Clients sub-tab — never floating where they're irrelevant.</li>
-            <li>Practice chip is anchored to the left capsule — fades when the user flips to My Workouts.</li>
-            <li>Two visually-distinct capsules tell the truth that Practice and My Workouts are different identities.</li>
+            <li>Practice + Credits chips sit <em>below</em> the scope row — visibly owned by the Practice capsule, never floating above a tab they don't apply to.</li>
+            <li>Credits show only on Clients; Classes monetizes via subscription so the chip is omitted there.</li>
+            <li>My Workouts mode drops the identity row entirely — consumer identity has no practice context.</li>
           </ul>
         </div>
         <div class="callout">
