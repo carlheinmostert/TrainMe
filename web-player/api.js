@@ -115,11 +115,20 @@
     const _host = (typeof window !== 'undefined' && window.location)
       ? (window.location.hostname || '')
       : '';
-    const _isLoopback = _host === '127.0.0.1'
+    // Local-surface hosts — exempt from strict-fail so the Flutter-embedded
+    // WebView (`homefit-local://plan/...`, Wave 4 Phase 2) and the legacy
+    // Dart-shelf loopback path (Wave 4 Phase 1, retired but tolerated) can
+    // boot with the inert empty config served by the scheme handler.
+    // KEEP THIS LIST IN LOCKSTEP with `isLocalSurface()` below — if the two
+    // diverge, api.js will throw at module load before `isLocalSurface()`
+    // gets a chance to short-circuit, and the embedded preview will surface
+    // the catch-all "No internet connection" in app.js.
+    const _isLocalSurfaceHost = _host === '127.0.0.1'
       || _host === 'localhost'
       || _host === '0.0.0.0'
-      || _host.startsWith('127.');
-    if (!_isLoopback && (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey)) {
+      || _host.startsWith('127.')
+      || _host === 'plan';
+    if (!_isLocalSurfaceHost && (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey)) {
       throw new Error(
         'homefit.studio web player: window.HOMEFIT_CONFIG missing or '
         + 'incomplete. Verify /config.js was emitted by web-player/build.sh '

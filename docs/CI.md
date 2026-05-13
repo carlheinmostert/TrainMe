@@ -506,11 +506,13 @@ What's done (2026-05-11):
 
 Still pending:
 
-- [ ] DNS at Hostinger: `staging.manage.homefit.studio` + `staging.session.homefit.studio` CNAMEs → matching Vercel preview URLs (currently the preview URLs work via auto-generated `*.vercel.app` hostnames; clean subdomains is polish).
-- [ ] Flutter `ENV` flag in `app_config.dart`. Default `ENV=branch` in install scripts; explicit `ENV=prod` in TestFlight build scripts.
-- [ ] Branch-aware install script: parse current git branch, query Supabase Management API for the matching branch DB URL + anon key, inject via `--dart-define`.
+- [x] **DNS at Hostinger:** `staging.manage.homefit.studio` + `staging.session.homefit.studio` CNAMEs pointing at `cname.vercel-dns.com`. Both subdomains assigned to the staging git branch via Vercel API. Currently serving HTTP 200.
+- [x] **Flutter `ENV` flag** in `app/lib/config.dart` (PR #298). Reads `--dart-define=ENV=prod/staging/branch` at compile time. `install-sim.sh` + `install-device.sh` take an `--env` flag and pass it through.
+- [x] **Branch-aware install scripts** (PR #298). `install-sim.sh` and `install-device.sh` accept `--env prod/staging/branch`; new `build-testflight.sh` hardcodes `ENV=prod` so a TestFlight upload can never accidentally point at staging.
 - [x] **GitHub Action to populate vault secrets on Supabase branch creation** — `.github/workflows/supabase-branch-vault.yml` (triggers on PR open/reopen/synchronize; polls Supabase Management API; idempotent `vault.create_secret` for `supabase_url` + `supabase_jwt_secret`; soft-fail). Requires `SUPABASE_ACCESS_TOKEN` repo secret — generate at https://supabase.com/dashboard/account/tokens, set under Settings → Secrets and variables → Actions.
-- [x] **Archive `supabase/schema_*.sql` files to `supabase/archive/`** (2026-05-11). 72 files moved; `supabase/archive/README.md` documents what's there and why not to apply them. The non-underscored canonical `supabase/schema.sql` stays in place.
+- [x] **Archive `supabase/schema_*.sql` files to `supabase/archive/`** (2026-05-11, PR #301). 72 files moved; `supabase/archive/README.md` documents what's there and why not to apply them. The non-underscored canonical `supabase/schema.sql` stays in place.
+
+All 13 cutover items complete. Pipeline runs; enforcement (blocking `migration-check.yml` + `branch-name-check.yml`) deliberately not yet on — Carl wants the pipeline observed for a session or two before tightening.
 
 ## Related conventions
 
