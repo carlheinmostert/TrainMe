@@ -117,4 +117,27 @@ window.HOMEFIT_CONFIG = Object.freeze({
 });
 EOF
 
+# ----------------------------------------------------------------------------
+# Service-worker cache-name SHA injection
+# ----------------------------------------------------------------------------
+# `sw.js` declares CACHE_NAME = 'homefit-player-__BUILD_SHA__' and we rewrite
+# the sentinel to the 7-char GIT_SHA in-place so every deploy ships a unique
+# cache name. Without this, the SW happily serves stale HTML / headers / CSP
+# from the cache long after the developer ships a fix — both real outages on
+# 2026-05-12 traced back to a stale SW cache. The sentinel is distinctive
+# enough to avoid false matches.
+#
+# Portable replacement strategy: write to a temp file then mv, which works
+# identically on Vercel's Linux runtime and macOS local dev (vs. `sed -i`
+# which has incompatible flag syntax across the two).
+SW_FILE="${SCRIPT_DIR}/sw.js"
+SW_TMP="${SW_FILE}.tmp"
+if grep -q "__BUILD_SHA__" "${SW_FILE}"; then
+  sed "s/__BUILD_SHA__/${GIT_SHA}/g" "${SW_FILE}" > "${SW_TMP}"
+  mv "${SW_TMP}" "${SW_FILE}"
+  echo "  sw.js CACHE_NAME → homefit-player-${GIT_SHA}"
+else
+  echo "  sw.js CACHE_NAME → (no __BUILD_SHA__ sentinel found; leaving as-is)" >&2
+fi
+
 echo "web-player/build.sh — done"
