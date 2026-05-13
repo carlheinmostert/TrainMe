@@ -214,6 +214,67 @@ The web-player lobby's "Import to the app" CTA needs a real backend to wire up t
 - **Resend SMTP template** for the import-link email. Reuse the existing Resend wire-up that already serves Supabase auth emails (`noreply@homefit.studio` sender; DKIM on `resend._domainkey.homefit.studio`). New template lives in `supabase/email-templates/import_plan_invite.html`.
 - **Self-service flow** (web-player lobby): user types email → server creates `plan_invitations` row → email sent. The same `plan_invitations` table also serves practitioner-initiated invites (see section 4) — one pipeline, two entry points.
 
+**Scope note:** `plan_invitations` is for **Client-owned Plans** (`plans.client_id IS NOT NULL`). Class-owned Plans use a different access model — see the next section.
+
+### 1b. Sharing units: Plan vs Class — two access models
+
+The unit of sharing is different for Client-owned Plans vs Class-owned Plans. This is a parked design surface — flagging now so we don't accidentally treat Classes as "a bundle of Plan invitations" when they're a different shape.
+
+**Client-owned Plan** (today's model, extended in section 1):
+- Unit of sharing = **one Plan**. The `plans.id` UUID is the URL.
+- Access via public link OR `plan_invitations` (email-bound claim).
+- Lifetime = single transaction; once claimed, the Plan is bound to that consumer forever.
+- One Plan = one credit (consumed at publish time).
+
+**Class-owned Plan** (future model, the new complication):
+- Unit of sharing = **a Class** (which contains N Plans).
+- A consumer doesn't buy a Plan — they subscribe to or once-off purchase a Class.
+- A Class is a **live container**: the practitioner can add new Plans over time, and active subscribers should see them appear in their My Workouts list automatically.
+- A one-time-purchase consumer: do they get a snapshot (Plans available at purchase time only) OR ongoing additions? **OQ-8** below.
+- A subscriber whose subscription lapses: do they retain access to Plans they've already played / partially played? **OQ-9** below.
+- One credit is NOT consumed per Plan inside a Class — Classes monetize differently (subscription revenue / one-off purchase revenue). Confirms the Clients-only credit rule.
+
+**Access check in `get_plan_full` will branch on the Plan's parent:**
+
+```
+get_plan_full(plan_id) — access check (sketch)
+
+  IF plan.client_id IS NOT NULL:
+    -- Client-owned Plan (1-on-1)
+    IF requester is practitioner of plan's practice:
+      → return plan
+    ELSE IF plan_invitations.accepted_by_user_id matches requester:
+      → return plan
+    ELSE IF requester is anon AND no claim exists for this plan:
+      → return plan (public link path)
+    ELSE:
+      → return "this plan has been imported" gate
+
+  ELSE IF plan.class_id IS NOT NULL:
+    -- Class-owned Plan
+    IF requester is practitioner of plan's practice:
+      → return plan (practitioner preview)
+    ELSE IF class_subscriptions row matches (class_id, requester, active)
+         OR class_purchases row matches (class_id, requester, snapshot
+            includes this plan):
+      → return plan
+    ELSE:
+      → return "this class is by subscription / purchase" gate
+```
+
+**Public-link semantics for Class-owned Plans:** today's `/p/{uuid}` URL is anonymous-readable. For Class Plans we probably want the public link to NOT work — otherwise the practitioner monetizes their Class and a subscriber forwards the raw URL and bypasses payment. **OQ-10** below.
+
+**My Workouts representation of class membership:** does a subscribed 6-week-class-with-18-Plans show as 18 rows in the consumer's My Workouts list, or as 1 Class card that expands into 18 Plans? The mock cards in the teaser show flat workouts; the real surface likely needs a hybrid (Class as a parent card, Plans as drill-in detail). **OQ-11** below.
+
+**Data model additions** (sketch — not finalised):
+
+- `class_subscriptions(consumer_user_id, class_id, started_at, cancelled_at, current_period_end)` — recurring access.
+- `class_purchases(consumer_user_id, class_id, purchased_at, snapshot_plan_ids jsonb)` — one-off access. The `snapshot_plan_ids` column resolves OQ-8 if we lean "snapshot": it records exactly which Plans were in the Class at purchase time so future additions don't grant access retroactively.
+- No `class_invitations` table needed — access is grant-on-purchase / grant-on-subscription, not invitation-token-based. (The email-magic-link bridge in section 1 stays Client-only.)
+- Possibly a `class_plan_membership` jsonb on `classes` to track ordering / labels, since Plans inside a Class need an explicit sequence. Or a `plans.class_position` int.
+
+This section captures the surface; the actual schema + RPC design lands in a future PR after the Class data model lands (see PR sequence steps 9-10).
+
 ### 2. My Workouts real surface
 
 When the locked teaser ships its real implementation, the body becomes a list of imported plans + subscribed classes. The mockup already shows the visual model:
@@ -286,6 +347,11 @@ Still need to resolve before the relevant PRs land:
 - **OQ-3** — Offline-sync chip on My Workouts: today's `OfflineSyncChip` is wired into the practitioner's `SyncService.pendingOps`. Consumer mode has different sync needs (downloading workouts for offline play). Defer until My Workouts ships; might need a different chip with different copy.
 - **OQ-4** — Re-imports: if a consumer deletes the app and re-installs, does their imported plan come back from the cloud? (`plan_invitations.accepted_by_user_id` is durable, so technically yes, once they sign in again.)
 - **OQ-5** — Class capacity / cohort scheduling: do we ship classes as "always available" (subscribe = library access) or as scheduled cohorts (start date, end date)? Likely always-available for MVP; cohorts as a later layer.
+- **OQ-8** — One-time Class purchase: snapshot or ongoing? When a consumer pays once-off for a Class, do they get only the Plans that existed at purchase time (snapshot — captured in `class_purchases.snapshot_plan_ids`) or all future Plan additions too (live)? Lean snapshot (matches the "buy a thing" mental model and lets the practitioner price expansions as upgrades), but the subscription path is the opposite (live by definition).
+- **OQ-9** — Subscription lapse: when a Class subscription ends, what happens to the consumer's access to Plans they've already played? Three plausible answers: (a) hard cut — all Plans become inaccessible; (b) grandfather — Plans they've started stay accessible forever; (c) grace window — N days post-lapse before lockout. Each has different store-page promises and different DB checks.
+- **OQ-10** — Public-link semantics for Class-owned Plans: should `session.homefit.studio/p/{uuid}` work for a Plan whose `class_id IS NOT NULL`? Probably **no** — otherwise a subscriber forwards the URL and bypasses payment. Lean: `get_plan_full` rejects anon access for any Plan with a non-null `class_id`; Class Plans are subscription-or-purchase only, never anonymously playable.
+- **OQ-11** — My Workouts representation of a Class membership: flat list (each Class Plan shows as its own row, possibly with a small "via Beginner Mobility" pill) or hierarchical (the Class shows as one card that expands to reveal its N Plans)? Hierarchical scales better past 3-4 Plans-per-Class; flat reads simpler for short Classes. Probably hybrid — show 1-3 Plans inline, collapse the rest behind "show all 18".
+- **OQ-12** — Plan ordering inside a Class: where does the sequence live? Options: `plans.class_position` int column (simple, easy migration), `classes.plan_order` jsonb array (explicit ordering, but requires sync on Plan add/remove), or rely on Plan creation date (no explicit order, but reorder isn't supported). Lean `plans.class_position`.
 
 ---
 
@@ -320,6 +386,7 @@ Each step is small enough to design + review + ship without rework on the others
 - **2026-05-13** — Classes will live in a new `classes` table (NOT overloaded on `plans.kind`). Decoupled lifecycles + clean credit model. Resolves OQ-6.
 - **2026-05-13** — Class is a *peer of Client*, both owning Plans via nullable FKs on `plans` (`client_id` XOR `class_id`, CHECK-enforced). No new "class session" entity; class Plans use the same `plans` + `exercises` machinery as 1-on-1 Plans. Resolves OQ-7.
 - **2026-05-13** — Adopted internal shorthand **CPE** (Client-or-Class · Plan · Exercise) for the three-level workout content model. Engineering / design / code-review usage only — explicitly NOT for user-facing copy or practitioner conversations (collides with Continuing Professional Education in the HPCSA world).
+- **2026-05-13** — Flagged: Plan and Class are **two distinct units of sharing** with different access models. Plan-sharing is invitation-token-based (`plan_invitations`); Class-sharing is grant-on-subscription / grant-on-purchase (`class_subscriptions` / `class_purchases`). `get_plan_full` will branch on Plan parent. Four new open questions opened (OQ-8…OQ-11 covering snapshot-vs-live one-off purchases, subscription-lapse semantics, public-link policy for Class Plans, My Workouts representation) + OQ-12 on Plan ordering inside a Class. Schema sketch noted; final design lands when Classes ship.
 
 ---
 
