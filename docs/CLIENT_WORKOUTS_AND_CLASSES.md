@@ -79,6 +79,42 @@ The word **session** points at THREE unrelated things in this codebase. Internal
 
 When somebody says "session" without qualifying, they usually mean the first one. The other two carry the qualifier.
 
+### The Plan hierarchy — what one-to-many actually exists
+
+There is **exactly one** one-to-many relationship for workout content in the schema today, and one new column extends it to support classes:
+
+```
+                       ┌─────────────┐
+                       │   Client    │   ← 1-on-1 owner (today)
+                       │  (clients)  │
+                       └──────┬──────┘
+                              │ FK: plans.client_id
+                              ↓
+                       ┌─────────────┐
+                       │   Class     │   ← many-recipient owner (future)
+                       │  (classes)  │
+                       └──────┬──────┘
+                              │ FK: plans.class_id
+                              ↓
+            ┌─────────────────────────────────┐
+            │              Plan                │   ← the shareable unit
+            │           (plans row)            │     (UI: "Session")
+            │  client_id XOR class_id (CHECK)  │
+            └─────────────────┬────────────────┘
+                              │ FK: exercises.session_id
+                              ↓ (many)
+                       ┌──────────────┐
+                       │   Exercise   │   ← one row = one video / photo
+                       │  (exercises) │     / rest period inside the Plan
+                       └──────────────┘
+```
+
+- **Client and Class are peers** — both own Plans via a nullable FK on `plans`. Exactly one of `plans.client_id` / `plans.class_id` is non-null (`CHECK (num_nonnulls(client_id, class_id) = 1)`).
+- **Plan is the shareable unit.** Its UUID becomes the URL `session.homefit.studio/p/{uuid}`. UI calls it a "Session"; URL + DB call it a "Plan". One row.
+- **Exercise is the only child.** Reps, sets, hold, video duration, circuits, rest periods, hold-position — all live as columns on the exercise row OR jsonb maps on the parent plan. **There is no separate sets / reps / circuits table.**
+
+This symmetry is also why the IA inside Practice mode is `[ Clients · Classes ]` — the segmented control simply lets the practitioner switch which kind of Plan parent they're viewing.
+
 ### Today — what exists in this PR's world
 
 | UI term | Flutter model | Supabase | Lifecycle / scope | Notes |
@@ -102,8 +138,8 @@ When somebody says "session" without qualifying, they usually mean the first one
 
 | UI term | Flutter model (proposed) | Supabase (proposed) | Lifecycle / scope | Notes |
 |---|---|---|---|---|
-| **Class** | `Class` | `classes` (new table) | Practice-scoped | Practitioner-published, consumer-buyable. Subscription or once-off. **No credits**. Decision 2026-05-13 — separate table from `plans`, not an overload. |
-| **Class session** | `ClassSession` | `class_sessions` (new) + `class_exercises` (new) OR `exercises.class_session_id` FK if we keep one exercises table | Class-scoped | A class is composed of N sessions. Open: do classes share the `exercises` table with a nullable polymorphic FK, or get their own `class_exercises` mirror? Lean toward sharing `exercises` with a `class_session_id` FK so the converter/preview pipeline stays one code path — track as **OQ-7**. |
+| **Class** | `Class` | `classes` (new table) | Practice-scoped | Practitioner-published, consumer-buyable. Subscription or once-off. **No credits**. A Class is a *collection of Plans* — same structural role as a Client, just with many-recipient monetization instead of one-recipient credits. |
+| **Class plan** | (reuses `Session` / `Plan`) | `plans.class_id` FK (new, nullable) | Class-scoped | **There's no separate "class session" entity.** Plans inside a Class are structurally identical to Plans under a Client — same `plans` row shape, same `exercises` rows, same conversion / preview / playback pipeline. The only schema change is one nullable FK on `plans`. |
 | **Plan invitation** | `PlanInvitation` | `plan_invitations` (new) | Plan + email + accepted_by_user_id | The email-magic-link bridge. One row per invite. Bound to a `plan_id` and optionally to a `class_id` once classes ship. |
 | **Workout** (consumer-facing) | `ConsumerWorkout` | View joining `plan_invitations.accepted_by_user_id = current_user.id` UNION `class_purchases` | Consumer-scoped | What lands in My Workouts. A single row could be a 1-on-1 plan (from a practitioner) OR a class instance (subscribed/bought). The UI calls all of them "workouts". |
 | **Consumer profile** | `ConsumerProfile` | `auth.users` + `consumer_profiles` (new, optional metadata table) | Per auth.user, **no `practice_members` row** | Users who only consume content. Same `auth.users` table as practitioners — the absence of a `practice_members` row is what marks them as consumer-only. |
@@ -130,7 +166,7 @@ A few mismatches we'll keep on purpose because renaming would be more disruptive
 ### Adds new open questions to the queue
 
 - **OQ-6** ✓ **Resolved 2026-05-13** — Classes are a separate `classes` table, not an overload on `plans.kind`. Lifecycles diverge (no credits, has subscription, has cohort/capacity), and decoupling the migration from the existing `plans` RPCs (`replace_plan_exercises`, `get_plan_full`, `consume_credit`) keeps the credit model + RLS rules clean.
-- **OQ-7** — Class-side exercises storage. Two reasonable shapes: (a) reuse the existing `exercises` table with a nullable `class_session_id` FK alongside `plan_id`, so the converter / preview / playback pipeline stays one code path; (b) mirror the table as `class_exercises` for full isolation. Lean (a) — the conversion pipeline is the most load-bearing thing in the app, and one code path beats two.
+- **OQ-7** ✓ **Resolved 2026-05-13** — A Class is a *collection of Plans* (peer of Client). Plans gain one new nullable FK column `plans.class_id` alongside the existing `plans.client_id`; exactly one must be non-null (CHECK constraint). The `exercises` table is unchanged. The conversion / preview / playback pipeline is identical for class plans and client plans.
 
 ---
 
@@ -271,6 +307,7 @@ Each step is small enough to design + review + ship without rework on the others
 - **2026-05-13** — TestFlight v2 ships front-end shell only; backend deferred to a sequence of follow-up PRs (this doc).
 - **2026-05-13** — Web-player lobby CTA included in TestFlight v2 with a no-op "coming soon" toast on submit.
 - **2026-05-13** — Classes will live in a new `classes` table (NOT overloaded on `plans.kind`). Decoupled lifecycles + clean credit model. Resolves OQ-6.
+- **2026-05-13** — Class is a *peer of Client*, both owning Plans via nullable FKs on `plans` (`client_id` XOR `class_id`, CHECK-enforced). No new "class session" entity; class Plans use the same `plans` + `exercises` machinery as 1-on-1 Plans. Resolves OQ-7.
 
 ---
 
