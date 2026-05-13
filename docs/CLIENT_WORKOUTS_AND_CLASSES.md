@@ -79,7 +79,18 @@ The word **session** points at THREE unrelated things in this codebase. Internal
 
 When somebody says "session" without qualifying, they usually mean the first one. The other two carry the qualifier.
 
-### The Plan hierarchy — what one-to-many actually exists
+### The CPE hierarchy
+
+Internal shorthand for the workout content model: **C** · **P** · **E** —
+**C**lient-or-**C**lass → **P**lan → **E**xercise.
+
+A useful mnemonic for design / code review / PR discussions:
+
+- "Move this logic up to the **P** layer" — i.e. onto `plans`, not on each exercise.
+- "That's a **C**-side decision" — i.e. belongs on the Client or Class parent, not on the Plan.
+- "The conversion pipeline lives at the **E** layer" — i.e. per-row in the `exercises` table.
+
+⚠️ **Don't use "CPE" in user-facing copy or in conversations with practitioners.** In the SA biokinetics / physio / fitness-trainer world, CPE is **Continuing Professional Education** (HPCSA registration upkeep). Reserve our usage for engineering / design contexts where the meaning is unambiguous from the room.
 
 There is **exactly one** one-to-many relationship for workout content in the schema today, and one new column extends it to support classes:
 
@@ -308,6 +319,7 @@ Each step is small enough to design + review + ship without rework on the others
 - **2026-05-13** — Web-player lobby CTA included in TestFlight v2 with a no-op "coming soon" toast on submit.
 - **2026-05-13** — Classes will live in a new `classes` table (NOT overloaded on `plans.kind`). Decoupled lifecycles + clean credit model. Resolves OQ-6.
 - **2026-05-13** — Class is a *peer of Client*, both owning Plans via nullable FKs on `plans` (`client_id` XOR `class_id`, CHECK-enforced). No new "class session" entity; class Plans use the same `plans` + `exercises` machinery as 1-on-1 Plans. Resolves OQ-7.
+- **2026-05-13** — Adopted internal shorthand **CPE** (Client-or-Class · Plan · Exercise) for the three-level workout content model. Engineering / design / code-review usage only — explicitly NOT for user-facing copy or practitioner conversations (collides with Continuing Professional Education in the HPCSA world).
 
 ---
 
