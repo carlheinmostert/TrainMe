@@ -28,15 +28,21 @@ enum HomeScope { clients, classes, workouts }
 ///
 /// Visual model:
 ///
-///   [ Clients · Classes ]      [ My Workouts ]
-///        Practice capsule         Workouts capsule
-///         (flex 1.95)                (flex 1)
+///   [ Clients · Classes ]    [ Workouts ]
+///       Practice capsule      Workouts capsule
+///          (flex 165)            (flex 100)
 ///
-/// The Practice and Workouts capsules sit side-by-side with an 8px
+/// The Practice and Workouts capsules sit side-by-side with a 6px
 /// gap. Visually distinct primitives tell the truth that Practice
 /// (creator) and Workouts (consumer) are different identities — the
 /// Practice chip + Credits chip live BELOW this row, anchored to
 /// the Practice capsule (see [HomeScreen]).
+///
+/// Spacing/label tightened 2026-05-13 (round 2 QA) — "My Workouts"
+/// still truncated to "My..." on iPhone-mini-class widths after the
+/// Soon-pill removal. Dropped to single-word "Workouts" (clear in
+/// context — there's no other workouts surface), rebalanced flex to
+/// 165:100, narrowed gap to 6px, trimmed outer padding to 12px.
 class HomeScopeSegmented extends StatelessWidget {
   final HomeScope selected;
   final ValueChanged<HomeScope> onChanged;
@@ -50,12 +56,12 @@ class HomeScopeSegmented extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
       child: Row(
         children: [
           // Practice capsule (creator scopes)
           Expanded(
-            flex: 195,
+            flex: 165,
             child: _Capsule(
               children: [
                 _Segment(
@@ -71,14 +77,17 @@ class HomeScopeSegmented extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          // Workouts capsule (consumer scope — separate identity)
+          const SizedBox(width: 6),
+          // Workouts capsule (consumer scope — separate identity).
+          // Label is single-word "Workouts" (was "My Workouts") so it
+          // never truncates on iPhone-mini-class widths. Context makes
+          // ownership clear — there's no other Workouts surface.
           Expanded(
             flex: 100,
             child: _Capsule(
               children: [
                 _Segment(
-                  label: 'My Workouts',
+                  label: 'Workouts',
                   active: selected == HomeScope.workouts,
                   onTap: () => _select(HomeScope.workouts),
                 ),
