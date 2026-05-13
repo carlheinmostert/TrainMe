@@ -66,6 +66,33 @@ const PLAYER_VERSION = 'v69-modal-first-desktop';
     setAudioPlayback: function (active) {
       postBridge({ type: 'audio', active: !!active });
     },
+    /// 2026-05-13 — share a PNG via iOS UIActivityViewController.
+    ///
+    /// The lobby share-as-static export pipeline produces a PNG blob.
+    /// On the live web player path, `navigator.share({ files: [...] })`
+    /// surfaces the iOS share sheet from Mobile Safari directly. Inside
+    /// the embedded Flutter WebView the Web Share API is unreliable
+    /// (WKWebView ships behind a configurable flag, and the Flutter
+    /// WebViewWidget doesn't surface it), so we forward the bytes to
+    /// Dart over the bridge. Dart writes the PNG to a temp file and
+    /// presents UIActivityViewController.
+    ///
+    /// Args:
+    ///   `dataUrl`  — `data:image/png;base64,...` payload (full URL,
+    ///                with prefix; the native side parses it).
+    ///   `fileName` — suggested filename for the share sheet.
+    ///
+    /// Returns nothing — the share sheet is presented best-effort. If
+    /// the bridge channel is absent (production web player), this is a
+    /// no-op and the caller falls back to its desktop modal path.
+    shareImage: function (dataUrl, fileName) {
+      if (typeof dataUrl !== 'string' || !dataUrl) return;
+      postBridge({
+        type: 'share_image',
+        dataUrl: dataUrl,
+        fileName: typeof fileName === 'string' ? fileName : '',
+      });
+    },
   };
 
   window.homefitBridge = bridge;
@@ -1174,14 +1201,32 @@ function buildRestCard(slide, index) {
  * crossfaded out via CSS when the overlay's [hidden] attribute lands
  * (overlay→.prep-overlay-number transition handles the digit; the
  * .hero-poster's own transition handles the image).
+ *
+ * 2026-05-13 round-2 — hero poster now mirrors the slide's effective
+ * treatment so a B&W workout doesn't flash a colour Hero during prep
+ * and a photo exercise (which never transitions to a <video>) honours
+ * the practitioner's grayscale choice for the entire slide. The
+ * grayscale class is applied to the <img> directly; CSS `.is-grayscale`
+ * applies the same `filter: grayscale(1) contrast(1.05)` used by the
+ * playing video. Treatment is recomputed on each buildCard() call, so
+ * mid-workout treatment changes (gear-panel override) are picked up
+ * the next time the slide is rebuilt — same lifecycle as the video.
  */
 function buildPrepOverlay(slide) {
-  const heroSrc = slide && slide.thumbnail_url
-    ? `<img class="hero-poster" src="${escapeHTML(slide.thumbnail_url)}" alt="" aria-hidden="true">`
-    : '';
+  if (!slide || !slide.thumbnail_url) {
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  // Treatment is meaningful only for video / photo slides; rest slides
+  // have no thumbnail_url so they short-circuit above.
+  const slideT = slideTreatment(slide);
+  const grayscaleClass = slideT === 'bw' ? ' is-grayscale' : '';
   return `
     <div class="prep-overlay" hidden>
-      ${heroSrc}
+      <img class="hero-poster${grayscaleClass}" data-treatment="${slideT}" src="${escapeHTML(slide.thumbnail_url)}" alt="" aria-hidden="true">
       <div class="prep-overlay-number">15</div>
     </div>
   `;
@@ -4095,20 +4140,36 @@ function paintGearPanel() {
     });
   }
 
-  // Body focus row
+  // Body focus row.
+  //
+  // Disable conditions (2026-05-13 round 2):
+  //   * media_type === 'photo'  → Body focus has no segmented variant
+  //                               to act on for static images in the
+  //                               legacy Wave 22 pipeline (per Carl's
+  //                               option C2 spec: surface the disabled
+  //                               state with an explanatory tooltip).
+  //   * media_type === 'rest'   → No media at all.
+  //   * Treatment === 'line'    → Body focus only applies to colour
+  //                               playback (grayscale or original
+  //                               segmented variants); line drawing is
+  //                               its own pipeline.
   const bfBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]');
   if (bfBtn) {
-    const slideT = slide && slide.media_type === 'video' ? slideTreatment(slide) : 'line';
-    const bfDisabled = slideT === 'line';
+    const isVideo = slide && slide.media_type === 'video';
+    const isPhoto = slide && slide.media_type === 'photo';
+    const slideT = isVideo ? slideTreatment(slide) : 'line';
+    const bfDisabled = isPhoto || !isVideo || slideT === 'line';
     const bfOn = !!getEffective(slide, 'bodyFocus');
     const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'bodyFocus'));
     bfBtn.classList.toggle('is-disabled', bfDisabled);
     bfBtn.classList.toggle('is-overridden', overridden && !bfDisabled);
-    bfBtn.classList.toggle('is-on', bfOn);
+    bfBtn.classList.toggle('is-on', bfOn && !bfDisabled);
     bfBtn.disabled = bfDisabled;
-    bfBtn.setAttribute('aria-pressed', bfOn ? 'true' : 'false');
+    bfBtn.setAttribute('aria-pressed', (bfOn && !bfDisabled) ? 'true' : 'false');
     bfBtn.setAttribute('aria-label', bfOn ? 'Body focus on' : 'Body focus off');
-    if (bfDisabled) {
+    if (isPhoto) {
+      bfBtn.setAttribute('title', 'Body focus is available for video exercises only.');
+    } else if (bfDisabled) {
       bfBtn.setAttribute('title', 'Body focus applies to colour playback only');
     } else {
       bfBtn.removeAttribute('title');
@@ -4185,8 +4246,13 @@ function onGearTreatmentClick(value) {
 function onGearBodyFocusClick() {
   const slide = slides[currentIndex];
   if (!slide) return;
-  const slideT = slide.media_type === 'video' ? slideTreatment(slide) : 'line';
-  if (slideT === 'line') return; // disabled state guard
+  // Body-focus is a video-only effect — photos have no segmented
+  // variant on the playback path (Wave 22 pipeline ships them as a
+  // single raw colour JPG + CSS grayscale). 2026-05-13: disabled
+  // state guard mirrors paintGearPanel().
+  if (slide.media_type !== 'video') return;
+  const slideT = slideTreatment(slide);
+  if (slideT === 'line') return; // disabled state guard — body focus only applies to colour
   const next = !getEffective(slide, 'bodyFocus');
   const def = practitionerDefaultFor(slide, 'bodyFocus');
   setOverride(slide.id, 'bodyFocus', next, def);

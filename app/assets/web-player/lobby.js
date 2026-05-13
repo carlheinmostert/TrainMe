@@ -925,30 +925,68 @@
     svg.appendChild(tracer);
 
     // Measure path length for the dasharray + animation.
-    const pathLen = tracer.getTotalLength();
-    const tracerLen = Math.min(60, pathLen * 0.12);
-    const dur = cycles * 9 * 1000; // ms — 18s/27s/36s/45s for ×2/×3/×4/×5
-    tracer.style.strokeDasharray = `${tracerLen.toFixed(2)} ${pathLen.toFixed(2)}`;
+    //
+    // 2026-05-13 — embedded WKWebView quirk. `getTotalLength()` against a
+    // freshly-mounted SVG path can return 0 if the WebView hasn't run a
+    // layout pass yet (live Safari runs the layout synchronously on
+    // first read of the geometry; the embedded engine doesn't). If we
+    // hit zero we defer to next frame and retry — `applyTracer` is the
+    // body of "start the animation given a length", split out so we can
+    // call it either inline (live Safari path, length>0 first read) or
+    // after a rAF (embedded WKWebView path, length==0 first read).
+    function applyTracer(pathLen) {
+      if (!pathLen || pathLen <= 1) return; // degenerate; bail
+      const tracerLen = Math.min(60, pathLen * 0.12);
+      const dur = cycles * 9 * 1000; // ms — 18s/27s/36s/45s for ×2/×3/×4/×5
+      tracer.style.strokeDasharray = `${tracerLen.toFixed(2)} ${pathLen.toFixed(2)}`;
 
-    // v54.1 — replace CSS keyframes with WAAPI. iOS WKWebView doesn't
-    // resolve `var(--path-len)` inside @keyframes reliably, so the CSS
-    // animation interpolated from undefined to 0 → no visible motion on
-    // device (worked in desktop Safari). WAAPI takes a numeric value
-    // directly, no CSS-variable resolution dance.
-    if (typeof tracer.animate === 'function' &&
-        !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      // Cancel any prior animation (resize re-render).
-      tracer.getAnimations().forEach((a) => a.cancel());
-      tracer.animate(
-        [
-          { strokeDashoffset: pathLen.toFixed(2) },
-          { strokeDashoffset: 0, offset: 0.9 },
-          { strokeDashoffset: 0 },
-        ],
-        { duration: dur, iterations: Infinity, easing: 'linear' }
-      );
+      // v54.1 — replace CSS keyframes with WAAPI. iOS WKWebView doesn't
+      // resolve `var(--path-len)` inside @keyframes reliably, so the CSS
+      // animation interpolated from undefined to 0 → no visible motion on
+      // device (worked in desktop Safari). WAAPI takes a numeric value
+      // directly, no CSS-variable resolution dance.
+      if (typeof tracer.animate === 'function' &&
+          !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        // Cancel any prior animation (resize re-render). `getAnimations`
+        // may itself be missing on older WebKit; treat as a soft fail.
+        try {
+          if (typeof tracer.getAnimations === 'function') {
+            tracer.getAnimations().forEach((a) => a.cancel());
+          }
+        } catch (_) { /* best-effort cleanup */ }
+        try {
+          tracer.animate(
+            [
+              { strokeDashoffset: pathLen.toFixed(2) },
+              { strokeDashoffset: 0, offset: 0.9 },
+              { strokeDashoffset: 0 },
+            ],
+            { duration: dur, iterations: Infinity, easing: 'linear' }
+          );
+        } catch (_) {
+          // WAAPI missing or rejected — fall through to settled-at-zero
+          // so the static lane outlines stay visible. The page reads as
+          // "settled" but doesn't animate; not ideal, but not broken.
+          tracer.style.strokeDashoffset = '0';
+        }
+      } else {
+        tracer.style.strokeDashoffset = '0';
+      }
+    }
+
+    const firstReadLen = tracer.getTotalLength();
+    if (firstReadLen > 1) {
+      applyTracer(firstReadLen);
     } else {
-      tracer.style.strokeDashoffset = '0';
+      // Embedded WKWebView path. First read came back as 0 — layout
+      // hasn't run yet. Defer to the next animation frame so WebKit has
+      // a chance to lay out the SVG, then re-measure. If we STILL get
+      // 0 after the second read, bail silently (the lanes will paint
+      // static; the worst case is no animation, never a crash).
+      requestAnimationFrame(() => {
+        const len = tracer.getTotalLength();
+        if (len > 1) applyTracer(len);
+      });
     }
   }
 
@@ -2107,7 +2145,23 @@
       borderRadius: '999px', textDecoration: 'none', cursor: 'pointer',
     });
     const hint = document.createElement('p');
-    hint.textContent = 'Tip: right-click the image to save, or drag it into WhatsApp / Mail.';
+    // Hint copy varies by environment — desktop has right-click + drag
+    // affordances, mobile has long-press save / share sheet. Embedded
+    // Flutter WebView reaches a native share sheet via HomefitBridge,
+    // so the modal is a fallback rather than the primary path there
+    // (the share sheet auto-opens once the PNG is ready).
+    var isEmbedded = (typeof window !== 'undefined'
+      && typeof window.isHomefitEmbedded === 'function'
+      && window.isHomefitEmbedded());
+    var isTouch = (typeof navigator !== 'undefined'
+      && /iphone|ipad|ipod|android/i.test(String(navigator.userAgent || '')));
+    if (isEmbedded) {
+      hint.textContent = "Tap Download PNG to save, or wait for the share sheet.";
+    } else if (isTouch) {
+      hint.textContent = 'Long-press the image to save, or tap Download to share.';
+    } else {
+      hint.textContent = 'Tip: right-click the image to save, or drag it into WhatsApp / Mail.';
+    }
     Object.assign(hint.style, {
       margin: '0', textAlign: 'center', color: 'rgba(255,255,255,0.6)',
       fontFamily: "'Inter', -apple-system, sans-serif", fontSize: '12px',
@@ -2242,11 +2296,26 @@
     });
     const map = new Map(); // origSrc → dataUrl
     const errors = [];
+    // 2026-05-13 — embedded WKWebView quirk. The custom `homefit-local://`
+    // scheme handler serves images same-origin, but `fetch(url, { mode:
+    // 'cors' })` against a non-http(s) scheme can stall forever in
+    // WebKit's CORS preflight path (no preflight to emit, but the
+    // fetch hangs without returning). Drop `mode: 'cors'` for embedded
+    // surfaces — same-origin fetch needs no opt-in and html2canvas
+    // doesn't taint on same-origin <img> reads. Live web player keeps
+    // explicit CORS in case the SDN serves images from a cross-origin
+    // bucket alias.
+    const isEmbedded = (typeof window !== 'undefined'
+      && typeof window.isHomefitEmbedded === 'function'
+      && window.isHomefitEmbedded());
+    const fetchOpts = isEmbedded
+      ? { credentials: 'omit' }
+      : { mode: 'cors', credentials: 'omit' };
     await Promise.all(Array.from(sources).map(async (src) => {
       if (!src) return;
       if (src.startsWith('data:')) return;
       try {
-        const res = await fetch(src, { mode: 'cors', credentials: 'omit' });
+        const res = await fetch(src, fetchOpts);
         if (!res.ok) {
           errors.push(`${res.status} on ${shortUrl(src)}`);
           return;
@@ -2278,6 +2347,22 @@
     } catch (_) {
       return String(u).slice(0, 32);
     }
+  }
+
+  /// Convert a Blob to a `data:image/...` URL. Used by the embedded
+  /// share path — the native bridge takes a string payload, not a
+  /// Blob handle. Falls back to null if the reader rejects.
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
 
   function formatExportError(diag, headline) {
@@ -2415,22 +2500,50 @@
       showExportModal(url, fileName);
       setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
 
-      // Native share sheet path: only on mobile UAs where it's the
-      // primary intent. Desktop browsers stay on the modal — Carl's
-      // testing across rounds 4-9 showed every desktop "share sheet"
-      // path either blocked, hung, or rendered partial PNGs. The modal
-      // works reliably and gives the user a clean Download button.
-      const isMobileUA = /iphone|ipad|android/i.test(navigator.userAgent);
-      if (isMobileUA && navigator.canShare && navigator.canShare({ files: [file] })) {
+      // Share-sheet path varies by surface:
+      //
+      //   * Embedded Flutter WebView → HomefitBridge.shareImage(...)
+      //     posts the PNG to Dart, which presents
+      //     UIActivityViewController. Web Share API isn't reliable
+      //     inside WKWebView (the embedded engine doesn't enable it
+      //     by default), so we route through native.
+      //   * Mobile Safari (live web player) → navigator.share with
+      //     File payload. Honoured directly by iOS / Android.
+      //   * Desktop → modal stays put. Native share sheets on macOS /
+      //     Windows don't accept File payloads consistently; the
+      //     Download anchor in the modal is the better affordance.
+      const isEmbedded = (typeof window !== 'undefined'
+        && typeof window.isHomefitEmbedded === 'function'
+        && window.isHomefitEmbedded());
+      if (isEmbedded) {
+        // Embedded Flutter WebView — convert blob to base64 data URL
+        // and forward to Dart over the bridge. Best-effort; the modal
+        // already showed the PNG so the practitioner has a Download
+        // fallback if the share sheet doesn't surface.
         try {
-          await navigator.share({
-            files: [file],
-            title: 'Your homefit plan',
-            text: 'Your visual plan from homefit.studio',
-          });
+          const dataUrl = await blobToDataUrl(blob);
+          if (dataUrl
+            && typeof window.homefitBridge === 'object'
+            && window.homefitBridge
+            && typeof window.homefitBridge.shareImage === 'function') {
+            window.homefitBridge.shareImage(dataUrl, fileName);
+          }
         } catch (err) {
-          if (err && err.name !== 'AbortError') {
-            try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
+          try { console.warn('[homefit-lobby] embedded share failed:', err); } catch (_) {}
+        }
+      } else {
+        const isMobileUA = /iphone|ipad|android/i.test(navigator.userAgent);
+        if (isMobileUA && navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: 'Your homefit plan',
+              text: 'Your visual plan from homefit.studio',
+            });
+          } catch (err) {
+            if (err && err.name !== 'AbortError') {
+              try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
+            }
           }
         }
       }
