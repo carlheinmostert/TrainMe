@@ -40,11 +40,22 @@
   const $lobbyMatrix = document.getElementById('lobby-matrix');
   const $lobbyMatrixInner = document.getElementById('lobby-matrix-inner');
   const $lobbyList = document.getElementById('lobby-list');
-  const $lobbyTreatmentRow = document.getElementById('lobby-treatment-row');
   const $lobbyStartBtn = document.getElementById('lobby-start-btn');
   const $lobbyShareBtn = document.getElementById('lobby-share-btn');
   const $lobbyGearBtn = document.getElementById('lobby-gear-btn');
   const $lobbySettingsPopover = document.getElementById('lobby-settings-popover');
+  const $lobbyResetOverridesBtn = document.getElementById('lobby-reset-overrides-btn');
+  // Lobby-settings-unify (2026-05-14): the lobby popover hosts the same
+  // unified treatment + body-focus + reset panel as the deck. The
+  // legacy `#lobby-treatment-row` element was retired in favour of the
+  // shared `.settings-row-segmented[data-prop="treatment"]` markup —
+  // its pill click handler lives on the popover root via delegation.
+  const $lobbyTreatmentPills = $lobbySettingsPopover
+    ? $lobbySettingsPopover.querySelector('.settings-row-segmented[data-prop="treatment"]')
+    : null;
+  const $lobbyBodyFocusBtn = $lobbySettingsPopover
+    ? $lobbySettingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]')
+    : null;
   const $selfGrantModal = document.getElementById('lobby-self-grant-modal');
   const $selfGrantTitle = document.getElementById('lobby-self-grant-title');
   const $selfGrantName = document.getElementById('lobby-self-grant-name');
@@ -1381,17 +1392,35 @@
   }
 
   // ==========================================================================
-  // Treatment selector (Line / B&W / Colour)
+  // Treatment + body-focus + reset (Lobby-settings-unify, 2026-05-14)
   // ==========================================================================
+  //
+  // The lobby gear popover hosts the SAME unified panel as the deck:
+  // treatment selector, body-focus toggle, "Reset to practitioner"
+  // button. Everything writes a PLAN-SCOPED override; toggling here is
+  // equivalent to toggling on the deck gear, and one tap re-renders
+  // every row in the lobby + the post-handoff deck.
+  //
+  // The painter lives in app.js (`paintGearPanel(rootEl)`) and is
+  // exposed via `api.paintGearPanel`. The lobby's job is:
+  //   1. Append lock glyphs to consent-locked treatment pills (still
+  //      lobby-specific UX — deck doesn't render the lock glyph),
+  //      then ask app.js to paint the rest of the panel state.
+  //   2. Click-delegate inside the popover: pills, body-focus btn,
+  //      reset btn. All three call into app.js handlers; this file
+  //      only adds the "locked pill → self-grant modal" branch.
+  //   3. On any successful pick: re-render the hero list so the rows
+  //      pick up the new resolver state.
 
   function renderTreatmentRow() {
-    if (!$lobbyTreatmentRow) return;
-    const buttons = $lobbyTreatmentRow.querySelectorAll('button[data-value]');
-    buttons.forEach((btn) => {
+    if (!$lobbyTreatmentPills) return;
+    // Lobby-only chrome: append a lock glyph + data-locked attr to
+    // consent-locked pills so the gear popover's pills carry the
+    // self-grant affordance. (The deck popover has no equivalent —
+    // there's no self-grant path mid-workout.)
+    const pillButtons = $lobbyTreatmentPills.querySelectorAll('.treatment-pills > button[data-value]');
+    pillButtons.forEach((btn) => {
       const value = btn.getAttribute('data-value');
-      const isActive = value === activeTreatment;
-      btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
-      // Append a lock glyph if not yet rendered.
       if (!btn.querySelector('.lobby-lock')) {
         const lock = document.createElement('span');
         lock.className = 'lobby-lock';
@@ -1399,10 +1428,24 @@
         lock.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
         btn.appendChild(lock);
       }
-      // Lock state.
       const locked = isLockedTreatment(value);
       btn.setAttribute('data-locked', locked ? 'true' : 'false');
     });
+    // Defer to the shared painter for active/overridden/disabled state.
+    if (api.paintGearPanel) api.paintGearPanel($lobbySettingsPopover);
+    // Reflect the plan-scoped active treatment in the lobby's own
+    // shadow state (used by the legacy `activeTreatment` reads further
+    // up — kept for analytics continuity).
+    if (api.getEffective && slides.length) {
+      let referenceSlide = null;
+      for (let i = 0; i < slides.length; i++) {
+        const s = slides[i];
+        if (s && s.media_type !== 'rest') { referenceSlide = s; break; }
+      }
+      if (referenceSlide) {
+        activeTreatment = api.getEffective(referenceSlide, 'treatment') || 'line';
+      }
+    }
   }
 
   function isLockedTreatment(value) {
@@ -1421,15 +1464,15 @@
       return;
     }
     // Tapping the already-active pill → just close the popover (no
-    // hero re-render, no analytics ping). Round 4 one-tap-to-pick UX:
-    // a tap on any pill (including the active one) dismisses the
-    // popover so the gear feels light.
+    // hero re-render, no analytics ping). Round 4 one-tap-to-pick UX.
     if (value === activeTreatment) {
       closeLobbySettingsPopover();
       return;
     }
     const previous = activeTreatment;
     activeTreatment = value;
+    // Plan-scoped write — same handler the deck gear pill uses, so the
+    // lobby pill + deck gear pill stay in lock-step.
     if (api.applyTreatmentOverrideToAllExercises) {
       api.applyTreatmentOverrideToAllExercises(value);
     }
@@ -1441,6 +1484,7 @@
       });
     }
     renderTreatmentRow();
+    if (api.paintGearPanel) api.paintGearPanel($lobbySettingsPopover);
     renderList();
     // Reset active sentinel so the post-render reducer paints a fresh
     // active state (the previous DOM is gone, so the cached idx is
@@ -1455,6 +1499,42 @@
       });
     });
     // Round 4 — close the popover after a successful pick. One-tap UX.
+    closeLobbySettingsPopover();
+  }
+
+  /** Lobby body-focus toggle — plan-scoped write, then re-paint +
+   *  re-render lobby. Deck rebinds happen inside the app.js handler. */
+  function onLobbyBodyFocusClick() {
+    if (!api.onGearBodyFocusClickLobby) return;
+    api.onGearBodyFocusClickLobby();
+    renderTreatmentRow();
+    // Re-render lobby rows so the body-focus state shows up in heroes.
+    renderList();
+    activeRowIndex = -1;
+    requestAnimationFrame(() => {
+      cb('lobbyBodyFocusRaf', () => {
+        activateInitialRow();
+        recomputeActiveRow();
+      });
+    });
+  }
+
+  /** Lobby reset — clears the plan-scoped override and restores each
+   *  slide's practitioner-original treatment + body-focus. Re-renders
+   *  the lobby so heroes return to the mixed-treatment original state. */
+  function onLobbyResetClick() {
+    if (!api.onGearResetClick) return;
+    api.onGearResetClick();
+    renderTreatmentRow();
+    renderList();
+    activeRowIndex = -1;
+    requestAnimationFrame(() => {
+      cb('lobbyResetRaf', () => {
+        activateInitialRow();
+        recomputeActiveRow();
+      });
+    });
+    // Round 4 UX — close popover after reset.
     closeLobbySettingsPopover();
   }
 
@@ -1490,6 +1570,10 @@
     if (!$lobbySettingsPopover || !$lobbyGearBtn) return;
     if (isLobbySettingsPopoverOpen()) return;
     $lobbySettingsPopover.hidden = false;
+    // Paint state on open so the panel reflects the current
+    // plan-scoped override + practitioner defaults. Mirrors the deck's
+    // `setSettingsPopoverOpen(true)` behaviour.
+    if (api && api.paintGearPanel) api.paintGearPanel($lobbySettingsPopover);
     // Tick to let the browser paint `display:block` before the
     // opacity/transform transition kicks in.
     requestAnimationFrame(() => {
@@ -1975,14 +2059,39 @@
       });
     }
 
-    if ($lobbyTreatmentRow) {
-      $lobbyTreatmentRow.addEventListener('click', (evt) => {
-        const btn = evt.target.closest('button[data-value]');
+    if ($lobbyTreatmentPills && !$lobbyTreatmentPills._wired) {
+      $lobbyTreatmentPills._wired = true;
+      $lobbyTreatmentPills.addEventListener('click', (evt) => {
+        const btn = evt.target.closest('.treatment-pills > button[data-value]');
         if (!btn) return;
         // Same stopPropagation guard as the gear — clicks inside the
         // popover must not register as "outside" the popover.
         evt.stopPropagation();
+        // Disabled pills (when no slides loaded yet) are no-ops; the
+        // self-grant path takes over for consent-locked pills inside
+        // onTreatmentClick.
+        if (btn.classList.contains('is-disabled') && !btn.getAttribute('data-locked')) return;
         onTreatmentClick(btn.getAttribute('data-value'));
+      });
+    }
+
+    if ($lobbyBodyFocusBtn && !$lobbyBodyFocusBtn._wired) {
+      $lobbyBodyFocusBtn._wired = true;
+      $lobbyBodyFocusBtn.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        // Disabled-state guard mirrors the painter — photos / line
+        // treatment / rest have no segmented variant.
+        if ($lobbyBodyFocusBtn.disabled) return;
+        onLobbyBodyFocusClick();
+      });
+    }
+
+    if ($lobbyResetOverridesBtn && !$lobbyResetOverridesBtn._wired) {
+      $lobbyResetOverridesBtn._wired = true;
+      $lobbyResetOverridesBtn.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        if ($lobbyResetOverridesBtn.disabled) return;
+        onLobbyResetClick();
       });
     }
 

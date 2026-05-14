@@ -3377,6 +3377,37 @@ body.is-fullscreen .playpause-toggle {
   display: none;
 }
 
+/* Lobby-settings-unify (2026-05-14): the lobby gear popover now hosts
+   the same `.treatment-pills` markup as the deck gear panel. Apply
+   the consent-locked affordance to that markup too — the lock glyph
+   is appended by lobby.js's renderTreatmentRow() onto pills that
+   `isLockedTreatment()` returns true for, and the data-locked attr
+   surfaces the muted colour. */
+.lobby-settings-popover .treatment-pills > button[data-locked="true"] {
+  color: var(--c-ink-muted);
+}
+
+.lobby-settings-popover .treatment-pills > button[data-locked="true"] .lobby-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.lobby-settings-popover .treatment-pills > button:not([data-locked="true"]) .lobby-lock {
+  display: none;
+}
+
+.lobby-settings-popover .treatment-pills > button .lobby-lock svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
 .lobby-start-btn {
   flex: 1 1 auto;
   height: 50px;
@@ -3854,6 +3885,17 @@ html.is-exporting .lobby-row.is-active,
    here we can afford 40. */
 .lobby-settings-popover .lobby-treatment-row {
   height: 40px;
+}
+
+/* Lobby-settings-unify (2026-05-14): the lobby popover hosts the
+   unified gear panel — same width footprint as the deck popover so
+   the two read as one component. min-width matches the deck. The
+   `position: absolute; bottom: calc(100% + 8px); right: 16px;` from
+   the base `.lobby-settings-popover` rule above wins on cascade
+   (declared later than the shared `.settings-popover` block), so the
+   anchor still opens upward from the gear in the CTA bar. */
+.lobby-settings-popover.settings-popover {
+  min-width: 264px;
 }
 
 /* Self-grant modal ----------------------------------------------------- */
