@@ -91,8 +91,6 @@ class CaptureThumbnail extends StatelessWidget {
   /// video paths use the resolver's per-treatment thumbnail variant
   /// selection. Rest periods bypass treatment logic entirely.
   (File, ColorFilter?) _resolveSource() {
-    final effectiveTreatment = treatment ?? Treatment.line;
-
     // Rest periods: no treatment logic.
     if (exercise.isRest) {
       return (File(exercise.displayFilePath), null);
