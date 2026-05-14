@@ -376,11 +376,15 @@ class UnifiedPreviewSchemeBridge {
       // flagged as QA item 8 (embedded Preview heroes blurred).
       'body_focus': e.bodyFocus,
       'line_drawing_url': lineUrl,
-      'grayscale_url':
-          (consent.grayscale && archiveUrl != null) ? archiveUrl : null,
-      'original_url':
-          (consent.original && archiveUrl != null) ? archiveUrl : null,
-      // Practitioner is the viewer — file-presence gating only.
+      // 2026-05-14 hotfix: practitioner is the viewer on the embedded
+      // preview — consent gates the CLIENT surface (cloud `get_plan_full`
+      // RPC enforces consent there). Locally, file-presence is the only
+      // gate. Without this bypass, the no-fallback resolver (PR #324)
+      // treats every Wave-309-default-B&W exercise as "treatment locked
+      // to line" because consent defaults to lineOnly, and the lobby
+      // renders the `.hero-not-available` placeholder for every row.
+      'grayscale_url': archiveUrl,
+      'original_url': archiveUrl,
       'grayscale_segmented_url': segmentedUrl,
       'original_segmented_url': segmentedUrl,
     };
