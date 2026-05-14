@@ -215,22 +215,35 @@ class ConversionService extends ChangeNotifier {
         //      to the converted line-drawing as a last resort — rather
         //      than leaving the UI with a stale frame.
         if (exercise.mediaType == MediaType.video) {
-          try {
-            final dir = await getApplicationDocumentsDirectory();
-            final thumbDir = p.join(dir.path, 'thumbnails');
-            final thumbPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
-            final sourcePath = await _pickThumbnailSource(done);
-            if (sourcePath != null) {
-              // Wave Hero — preserve a previously-picked Hero offset
-              // (e.g. when the practitioner re-runs conversion after
-              // editing the Hero) by feeding it back into the B&W run.
-              // Otherwise we let native motion-peak pick the time and
-              // round-trip the picked timeMs back into the model so the
-              // editor's Hero scrubber opens on the current frame.
-              final priorOffset = done.focusFrameOffsetMs;
-              final useAutoPick = priorOffset == null;
+          // Per-variant try/catch so a failure on the color OR line
+          // extract no longer poisons the other variants (per the
+          // 2026-05-13 audit's no-silent-fallback principle — each
+          // variant is independently observable). Pre-2026-05-14
+          // behaviour wrapped all three calls in ONE catch, leaving
+          // `_thumb.jpg` on disk but discarding color + line if
+          // extract #2 threw mid-pass.
+          final dir = await getApplicationDocumentsDirectory();
+          final thumbDir = p.join(dir.path, 'thumbnails');
+          final thumbPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
+          final sourcePath = await _pickThumbnailSource(done);
+          if (sourcePath != null) {
+            // Wave Hero — preserve a previously-picked Hero offset
+            // (e.g. when the practitioner re-runs conversion after
+            // editing the Hero) by feeding it back into the B&W run.
+            // Otherwise we let native motion-peak pick the time and
+            // round-trip the picked timeMs back into the model so the
+            // editor's Hero scrubber opens on the current frame.
+            final priorOffset = done.focusFrameOffsetMs;
+            final useAutoPick = priorOffset == null;
 
-              // B&W thumbnail (default — used for grayscale treatment).
+            // B&W thumbnail (load-bearing — gates the Hero offset
+            // resolution used by the color + line calls below). On
+            // failure we keep the pre-conversion thumbnail and skip
+            // the dependent variants; user-facing surfaces fall back
+            // to the explicit placeholder (parallel agent's resolver).
+            int pickedMs = priorOffset ?? 0;
+            bool bwOk = false;
+            try {
               final bwResp = await _thumbChannel
                   .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
                 'inputPath': sourcePath,
@@ -239,17 +252,28 @@ class ConversionService extends ChangeNotifier {
                 'autoPick': useAutoPick,
                 'grayscale': true,
               }).timeout(const Duration(seconds: 30));
-              final pickedMs =
-                  (bwResp?['timeMs'] as int?) ?? priorOffset ?? 0;
+              pickedMs = (bwResp?['timeMs'] as int?) ?? priorOffset ?? 0;
               done = done.copyWith(
                 thumbnailPath: PathResolver.toRelative(thumbPath),
                 focusFrameOffsetMs: pickedMs,
               );
+              bwOk = true;
+            } catch (e, st) {
+              await _logVariantFailure(
+                exerciseId: exercise.id,
+                variant: 'bw',
+                error: e,
+                stack: st,
+              );
+            }
 
-              // Color thumbnail (used for original treatment).
-              // autoPick: false, grayscale: false — plain color frame, no
-              // body-focus segmentation. Sampled at the SAME Hero offset
-              // as the B&W run so all treatments are visually consistent.
+            // Color thumbnail (used for original treatment).
+            // autoPick: false, grayscale: false — plain color frame, no
+            // body-focus segmentation. Sampled at the SAME Hero offset
+            // as the B&W run so all treatments are visually consistent.
+            // Independent failure: a B&W success doesn't gate this, and
+            // a color failure doesn't gate the line run.
+            try {
               final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
               await _thumbChannel
                   .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
@@ -259,12 +283,21 @@ class ConversionService extends ChangeNotifier {
                 'autoPick': false,
                 'grayscale': false,
               }).timeout(const Duration(seconds: 30));
+            } catch (e, st) {
+              await _logVariantFailure(
+                exerciseId: exercise.id,
+                variant: 'color',
+                error: e,
+                stack: st,
+              );
+            }
 
-              // Line-drawing thumbnail (used for line treatment). Sampled
-              // from the converted line video at the same Hero offset
-              // (raw + line are produced in lock-step so the timeline
-              // matches).
-              if (done.convertedFilePath != null) {
+            // Line-drawing thumbnail (used for line treatment). Sampled
+            // from the converted line video at the same Hero offset
+            // (raw + line are produced in lock-step so the timeline
+            // matches).
+            if (done.convertedFilePath != null) {
+              try {
                 final convertedPath = PathResolver.resolve(done.convertedFilePath!);
                 final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
                 await _thumbChannel
@@ -275,11 +308,25 @@ class ConversionService extends ChangeNotifier {
                   'autoPick': false,
                   'grayscale': false,
                 }).timeout(const Duration(seconds: 30));
+              } catch (e, st) {
+                await _logVariantFailure(
+                  exerciseId: exercise.id,
+                  variant: 'line',
+                  error: e,
+                  stack: st,
+                );
               }
             }
-          } catch (e) {
-            debugPrint('Post-conversion thumbnail update failed: $e');
-            // Non-fatal — keep the pre-conversion thumbnail
+            // Silence the analyzer about unused `bwOk` — it's a future
+            // read-site (we may surface a UI banner on Hero-frame loss).
+            // Keeping the local so the diff stays minimal if/when that
+            // ships.
+            if (!bwOk) {
+              debugPrint(
+                'Post-conversion B&W thumbnail unavailable for ${exercise.id}; '
+                'practitioner surfaces will show the placeholder until backfill.',
+              );
+            }
           }
 
           // Probe the raw video duration via AVURLAsset so the "one rep" in
@@ -495,20 +542,50 @@ class ConversionService extends ChangeNotifier {
     final clampedMs = offsetMs < 0 ? 0 : offsetMs;
     var next = exercise.copyWith(focusFrameOffsetMs: clampedMs);
 
+    // Per-variant try/catch (mirrors the post-conversion block — see
+    // the 2026-05-13 audit's no-silent-fallback principle). A failure
+    // on color OR line no longer voids the B&W refresh; each variant
+    // is observable + diagnosable via the conversion-error log.
+    final dir = await getApplicationDocumentsDirectory();
+    final thumbDir = p.join(dir.path, 'thumbnails');
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final thumbDir = p.join(dir.path, 'thumbnails');
       await Directory(thumbDir).create(recursive: true);
-      final thumbPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
-      final sourcePath = await _pickThumbnailSource(exercise);
-      if (sourcePath == null) {
-        debugPrint(
-          'regenerateHeroThumbnails: no raw/archive source for ${exercise.id}',
-        );
-      } else {
-        // B&W (grayscale + body-focus crop) — the canonical practitioner-
-        // facing thumbnail. autoPick:false so the caller-supplied
-        // [offsetMs] is honoured verbatim.
+    } catch (e, st) {
+      // Directory creation failure is the only catastrophic case here —
+      // every variant write below would fail otherwise. Log under the
+      // bw kind (most prominent surface) and bail out to the persist
+      // below so the offset is still remembered.
+      await _logVariantFailure(
+        exerciseId: exercise.id,
+        variant: 'bw',
+        error: e,
+        stack: st,
+        contextKind: 'regen_dir_create',
+      );
+      await _storage.saveExercise(next);
+      if (!_updateController.isClosed) {
+        _updateController.add(next);
+      }
+      notifyListeners();
+      return next;
+    }
+    final thumbPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
+    final sourcePath = await _pickThumbnailSource(exercise);
+    if (sourcePath == null) {
+      debugPrint(
+        'regenerateHeroThumbnails: no raw/archive source for ${exercise.id}',
+      );
+      await _logVariantFailure(
+        exerciseId: exercise.id,
+        variant: 'bw',
+        error: StateError('No raw/archive source available'),
+        contextKind: 'regen_no_source',
+      );
+    } else {
+      // B&W (grayscale + body-focus crop) — the canonical practitioner-
+      // facing thumbnail. autoPick:false so the caller-supplied
+      // [offsetMs] is honoured verbatim.
+      try {
         await _thumbChannel
             .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
           'inputPath': sourcePath,
@@ -518,9 +595,20 @@ class ConversionService extends ChangeNotifier {
           'grayscale': true,
         }).timeout(const Duration(seconds: 30));
         next = next.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
+      } catch (e, st) {
+        await _logVariantFailure(
+          exerciseId: exercise.id,
+          variant: 'bw',
+          error: e,
+          stack: st,
+          contextKind: 'regen',
+        );
+      }
 
-        // Colour (no body-focus, no grayscale) — used by the Original
-        // treatment surface.
+      // Colour (no body-focus, no grayscale) — used by the Original
+      // treatment surface. Independent failure: a B&W failure above
+      // doesn't stop this; a failure here doesn't gate the line run.
+      try {
         final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
         await _thumbChannel
             .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
@@ -530,10 +618,20 @@ class ConversionService extends ChangeNotifier {
           'autoPick': false,
           'grayscale': false,
         }).timeout(const Duration(seconds: 30));
+      } catch (e, st) {
+        await _logVariantFailure(
+          exerciseId: exercise.id,
+          variant: 'color',
+          error: e,
+          stack: st,
+          contextKind: 'regen',
+        );
+      }
 
-        // Line-drawing — sampled from the converted line video at the
-        // same offset (the converted video shares the raw timeline).
-        if (exercise.convertedFilePath != null) {
+      // Line-drawing — sampled from the converted line video at the
+      // same offset (the converted video shares the raw timeline).
+      if (exercise.convertedFilePath != null) {
+        try {
           final convertedPath = PathResolver.resolve(exercise.convertedFilePath!);
           final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
           await _thumbChannel
@@ -544,13 +642,16 @@ class ConversionService extends ChangeNotifier {
             'autoPick': false,
             'grayscale': false,
           }).timeout(const Duration(seconds: 30));
+        } catch (e, st) {
+          await _logVariantFailure(
+            exerciseId: exercise.id,
+            variant: 'line',
+            error: e,
+            stack: st,
+            contextKind: 'regen',
+          );
         }
       }
-    } catch (e) {
-      debugPrint('regenerateHeroThumbnails failed for ${exercise.id}: $e');
-      // Non-fatal — fall through to the persist below so the offset is
-      // remembered even if the JPEGs didn't refresh. Next conversion
-      // pass / retry will pick up the saved offset.
     }
 
     await _storage.saveExercise(next);
@@ -1478,6 +1579,352 @@ class ConversionService extends ChangeNotifier {
         // sites in this file — the fallback log write is optional
         // forensic surface, and a filesystem failure here must not
         // recurse into loudSwallow's own logging path.
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Variant-level diagnostic log (2026-05-14 hardening)
+  //
+  // The per-call try/catch refactor in [_processQueue] + [regenerateHeroThumbnails]
+  // surfaces individual B&W / color / line failures instead of silently
+  // swallowing them via a single outer catch. Each failure lands in
+  // `{Documents}/conversion_error.log` with a distinct `[VARIANT bw|color|line]`
+  // prefix so the existing failed-pill long-press sheet (PR #213) can
+  // distinguish them from full conversion failures.
+  //
+  // Eager backfill (see [backfillMissingVariants] below) emits matching
+  // `[BACKFILL]` entries so practitioners can see what regenerated.
+  // ---------------------------------------------------------------------------
+
+  /// Append a single `[VARIANT <kind>]` entry to the conversion-error log
+  /// for [exerciseId]. Best-effort — a filesystem failure here MUST NOT
+  /// propagate (caller is already on an exception path); we deliberately
+  /// don't route through `loudSwallow` because that would recurse if the
+  /// failure mode is "documents dir unwritable".
+  ///
+  /// [contextKind] is an optional discriminator (e.g. `regen`, `backfill`,
+  /// `regen_no_source`) so the same `variant` shows up with different
+  /// context labels in the log without needing a separate log-writer per
+  /// caller.
+  Future<void> _logVariantFailure({
+    required String exerciseId,
+    required String variant,
+    required Object error,
+    StackTrace? stack,
+    String contextKind = 'post_conversion',
+  }) async {
+    debugPrint('Variant thumbnail failed [$variant/$contextKind] for $exerciseId: $error');
+    try {
+      final logDir = await getApplicationDocumentsDirectory();
+      final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+      // Format mirrors the existing entry shape so the parser in
+      // [ConversionErrorLogSheet] keeps working:
+      //   {DateTime}
+      //   Exercise: {id}
+      //   ...
+      //   Error: {e}
+      //
+      //   Stack:
+      //   {stack}
+      final stackBlock = stack == null
+          ? ''
+          : '\nStack:\n${stack.toString().split('\n').take(3).join('\n')}\n';
+      await logFile.writeAsString(
+        '${DateTime.now()} [VARIANT $variant/$contextKind]\n'
+        'Exercise: $exerciseId\n'
+        'Error: $error\n'
+        '$stackBlock\n',
+        mode: FileMode.append,
+      );
+    } catch (_) {
+      // Log-of-log swallow. Sanctioned site (same rationale as elsewhere
+      // in this file): writing the conversion-error log already failed,
+      // so any further redirect would just recurse on the same failure.
+    }
+  }
+
+  /// Append a `[BACKFILL <event>]` entry to the conversion-error log. Used
+  /// by [backfillMissingVariants] to make eager backfill activity visible
+  /// alongside variant + conversion failures in the long-press sheet.
+  ///
+  /// [event] is a short tag: `start`, `success`, `skip`. Failures land via
+  /// `_logVariantFailure(... contextKind: 'backfill')` so the existing
+  /// `[VARIANT ...]` view captures them too.
+  Future<void> _logBackfillEvent({
+    required String exerciseId,
+    required String event,
+    String? variant,
+    String? detail,
+  }) async {
+    debugPrint('Backfill [$event] $variant for $exerciseId${detail == null ? '' : ' — $detail'}');
+    try {
+      final logDir = await getApplicationDocumentsDirectory();
+      final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+      final variantPart = variant == null ? '' : ' $variant';
+      await logFile.writeAsString(
+        '${DateTime.now()} [BACKFILL $event$variantPart]\n'
+        'Exercise: $exerciseId\n'
+        '${detail == null ? '' : 'Detail: $detail\n'}\n',
+        mode: FileMode.append,
+      );
+    } catch (_) {
+      // Sanctioned log-of-log swallow.
+    }
+  }
+
+  /// Walk every video exercise in [exercises] and re-run extractFrame for
+  /// any of the three thumbnail variants (`_thumb.jpg`, `_thumb_color.jpg`,
+  /// `_thumb_line.jpg`) that are missing on disk. Each per-variant call is
+  /// wrapped in granular try/catch; one variant failing doesn't poison
+  /// the others. Successes emit on [onConversionUpdate] so listeners can
+  /// rebuild and pick up the freshly-stamped files.
+  ///
+  /// Photo variants are produced atomically by the OpenCV isolate in
+  /// [_extractPhotoThumbnailVariants] — we don't re-run that isolate
+  /// piecemeal (it's a single compute() call), but we still emit a
+  /// per-photo BACKFILL log entry if the photo's `_thumb.jpg` is missing
+  /// so the practitioner sees it.
+  ///
+  /// Runs sequentially (one exercise at a time) — the native extractFrame
+  /// channel isn't reentrant. Designed to run in the background on
+  /// session-open without blocking the UI.
+  ///
+  /// No-op for the queue-processor path (which writes variants
+  /// atomically). Designed for the "session opened with stale / missing
+  /// variants" case — e.g. fresh reinstall, manual file delete, partial
+  /// failure pre-hardening.
+  Future<void> backfillMissingVariants(List<ExerciseCapture> exercises) async {
+    if (exercises.isEmpty) return;
+    final dir = await getApplicationDocumentsDirectory();
+    final thumbDir = p.join(dir.path, 'thumbnails');
+    try {
+      await Directory(thumbDir).create(recursive: true);
+    } catch (_) {
+      // If we can't even create the directory, every variant write would
+      // fail. Bail out silently — _logVariantFailure would just recurse
+      // on the same filesystem state.
+      return;
+    }
+
+    for (final exercise in exercises) {
+      if (exercise.isRest) continue;
+      // Only act on `done` conversions — pending / converting / failed
+      // exercises don't have stable variant files yet (the queue
+      // processor produces them atomically). Backfill is for the case
+      // where a previous run completed but variants got lost since.
+      if (exercise.conversionStatus != ConversionStatus.done) continue;
+
+      final bwPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
+      final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
+      final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
+
+      final bwMissing = !await File(bwPath).exists();
+      final colorMissing = !await File(colorPath).exists();
+      final lineMissing = !await File(linePath).exists();
+
+      if (!bwMissing && !colorMissing && !lineMissing) {
+        continue;
+      }
+
+      if (exercise.mediaType == MediaType.photo) {
+        // Photos: variants are produced atomically by the OpenCV
+        // isolate in _extractPhotoThumbnailVariants. Re-run the whole
+        // pass if ANY of the three is missing — the isolate is
+        // idempotent + handles missing converted JPG gracefully.
+        await _logBackfillEvent(
+          exerciseId: exercise.id,
+          event: 'start',
+          variant: 'photo_all',
+          detail: 'bwMissing=$bwMissing colorMissing=$colorMissing lineMissing=$lineMissing',
+        );
+        try {
+          final rawAbs = exercise.absoluteRawFilePath;
+          if (rawAbs.isEmpty || !await File(rawAbs).exists()) {
+            await _logVariantFailure(
+              exerciseId: exercise.id,
+              variant: 'photo_all',
+              error: StateError('Raw file missing on disk'),
+              contextKind: 'backfill',
+            );
+            continue;
+          }
+          await compute(_extractPhotoThumbnailVariants, _PhotoThumbArgs(
+            rawPath: rawAbs,
+            convertedPath: exercise.absoluteConvertedFilePath,
+            bwOutPath: bwPath,
+            colorOutPath: colorPath,
+            lineOutPath: linePath,
+          ));
+          // Re-stamp thumbnailPath if it isn't pointing at the bw
+          // variant already (legacy rows may still have
+          // thumbnailPath = rawFilePath).
+          if (await File(bwPath).exists()) {
+            final next = exercise.copyWith(
+              thumbnailPath: PathResolver.toRelative(bwPath),
+            );
+            await _storage.saveExercise(next);
+            if (!_updateController.isClosed) {
+              _updateController.add(next);
+            }
+          }
+          await _logBackfillEvent(
+            exerciseId: exercise.id,
+            event: 'success',
+            variant: 'photo_all',
+          );
+        } catch (e, st) {
+          await _logVariantFailure(
+            exerciseId: exercise.id,
+            variant: 'photo_all',
+            error: e,
+            stack: st,
+            contextKind: 'backfill',
+          );
+        }
+        continue;
+      }
+
+      // Video branch — per-variant extractFrame call, each independently
+      // gated + logged. Mirrors the per-call try/catch in [_processQueue]
+      // so a partial failure leaves the successful variants on disk.
+      final sourcePath = await _pickThumbnailSource(exercise);
+      if (sourcePath == null) {
+        await _logVariantFailure(
+          exerciseId: exercise.id,
+          variant: 'bw',
+          error: StateError('No raw/archive source available'),
+          contextKind: 'backfill_no_source',
+        );
+        continue;
+      }
+      // Use the saved Hero offset if we have one; otherwise let native
+      // motion-peak pick (round-tripping the picked offset into the
+      // model is handled by the post-conversion path, not here — this
+      // is purely a missing-file recovery).
+      final offset = exercise.focusFrameOffsetMs ?? 0;
+      final useAutoPick = exercise.focusFrameOffsetMs == null;
+
+      ExerciseCapture? updated;
+
+      if (bwMissing) {
+        await _logBackfillEvent(
+          exerciseId: exercise.id,
+          event: 'start',
+          variant: 'bw',
+        );
+        try {
+          final bwResp = await _thumbChannel
+              .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+            'inputPath': sourcePath,
+            'outputPath': bwPath,
+            'timeMs': offset,
+            'autoPick': useAutoPick,
+            'grayscale': true,
+          }).timeout(const Duration(seconds: 30));
+          final pickedMs = (bwResp?['timeMs'] as int?) ?? offset;
+          updated = (updated ?? exercise).copyWith(
+            thumbnailPath: PathResolver.toRelative(bwPath),
+            focusFrameOffsetMs: pickedMs,
+          );
+          await _logBackfillEvent(
+            exerciseId: exercise.id,
+            event: 'success',
+            variant: 'bw',
+          );
+        } catch (e, st) {
+          await _logVariantFailure(
+            exerciseId: exercise.id,
+            variant: 'bw',
+            error: e,
+            stack: st,
+            contextKind: 'backfill',
+          );
+        }
+      }
+
+      // Hero offset we feed into color + line. Prefer the freshly-picked
+      // offset from the BW backfill above (carries the motion-peak pick
+      // if autoPick fired). Otherwise the existing model value.
+      final hero = updated?.focusFrameOffsetMs ?? offset;
+
+      if (colorMissing) {
+        await _logBackfillEvent(
+          exerciseId: exercise.id,
+          event: 'start',
+          variant: 'color',
+        );
+        try {
+          await _thumbChannel
+              .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+            'inputPath': sourcePath,
+            'outputPath': colorPath,
+            'timeMs': hero,
+            'autoPick': false,
+            'grayscale': false,
+          }).timeout(const Duration(seconds: 30));
+          await _logBackfillEvent(
+            exerciseId: exercise.id,
+            event: 'success',
+            variant: 'color',
+          );
+        } catch (e, st) {
+          await _logVariantFailure(
+            exerciseId: exercise.id,
+            variant: 'color',
+            error: e,
+            stack: st,
+            contextKind: 'backfill',
+          );
+        }
+      }
+
+      if (lineMissing && exercise.convertedFilePath != null) {
+        await _logBackfillEvent(
+          exerciseId: exercise.id,
+          event: 'start',
+          variant: 'line',
+        );
+        try {
+          final convertedPath = PathResolver.resolve(exercise.convertedFilePath!);
+          await _thumbChannel
+              .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+            'inputPath': convertedPath,
+            'outputPath': linePath,
+            'timeMs': hero,
+            'autoPick': false,
+            'grayscale': false,
+          }).timeout(const Duration(seconds: 30));
+          await _logBackfillEvent(
+            exerciseId: exercise.id,
+            event: 'success',
+            variant: 'line',
+          );
+        } catch (e, st) {
+          await _logVariantFailure(
+            exerciseId: exercise.id,
+            variant: 'line',
+            error: e,
+            stack: st,
+            contextKind: 'backfill',
+          );
+        }
+      } else if (lineMissing) {
+        // No converted file → line variant can't be produced. Log so
+        // the practitioner sees why the placeholder will stick around.
+        await _logBackfillEvent(
+          exerciseId: exercise.id,
+          event: 'skip',
+          variant: 'line',
+          detail: 'No convertedFilePath',
+        );
+      }
+
+      if (updated != null) {
+        await _storage.saveExercise(updated);
+        if (!_updateController.isClosed) {
+          _updateController.add(updated);
+        }
       }
     }
   }
