@@ -1957,15 +1957,19 @@
       $lobbyShareBtn._wired = true;
       $lobbyShareBtn.addEventListener('click', (evt) => {
         evt.stopPropagation();
-        // ALWAYS show the modal immediately — even before the snapshot
+        // ALWAYS show the modal immediately — even before the PDF
         // completes — so the user never sees "nothing happens" again.
         // The modal initially shows a spinner; it's swapped to the
-        // rendered PNG (or an error message) when triggerLobbyShare
+        // rendered preview thumbnail + Download / Share affordances
+        // (or an error message + Retry button) when triggerLobbyShare
         // resolves.
         showExportModalLoading();
         triggerLobbyShare().catch((err) => {
           try { console.warn('[homefit-lobby] share failed:', err); } catch (_) {}
-          showExportError(`Couldn't generate the image: ${(err && err.message) || err}`);
+          showExportError(
+            `Couldn't generate the PDF: ${(err && err.message) || err}`,
+            () => { triggerLobbyShare().catch(() => {}); },
+          );
           if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
         });
       });
@@ -2088,22 +2092,45 @@
   }
 
   // ==========================================================================
-  // Free Lobby Export — share the lobby as a PNG (Wave, 2026-05-05)
+  // Free Lobby Export — multi-page PDF (Wave PDF Pagination, 2026-05-14)
   // ==========================================================================
   //
-  // Practitioner taps the share button → snapshot the #lobby element via
-  // html2canvas (vendored at /html2canvas.min.js, lazy-loaded on first
-  // use) → convert to PNG blob → File → navigator.share. Falls back to
-  // a download if share isn't supported.
+  // Practitioner taps the share button → walk the lobby slide list →
+  // chunk into pages of up to ROWS_PER_PAGE entries, never splitting a
+  // circuit across pages → for each page, build an offscreen DOM
+  // snapshot root (.lobby-export-page) with page chrome (full header on
+  // page 1, compact running header on pages 2+, footer with page count
+  // on every page) → html2canvas renders each page to a canvas →
+  // jsPDF.addImage + addPage assembles the multi-page PDF → modal swaps
+  // its spinner for the page-1 thumbnail + Download / Share buttons.
   //
-  // Page chrome that shouldn't appear in the export (sticky CTA bar,
-  // build-version chip, settings popover) is hidden via the
-  // html.is-exporting class while the snapshot is in flight (CSS
-  // controls the visibility — see styles.css).
+  // Pivots from the 2026-05-05 PNG flow because (a) one rasterised PNG
+  // of an arbitrarily long lobby is unreadable on phone screens; (b)
+  // the file is huge and a pain to share; (c) a PDF is a recognised
+  // print-friendly artifact clients can save / print / forward.
   //
-  // The footer (#lobby-export-footer) is hidden by default and revealed
-  // only when html.is-exporting is on; carries a small homefit logo
-  // mark + the canonical tagline.
+  // Polish (Carl 2026-05-14 QA — items #10.1, #10.3, #10.4):
+  //   * Active-row coral highlight stripped per-page via .is-exporting
+  //     CSS suppression + the .lobby-export-page wrapper class.
+  //   * Circuit chrome (SVG lanes overlay + spiraling tracer) settled
+  //     to a static frame and given explicit overflow:visible parents
+  //     so symmetric corners rasterise cleanly.
+  //   * Full list captured by walking the slide MODEL (not the live
+  //     scrolling list DOM) — no viewport clipping possible.
+  //
+  // iOS Save / Share flow:
+  //   * Embedded WKWebView (mobile workflow Preview): the PDF is sent
+  //     base64-encoded over `HomefitBridge.shareFile` to Dart, which
+  //     writes a temp file and presents `UIActivityViewController`
+  //     (Share.shareXFiles). The user picks "Save to Files", AirDrop,
+  //     Messages, etc.
+  //   * Mobile Safari (live web player at session.homefit.studio):
+  //     `navigator.share({ files: [pdfFile] })` surfaces the same iOS
+  //     share sheet directly. If the Web Share API rejects files,
+  //     fall back to opening the PDF in a new tab — iOS's PDF viewer
+  //     has a built-in "Save to Files" toolbar.
+  //   * Desktop browsers: the modal's `<a download>` anchor downloads
+  //     the PDF to the user's filesystem.
 
   let _html2canvasPromise = null;
   function loadHtml2Canvas() {
@@ -2125,6 +2152,20 @@
     return _html2canvasPromise;
   }
 
+  // Resolve the jsPDF constructor regardless of how the UMD bundle
+  // exposed itself. The official 2.5.x bundle attaches `window.jspdf`
+  // (lowercase namespace) with `.jsPDF` constructor. Older bundles set
+  // `window.jsPDF` directly. We tolerate both shapes so a future bundle
+  // upgrade doesn't silently break this path.
+  function resolveJsPdf() {
+    if (typeof window === 'undefined') return null;
+    if (window.jspdf && typeof window.jspdf.jsPDF === 'function') {
+      return window.jspdf.jsPDF;
+    }
+    if (typeof window.jsPDF === 'function') return window.jsPDF;
+    return null;
+  }
+
   // Self-injecting export modal — does NOT rely on the modal markup
   // being present in index.html. Safari + Chrome service workers can
   // serve stale index.html (without the modal block) alongside fresh
@@ -2132,6 +2173,14 @@
   // into a noisy about:blank fallback. This builder creates the DOM
   // and inline-styles every node so it works regardless of cached
   // HTML/CSS state.
+  //
+  // PDF pivot 2026-05-14: structure is the same, but the affordances
+  // are PDF-shaped (Download PDF / Share buttons, "1 of N pages" badge
+  // under the preview thumbnail). Modal nodes are tagged with
+  // `data-*` attributes so we can reach into them without fragile
+  // tree walks. The preview is a static <canvas>-derived dataURL of
+  // page 1 — we hold the first-page canvas reference from the PDF
+  // build loop so there's zero extra rasterisation work.
   function ensureExportModal() {
     let modal = document.getElementById('lobby-export-modal');
     if (modal && modal._injected) return modal;
@@ -2157,6 +2206,7 @@
     });
     modal.innerHTML = '';
     const backdrop = document.createElement('div');
+    backdrop.setAttribute('data-modal-backdrop', '');
     Object.assign(backdrop.style, {
       position: 'absolute',
       inset: '0',
@@ -2165,6 +2215,7 @@
       webkitBackdropFilter: 'blur(8px)',
     });
     const card = document.createElement('div');
+    card.setAttribute('data-modal-card', '');
     Object.assign(card.style, {
       position: 'relative',
       background: '#1A1D24',
@@ -2175,9 +2226,10 @@
       maxHeight: 'calc(100vh - 48px)',
       display: 'flex',
       flexDirection: 'column',
-      gap: '16px',
+      gap: '14px',
       boxShadow: '0 16px 48px rgba(0, 0, 0, 0.45)',
       boxSizing: 'border-box',
+      overflowY: 'auto',
     });
     const header = document.createElement('div');
     Object.assign(header.style, {
@@ -2199,55 +2251,131 @@
     });
     header.appendChild(title);
     header.appendChild(closeBtn);
+
+    const spinner = document.createElement('p');
+    spinner.setAttribute('data-export-spinner', '');
+    Object.assign(spinner.style, {
+      margin: '0',
+      color: 'rgba(255,255,255,0.7)',
+      fontFamily: "'Inter', -apple-system, sans-serif",
+      fontSize: '13px',
+      textAlign: 'center',
+      padding: '36px 8px',
+    });
+    spinner.textContent = 'Generating preview…';
+
+    const previewWrap = document.createElement('div');
+    previewWrap.setAttribute('data-preview-wrap', '');
+    Object.assign(previewWrap.style, {
+      display: 'none',
+      flexDirection: 'column',
+      gap: '8px',
+      alignItems: 'center',
+    });
     const img = document.createElement('img');
-    img.alt = 'Plan preview';
+    img.alt = 'Page 1 of plan PDF';
     Object.assign(img.style, {
-      width: '100%', height: 'auto', maxHeight: 'calc(100vh - 220px)',
+      width: '100%', height: 'auto', maxHeight: 'calc(100vh - 280px)',
       objectFit: 'contain', borderRadius: '8px', background: '#0F1117',
+      border: '1px solid rgba(255,255,255,0.08)',
     });
+    const badge = document.createElement('span');
+    badge.setAttribute('data-page-badge', '');
+    Object.assign(badge.style, {
+      display: 'inline-block', background: 'rgba(255,107,53,0.12)',
+      color: '#FF6B35', fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      fontSize: '11px', fontWeight: '600', padding: '4px 10px',
+      borderRadius: '999px', border: '1px solid rgba(255,107,53,0.30)',
+    });
+    badge.textContent = '1 of 1 pages';
+    previewWrap.appendChild(img);
+    previewWrap.appendChild(badge);
+
+    const errorMsg = document.createElement('p');
+    errorMsg.setAttribute('data-export-error', '');
+    Object.assign(errorMsg.style, {
+      margin: '0', display: 'none',
+      color: '#FF6B35',
+      fontFamily: "'Inter', -apple-system, sans-serif",
+      fontSize: '13px',
+      textAlign: 'center',
+      padding: '24px 8px',
+    });
+
     const actions = document.createElement('div');
+    actions.setAttribute('data-actions', '');
     Object.assign(actions.style, {
-      display: 'flex', flexDirection: 'column', gap: '8px',
+      display: 'none',
+      flexDirection: 'row',
+      gap: '8px',
+      alignItems: 'stretch',
     });
-    const link = document.createElement('a');
-    link.textContent = 'Download PNG';
-    Object.assign(link.style, {
-      display: 'inline-block', textAlign: 'center', background: '#FF6B35',
-      color: '#0F1117', fontFamily: "'Montserrat', -apple-system, sans-serif",
+    const downloadLink = document.createElement('a');
+    downloadLink.textContent = 'Download PDF';
+    downloadLink.setAttribute('data-download', '');
+    Object.assign(downloadLink.style, {
+      flex: '1 1 0',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      background: '#FF6B35', color: '#0F1117',
+      fontFamily: "'Montserrat', -apple-system, sans-serif",
       fontWeight: '600', fontSize: '14px', padding: '12px 16px',
       borderRadius: '999px', textDecoration: 'none', cursor: 'pointer',
     });
+    const shareBtn = document.createElement('button');
+    shareBtn.type = 'button';
+    shareBtn.textContent = 'Share';
+    shareBtn.setAttribute('data-share', '');
+    Object.assign(shareBtn.style, {
+      flex: '1 1 0',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(255,255,255,0.06)', color: '#FFFFFF',
+      border: '1px solid rgba(255,255,255,0.15)',
+      fontFamily: "'Montserrat', -apple-system, sans-serif",
+      fontWeight: '600', fontSize: '14px', padding: '12px 16px',
+      borderRadius: '999px', cursor: 'pointer',
+    });
+    actions.appendChild(downloadLink);
+    actions.appendChild(shareBtn);
+
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.textContent = 'Retry';
+    retryBtn.setAttribute('data-retry', '');
+    Object.assign(retryBtn.style, {
+      display: 'none',
+      width: '100%',
+      background: '#FF6B35', color: '#0F1117', border: '0',
+      fontFamily: "'Montserrat', -apple-system, sans-serif",
+      fontWeight: '600', fontSize: '14px', padding: '12px 16px',
+      borderRadius: '999px', cursor: 'pointer',
+    });
+
     const hint = document.createElement('p');
-    // Hint copy varies by environment — desktop has right-click + drag
-    // affordances, mobile has long-press save / share sheet. Embedded
-    // Flutter WebView reaches a native share sheet via HomefitBridge,
-    // so the modal is a fallback rather than the primary path there
-    // (the share sheet auto-opens once the PNG is ready).
-    var isEmbedded = (typeof window !== 'undefined'
-      && typeof window.isHomefitEmbedded === 'function'
-      && window.isHomefitEmbedded());
-    var isTouch = (typeof navigator !== 'undefined'
-      && /iphone|ipad|ipod|android/i.test(String(navigator.userAgent || '')));
-    if (isEmbedded) {
-      hint.textContent = "Tap Download PNG to save, or wait for the share sheet.";
-    } else if (isTouch) {
-      hint.textContent = 'Long-press the image to save, or tap Download to share.';
-    } else {
-      hint.textContent = 'Tip: right-click the image to save, or drag it into WhatsApp / Mail.';
-    }
+    hint.setAttribute('data-hint', '');
     Object.assign(hint.style, {
       margin: '0', textAlign: 'center', color: 'rgba(255,255,255,0.6)',
       fontFamily: "'Inter', -apple-system, sans-serif", fontSize: '12px',
+      display: 'none',
     });
-    actions.appendChild(link);
-    actions.appendChild(hint);
+
     card.appendChild(header);
-    card.appendChild(img);
+    card.appendChild(spinner);
+    card.appendChild(previewWrap);
+    card.appendChild(errorMsg);
     card.appendChild(actions);
+    card.appendChild(retryBtn);
+    card.appendChild(hint);
     modal.appendChild(backdrop);
     modal.appendChild(card);
+
     const close = () => {
       modal.hidden = true;
+      // Revoke any pending blob URL to free memory.
+      try {
+        const href = downloadLink.getAttribute('href');
+        if (href && href.startsWith('blob:')) URL.revokeObjectURL(href);
+      } catch (_) {}
+      downloadLink.removeAttribute('href');
       img.src = '';
     };
     closeBtn.addEventListener('click', close);
@@ -2255,98 +2383,129 @@
     document.addEventListener('keydown', (evt) => {
       if (evt.key === 'Escape' && !modal.hidden) close();
     });
-    modal._refs = { img, link };
+    modal._refs = {
+      img,
+      badge,
+      spinner,
+      previewWrap,
+      errorMsg,
+      actions,
+      downloadLink,
+      shareBtn,
+      retryBtn,
+      hint,
+      close,
+    };
     return modal;
   }
 
-  function showExportModal(blobUrl, fileName) {
+  // Switch the modal into "preview ready" mode — show the page-1
+  // thumbnail, the "N of M pages" badge, the Download + Share buttons,
+  // and a contextual hint per environment. Wires the Share button to
+  // the supplied `onShare` callback (which routes through native bridge
+  // / Web Share / new-tab fallback depending on environment).
+  function showExportModal(opts) {
     const modal = ensureExportModal();
     const refs = modal._refs;
     if (!refs) return false;
-    refs.img.src = blobUrl;
-    refs.link.href = blobUrl;
-    refs.link.setAttribute('download', fileName);
-    refs.link.style.display = '';
-    refs.img.style.display = '';
-    // Clear any prior error / loading state from this modal.
-    const card = modal.querySelector('div:nth-child(2)');
-    if (card) {
-      const msgNode = card.querySelector('[data-export-error]');
-      if (msgNode) msgNode.remove();
-      const spinner = card.querySelector('[data-export-spinner]');
-      if (spinner) spinner.remove();
+    const { previewImageDataUrl, blobUrl, fileName, pageCount, onShare, onRetry } = opts;
+    refs.spinner.style.display = 'none';
+    refs.errorMsg.style.display = 'none';
+    refs.retryBtn.style.display = 'none';
+    refs.previewWrap.style.display = 'flex';
+    refs.actions.style.display = 'flex';
+    refs.hint.style.display = 'block';
+
+    refs.img.src = previewImageDataUrl || '';
+    refs.badge.textContent = pageCount === 1
+      ? '1 of 1 page'
+      : `1 of ${pageCount} pages`;
+
+    refs.downloadLink.href = blobUrl;
+    refs.downloadLink.setAttribute('download', fileName);
+
+    // Wire share button — replace any prior listener.
+    refs.shareBtn.onclick = (evt) => {
+      evt.preventDefault();
+      if (typeof onShare === 'function') {
+        try { onShare(); } catch (err) {
+          try { console.warn('[homefit-lobby] share btn rejected:', err); } catch (_) {}
+        }
+      }
+    };
+    refs.retryBtn.onclick = (evt) => {
+      evt.preventDefault();
+      if (typeof onRetry === 'function') {
+        try { onRetry(); } catch (err) {
+          try { console.warn('[homefit-lobby] retry rejected:', err); } catch (_) {}
+        }
+      }
+    };
+
+    // Contextual hint copy. Embedded WKWebView routes through Dart
+    // bridge, mobile Safari uses navigator.share, desktop downloads.
+    var isEmbedded = (typeof window !== 'undefined'
+      && typeof window.isHomefitEmbedded === 'function'
+      && window.isHomefitEmbedded());
+    var isTouch = (typeof navigator !== 'undefined'
+      && /iphone|ipad|ipod|android/i.test(String(navigator.userAgent || '')));
+    if (isEmbedded || isTouch) {
+      refs.hint.textContent = 'Tap Download PDF to save, or Share to send.';
+    } else {
+      refs.hint.textContent = 'Download saves the PDF to your computer. Share opens your browser’s share menu when available.';
     }
     modal.hidden = false;
     return true;
   }
 
   // Render the modal with a spinner immediately on click — guarantees
-  // the user sees SOMETHING happen even if the snapshot subsequently
-  // hangs or returns silently. Replaced with the actual PNG (via
+  // the user sees SOMETHING happen even if PDF generation hangs or
+  // returns silently. Replaced with the actual preview (via
   // showExportModal) or an error message (via showExportError) when
-  // triggerLobbyShare resolves.
-  function showExportModalLoading() {
+  // triggerLobbyShare resolves. Supports a progress message so the
+  // user can see which page is rendering during longer PDFs.
+  function showExportModalLoading(progressMsg) {
     const modal = ensureExportModal();
     const refs = modal._refs;
     if (!refs) return;
-    refs.img.style.display = 'none';
-    refs.link.style.display = 'none';
-    const card = modal.querySelector('div:nth-child(2)');
-    if (card) {
-      // Clear stale state first.
-      const stale = card.querySelector('[data-export-error]');
-      if (stale) stale.remove();
-      let spinner = card.querySelector('[data-export-spinner]');
-      if (!spinner) {
-        spinner = document.createElement('p');
-        spinner.setAttribute('data-export-spinner', '');
-        Object.assign(spinner.style, {
-          margin: '0',
-          color: 'rgba(255,255,255,0.7)',
-          fontFamily: "'Inter', -apple-system, sans-serif",
-          fontSize: '13px',
-          textAlign: 'center',
-          padding: '36px 8px',
-        });
-        spinner.textContent = 'Generating preview…';
-        card.insertBefore(spinner, card.lastChild);
-      } else {
-        spinner.textContent = 'Generating preview…';
-      }
-    }
+    refs.previewWrap.style.display = 'none';
+    refs.actions.style.display = 'none';
+    refs.errorMsg.style.display = 'none';
+    refs.retryBtn.style.display = 'none';
+    refs.hint.style.display = 'none';
+    refs.spinner.style.display = 'block';
+    refs.spinner.textContent = typeof progressMsg === 'string' && progressMsg
+      ? progressMsg
+      : 'Generating PDF…';
     modal.hidden = false;
   }
 
-  // Surface CORS / taint failures so they don't disappear into the
-  // console. Reuses the export modal — hides the image + download button
-  // and shows a message with a Retry/Close affordance via the close X.
-  function showExportError(message) {
+  // Surface CORS / taint / pagination failures so they don't disappear
+  // into the console. Reuses the export modal — hides the preview +
+  // download / share buttons and shows a message + a Retry button.
+  function showExportError(message, onRetry) {
     const modal = ensureExportModal();
     const refs = modal._refs;
     if (!refs) {
       try { window.alert(message); } catch (_) {}
       return;
     }
-    refs.img.style.display = 'none';
-    refs.link.style.display = 'none';
-    // Add an inline message node into the modal card.
-    const card = modal.querySelector('div:nth-child(2)');
-    if (card) {
-      let msgNode = card.querySelector('[data-export-error]');
-      if (!msgNode) {
-        msgNode = document.createElement('p');
-        msgNode.setAttribute('data-export-error', '');
-        Object.assign(msgNode.style, {
-          margin: '0',
-          color: '#FF6B35',
-          fontFamily: "'Inter', -apple-system, sans-serif",
-          fontSize: '13px',
-          textAlign: 'center',
-          padding: '24px 8px',
-        });
-        card.insertBefore(msgNode, card.lastChild);
-      }
-      msgNode.textContent = message;
+    refs.spinner.style.display = 'none';
+    refs.previewWrap.style.display = 'none';
+    refs.actions.style.display = 'none';
+    refs.hint.style.display = 'none';
+    refs.errorMsg.style.display = 'block';
+    refs.errorMsg.textContent = message;
+    if (typeof onRetry === 'function') {
+      refs.retryBtn.style.display = 'block';
+      refs.retryBtn.onclick = (evt) => {
+        evt.preventDefault();
+        try { onRetry(); } catch (err) {
+          try { console.warn('[homefit-lobby] retry rejected:', err); } catch (_) {}
+        }
+      };
+    } else {
+      refs.retryBtn.style.display = 'none';
     }
     modal.hidden = false;
   }
@@ -2439,11 +2598,12 @@
   }
 
   function formatExportError(diag, headline) {
-    const lines = [`Couldn't generate the image: ${headline}.`];
+    const lines = [`Couldn't generate the PDF: ${headline}.`];
     lines.push(
-      `Pre-fetched ${diag.fetched}/${diag.sources} images, swapped ${diag.swapped} on clone.`,
+      `Pre-fetched ${diag.fetched}/${diag.sources} images, rendered ${diag.pagesRendered}/${diag.pageCount} pages.`,
     );
     if (diag.h2cError) lines.push(`html2canvas: ${diag.h2cError}`);
+    if (diag.pdfError) lines.push(`jsPDF: ${diag.pdfError}`);
     if (diag.taintErr) lines.push(`Canvas: ${diag.taintErr}`);
     if (diag.preloadErrors.length) {
       const sample = diag.preloadErrors.slice(0, 3).join('; ');
@@ -2453,15 +2613,217 @@
     return lines.join(' ');
   }
 
+  // Rows-per-page target. The locked design budget is 5 entries —
+  // tight enough that page 1 fits the full header AND a meaningful
+  // chunk of the plan; loose enough that 4-page PDFs cap reasonable
+  // plans (≤ 20 exercises). A circuit counts as 1 entry regardless
+  // of how many in-circuit rows it owns (the whole group occupies
+  // one slot on the page so the chrome stays symmetric).
+  const PDF_ROWS_PER_PAGE = 5;
+
+  // jsPDF dims for A4 portrait in mm. We rasterise each page at 794px
+  // wide (96dpi A4) and add to the PDF at the matching mm width — no
+  // resampling. Height is dynamic per page (canvas height ÷ scale)
+  // since pages may run shorter when the chunk is small.
+  const PDF_PAGE_WIDTH_PX = 794;   // 210mm at 96dpi
+  const PDF_PAGE_WIDTH_MM = 210;
+  const PDF_PAGE_HEIGHT_MM = 297;
+
+  // Chunk the rendered .lobby-list items (circuit groups + standalone
+  // rows + rest rows) into page-sized arrays. A circuit group is a
+  // SINGLE atomic entry — we never split one across pages. If a circuit
+  // doesn't fit in the remaining slot count on the current page, we
+  // flush the page and start the circuit on a fresh one (rule #2 in
+  // the spec).
+  //
+  // Input: an array of live <li> DOM nodes (the children of #lobby-list).
+  // Output: array<array<HTMLElement>> — one inner array per page.
+  function chunkLobbyItemsForPdf(items) {
+    const pages = [];
+    let current = [];
+    let remaining = PDF_ROWS_PER_PAGE;
+    for (const el of items) {
+      // We treat every direct child of .lobby-list as one slot. The
+      // visual height of a circuit (header + N in-circuit rows) is
+      // larger than a single row — but at 5 entries per page the
+      // worst case (one circuit with 4 in-circuit rows + a standalone
+      // row) still fits comfortably in 794px column. The "don't split
+      // a circuit" rule is the load-bearing constraint, not the row
+      // count budget.
+      if (remaining <= 0) {
+        pages.push(current);
+        current = [];
+        remaining = PDF_ROWS_PER_PAGE;
+      }
+      current.push(el);
+      remaining -= 1;
+    }
+    if (current.length) pages.push(current);
+    return pages;
+  }
+
+  // Compose the human-readable summary line for page 1's header. Mirrors
+  // the live .lobby-meta-sub structure: "Hi {Client} · N exercises · ~MM min · From {Practitioner}".
+  // Defensive — every field is best-effort; missing fields just drop out.
+  function buildPdfSummaryLine() {
+    if (!api || !plan) return '';
+    const parts = [];
+    const clientName = (plan.client_name || '').trim();
+    if (clientName) parts.push(`Hi ${clientName}`);
+    let count = 0;
+    try {
+      count = (typeof countExercises === 'function')
+        ? countExercises(slides)
+        : slides.filter((s) => s && s.media_type !== 'rest').length;
+    } catch (_) { count = slides.length; }
+    if (count > 0) parts.push(count === 1 ? '1 exercise' : `${count} exercises`);
+    let durSec = 0;
+    try {
+      durSec = api.sumTotalDurationSeconds ? api.sumTotalDurationSeconds() : 0;
+    } catch (_) {}
+    if (durSec > 0) {
+      const minutes = Math.max(1, Math.round(durSec / 60));
+      parts.push(`~${minutes} min`);
+    }
+    let practitionerName = '';
+    try {
+      practitionerName = api.getPractitionerName ? api.getPractitionerName() : '';
+    } catch (_) {}
+    if (practitionerName) parts.push(`From ${practitionerName}`);
+    return parts.join(' · ');
+  }
+
+  // Resolve the plan's display title for the PDF header. Defaults to
+  // "Your plan" if the practitioner hasn't named it (which is common —
+  // Studio leaves the title as a `{DD Mon YYYY HH:MM}` date stamp by
+  // default; for the PDF chrome we prefer the friendlier fallback).
+  function buildPdfTitle() {
+    if (!plan) return 'Your plan';
+    const t = (plan.title || '').trim();
+    if (!t) return 'Your plan';
+    return t;
+  }
+
+  // Build the off-screen .lobby-export-page wrapper for one page. Clones
+  // each item so the live DOM stays untouched, wraps with appropriate
+  // header (full vs running) and footer (page N of M + brand line),
+  // returns the wrapper element. Caller appends to <body>, html2canvas
+  // reads it, then removes.
+  function buildExportPageElement(items, pageIndex, pageCount, planTitle, summaryLine) {
+    const wrap = document.createElement('div');
+    wrap.className = 'lobby-export-page';
+
+    if (pageIndex === 0) {
+      const header = document.createElement('div');
+      header.className = 'lobby-export-page-header';
+      const titleEl = document.createElement('h1');
+      titleEl.className = 'lobby-export-page-title';
+      titleEl.textContent = planTitle;
+      const summaryEl = document.createElement('p');
+      summaryEl.className = 'lobby-export-page-summary';
+      summaryEl.textContent = summaryLine;
+      header.appendChild(titleEl);
+      if (summaryLine) header.appendChild(summaryEl);
+      wrap.appendChild(header);
+    } else {
+      const running = document.createElement('div');
+      running.className = 'lobby-export-page-running';
+      const runTitle = document.createElement('span');
+      runTitle.className = 'lobby-export-running-title';
+      runTitle.textContent = planTitle;
+      const runPage = document.createElement('span');
+      runPage.textContent = `page ${pageIndex + 1} of ${pageCount}`;
+      running.appendChild(runTitle);
+      running.appendChild(runPage);
+      wrap.appendChild(running);
+    }
+
+    // Body — a fresh .lobby-list <ul> hosting cloned items. We keep
+    // the .lobby-list class so the existing row styles apply, but
+    // strip the id (#lobby-list is unique on the live page; we don't
+    // want a duplicate id in the document during the snapshot).
+    const body = document.createElement('div');
+    body.className = 'lobby-export-page-body';
+    const ul = document.createElement('ul');
+    ul.className = 'lobby-list';
+    for (const el of items) {
+      const clone = el.cloneNode(true);
+      // Strip dynamic state classes — we never want the live active-row
+      // coral highlight in the rendered page (#10.1). The CSS in
+      // styles.css also covers this defensively, but doing it on the
+      // clone is the cleanest path.
+      clone.classList.remove('is-active', 'is-active-pill');
+      // Strip any inline play/pause UI from videos that the live row
+      // mounts during scroll-coupling — we want a static poster only.
+      clone.querySelectorAll('video').forEach((v) => {
+        try { v.pause(); } catch (_) {}
+        v.removeAttribute('autoplay');
+        v.removeAttribute('loop');
+      });
+      ul.appendChild(clone);
+    }
+    body.appendChild(ul);
+    wrap.appendChild(body);
+
+    const footer = document.createElement('div');
+    footer.className = 'lobby-export-page-footer';
+    const count = document.createElement('span');
+    count.className = 'lobby-export-page-count';
+    count.textContent = `Page ${pageIndex + 1} of ${pageCount}`;
+    const brand = document.createElement('span');
+    brand.className = 'lobby-export-page-brand';
+    brand.textContent = 'Visual plans clients follow. · homefit.studio';
+    footer.appendChild(count);
+    footer.appendChild(brand);
+    wrap.appendChild(footer);
+
+    return wrap;
+  }
+
+  // Convert a Blob to base64-without-data-URL-prefix. Used by the
+  // embedded share-file bridge: the Dart side expects raw base64 +
+  // mime/filename as separate fields (mirrors the share_image path
+  // which uses a full data:image/png;base64,... URL — for PDFs we
+  // stick with the cleaner split-shape).
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const r = String(reader.result || '');
+          const idx = r.indexOf('base64,');
+          if (idx < 0) return reject(new Error('reader returned non-base64'));
+          resolve(r.substring(idx + 7));
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
   async function triggerLobbyShare() {
     if (!$lobby) throw new Error('lobby root missing');
+    if (!$lobbyList) throw new Error('lobby list missing');
     if ($lobbyShareBtn) $lobbyShareBtn.disabled = true;
     const diag = {
       sources: 0, fetched: 0, swapped: 0,
-      preloadErrors: [], h2cError: null, taintErr: null,
+      preloadErrors: [],
+      pageCount: 0, pagesRendered: 0,
+      h2cError: null, pdfError: null, taintErr: null,
     };
     try {
       const html2canvas = await loadHtml2Canvas();
+      const JsPdfCtor = resolveJsPdf();
+      if (!JsPdfCtor) {
+        showExportError(
+          'PDF library failed to load. Please reload the page (Cmd+Shift+R) and try again.',
+          () => { triggerLobbyShare().catch(() => {}); },
+        );
+        return;
+      }
+
       // Pre-fetch every cross-origin image as a base64 data URL. Data
       // URLs are inlined into the src attribute — no separate fetch, no
       // taint surface, no broken-image flicker on the live page.
@@ -2480,31 +2842,13 @@
       // canvas-derived data URL BEFORE the live-DOM swap step picks it
       // up — html2canvas reads the baked bitmap and the snapshot PNG
       // matches the playing treatment.
-      //
-      // Inactive lobby rows are already <img> with .is-grayscale
-      // applied, and html2canvas's onclone DOES inherit class-driven
-      // CSS, so they don't need bake — just the live-DOM <video>
-      // posters.
-      //
-      // We re-key the data URL map under both the original cross-origin
-      // poster URL and (if it was swapped) under the legacy data URL
-      // already in the map. Whichever shows up in `v.poster` at swap
-      // time wins.
       if (window.HomefitHero && window.HomefitHero.bakeFilterIntoDataUrl) {
         const videoEls = $lobby.querySelectorAll('video');
         for (const v of videoEls) {
-          // The hero's treatment lives on data-treatment (set by
-          // renderHeroHTML / swapToVideoOnActiveRow). Other treatments
-          // already pick treatment-correct URLs via the resolver so no
-          // bake is needed.
           const t = v.dataset && v.dataset.treatment ? v.dataset.treatment : '';
           if (t !== 'bw') continue;
           const originalPoster = v.dataset.posterSrc || v.getAttribute('poster') || '';
           if (!originalPoster) continue;
-          // Pick the source the bake should read FROM. The preload step
-          // already fetched the original URL as a data URL — use that
-          // (same-origin canvas read, no taint risk). Falls back to the
-          // original URL if preload missed.
           const sourceForBake = dataUrlMap.get(originalPoster) || originalPoster;
           try {
             const baked = await window.HomefitHero.bakeFilterIntoDataUrl(
@@ -2512,9 +2856,6 @@
               'grayscale(1) contrast(1.05)',
             );
             if (baked && baked !== originalPoster) {
-              // Map BOTH keys so the live-DOM swap step picks up the
-              // baked version regardless of which URL is currently on
-              // the element.
               dataUrlMap.set(originalPoster, baked);
               if (sourceForBake !== originalPoster) {
                 dataUrlMap.set(sourceForBake, baked);
@@ -2528,52 +2869,57 @@
         }
       }
 
-      const root = document.documentElement;
-      root.classList.add('is-exporting');
-
-      // E14 follow-up — the CSS animation declaration on `.lane-tracer`
-      // was retired in the WAAPI-only migration (see
-      // renderCircuitLanesFor). The `html.is-exporting .lane-tracer
-      // { animation: none !important; stroke-dashoffset: 0 !important }`
-      // rule still exists for declarative chrome-hide purposes but no
-      // longer pauses WAAPI animations. Cancel any in-flight WAAPI
-      // animations on every tracer so the snapshot captures a settled
-      // frame instead of mid-motion. Re-applied after the snapshot
-      // finishes via renderCircuitLanes (called from a ResizeObserver
-      // that fires on the class toggle's layout shift).
-      const _exportTracers = Array.from($lobby.querySelectorAll('.lobby-circuit-lanes .lane-tracer'));
-      const _exportAnimationCache = [];
-      for (const t of _exportTracers) {
-        try {
-          if (typeof t.getAnimations === 'function') {
-            const anims = t.getAnimations();
-            for (const a of anims) {
-              try { a.cancel(); } catch (_) { /* best-effort */ }
-            }
-            _exportAnimationCache.push({ el: t, count: anims.length });
-          }
-          t.style.strokeDashoffset = '0';
-        } catch (_) { /* defensive — never let export break on this */ }
+      // Build the page chunks. The live #lobby-list contains the rendered
+      // items already (circuit groups + standalone rows + rest rows); we
+      // simply chunk the children. Cloning preserves the rendered hero
+      // markup including any swapped data-URL images that the live DOM
+      // is already showing.
+      const liveItems = Array.from($lobbyList.children).filter((el) => {
+        // The #lobby-list children are either <li class="lobby-row"> or
+        // <li class="lobby-circuit">. Skip anything that snuck in (e.g.
+        // a <script> tag, defensive).
+        return el && el.tagName === 'LI';
+      });
+      if (liveItems.length === 0) {
+        showExportError('No exercises in this plan to export.', null);
+        return;
       }
+      const pageChunks = chunkLobbyItemsForPdf(liveItems);
+      const pageCount = pageChunks.length;
+      diag.pageCount = pageCount;
 
-      // Two RAFs so the export-footer reveal + chrome hide paint first.
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const planTitle = buildPdfTitle();
+      const summaryLine = buildPdfSummaryLine();
 
-      // Mutate the LIVE DOM with data URLs and await img.decode() so
-      // each img is fully decoded before html2canvas reads them. Data
-      // URLs decode near-instantly and the bitmap is visually identical
-      // to the original cross-origin image, so any sub-frame flicker is
-      // imperceptible. The hidden-clone approach (round 8) broke
-      // entirely because visibility:hidden cascaded into html2canvas's
-      // own clone and rendered nothing.
+      // Swap data-URL images on the LIVE DOM up front — every cloned page
+      // chunk inherits the swap, and the html2canvas reads of the
+      // off-screen export root never touch network. Restored in `finally`.
       const imgs = Array.from($lobby.querySelectorAll('img'));
       const videos = Array.from($lobby.querySelectorAll('video'));
       const originalSrcs = new Map();
       const originalPosters = new Map();
 
-      let canvas;
+      const root = document.documentElement;
+      root.classList.add('is-exporting');
+
+      // Cancel any in-flight WAAPI animations on circuit tracers so
+      // cloned circuit chrome rasterises as a settled frame instead of
+      // a mid-motion snapshot. Re-rendered after the pipeline completes.
+      const _exportTracers = Array.from($lobby.querySelectorAll('.lobby-circuit-lanes .lane-tracer'));
+      for (const t of _exportTracers) {
+        try {
+          if (typeof t.getAnimations === 'function') {
+            for (const a of t.getAnimations()) {
+              try { a.cancel(); } catch (_) {}
+            }
+          }
+          t.style.strokeDashoffset = '0';
+        } catch (_) {}
+      }
+
+      let pdfBlob = null;
+      let firstPageDataUrl = null;
       try {
-        // Swap srcs to data URLs on the live DOM.
         for (const img of imgs) {
           const swap = dataUrlMap.get(img.src);
           if (swap) {
@@ -2593,8 +2939,8 @@
           }
         }
 
-        // Force decode every swapped img so html2canvas rasterizes
-        // actual bitmaps, not blank slots.
+        // Force-decode swapped imgs so each clone hands html2canvas a
+        // fully painted bitmap.
         await Promise.all(imgs.map((img) => {
           if (!img.src) return Promise.resolve();
           if (typeof img.decode === 'function') return img.decode().catch(() => {});
@@ -2608,122 +2954,193 @@
 
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+        // Build the PDF doc up front. Orientation portrait, mm units,
+        // A4. Each page added with addImage at its computed height.
+        const pdf = new JsPdfCtor({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+        for (let i = 0; i < pageChunks.length; i++) {
+          // Progress message on the spinner so the modal doesn't sit
+          // silent during a 3-page render.
+          showExportModalLoading(`Rendering page ${i + 1} of ${pageCount}…`);
+
+          const pageEl = buildExportPageElement(
+            pageChunks[i], i, pageCount, planTitle, summaryLine,
+          );
+          document.body.appendChild(pageEl);
+
+          let pageCanvas;
+          try {
+            // One RAF + decode wait to let the off-screen page lay out
+            // before html2canvas reads it.
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            const pageImgs = Array.from(pageEl.querySelectorAll('img'));
+            await Promise.all(pageImgs.map((im) => {
+              if (typeof im.decode === 'function') return im.decode().catch(() => {});
+              return Promise.resolve();
+            }));
+
+            pageCanvas = await html2canvas(pageEl, {
+              backgroundColor: '#0F1117',
+              scale: 2, // 2x for retina-quality output regardless of devicePixelRatio
+              useCORS: true,
+              allowTaint: false,
+              logging: false,
+              ignoreElements: (el) => {
+                if (!el || typeof el.id !== 'string') return false;
+                return el.id === 'lobby-export-modal'
+                  || el.id === 'lobby-self-grant-modal';
+              },
+            });
+          } catch (err) {
+            diag.h2cError = (err && err.message) || String(err);
+            try { document.body.removeChild(pageEl); } catch (_) {}
+            throw err;
+          }
+
+          try { document.body.removeChild(pageEl); } catch (_) {}
+
+          if (!pageCanvas) {
+            throw new Error(`page ${i + 1} canvas was null`);
+          }
+
+          // Capture the page-1 thumbnail data URL up front (the canvas
+          // is consumed by addImage but toDataURL is safe to call first).
+          try { pageCanvas.toDataURL('image/png'); }
+          catch (err) { diag.taintErr = (err && err.message) || String(err); }
+
+          // Aspect-preserving fit: width = A4 width (210mm), height
+          // derived from canvas aspect. Compute pixel→mm scale from
+          // the canvas's actual rasterised size (scale=2 multiplies
+          // the 794-px CSS width to 1588).
+          const canvasW = pageCanvas.width;
+          const canvasH = pageCanvas.height;
+          const mmPerPx = PDF_PAGE_WIDTH_MM / canvasW;
+          let pageHeightMm = canvasH * mmPerPx;
+          // Cap at A4 portrait height — anything taller is clipped.
+          // In practice 5 entries comfortably fit under 297mm; this
+          // is the safety net.
+          if (pageHeightMm > PDF_PAGE_HEIGHT_MM) pageHeightMm = PDF_PAGE_HEIGHT_MM;
+
+          const dataUrl = pageCanvas.toDataURL('image/jpeg', 0.92);
+          if (i === 0) firstPageDataUrl = dataUrl;
+
+          if (i > 0) pdf.addPage();
+          try {
+            pdf.addImage(dataUrl, 'JPEG', 0, 0, PDF_PAGE_WIDTH_MM, pageHeightMm);
+          } catch (err) {
+            diag.pdfError = (err && err.message) || String(err);
+            throw err;
+          }
+
+          diag.pagesRendered += 1;
+        }
+
         try {
-          canvas = await html2canvas($lobby, {
-            backgroundColor: '#0F1117',
-            scale: window.devicePixelRatio || 2,
-            useCORS: true,
-            allowTaint: false,
-            logging: false,
-            // D10 fix: the share-preview modal (#lobby-export-modal) is
-            // appended to <body> with position:fixed inset:0 and is
-            // visible (showing the spinner) at snapshot time. html2canvas
-            // walks the document tree and bakes any fixed-position
-            // element overlapping the snapshot bounding box into the
-            // rasterised PNG. Skip the modal explicitly so the exported
-            // image contains plan content only — never the "Your plan,
-            // ready to share" dialog the user is currently looking at.
-            ignoreElements: (el) => {
-              if (!el || typeof el.id !== 'string') return false;
-              return el.id === 'lobby-export-modal'
-                || el.id === 'lobby-self-grant-modal';
-            },
-          });
+          pdfBlob = pdf.output('blob');
         } catch (err) {
-          diag.h2cError = (err && err.message) || String(err);
+          diag.pdfError = (err && err.message) || String(err);
+          throw err;
         }
       } finally {
-        // Restore originals so the live lobby returns to its pre-snapshot state.
+        // Restore live DOM regardless of success / failure.
         originalSrcs.forEach((src, img) => { try { img.src = src; } catch (_) {} });
         originalPosters.forEach((poster, v) => { try { v.poster = poster; } catch (_) {} });
         root.classList.remove('is-exporting');
-        // Re-apply circuit-lane WAAPI animations that were cancelled
-        // before the snapshot. Re-running the lane render is the
-        // cheapest way to bring the tracer animation back without
-        // having to track the original animation parameters.
         try {
           requestAnimationFrame(() => {
-            try { renderCircuitLanes(); } catch (_) { /* defensive */ }
+            try { renderCircuitLanes(); } catch (_) {}
           });
-        } catch (_) { /* defensive */ }
+        } catch (_) {}
       }
 
-      if (!canvas) {
-        showExportError(formatExportError(diag, 'html2canvas threw'));
+      if (!pdfBlob) {
+        showExportError(
+          formatExportError(diag, 'PDF assembly returned no blob'),
+          () => { triggerLobbyShare().catch(() => {}); },
+        );
         return;
       }
 
-      // Probe taint via toDataURL — captures specific error message.
-      try { canvas.toDataURL('image/png'); }
-      catch (err) { diag.taintErr = (err && err.message) || String(err); }
+      const fileName = `homefit-plan-${Date.now()}.pdf`;
+      const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(pdfBlob);
 
-      const blob = await new Promise((resolve) => {
-        try { canvas.toBlob(resolve, 'image/png', 0.92); }
-        catch (_) { resolve(null); }
-      });
-      if (!blob) {
-        showExportError(formatExportError(diag, 'toBlob returned null'));
-        return;
-      }
-      const fileName = `homefit-lobby-${Date.now()}.png`;
-      const file = new File([blob], fileName, { type: 'image/png' });
-      const url = URL.createObjectURL(blob);
-
-      // ALWAYS show the modal with the rendered PNG. The modal already
-      // appeared with a spinner the moment the user clicked share —
-      // here we swap in the actual image. Doing this BEFORE attempting
-      // navigator.share guarantees the user sees the preview even if
-      // the share path silently no-ops (which Carl saw across rounds 4-9).
-      showExportModal(url, fileName);
-      setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
-
-      // Share-sheet path varies by surface:
-      //
-      //   * Embedded Flutter WebView → HomefitBridge.shareImage(...)
-      //     posts the PNG to Dart, which presents
-      //     UIActivityViewController. Web Share API isn't reliable
-      //     inside WKWebView (the embedded engine doesn't enable it
-      //     by default), so we route through native.
-      //   * Mobile Safari (live web player) → navigator.share with
-      //     File payload. Honoured directly by iOS / Android.
-      //   * Desktop → modal stays put. Native share sheets on macOS /
-      //     Windows don't accept File payloads consistently; the
-      //     Download anchor in the modal is the better affordance.
+      // Compose the share routing. Three surfaces, three paths:
+      //   1. Embedded Flutter WebView (workflow Preview tab) → bridge.shareFile
+      //   2. Mobile Safari → navigator.share({ files: [pdfFile] }) → iOS share sheet
+      //   3. Desktop / fallback → modal Download anchor (already wired)
       const isEmbedded = (typeof window !== 'undefined'
         && typeof window.isHomefitEmbedded === 'function'
         && window.isHomefitEmbedded());
-      if (isEmbedded) {
-        // Embedded Flutter WebView — convert blob to base64 data URL
-        // and forward to Dart over the bridge. Best-effort; the modal
-        // already showed the PNG so the practitioner has a Download
-        // fallback if the share sheet doesn't surface.
+
+      const onShare = async () => {
         try {
-          const dataUrl = await blobToDataUrl(blob);
-          if (dataUrl
-            && typeof window.homefitBridge === 'object'
-            && window.homefitBridge
-            && typeof window.homefitBridge.shareImage === 'function') {
-            window.homefitBridge.shareImage(dataUrl, fileName);
+          if (isEmbedded) {
+            // Native bridge — base64-encode and forward. Dart writes
+            // a temp file and surfaces UIActivityViewController (which
+            // includes Save to Files, AirDrop, Messages, Mail, etc.).
+            const b64 = await blobToBase64(pdfBlob);
+            if (window.homefitBridge && typeof window.homefitBridge.shareFile === 'function') {
+              window.homefitBridge.shareFile(b64, fileName, 'application/pdf');
+              return;
+            }
+            // Backward-compat — older Dart side doesn't know shareFile yet.
+            // Fall through to a window.open of the blob URL; iOS WKWebView
+            // renders the PDF inline.
+            try { window.open(blobUrl, '_blank'); } catch (_) {}
+            return;
           }
-        } catch (err) {
-          try { console.warn('[homefit-lobby] embedded share failed:', err); } catch (_) {}
-        }
-      } else {
-        const isMobileUA = /iphone|ipad|android/i.test(navigator.userAgent);
-        if (isMobileUA && navigator.canShare && navigator.canShare({ files: [file] })) {
-          try {
+          // Live web — try Web Share API with files first.
+          if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
             await navigator.share({
-              files: [file],
+              files: [pdfFile],
               title: 'Your homefit plan',
               text: 'Your visual plan from homefit.studio',
             });
-          } catch (err) {
-            if (err && err.name !== 'AbortError') {
-              try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
-            }
+            return;
           }
+          // Mobile Safari may reject files but still supports text-share —
+          // open the blob URL in a new tab so iOS's PDF viewer takes over.
+          try { window.open(blobUrl, '_blank'); } catch (_) {}
+        } catch (err) {
+          if (err && err.name === 'AbortError') return; // user cancelled
+          try { console.warn('[homefit-lobby] share rejected:', err); } catch (_) {}
         }
+      };
+
+      showExportModal({
+        previewImageDataUrl: firstPageDataUrl || '',
+        blobUrl,
+        fileName,
+        pageCount,
+        onShare,
+        onRetry: () => { triggerLobbyShare().catch(() => {}); },
+      });
+
+      // 5-minute window before the blob URL is revoked — long enough for
+      // a curious user to come back and re-download. Revoked unconditionally
+      // when the modal closes (see close handler in ensureExportModal).
+      setTimeout(() => {
+        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+      }, 5 * 60 * 1000);
+
+      // On embedded surfaces, also auto-fire the share flow so the iOS
+      // share sheet pops without the user having to tap Share. The modal
+      // preview stays visible as a confirmation of WHAT they're sharing.
+      // Mobile Safari requires a user gesture for navigator.share, so
+      // we don't auto-fire there.
+      if (isEmbedded) {
+        // Small delay so the modal's preview has a chance to paint
+        // before the share sheet covers the screen.
+        setTimeout(() => { onShare().catch(() => {}); }, 250);
       }
+    } catch (err) {
+      try { console.warn('[homefit-lobby] PDF flow failed:', err); } catch (_) {}
+      const headline = (err && err.message) || 'unexpected failure';
+      showExportError(
+        formatExportError(diag, headline),
+        () => { triggerLobbyShare().catch(() => {}); },
+      );
     } finally {
       if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
     }

@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-14 — Lobby export pivot: multi-page PDF (PNG retired)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-14 · Lobby export pivot &mdash; multi-page PDF (PNG retired)</div>
+    <h1>Device QA &mdash; Lobby Exports A Multi-Page PDF</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the lobby's <strong>Share</strong> button now produces a <strong>multi-page PDF</strong> instead of a single rasterised PNG. The PDF chunks the plan into pages of <strong>up to 5 entries</strong>, never splits a circuit across pages, ships a full header on page 1 (plan title + summary line) and a compact running header on subsequent pages, with a footer ("Page N of M" left, "Visual plans clients follow. &middot; homefit.studio" right) on every page.
+      <br><br>
+      <strong>Pivot from:</strong> the 2026-05-05 PNG flow generated one giant raster that was unreadable on phones and a pain to share. The PDF is a print-friendly artifact clients can save, print, or forward. Active highlights are stripped (#10.1), circuit chrome is contained (#10.3), and the full exercise list is captured (#10.4) by structural pagination &mdash; no viewport clipping possible.
+      <br><br>
+      <strong>iOS Save / Share:</strong> embedded WKWebView routes through <code>HomefitBridge.shareFile</code> (Dart writes a temp file + presents <code>UIActivityViewController</code> &mdash; Save to Files, AirDrop, Messages, Mail are all in the share sheet). Mobile Safari uses <code>navigator.share({ files: [pdfFile] })</code> with a window.open fallback. Desktop downloads via a real <code>&lt;a download&gt;</code> anchor.
+      <br><br>
+      <strong>Modal shape:</strong> spinner with progress text ("Rendering page 2 of 3&hellip;"), then page-1 PNG thumbnail with a "1 of N pages" coral badge, then <strong>Download PDF</strong> + <strong>Share</strong> buttons. On generation failure: visible error message + a <strong>Retry</strong> button (replaces the silent hang).
+      <br><br>
+      <strong>In scope:</strong> lobby PDF generation; multi-page layout; circuit no-split rule; page chrome (full/running header + footer); modal preview + buttons; native bridge Save / Share; desktop download; error + retry path; R-10 parity (Mobile Safari at <code>staging.session.homefit.studio</code>); drift CI gate.
+      <br><br>
+      <strong>Out of scope:</strong> PayFast / billing flows; non-lobby player surfaces; PDF content beyond the listed visual rules (no fonts beyond the bundled stack); Android / desktop browsers other than what's listed; PDF accessibility metadata.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>feat/lobby-export-pdf-pagination</code> on Carl's iPhone via <code>./install-device.sh</code>, OR Vercel staging deploy of the same branch reachable at <code>staging.session.homefit.studio</code>.</li>
+        <li>At least one published staging plan with 3+ exercises (short plan), one with 8+ (medium), one with 20+ (long), one with a circuit small enough to fit on one page, one with a circuit large enough that it would have to span a page-break.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Single-page (short plan)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Plan with 3 exercises, no circuits. Expect a single-page PDF with the full header at top and footer at bottom.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Short plan (3 exercises). Open the public link in Mobile Safari (or the embedded preview), tap <strong>Share</strong>. Modal appears with "Generating PDF&hellip;" spinner; in 1-3s it swaps to a page-1 thumbnail with the "1 of 1 page" coral badge. On iPhone the iOS share sheet pops automatically pre-loaded with the PDF (embedded WKWebView) or remains modal-only (Mobile Safari &mdash; tap Share to invoke navigator.share). (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Multi-page (medium plan)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Plan with 8 exercises &rarr; 2-page PDF.
+    </p>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">Medium plan (8 exercises). Share &rarr; "Rendering page 1 of 2&hellip;" then "Rendering page 2 of 2&hellip;" progress messages cycle through the spinner. Modal lands on a page-1 thumbnail with "1 of 2 pages" badge. Open the PDF (Save to Files &rarr; Files app): <strong>page 1</strong> has the full plan title + summary line "Hi {Client} &middot; 8 exercises &middot; ~MM min &middot; From {Practitioner}" + the first 5 entries + footer "Page 1 of 2 &middot; Visual plans clients follow. &middot; homefit.studio". <strong>Page 2</strong> has the compact running header "{Title} &middot; page 2 of 2" + the remaining 3 entries + footer "Page 2 of 2". (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Long plan (4-page PDF, full capture)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Plan with 20 exercises &rarr; 4 pages. Validates that the entire list captures (issue #10.4 root cause) and the page-count math holds.
+    </p>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text">Long plan (20 exercises). Share &rarr; progress cycles "Rendering page 1 of 4&hellip;" through "Rendering page 4 of 4&hellip;". Open the PDF. All 20 exercises present across 4 pages &mdash; no clipping at the bottom of any page (the original #10.4 was viewport-clipping the live <code>#lobby</code> root; pagination eliminates this structurally). Each page has either the full or compact header, and a "Page N of 4" footer. (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Circuit no-split rule</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      A circuit is treated as ONE atomic entry on a page. If it doesn't fit in the remaining row slots, a fresh page begins BEFORE the circuit so the whole group lives on the next page.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Plan with a circuit positioned EARLY in the list (so it fits on page 1 within the 5-entry budget). The circuit's header, in-circuit rows, and rounds chip all appear together on page 1 &mdash; never split. Circuit chrome (SVG lane outlines + spiraling tracer settled to a static frame) is symmetric, no asymmetric clipping at the corners (issue #10.3 fix). (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">Plan whose 5th slot would land mid-circuit (e.g. 4 standalone rows + 1 circuit with 3 in-circuit rows). The PDF starts a new page BEFORE the circuit so the whole circuit lives on page 2. Page 1 has 4 entries, page 2 begins with the circuit + remaining rows. Verify no circuit is ever split. (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Polish &mdash; active highlight stripped (#10.1)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The live lobby keeps a coral highlight on the actively-scrolled row. That highlight bled into the rendered PNG as an arbitrary single-row glow &mdash; visually noisy on a static artifact.
+    </p>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">Scroll the lobby so a row in the middle of the list is the active-highlighted row (coral border + glow). Tap Share. In the rendered PDF (any page), <strong>no row has the coral active highlight</strong>. Inactive-row visual styles are unchanged in the live UI (the highlight returns after the snapshot). (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 &middot; Polish &mdash; circuit chrome contained (#10.3)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The live SVG lanes overlay extends past row bounds with <code>overflow:visible</code> so the spiral can animate around the frame. In the rendered PDF that overflow asymmetrically clipped one side because the offscreen page wrapper didn't honour the inset. Long circuit names also overran the right border.
+    </p>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">Plan with a circuit that has a long custom name (e.g. "Lower-body strength &amp; mobility ladder"). In the PDF, the circuit header text fits inside the frame (wraps to a second line if needed; doesn't overrun the right border). The chrome lines on both left and right are symmetric. (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 &middot; Modal preview &mdash; page-1 thumbnail + badge</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The modal shows a PNG thumbnail of page 1 of the PDF (rendered from the same canvas the PDF was assembled from &mdash; not an extra rasterisation).
+    </p>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">Trigger a multi-page export. After generation, the modal shows: title "Your plan, ready to share", a page-1 thumbnail centred in the modal, a coral "1 of N pages" badge under the thumbnail, Download PDF + Share buttons below. The thumbnail is legible &mdash; you can recognise the plan title + first exercise rows + footer. (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>8 &middot; iPhone &mdash; Save to Files via native bridge</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Inside the embedded WKWebView, the Download PDF button doesn't work (iOS doesn't honour <code>&lt;a download&gt;</code>). The Share button instead routes through <code>HomefitBridge.shareFile</code> &rarr; <code>UIActivityViewController</code>, which offers Save to Files among other targets.
+    </p>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text">In the trainer app, open a session &rarr; Preview &rarr; Share. Modal renders the PDF preview AND the iOS share sheet auto-opens within ~250ms pre-loaded with the PDF. Pick <strong>Save to Files</strong> &rarr; choose iCloud Drive &rarr; pick a destination. PDF lands at the destination and opens cleanly in iOS Files / Preview. (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>9 &middot; Mobile Safari &mdash; share sheet or inline PDF view</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      On the public web player at <code>staging.session.homefit.studio</code> from Mobile Safari, tapping Share fires <code>navigator.share({ files: [pdfFile] })</code>. If iOS rejects files in Web Share (older iOS or rare envs), the fallback opens the blob URL in a new tab so iOS's PDF viewer takes over.
+    </p>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text">Open <code>https://staging.session.homefit.studio/p/&lt;planId&gt;</code> in iPhone Safari. Tap Share in the lobby &rarr; modal renders. Tap the modal's <strong>Share</strong> button &mdash; iOS share sheet opens with the PDF attached. Send to yourself via Messages or Save to Files; on receipt, the PDF is well-formed with all pages. (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>10 &middot; Desktop &mdash; filesystem download</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Desktop browsers honour <code>&lt;a download&gt;</code>. Download PDF saves the file to the local filesystem.
+    </p>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&cross;</button></div>
+        <span class="num">11.</span>
+        <span class="text">Open <code>https://staging.session.homefit.studio/p/&lt;planId&gt;</code> in desktop Safari / Chrome on Mac. Modal renders. Tap <strong>Download PDF</strong> &rarr; browser saves <code>homefit-plan-&lt;timestamp&gt;.pdf</code> to ~/Downloads (or the configured destination). Open in Preview &mdash; PDF has all pages, headers, footers as expected. (CR-OK)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>11 &middot; Generation error &mdash; visible + retry</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      A generation failure (jsPDF threw, html2canvas tainted, preload errors aggregated) must surface a user-facing error message + a Retry button. Replaces the silent "Generating preview&hellip;" hang.
+    </p>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&cross;</button></div>
+        <span class="num">12.</span>
+        <span class="text">Force a failure: in DevTools (desktop) block all requests to <code>/jspdf.umd.min.js</code> and reload the page, then tap Share. The modal swaps from "Generating PDF&hellip;" to a visible coral error message ("PDF library failed to load. Please reload the page (Cmd+Shift+R) and try again.") + a <strong>Retry</strong> button. Tapping Retry re-runs the pipeline (which will fail again if jsPDF is still blocked &mdash; remove the block and Retry succeeds). (CR-OK)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>12 &middot; Drift sync (CI gate parity)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      <code>web-player-drift-guard</code> CI enforces that <code>app/assets/web-player/*</code> matches <code>web-player/*</code> byte-for-byte. Verifiable from the dev machine without a device install.
+    </p>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&check;</button><button class="fail" type="button" aria-label="Fail 13">&cross;</button></div>
+        <span class="num">13.</span>
+        <span class="text">From <code>app/</code>: <code>dart run tool/sync_web_player_bundle.dart --check</code> exits 0 with "bundle in sync" output. (CR-OK &mdash; no device install needed.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>13 &middot; R-10 parity</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The same web-player bundle drives both the embedded preview AND the live web player. PDF generation must be identical on both surfaces (modulo native bridge vs Web Share routing).
+    </p>
+    <ul class="checklist">
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&check;</button><button class="fail" type="button" aria-label="Fail 14">&cross;</button></div>
+        <span class="num">14.</span>
+        <span class="text">Open the SAME plan in both the embedded preview (workflow Preview tab on the trainer app) and Mobile Safari at <code>staging.session.homefit.studio/p/&lt;planId&gt;</code>. Generate the PDF on each. The PDFs are byte-content-equivalent &mdash; same page count, same chunk boundaries, same header/footer text. (device)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Implementation notes: <code>web-player/lobby.js</code> orchestrates the pipeline. jsPDF is vendored at <code>web-player/jspdf.umd.min.js</code> (358KB; gzip ~85KB) and loaded BEFORE <code>lobby.js</code> in <code>index.html</code> so the global <code>window.jspdf.jsPDF</code> constructor is ready. The page chunker (<code>chunkLobbyItemsForPdf</code>) walks <code>#lobby-list</code> children at 5 entries per page; circuits are atomic units (no split). For each page chunk, the live DOM elements are cloned into an off-screen <code>.lobby-export-page</code> wrapper with appropriate header (full on page 1, compact running on pages 2+) and footer, then html2canvas-rendered at scale=2 to a JPEG (quality 0.92) and added to the jsPDF doc at A4 portrait (210mm wide, height derived from canvas aspect). Bridge: <code>web-player/app.js</code> adds <code>homefitBridge.shareFile(base64, fileName, mimeType)</code>; <code>app/lib/screens/unified_preview_screen.dart</code> handles the matching <code>share_file</code> case by writing a temp file and invoking <code>Share.shareXFiles</code>. CSS suppressions: <code>html.is-exporting</code> + <code>.lobby-export-page</code> strip active-row coral highlight (#10.1), force <code>overflow:visible</code> on circuit chrome containers (#10.3), and force header text wrapping with right-padding to stop overruns.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-export-pdf-pagination.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'lobby-export-pdf-pagination', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

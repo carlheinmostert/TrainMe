@@ -542,6 +542,12 @@
        hero/poster (treatment + body-focus + photo-vs-video + fallbacks).
        See docs/audits/photo-video-treatment-audit-2026-05-13.md. -->
   <script src="/exercise_hero.js"></script>
+  <!-- jsPDF UMD bundle — vendored at /jspdf.umd.min.js so the lobby
+       export pipeline can generate multi-page PDFs same-origin under
+       `script-src 'self'`. Loads BEFORE lobby.js so the global
+       `window.jspdf.jsPDF` constructor is ready when triggerLobbyShare
+       fires. v2.5.2; 358KB minified (gzip ~85KB). -->
+  <script src="/jspdf.umd.min.js"></script>
   <script src="/app.js"></script>
   <script src="/lobby.js"></script>
 </body>

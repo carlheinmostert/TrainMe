@@ -3487,8 +3487,15 @@ body.is-fullscreen .playpause-toggle {
   stroke: currentColor;
 }
 
-/* Hide page chrome that shouldn't appear in the exported PNG. The
-   .is-exporting class is toggled on <html> during snapshot capture. */
+/* Hide page chrome that shouldn't appear in the exported PDF. The
+   .is-exporting class is toggled on <html> during snapshot capture.
+   Snapshot pages are rasterised offscreen via the .lobby-export-page
+   container (see below); these legacy rules are kept so that any
+   accidental capture of the live #lobby root also drops the chrome.
+   Pivot 2026-05-14: PNG single-image export retired in favour of a
+   multi-page PDF pipeline. The .is-exporting class also strips the
+   active-row coral highlight + circuit chrome overflow so each
+   paginated page chunk rasterises cleanly. */
 html.is-exporting .lobby-cta-bar,
 html.is-exporting .lobby-meta-version,
 html.is-exporting #lobby-settings-popover {
@@ -3502,6 +3509,158 @@ html.is-exporting .lobby-circuit-lanes .lane-tracer {
 }
 html.is-exporting .lobby-export-footer {
   display: flex !important;
+}
+
+/* PDF-pagination polish — 2026-05-14 #10.1, #10.3, #10.4. Active-row
+   coral highlight kept the page visually consistent for the live UI
+   but bled into the rendered PDF as an arbitrary single-row glow.
+   Strip it during export. The body-level + html-level both used so
+   the suppression sticks regardless of where html2canvas grafts its
+   cloned subtree. */
+html.is-exporting .lobby-row.is-active-pill > .lobby-row-content,
+html.is-exporting .lobby-row.is-active > .lobby-row-content,
+.lobby-export-page .lobby-row.is-active-pill > .lobby-row-content,
+.lobby-export-page .lobby-row.is-active > .lobby-row-content {
+  border-color: var(--c-surface-border) !important;
+  box-shadow: none !important;
+}
+html.is-exporting .lobby-row.is-active-pill,
+html.is-exporting .lobby-row.is-active,
+.lobby-export-page .lobby-row.is-active-pill,
+.lobby-export-page .lobby-row.is-active {
+  background: transparent !important;
+}
+
+/* Circuit chrome (the SVG lanes overlay) is positioned `inset: 0`
+   with overflow:visible so the spiral can extend past the frame —
+   correct in the live UI, but on the offscreen export the SVG's
+   bounding box can clip asymmetrically because the parent <li>
+   isn't given the same lanePad inset that the live render computes.
+   Force the export container to honour the visible overflow on every
+   level so the chrome rasterises symmetrically. */
+.lobby-export-page,
+.lobby-export-page .lobby-circuit,
+.lobby-export-page .lobby-circuit-lanes,
+.lobby-export-page .lobby-circuit-frame {
+  overflow: visible !important;
+}
+
+/* Round 6 fix: the header label was set `overflow:hidden; text-overflow:
+   ellipsis; white-space:nowrap` for the bar context, which truncates the
+   right edge when html2canvas measures it. Let it wrap during export so
+   long circuit names stay inside the header strip. */
+.lobby-export-page .lobby-circuit-header {
+  flex-wrap: wrap;
+  padding-right: 18px;
+}
+.lobby-export-page .lobby-circuit-header-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* Pagination layout — the per-page snapshot root. Pinned offscreen
+   while html2canvas reads it; restored once the canvas is captured.
+   Fixed width matches A4 portrait pixel-target (794px at 96dpi) so
+   each chunk rasterises at consistent scale. */
+.lobby-export-page {
+  position: fixed;
+  top: -100000px;
+  left: 0;
+  width: 794px;
+  padding: 28px 28px 22px;
+  box-sizing: border-box;
+  background: #0F1117;
+  color: var(--c-ink-primary);
+  font-family: 'Inter', -apple-system, sans-serif;
+  z-index: -1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Full header (page 1). Plan title, summary line. The summary line is
+   composed by JS to mirror the live lobby meta strip. */
+.lobby-export-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-surface-border);
+}
+.lobby-export-page-title {
+  margin: 0;
+  font-family: 'Montserrat', -apple-system, sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.3px;
+  color: var(--c-ink-primary);
+}
+.lobby-export-page-summary {
+  margin: 0;
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--c-ink-secondary);
+}
+
+/* Compact running header (pages 2+). Plan title + page indicator only;
+   no summary. */
+.lobby-export-page-running {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--c-surface-border);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 12px;
+  color: var(--c-ink-secondary);
+}
+.lobby-export-page-running .lobby-export-running-title {
+  font-family: 'Montserrat', -apple-system, sans-serif;
+  font-weight: 600;
+  color: var(--c-ink-primary);
+}
+
+/* Page body — flex column hosting the row chunk. The list container
+   resets ul margins so the rows align with the page chrome. */
+.lobby-export-page-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.lobby-export-page-body .lobby-list,
+.lobby-export-page-body ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Footer — page count left, brand line right. Matches the live
+   .lobby-export-footer styling but lives inside each page. */
+.lobby-export-page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-surface-border);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 11px;
+  color: var(--c-ink-secondary);
+}
+.lobby-export-page-footer .lobby-export-page-count {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.lobby-export-page-footer .lobby-export-page-brand {
+  text-align: right;
 }
 .lobby-export-footer {
   display: none;
