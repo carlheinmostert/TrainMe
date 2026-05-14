@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hotfix QA 2026-05-14 — PDF export tainted-canvas (cloud surface)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.cr {
+    background: rgba(96,165,250,0.12); color: #60A5FA;
+    border-color: rgba(96,165,250,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-14 · PDF export tainted-canvas hotfix (cloud surface)</div>
+    <h1>Hotfix QA — PDF export pre-fetches cross-origin hero images</h1>
+    <p class="lede">
+      <strong>Symptom:</strong> tapping <strong>Share</strong> on the lobby of a published plan at <code>staging.session.homefit.studio</code> opened the export modal, then sat forever on <em>"Rendering page 1 of 2&hellip;"</em>. Embedded preview (Flutter workflow Preview tab) worked fine because it serves images same-origin via <code>homefit-local://</code>.
+      <br><br>
+      <strong>Root cause:</strong> hero <code>&lt;img&gt;</code> tags on the cloud surface point at Supabase signed URLs (cross-origin to the page). PR #325 already pre-fetches and swaps to <code>data:</code> URLs, but the preload <code>fetch()</code> had <strong>no timeout</strong> &mdash; a stalled response left it pending forever, so the spinner never advanced. <code>html2canvas</code> also had no internal timeout, so a partially-swapped DOM could hang its image loader on a leftover signed URL.
+      <br><br>
+      <strong>Fix:</strong> (1) <code>AbortController</code> 8s budget per preload fetch &mdash; failures land in <code>preloadErrors</code> instead of hanging forever. (2) <code>onclone</code> backstop in <code>html2canvas</code> &mdash; re-walks the cloned DOM, swaps any unmapped <code>&lt;img&gt;</code> src to its data URL, or strips the src to prevent <code>useCORS</code>-triggered fetches on a leftover Supabase URL. (3) <code>imageTimeout: 4000</code> inside <code>html2canvas</code> + a 15s <code>Promise.race</code> ceiling on the whole rasterise call. (4) Per-page <code>img.decode()</code> wrapped in a 2s race guard matching the existing initial-decode pattern. (5) Hard early-fail when <code>dataUrlMap.size === 0 && preloadErrors.length &gt; 0</code> &mdash; surfaces the error modal with Retry instead of letting the pipeline drift into the page loop.
+      <br><br>
+      <strong>Gotcha memory:</strong> <code>~/.claude/&hellip;/memory/gotcha_html2canvas_cors_taint.md</code> ("Adding crossorigin=anonymous doesn't help on already-loaded pages &mdash; pre-fetch via fetch+blob, swap in onclone").
+      <br><br>
+      <strong>Out of scope:</strong> the lobby gear popover settings unification (parallel agent). Studio card layout. Any other lobby pipeline.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>hotfix/pdf-export-tainted-canvas</code> branch deployed to Vercel preview <em>or</em> merged to <code>staging</code> so it reaches <code>staging.session.homefit.studio</code>.</li>
+        <li>One published plan with at least <strong>6 video exercises</strong> (so it spans 2+ PDF pages at <code>PDF_ROWS_PER_PAGE = 5</code>).</li>
+        <li>One published plan with at least <strong>10 exercises</strong> for the multi-page (3+) variant.</li>
+        <li>Desktop browser (Chrome / Safari) + Mobile Safari for the share-sheet path.</li>
+        <li>Embedded preview reachable via the Flutter workflow Preview tab on a TestFlight or simulator build.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Cloud desktop &mdash; PDF generates without hanging</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open the multi-page published plan on <code>staging.session.homefit.studio</code> in a desktop browser (Chrome or Safari). Tap the lobby <strong>Share</strong> button.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Modal opens with the <strong>Generating PDF&hellip;</strong> spinner. Within ~5&ndash;10 seconds, the spinner replaces itself with the <strong>page-1 preview thumbnail</strong> and the Download PDF / Share buttons. The "Rendering page 1 of 2&hellip;" / "Rendering page 2 of 2&hellip;" progress messages flicker through during render. <strong>No infinite hang.</strong> <span class="scope-tag">web</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Mobile Safari &mdash; PDF generates + Web Share works</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Same plan, opened in Mobile Safari on iPhone via <code>staging.session.homefit.studio</code>. Tap <strong>Share</strong>.
+    </p>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">Modal opens with spinner. Page-1 preview renders within ~10 seconds &mdash; spinner does NOT sit forever on "Rendering page N of M&hellip;". Tap <strong>Share</strong>: iOS share sheet opens with the PDF file attached. AirDrop / Save to Files / Messages all work. <span class="scope-tag">web</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Embedded preview &mdash; no regression</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open the same plan via the Flutter workflow Preview tab (embedded WKWebView with <code>homefit-local://</code> scheme). Tap <strong>Share</strong> from the lobby.
+    </p>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text">Embedded flow STILL works: modal opens with spinner, page-1 preview appears within ~5 seconds, iOS share sheet auto-fires after 250ms (existing behaviour from PR #325). Save to Files / AirDrop both produce a valid PDF. <strong>No regression</strong> from the cloud-targeted hotfix. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Multi-page (8+ exercises) &mdash; all pages render</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open the &ge;10-exercise plan (3+ pages). Tap <strong>Share</strong>. Watch the spinner progress messages.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Spinner text cycles "Rendering page 1 of 3&hellip;" &rarr; "Rendering page 2 of 3&hellip;" &rarr; "Rendering page 3 of 3&hellip;". Modal then shows the page-1 thumbnail with a "Page 1 of 3" badge. Download the PDF and verify all 3 pages exist with their expected exercise content. Page 1 has the full plan header; pages 2+ have the compact running header. <span class="scope-tag">web</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Failure path &mdash; error modal with Retry (not infinite spinner)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Force a preload failure (e.g. open DevTools &rarr; Network tab &rarr; right-click a Supabase Storage URL request &rarr; "Block request URL"). Reload the page. Tap <strong>Share</strong> from the lobby.
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">If ALL preloads fail (every Supabase URL blocked), modal switches from "Generating PDF&hellip;" to the <strong>error message</strong> "Couldn't generate the PDF: every image preload failed&hellip;" with a <strong>Retry</strong> button. If only SOME fail, the PDF generates with empty placeholders for the failed heroes (no taint, no hang) and the modal swaps to the success state. Spinner never sits forever. <span class="scope-tag">web</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 &middot; CI checks</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><code>web-player-drift-guard</code> CI check passes (the hotfix touches both <code>web-player/lobby.js</code> AND <code>app/assets/web-player/lobby.js</code> in lockstep). Flutter checks pass. No other CI regressions. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Stacks on PR #325 (multi-page PDF pipeline). Closes the cloud-surface "Rendering page N of M&hellip;" hang. Follows the canonical fix pattern from <code>gotcha_html2canvas_cors_taint.md</code> &mdash; pre-fetch with timeout, swap in <code>onclone</code>, fail loud instead of hang silent. Does not touch the lobby gear popover (parallel agent).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'pdf-tainted-canvas-fix.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'pdf-tainted-canvas-fix', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            var status = li.getAttribute('data-status');
+            if (!status) return;
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 400);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

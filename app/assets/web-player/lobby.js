@@ -2518,6 +2518,15 @@
   //     while the browser fetched the blob (Carl's round 7 question
   //     mark).
   //   - blob URL revoke timing was racing with html2canvas paint.
+  //
+  // PDF tainted-canvas hotfix (2026-05-14): adds a per-fetch timeout via
+  // AbortController. Without this, a stalled cross-origin response (CDN
+  // hiccup, partially-buffered Supabase signed URL) could leave a fetch
+  // pending indefinitely; preloadAsDataUrls would never resolve and the
+  // PDF pipeline would sit forever on its "Rendering page N of M…"
+  // message because the await on this function never returns. Bounded
+  // failure surfaces in `errors[]` and routes to the existing
+  // "Error + Retry" modal state.
   async function preloadAsDataUrls(rootEl) {
     const sources = new Set();
     rootEl.querySelectorAll('img').forEach((img) => {
@@ -2543,11 +2552,38 @@
     const fetchOpts = isEmbedded
       ? { credentials: 'omit' }
       : { mode: 'cors', credentials: 'omit' };
+    // 8s per-fetch budget — long enough for a slow mobile network to
+    // bring a hero JPG down (~250KB typical), short enough that a stalled
+    // Supabase signed URL fails fast and the error modal fires instead of
+    // hanging the spinner.
+    const FETCH_TIMEOUT_MS = 8000;
+    async function fetchWithTimeout(src) {
+      // AbortController is supported in every browser we ship to (Safari
+      // 11.1+, Chrome 66+). The try/catch around AbortController
+      // construction is defensive against a hypothetical surface where
+      // it's missing — fall back to an unguarded fetch.
+      let controller;
+      try { controller = new AbortController(); } catch (_) { controller = null; }
+      const opts = controller
+        ? Object.assign({}, fetchOpts, { signal: controller.signal })
+        : fetchOpts;
+      let timer = null;
+      if (controller) {
+        timer = setTimeout(() => {
+          try { controller.abort(); } catch (_) {}
+        }, FETCH_TIMEOUT_MS);
+      }
+      try {
+        return await fetch(src, opts);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
     await Promise.all(Array.from(sources).map(async (src) => {
       if (!src) return;
       if (src.startsWith('data:')) return;
       try {
-        const res = await fetch(src, fetchOpts);
+        const res = await fetchWithTimeout(src);
         if (!res.ok) {
           errors.push(`${res.status} on ${shortUrl(src)}`);
           return;
@@ -2565,7 +2601,10 @@
         });
         map.set(src, dataUrl);
       } catch (err) {
-        errors.push(`${(err && err.message) || err} on ${shortUrl(src)}`);
+        const msg = (err && err.name === 'AbortError')
+          ? 'timeout'
+          : ((err && err.message) || err);
+        errors.push(`${msg} on ${shortUrl(src)}`);
       }
     }));
     return { map, errors };
@@ -2834,6 +2873,21 @@
       const videoCount = $lobby.querySelectorAll('video').length;
       diag.sources = imgCount + videoCount;
 
+      // Fail-loud early when every cross-origin preload failed. If we
+      // have sources but the dataUrlMap is empty AND we logged errors,
+      // there's no value in proceeding to html2canvas — it would also
+      // fail (or hang) on the same URLs. Surface the existing
+      // "Couldn't generate the PDF" error + Retry button now instead.
+      // The check is intentionally narrow (>0 sources, 0 fetched, 1+
+      // errors) so partial-success and zero-image cases still proceed.
+      if (diag.sources > 0 && dataUrlMap.size === 0 && preloadErrors.length > 0) {
+        showExportError(
+          formatExportError(diag, 'every image preload failed'),
+          () => { triggerLobbyShare().catch(() => {}); },
+        );
+        return;
+      }
+
       // Bundle 1 of the hero-resolver migration (audit D13). The active
       // video's <video poster> doesn't inherit the .is-grayscale CSS
       // filter during html2canvas rasterisation, so even when the rest
@@ -2974,23 +3028,95 @@
             // before html2canvas reads it.
             await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
             const pageImgs = Array.from(pageEl.querySelectorAll('img'));
+            // Per-page decode with 2s timeout guard. Matches the initial
+            // $lobby decode at the top of triggerLobbyShare. Without this,
+            // a hung `decode()` on a broken data URL (or a Safari quirk)
+            // would freeze the pipeline on this page indefinitely — no
+            // error, no progress, just the "Rendering page N of M…"
+            // spinner forever.
             await Promise.all(pageImgs.map((im) => {
-              if (typeof im.decode === 'function') return im.decode().catch(() => {});
-              return Promise.resolve();
+              if (typeof im.decode !== 'function') return Promise.resolve();
+              return Promise.race([
+                im.decode().catch(() => {}),
+                new Promise((r) => setTimeout(r, 2000)),
+              ]);
             }));
 
-            pageCanvas = await html2canvas(pageEl, {
+            // Backstop swap inside html2canvas's clone. The live-DOM swap
+            // above (lines 2920+) already replaces every cross-origin
+            // <img>.src with a same-origin data URL, and cloneNode inherits
+            // those data URLs into the off-screen page wrapper. BUT if a
+            // hero was repainted between preload and swap, or a poster
+            // attribute slipped through (or a new <img> was injected by a
+            // bg layout pass), html2canvas's internal clone could still
+            // contain a Supabase signed URL. With `useCORS: true` it would
+            // re-fetch the URL with crossorigin="anonymous"; if Supabase's
+            // CORS preflight stalled, the canvas paint would hang.
+            //
+            // The onclone callback fires AFTER html2canvas has cloned
+            // pageEl into its internal iframe. We re-walk the cloned
+            // <img>/<video> nodes and force a final swap against the
+            // dataUrlMap. Any node still pointing at a non-data URL
+            // (preload failure) gets its src stripped — html2canvas will
+            // render an empty <img> placeholder instead of fetching, so
+            // the page still renders + we still get a PDF (sans that one
+            // hero). This is the explicit fail-loud fallback: a missing
+            // hero is recoverable; a hung pipeline is not.
+            const onclone = (clonedDoc) => {
+              try {
+                clonedDoc.querySelectorAll('img').forEach((img) => {
+                  const cur = img.getAttribute('src') || '';
+                  if (!cur || cur.startsWith('data:')) return;
+                  const swap = dataUrlMap.get(cur);
+                  if (swap) {
+                    img.setAttribute('src', swap);
+                    img.removeAttribute('crossorigin');
+                  } else {
+                    // No preload entry for this URL — strip src instead
+                    // of letting html2canvas try (and possibly hang on)
+                    // the cross-origin fetch.
+                    img.removeAttribute('src');
+                  }
+                });
+                clonedDoc.querySelectorAll('video').forEach((v) => {
+                  const cur = v.getAttribute('poster') || '';
+                  if (!cur || cur.startsWith('data:')) return;
+                  const swap = dataUrlMap.get(cur);
+                  if (swap) v.setAttribute('poster', swap);
+                  else v.removeAttribute('poster');
+                });
+              } catch (_) {}
+            };
+
+            // 15s hard ceiling on the whole rasterisation call. Combined
+            // with `imageTimeout: 4000` below, this ensures the spinner
+            // doesn't sit forever if html2canvas's internal image-loading
+            // gets stuck on an unswappable URL. On timeout we surface the
+            // existing "Couldn't generate the PDF" error + Retry path.
+            const h2cPromise = html2canvas(pageEl, {
               backgroundColor: '#0F1117',
               scale: 2, // 2x for retina-quality output regardless of devicePixelRatio
               useCORS: true,
               allowTaint: false,
               logging: false,
+              // Per-image timeout — html2canvas defaults to 15s which
+              // multiplies across the page. 4s is enough for a fully
+              // pre-fetched data URL (instant) plus generous slack for
+              // any same-origin font/asset; if a fetch is going to fail
+              // it will fail by now, surfacing as an html2canvas reject
+              // and routing to the error modal with Retry.
+              imageTimeout: 4000,
+              onclone,
               ignoreElements: (el) => {
                 if (!el || typeof el.id !== 'string') return false;
                 return el.id === 'lobby-export-modal'
                   || el.id === 'lobby-self-grant-modal';
               },
             });
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error(`page ${i + 1} render timeout (15s)`)), 15000);
+            });
+            pageCanvas = await Promise.race([h2cPromise, timeoutPromise]);
           } catch (err) {
             diag.h2cError = (err && err.message) || String(err);
             try { document.body.removeChild(pageEl); } catch (_) {}
