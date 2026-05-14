@@ -7,6 +7,7 @@ import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
 import '../models/session.dart';
+import '../models/treatment.dart';
 import '../services/api_client.dart';
 import '../services/media_prefetch_service.dart';
 import '../theme.dart';
@@ -72,37 +73,36 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
   return false;
 }
 
-/// Studio Exercise Card — flood-fill video layout.
+/// Studio Exercise Card — image-left / text-right layout (audit Changes 4 + 5).
 ///
-/// Layout (Card UI Polish — flood-fill):
+/// Layout (2026-05-14 — square Hero left, text right):
 ///
-///   ┌──────────────────────────────────┐
-///   │ [video flood-fills entire card]  │
-///   │                            [⚙]  │
-///   │                                  │
-///   │ Exercise Title                   │
-///   │ 🏋  3 sets · 10 reps · @ 15kg   │
-///   │ 📝  First line of notes…         │
-///   └──────────────────────────────────┘
+///   ┌─────────────┬──────────────────────┐
+///   │             │ Exercise Title       │
+///   │ [Hero 1:1] │ 🏋  3 sets · 10 reps │
+///   │       [📷] │ 📝  Notes preview…   │
+///   │             │ [chips: 🎵 🎨 🫥]    │
+///   └─────────────┴──────────────────────┘
 ///
-/// The mini preview covers the entire card. A bottom-up gradient scrim
-/// (lower 70%, black 0.85 → transparent) ensures the title + summaries
-/// stay legible against bright frames. The frosted-glass gear sits
-/// top-right.
+/// The Hero area is a square (cardHeight × cardHeight) on the left
+/// rendering the practitioner's per-exercise treatment / hero-frame
+/// pick. The right column is the editable plan summary + notes preview
+/// + optional state chips. Visually matches the lobby's image-left /
+/// text-right row pattern.
+///
+/// A small media-type indicator (video / photo) sits in the top-right
+/// corner of the Hero area as a passive cue. Rest periods don't render
+/// the icon.
 ///
 /// Tap zones:
 ///   * Whole card (default)        → editor sheet on Plan tab.
-///   * Gear (⚙)                    → editor sheet on Settings tab.
-///   * Plan row (🏋)               → editor sheet on Plan tab.
-///   * Notes row (📝)              → editor sheet on Notes tab.
 ///   * Long-press anywhere         → replace media (image-picker).
 ///
-/// The parent contract is unchanged from the previous stub:
+/// The parent contract is unchanged:
 ///   * [onTap] fires on the whole-card tap (Studio screen treats it as
 ///     the focus / collapse signal).
 ///   * [onUpdate] fires on every meaningful edit inside the editor sheet.
-///   * [onThumbnailTap] is retained for backwards-compat but no longer
-///     wired (the whole card opens the editor on Plan now).
+///   * [onThumbnailTap] retained for backwards-compat — no longer wired.
 ///   * [onReplaceMedia] fires on a long-press (image-picker swap).
 ///   * [onDelete], [onDownloadOriginal] retained for parent compatibility.
 class StudioExerciseCard extends StatelessWidget {
@@ -142,8 +142,9 @@ class StudioExerciseCard extends StatelessWidget {
 
   final ExerciseAnalyticsStats? analyticsStats;
 
-  /// Card height — Carl's spec is 152pt. Exposed as a constant so the
-  /// gradient scrim stays in lockstep.
+  /// Card height — Carl's spec is 152pt. The Hero area is square
+  /// (cardHeight × cardHeight) and the text column fills the
+  /// remaining width.
   static const double cardHeight = 152;
 
   const StudioExerciseCard({
@@ -182,9 +183,7 @@ class StudioExerciseCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surfaceBase,
             borderRadius: BorderRadius.circular(16),
-            // Focused state = outer coral ring (boxShadow). Avoids the
-            // 2px Border that would push the video inward and break the
-            // flush flood-fill.
+            // Focused state = outer coral ring (boxShadow). 2px spread.
             boxShadow: showFocusedBorder
                 ? const [
                     BoxShadow(
@@ -196,89 +195,58 @@ class StudioExerciseCard extends StatelessWidget {
                 : null,
           ),
           clipBehavior: Clip.antiAlias,
-          child: Stack(
-            fit: StackFit.expand,
+          // Image-left / text-right layout. Square Hero area
+          // (cardHeight × cardHeight) on the left; the rest of the
+          // row is the editable plan summary + chips + notes preview.
+          // Mirrors the lobby's image-left card pattern.
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Layer 1 — Hero-frame flood-fill. MiniPreview's staticHero
-              // branch renders the per-treatment {id}_thumb*.jpg picked
-              // by the practitioner via the trim panel (or the
-              // motion-peak default for un-edited captures), so the
-              // Studio card stops looping the source video and shows the
-              // single representative frame. Photo + rest branches are
-              // unchanged (already static). width: infinity + height: null
-              // → MiniPreview falls into SizedBox.expand and fills the
-              // 152pt Stack.
-              MiniPreview(
-                exercise: exercise,
-                width: double.infinity,
-                borderRadius: BorderRadius.circular(16),
-                staticHero: true,
-              ),
-              // Layer 2 — bottom-up gradient scrim. Lower 70% of card,
-              // black 0.85 at the bottom transitioning through 0.55 to
-              // transparent at the top of the scrim. IgnorePointer keeps
-              // taps falling through to the outer InkWell.
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: cardHeight * 0.70,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.85),
-                          Colors.black.withValues(alpha: 0.55),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.4, 1.0],
-                      ),
+              // -----------------------------------------------------
+              // LEFT — 1:1 square Hero area
+              // -----------------------------------------------------
+              SizedBox(
+                width: cardHeight,
+                height: cardHeight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // The MiniPreview already routes through the
+                    // exercise hero resolver and applies the per-
+                    // exercise `hero_crop_offset` via
+                    // `heroCropAlignment(exercise)` inside its
+                    // _HeroFrameImage / _PhotoFrame children.
+                    MiniPreview(
+                      exercise: exercise,
+                      width: double.infinity,
+                      borderRadius: BorderRadius.zero,
+                      staticHero: true,
                     ),
-                  ),
+                    // Media-type indicator (Change 5). Passive,
+                    // non-interactive. Suppressed for rest periods.
+                    if (!exercise.isRest)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: IgnorePointer(
+                          child: _MediaTypeBadge(
+                            mediaType: exercise.mediaType,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              // Layer 3 — content overlay. Title + plan summary at bottom.
-              // Settings (gear) and Notes have been removed from the card
-              // surface — both are still reachable from inside the editor
-              // sheet via the tab strip. Whole-card tap → editor on Plan;
-              // long-press → replace media; that's the entire affordance.
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (exerciseHasMissingMedia(exercise))
-                      _MediaStatusBanner(exerciseId: exercise.id),
-                    const Spacer(),
-                    Text(
-                      _resolvedTitle(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'Montserrat',
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
-                        letterSpacing: -0.2,
-                        color: AppColors.textOnDark,
-                        shadows: [
-                          Shadow(
-                            color: Color(0x99000000),
-                            offset: Offset(0, 1),
-                            blurRadius: 2,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    _SummaryRow(
-                      icon: Icons.fitness_center,
-                      text: _planSummary(exercise),
-                      monospace: true,
-                    ),
-                  ],
+              // -----------------------------------------------------
+              // RIGHT — text column
+              // -----------------------------------------------------
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: _CardTextColumn(
+                    exercise: exercise,
+                    title: _resolvedTitle(),
+                  ),
                 ),
               ),
             ],
@@ -313,11 +281,207 @@ class StudioExerciseCard extends StatelessWidget {
 // Helpers
 // =============================================================================
 
-/// Frosted-glass gear button — 32×32 circle with a backdrop blur and a
-/// translucent black fill so it stays legible against any frame. The
-/// "customised" state floats an 8pt coral dot at the gear's top-right
-/// (1.5pt black border so it pops against bright backgrounds).
-/// Summary row — 14pt icon + 12pt text on the gradient scrim. Mono-
+/// Right-column text content for the image-left card layout.
+///
+/// Densities top-to-bottom:
+///   * Title (Montserrat 17pt / w700)
+///   * Plan summary row (mono — sets × reps × hold + per-set breakdown)
+///   * Rest period chip — only for rest exercises (sage tint)
+///   * Notes preview — first line, dimmed
+///   * State chips strip — audio, treatment, body-focus when set
+///
+/// Anything that doesn't fit collapses to icon-only via [_IconChip].
+class _CardTextColumn extends StatelessWidget {
+  final ExerciseCapture exercise;
+  final String title;
+
+  const _CardTextColumn({
+    required this.exercise,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isRest = exercise.isRest;
+    final notes = (exercise.notes ?? '').trim();
+    final summary = _planSummary(exercise);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (exerciseHasMissingMedia(exercise)) ...[
+          _MediaStatusBanner(exerciseId: exercise.id),
+          const SizedBox(height: 6),
+        ],
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontFamily: 'Montserrat',
+            fontWeight: FontWeight.w700,
+            fontSize: 17,
+            letterSpacing: -0.2,
+            color: AppColors.textOnDark,
+          ),
+        ),
+        const SizedBox(height: 4),
+        _SummaryRow(
+          icon: Icons.fitness_center,
+          text: summary,
+          monospace: true,
+        ),
+        if (!isRest && notes.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          _SummaryRow(
+            icon: Icons.notes_outlined,
+            text: notes.split('\n').first,
+            monospace: false,
+          ),
+        ],
+        if (!isRest) ...[
+          const SizedBox(height: 6),
+          _StateChipStrip(exercise: exercise),
+        ],
+      ],
+    );
+  }
+}
+
+/// Compact icon strip for per-exercise state cues (audio, treatment,
+/// body focus). Only the active states render — an exercise with no
+/// non-default state renders an empty SizedBox.shrink. Layout is a
+/// `Wrap` so chips fold to a second line on cramped widths; in
+/// practice the card height keeps them on one row.
+class _StateChipStrip extends StatelessWidget {
+  final ExerciseCapture exercise;
+
+  const _StateChipStrip({required this.exercise});
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = <Widget>[];
+    if (exercise.includeAudio) {
+      chips.add(const _IconChip(
+        icon: Icons.volume_up_outlined,
+        tooltip: 'Audio enabled',
+      ));
+    }
+    final treatment = exercise.preferredTreatment;
+    if (treatment != null) {
+      chips.add(_IconChip(
+        icon: _treatmentIcon(treatment),
+        tooltip: _treatmentLabel(treatment),
+      ));
+    }
+    final bodyFocus = exercise.bodyFocus;
+    if (bodyFocus != null) {
+      chips.add(_IconChip(
+        icon: bodyFocus
+            ? Icons.center_focus_strong_outlined
+            : Icons.center_focus_weak_outlined,
+        tooltip: bodyFocus ? 'Body focus on' : 'Body focus off',
+      ));
+    }
+    if (chips.isEmpty) return const SizedBox.shrink();
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      children: chips,
+    );
+  }
+
+  IconData _treatmentIcon(Treatment t) {
+    switch (t) {
+      case Treatment.line:
+        return Icons.brush_outlined;
+      case Treatment.grayscale:
+        return Icons.gradient_outlined;
+      case Treatment.original:
+        return Icons.palette_outlined;
+    }
+  }
+
+  String _treatmentLabel(Treatment t) {
+    switch (t) {
+      case Treatment.line:
+        return 'Line treatment';
+      case Treatment.grayscale:
+        return 'B&W treatment';
+      case Treatment.original:
+        return 'Original treatment';
+    }
+  }
+}
+
+/// Tiny 18×18 icon-only chip. Used by the state-strip when room
+/// is tight (per the brief: "compress to icon-only if needed to fit").
+class _IconChip extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+
+  const _IconChip({required this.icon, required this.tooltip});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(
+          icon,
+          size: 12,
+          color: AppColors.textSecondaryOnDark,
+        ),
+      ),
+    );
+  }
+}
+
+/// Passive media-type indicator overlaying the top-right corner of
+/// the Hero area (audit Change 5). White-on-dark; subtle drop shadow
+/// so the glyph reads against bright video frames. Sized 14pt with
+/// a 22×22 padded container so the touch-target-look-alike doesn't
+/// distract.
+class _MediaTypeBadge extends StatelessWidget {
+  final MediaType mediaType;
+
+  const _MediaTypeBadge({required this.mediaType});
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = mediaType == MediaType.photo
+        ? Icons.photo_camera_outlined
+        : Icons.videocam_outlined;
+    return Container(
+      width: 22,
+      height: 22,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Icon(
+        icon,
+        size: 14,
+        color: Colors.white,
+        shadows: const [
+          Shadow(
+            color: Color(0x99000000),
+            offset: Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Summary row — 14pt icon + 12pt text on the surface base. Mono-
 /// spaced when [monospace] is true (plan grammar lines up).
 class _SummaryRow extends StatelessWidget {
   final IconData icon;
@@ -334,7 +498,7 @@ class _SummaryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final visible = text.isEmpty ? '—' : text;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 1),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -342,13 +506,6 @@ class _SummaryRow extends StatelessWidget {
             icon,
             size: 14,
             color: AppColors.textSecondaryOnDark,
-            shadows: const [
-              Shadow(
-                color: Color(0x99000000),
-                offset: Offset(0, 1),
-                blurRadius: 2,
-              ),
-            ],
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -361,13 +518,6 @@ class _SummaryRow extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: monospace ? FontWeight.w700 : FontWeight.w500,
                 color: AppColors.textOnDark,
-                shadows: const [
-                  Shadow(
-                    color: Color(0x99000000),
-                    offset: Offset(0, 1),
-                    blurRadius: 2,
-                  ),
-                ],
               ),
             ),
           ),
