@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-14 — Studio card: image-left 1:1 layout + media-type icon</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.cr {
+    background: rgba(96,165,250,0.12); color: #60A5FA;
+    border-color: rgba(96,165,250,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-14 · Studio card image-left + media-type icon (audit Changes 4 + 5)</div>
+    <h1>Device QA — Studio card: image-left 1:1 layout + media-type icon</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the Studio exercise card layout swap from flood-fill (full-card video, bottom-up gradient scrim, text overlay) to <strong>image-left / text-right</strong> with a square Hero block. Closes audit Changes 4 + 5 (see <code>docs/audits/photo-video-treatment-audit-2026-05-13.md</code>).
+      <br><br>
+      <strong>Layout (after this PR):</strong> Hero area is square — <code>cardHeight × cardHeight</code> (152 × 152 px) — on the left, rendering the practitioner's per-treatment Hero frame via the resolver. The right column hosts the title, plan summary (sets &times; reps &times; hold &middot; per-set breakdown), notes preview when present, and a state-chip strip (audio, treatment, body focus when set). Visually matches the lobby's image-left row pattern.
+      <br><br>
+      <strong>Media-type icon (Change 5):</strong> small white-on-dark glyph in the top-right of the Hero area &mdash; <code>videocam_outlined</code> for video, <code>photo_camera_outlined</code> for photo. Rest periods don't render the icon. Passive, non-interactive.
+      <br><br>
+      <strong>Stacks on:</strong> PR #324's resolver refactor (<code>resolveExerciseHero({exercise, surface})</code> &mdash; no treatment/bodyFocus arguments). The Hero crop alignment (<code>hero_crop_offset</code>) carries through MiniPreview's <code>_HeroFrameImage</code> / <code>_PhotoFrame</code> children via the shared <code>heroCropAlignment(exercise)</code> helper.
+      <br><br>
+      <strong>Out of scope:</strong> tap routing changes, gradient scrim reintroduction, web-player or embedded preview tweaks, MediaViewer playback shape.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>feat/studio-card-square-hero</code> branch installed on Carl's iPhone via <code>./install-device.sh</code>.</li>
+        <li>One session containing a mix of <strong>video</strong>, <strong>photo</strong>, and <strong>rest</strong> exercises so the layout can be verified across all three branches.</li>
+        <li>One video exercise whose <code>hero_crop_offset</code> has been dragged off-centre (via the Hero crop viewport in the editor sheet) so the alignment change is visible.</li>
+        <li>One exercise with notes set (long content, &gt;1 line) to verify the notes-preview row in the right column.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Square Hero layout</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open the session in Studio. Scroll the exercise list. Each card should render image-left / text-right with no flood-fill remnants.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Studio exercise card renders a square Hero block on the LEFT (cardHeight &times; cardHeight = 152 &times; 152 px) and text content on the right. Title / plan summary / chips are NOT overlaid on the Hero with a gradient scrim &mdash; they sit on the surface-base panel beside the image. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">Hero crop alignment respects the practitioner's <code>hero_crop_offset</code>. Open the editor sheet for an exercise, drag the Hero crop viewport off-centre, dismiss. The Studio card re-renders with the cropped view visible (e.g. subject shifted left / right or up / down according to the offset). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Media-type icon (Change 5)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Small icon in the top-right corner of the Hero area. White-on-dark, subtle shadow. Passive.
+    </p>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text">Video exercise &mdash; top-right corner of the Hero area shows the <code>videocam_outlined</code> glyph (white-on-dark, ~14px). Glyph doesn't shift the rest of the layout. Tapping the glyph has no special behaviour &mdash; the whole card opens the editor (existing behaviour). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Photo exercise &mdash; top-right corner of the Hero area shows the <code>photo_camera_outlined</code> glyph (same styling as the video one). Glyph clearly distinct from the video icon. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">Rest card &mdash; no media-type icon. Rest card uses the existing sage glyph chrome (no Hero image, no media-type badge). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Right-column text density</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Title, plan summary, notes preview, and state chips share the right column. Anything that doesn't fit should compress sensibly (notes ellipsis on one line; chips fold to a second row when cramped) but the title &amp; plan summary must always be readable.
+    </p>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">Right-column text density &mdash; title is bold (Montserrat 17pt) and fits on one line with ellipsis at the right edge if very long. Plan summary row (monospace, sets &times; reps &times; hold) renders below the title without truncation on typical content. Notes preview (when notes are set) renders below the plan summary on its own line, dimmed. Audio / treatment / body-focus icon chips fold to a single row at the bottom. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Tap behavior + landscape rotation</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">Tap behaviour unchanged: whole-card tap opens the editor sheet on the Plan tab; long-press opens the image-picker for media replacement; swipe-left soft-deletes with the existing undo SnackBar. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">Landscape rotation &mdash; rotate the device to landscape. The card width grows but height stays at 152pt. The Hero area stays square (152 &times; 152) and the right column gets more room; chips stay on one line. No clipping / overflow warnings in the debug overlay. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; CI checks</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text">From <code>app/</code>: <code>flutter analyze</code> exits 0 with "No issues found!"; <code>flutter test</code> reports all green. (CR-OK &mdash; no device install needed.) <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text">R-10 parity check &mdash; this change touches Studio chrome ONLY. <code>web-player/*</code> and <code>app/assets/web-player/*</code> are untouched; the drift-sync CI step (if any) stays green. The client-facing player and embedded workflow Preview are visually unchanged. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Stacks on PR #324 (resolver refactor). Closes audit Changes 4 + 5 from <code>docs/audits/photo-video-treatment-audit-2026-05-13.md</code>. Hero crop alignment carries through via <code>heroCropAlignment(exercise)</code> inside <code>MiniPreview</code> children &mdash; not re-implemented here. The flood-fill gradient scrim is gone; text sits on the surface-base panel.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'studio-card-square-hero.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'studio-card-square-hero', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            var status = li.getAttribute('data-status');
+            if (!status) return;
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 400);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
