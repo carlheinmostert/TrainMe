@@ -428,28 +428,22 @@ function treatmentFromWire(wire) {
 }
 
 /**
- * The effective treatment for [exercise]. Honours the practitioner's
- * per-exercise `preferred_treatment` when the corresponding URL is
- * available; else falls back to Line (the always-present default).
+ * The treatment THE RESOLVER will pick for [exercise]. Reads
+ * `exercise.preferred_treatment` directly (the gear popover / lobby
+ * pill mutate that field on the in-memory slide). Kept as a thin
+ * helper so non-rendering callers (analytics, refresh paths, the
+ * gear panel) can ask "what treatment is this slide on?" without
+ * spinning up the resolver.
  *
- * Availability check considers BOTH the segmented dual-output URL
- * (Milestone P, preferred) and the untouched original URL (fallback) —
- * consent-wise they move together, but keeping the check permissive
- * ensures a plan with only one of the two still honours the
- * practitioner's sticky choice.
+ * Note: this does NOT return Line as a silent cross-treatment
+ * fallback. The resolver itself reports `caps.treatmentLockedTo` and
+ * `mediaTag === 'unavailable'` when the chosen treatment isn't
+ * available — callers must consult those, not this helper, to
+ * decide whether to render a placeholder.
  */
 function slideTreatment(exercise) {
-  const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
-  const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
-  // Wave 42 — per-exercise client overrides. getEffective() returns the
-  // practitioner's per-exercise preferred_treatment by default; the gear
-  // panel can override per-exercise. Defensive fallback to 'line' when
-  // the chosen treatment's URL is absent (consent removed mid-session,
-  // legacy plan, etc.).
-  const candidate = getEffective(exercise, 'treatment');
-  if (candidate === 'bw' && !hasGray) return 'line';
-  if (candidate === 'original' && !hasOrig) return 'line';
-  return candidate || 'line';
+  if (!exercise) return 'line';
+  return treatmentFromWire(exercise.preferred_treatment);
 }
 
 // Workout timer state
@@ -519,7 +513,7 @@ async function handleVideoError(evt) {
     const idx = cardEl ? Number(cardEl.getAttribute('data-index')) : NaN;
     const slide = Number.isFinite(idx) ? slides[idx] : null;
     if (slide) {
-      const newUrl = resolveTreatmentUrl(slide, slideTreatment(slide));
+      const newUrl = resolveTreatmentUrl(slide);
       if (newUrl) {
         video.setAttribute('data-src', newUrl);
         video.setAttribute('src', newUrl);
@@ -805,8 +799,25 @@ function practitionerDefaultFor(exercise, prop) {
     return null;
   }
   if (prop === 'muted') return !exercise.include_audio;
-  if (prop === 'treatment') return treatmentFromWire(exercise.preferred_treatment);
-  if (prop === 'bodyFocus') return exercise.body_focus !== false;
+  // Hero-resolver no-fallback refactor (2026-05-14): the slide's
+  // `preferred_treatment` / `body_focus` fields are MUTATED by the
+  // gear popover + lobby pill to drive the resolver. The
+  // practitioner-original snapshot lives at `_orig_preferred_treatment`
+  // / `_orig_body_focus` (captured at plan-load time before any
+  // client override is applied). For mute we don't mutate, so the
+  // raw field is still the practitioner default.
+  if (prop === 'treatment') {
+    const original = Object.prototype.hasOwnProperty.call(exercise, '_orig_preferred_treatment')
+      ? exercise._orig_preferred_treatment
+      : exercise.preferred_treatment;
+    return treatmentFromWire(original);
+  }
+  if (prop === 'bodyFocus') {
+    const original = Object.prototype.hasOwnProperty.call(exercise, '_orig_body_focus')
+      ? exercise._orig_body_focus
+      : exercise.body_focus;
+    return original !== false;
+  }
   return null;
 }
 
@@ -839,8 +850,34 @@ function setOverride(exId, prop, value, defaultValue) {
     if (!clientOverrides[exId]) clientOverrides[exId] = {};
     clientOverrides[exId][prop] = value;
   }
+  // Hero-resolver no-fallback refactor (2026-05-14): mirror treatment +
+  // bodyFocus overrides onto the in-memory slide so the resolver picks
+  // them up directly via `exercise.preferred_treatment` /
+  // `exercise.body_focus`. The resolver does NOT consult clientOverrides
+  // — it derives everything from the slide. The clientOverrides map
+  // stays as the persistence channel (localStorage) + the practitioner-
+  // defaults diffing channel.
+  if (slides && exId) {
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (!s || s.id !== exId) continue;
+      if (prop === 'treatment') {
+        s.preferred_treatment = treatmentToWire(value);
+      } else if (prop === 'bodyFocus') {
+        s.body_focus = value !== false;
+      }
+      break;
+    }
+  }
   const planId = (plan && plan.id) || getPlanIdFromURL();
   saveClientOverrides(planId);
+}
+
+/** Map web-player internal treatment key to the wire enum. */
+function treatmentToWire(t) {
+  if (t === 'bw') return 'grayscale';
+  if (t === 'original') return 'original';
+  return 'line';
 }
 
 /**
@@ -877,6 +914,9 @@ function applyTreatmentOverrideToAllExercises(treatment) {
     // win.
     if (!clientOverrides[ex.id]) clientOverrides[ex.id] = {};
     clientOverrides[ex.id].treatment = target;
+    // Hero-resolver no-fallback refactor (2026-05-14): mirror onto the
+    // in-memory slide so the resolver sees the new preferred_treatment.
+    ex.preferred_treatment = treatmentToWire(target);
   }
   saveClientOverrides(plan && plan.id);
   // Re-render the deck with new src URLs so post-handoff playback picks
@@ -1242,16 +1282,13 @@ function buildRestCard(slide, index) {
  * the next time the slide is rebuilt — same lifecycle as the video.
  */
 function buildPrepOverlay(slide) {
-  // Bundle 1 of the hero-resolver migration (audit B6 part 2). The
-  // resolver picks the treatment-correct poster URL — for 'line' that's
-  // `thumbnail_url_line` when available (embedded surface, and public
-  // surface post-Bundle-2-PR-6), falling back to legacy `thumbnail_url`
-  // otherwise. `domClass` lands `.is-grayscale` for B&W so CSS filters
-  // the poster to match the active treatment.
-  //
-  // For photos the resolver's posterSrc IS the raw colour JPG (Wave 22
-  // photo three-treatment parity), so a photo prep hero gets the same
-  // treatment-correct rendering as a video.
+  // Hero-resolver no-fallback refactor (2026-05-14): the resolver
+  // derives treatment + body-focus from
+  // `slide.preferred_treatment` / `slide.body_focus` internally. When
+  // the requested treatment's variant isn't available, the resolver
+  // returns `mediaTag: 'unavailable'` and the caller renders the
+  // coral-tinted "treatment not available" placeholder — NEVER a
+  // different treatment.
   if (!slide) {
     return `
     <div class="prep-overlay" hidden>
@@ -1259,23 +1296,37 @@ function buildPrepOverlay(slide) {
     </div>
   `;
   }
-  const slideT = slideTreatment(slide);
-  const bodyFocus = getEffective(slide, 'bodyFocus') !== false;
-  const hero = (window.HomefitHero && window.HomefitHero.resolve)
-    ? window.HomefitHero.resolve(slide, { treatment: slideT, bodyFocus: bodyFocus, surface: 'prep' })
-    : null;
-  const posterSrc = hero && hero.posterSrc ? hero.posterSrc : (slide.thumbnail_url || '');
-  if (!posterSrc) {
+  if (!window.HomefitHero || !window.HomefitHero.resolve) {
+    // Defensive — exercise_hero.js failed to load.
     return `
     <div class="prep-overlay" hidden>
       <div class="prep-overlay-number">15</div>
     </div>
   `;
   }
-  const grayscaleClass = (hero && hero.domClass) ? ' ' + hero.domClass : '';
+  const hero = window.HomefitHero.resolve(slide, { surface: 'prep' });
+  if (hero.mediaTag === 'unavailable') {
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="hero-not-available" data-treatment="${escapeHTML(hero.treatment)}" aria-hidden="true">
+        <div class="hero-not-available-name">${escapeHTML(slide.name || 'Exercise')}</div>
+        <div class="hero-not-available-sub">${escapeHTML(hero.treatment.toUpperCase())} not available</div>
+      </div>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  if (!hero.posterSrc) {
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  const grayscaleClass = hero.domClass ? ' ' + hero.domClass : '';
   return `
     <div class="prep-overlay" hidden>
-      <img class="hero-poster${grayscaleClass}" data-treatment="${slideT}" src="${escapeHTML(posterSrc)}" alt="" aria-hidden="true">
+      <img class="hero-poster${grayscaleClass}" data-treatment="${escapeHTML(hero.treatment)}" src="${escapeHTML(hero.posterSrc)}" alt="" aria-hidden="true">
       <div class="prep-overlay-number">15</div>
     </div>
   `;
@@ -1516,27 +1567,37 @@ function updateCardNotes() {
 }
 
 function buildMedia(exercise, index) {
-  // Each slide plays whatever treatment the practitioner chose on its
-  // own exercise (preferred_treatment from get_plan_full). No global /
-  // viewer-driven switching; the mental model is "practitioner prescribes
-  // the visual, client just watches". slideTreatment() already falls
-  // back to 'line' when the preferred treatment's URL is missing, so
-  // resolveTreatmentUrl's null branch is only hit for rest slides
-  // (handled below) or exercises with no media at all.
-  //
-  // Bundle 1 of the hero-resolver migration (audit B6 part 2): the
-  // <video poster> attribute now reads from the resolver's posterSrc
-  // (treatment-correct: thumbnail_url_line for Line on the embedded
-  // surface, falls back to legacy thumbnail_url on public for now). Was:
-  // always `exercise.thumbnail_url` regardless of active treatment, so
-  // Line playback flashed a B&W poster during decoder warm-up.
-  const slideT = slideTreatment(exercise);
-  const bodyFocus = getEffective(exercise, 'bodyFocus') !== false;
-  const hero = (window.HomefitHero && window.HomefitHero.resolve)
-    ? window.HomefitHero.resolve(exercise, { treatment: slideT, bodyFocus: bodyFocus, surface: 'deck' })
-    : null;
-  const resolvedUrl = (hero && hero.src) ? hero.src : resolveTreatmentUrl(exercise, slideT);
-  const heroPoster = (hero && hero.posterSrc) ? hero.posterSrc : exercise.thumbnail_url;
+  // Hero-resolver no-fallback refactor (2026-05-14): the resolver
+  // derives treatment + body-focus internally from
+  // `exercise.preferred_treatment` / `exercise.body_focus`. When the
+  // requested treatment isn't available, the resolver returns
+  // `mediaTag: 'unavailable'` — we render the "treatment not
+  // available" placeholder (NEVER a different treatment).
+  if (!window.HomefitHero || !window.HomefitHero.resolve) {
+    // Defensive — exercise_hero.js failed to load.
+    return `
+      <div class="media-placeholder">
+        <span class="media-placeholder-text">Player error — reload page</span>
+      </div>
+    `;
+  }
+  const hero = window.HomefitHero.resolve(exercise, { surface: 'deck' });
+  const slideT = hero.treatment;
+
+  if (hero.mediaTag === 'unavailable') {
+    // Treatment-not-available placeholder. NEVER substitutes a
+    // different treatment. Coral-tinted skeleton with exercise name +
+    // a small icon flagging the gap.
+    return `
+      <div class="hero-not-available hero-not-available-deck" data-treatment="${escapeHTML(slideT)}">
+        <div class="hero-not-available-name">${escapeHTML(exercise.name || 'Exercise')}</div>
+        <div class="hero-not-available-sub">${escapeHTML(slideT.toUpperCase())} not available</div>
+      </div>
+    `;
+  }
+
+  const resolvedUrl = hero.src;
+  const heroPoster = hero.posterSrc;
 
   if (!resolvedUrl) {
     // Placeholder for exercises without media yet
@@ -1692,25 +1753,27 @@ function buildMedia(exercise, index) {
  * remains as a defence for the case where exercise_hero.js failed to
  * load — same return shape, same edge cases.
  */
-function resolveTreatmentUrl(exercise, treatment) {
+function resolveTreatmentUrl(exercise) {
   if (!exercise) return null;
-  // Wave 42 — body focus is now per-exercise (PR #146 schema) overlaid
-  // by client overrides via getEffective().
-  const bodyFocusOn = getEffective(exercise, 'bodyFocus');
+  // Hero-resolver no-fallback refactor (2026-05-14): treatment +
+  // body-focus are derived INTERNALLY by the resolver from
+  // `exercise.preferred_treatment` and `exercise.body_focus`. The
+  // legacy second `treatment` argument is gone — callers must mutate
+  // `exercise.preferred_treatment` (gear popover / lobby pill) and
+  // re-call without passing the treatment.
   if (window.HomefitHero && window.HomefitHero.resolve) {
-    // Use the 'deck' surface so `src` returns the playback URL (videoSrc
-    // for videos, primary src for photos) — matches the legacy contract.
-    const hero = window.HomefitHero.resolve(exercise, {
-      treatment: treatment,
-      bodyFocus: bodyFocusOn,
-      surface: 'deck',
-    });
-    // For photos the resolver's `src` IS the JPG. For videos it's the
-    // mp4 URL. Either way it's the active-treatment playback URL.
+    const hero = window.HomefitHero.resolve(exercise, { surface: 'deck' });
+    // null when the requested treatment isn't available (caller
+    // surfaces a placeholder; this function does NOT silently
+    // substitute Line). For photos `src` is the JPG; for videos
+    // it's the mp4 URL.
     return hero.src;
   }
-  // Defensive — exercise_hero.js failed to load. Inline fallback so
-  // the player still renders something.
+  // Defensive — exercise_hero.js failed to load. Inline derivation
+  // mirroring the resolver's strict per-treatment lookup. NO
+  // cross-treatment fallback.
+  const treatment = treatmentFromWire(exercise.preferred_treatment);
+  const bodyFocusOn = exercise.body_focus !== false;
   if (treatment === 'bw') {
     if (bodyFocusOn) {
       return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
@@ -4077,7 +4140,7 @@ function rebindVideoSources() {
     const slide = slides[idx];
     if (!slide) return;
     const slideT = slideTreatment(slide);
-    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    const nextUrl = resolveTreatmentUrl(slide);
     if (!nextUrl) return;
     // Treatment may have flipped (line ↔ bw ↔ original) under the client
     // override. Keep the data-attribute + grayscale CSS class in sync with
@@ -4150,7 +4213,7 @@ function rebindVideoSources() {
     const slide = slides[idx];
     if (!slide || slide.media_type !== 'photo') return;
     const slideT = slideTreatment(slide);
-    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    const nextUrl = resolveTreatmentUrl(slide);
     if (!nextUrl) return;
     imgEl.setAttribute('data-treatment', slideT);
     imgEl.classList.toggle('is-grayscale', slideT === 'bw');
@@ -4343,6 +4406,23 @@ function onGearBodyFocusClick() {
 function onGearResetClick() {
   const planId = (plan && plan.id) || getPlanIdFromURL();
   clearAllOverrides(planId);
+  // Hero-resolver no-fallback refactor (2026-05-14): restore each
+  // slide's practitioner-original `preferred_treatment` / `body_focus`
+  // from the snapshot captured at plan-load time. The resolver reads
+  // from the slide so this is what makes "Reset" actually undo the
+  // gear/lobby overrides.
+  if (slides) {
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (!s || s.media_type === 'rest') continue;
+      if (Object.prototype.hasOwnProperty.call(s, '_orig_preferred_treatment')) {
+        s.preferred_treatment = s._orig_preferred_treatment;
+      }
+      if (Object.prototype.hasOwnProperty.call(s, '_orig_body_focus')) {
+        s.body_focus = s._orig_body_focus;
+      }
+    }
+  }
   applyMuteStateToAllVideos();
   rebindVideoSources();
   paintGearPanel();
@@ -5431,6 +5511,40 @@ async function init() {
     }
     if (overridesDirty) saveClientOverrides(plan && plan.id);
 
+    // Hero-resolver no-fallback refactor (2026-05-14): snapshot each
+    // slide's practitioner-original `preferred_treatment` /
+    // `body_focus` BEFORE we project client overrides on top. The
+    // gear panel's "Reset to defaults" button restores from these
+    // snapshots.
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (!s || s.media_type === 'rest') continue;
+      s._orig_preferred_treatment = s.preferred_treatment;
+      s._orig_body_focus = s.body_focus;
+    }
+
+    // Project loaded overrides onto the in-memory slides so the
+    // resolver sees the client's chosen treatment + body-focus via
+    // `slide.preferred_treatment` / `slide.body_focus`. The resolver
+    // doesn't consult clientOverrides — it reads off the slide. The
+    // map stays as the persistence channel.
+    for (const exId in clientOverrides) {
+      if (!Object.prototype.hasOwnProperty.call(clientOverrides, exId)) continue;
+      const entry = clientOverrides[exId];
+      if (!entry) continue;
+      for (let i = 0; i < slides.length; i++) {
+        const s = slides[i];
+        if (!s || s.id !== exId) continue;
+        if (Object.prototype.hasOwnProperty.call(entry, 'treatment')) {
+          s.preferred_treatment = treatmentToWire(entry.treatment);
+        }
+        if (Object.prototype.hasOwnProperty.call(entry, 'bodyFocus')) {
+          s.body_focus = entry.bodyFocus !== false;
+        }
+        break;
+      }
+    }
+
     // Render
     renderPlan();
     renderFooterLogo();
@@ -5687,6 +5801,31 @@ async function init() {
           plan.exercises.sort((a, b) => a.position - b.position);
           slides = unrollExercises(plan);
           recomputePlanConsent();
+          // Hero-resolver no-fallback refactor (2026-05-14): re-snapshot
+          // the practitioner-original preferred_treatment + body_focus
+          // and re-project client overrides onto the fresh slides.
+          for (let i = 0; i < slides.length; i++) {
+            const s = slides[i];
+            if (!s || s.media_type === 'rest') continue;
+            s._orig_preferred_treatment = s.preferred_treatment;
+            s._orig_body_focus = s.body_focus;
+          }
+          for (const exId in clientOverrides) {
+            if (!Object.prototype.hasOwnProperty.call(clientOverrides, exId)) continue;
+            const entry = clientOverrides[exId];
+            if (!entry) continue;
+            for (let i = 0; i < slides.length; i++) {
+              const s = slides[i];
+              if (!s || s.id !== exId) continue;
+              if (Object.prototype.hasOwnProperty.call(entry, 'treatment')) {
+                s.preferred_treatment = treatmentToWire(entry.treatment);
+              }
+              if (Object.prototype.hasOwnProperty.call(entry, 'bodyFocus')) {
+                s.body_focus = entry.bodyFocus !== false;
+              }
+              break;
+            }
+          }
           // Re-render the deck so post-handoff playback has fresh src.
           try { renderPlan(); } catch (_) { /* defer to first goTo */ }
           return { plan: plan, slides: slides };

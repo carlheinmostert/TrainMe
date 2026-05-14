@@ -232,6 +232,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         },
       ),
     );
+    // Eager backfill for missing thumbnail variants (2026-05-14
+    // hardening). Walks every `done` exercise on this session and
+    // re-runs extractFrame for any of `_thumb.jpg` / `_thumb_color.jpg`
+    // / `_thumb_line.jpg` that's missing on disk. Each variant lands
+    // independently; failures are logged to the conversion-error log
+    // with a `[VARIANT ...]` / `[BACKFILL ...]` prefix surfaced via
+    // the failed-pill long-press sheet. Variant arrivals stream
+    // through `ConversionService.onConversionUpdate` so the existing
+    // listener (`_listenToConversions`) refreshes cards as files land.
+    unawaited(
+      _conversionService.backfillMissingVariants(_session.exercises),
+    );
     // Poll plan analytics while the screen is mounted so the
     // practitioner sees fresh open / completion stats without leaving
     // the screen. `_fetchPlanAnalytics` is fire-and-forget and
@@ -3873,8 +3885,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   bool _hasArchive(ExerciseCapture e) {
     final hero = resolveExerciseHero(
       exercise: e,
-      treatment: Treatment.grayscale,
-      bodyFocus: e.bodyFocus ?? true,
       surface: HeroSurface.mediaViewer,
     );
     return hero.caps.availableTreatments.contains(Treatment.grayscale);
@@ -3998,8 +4008,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     if (pref == Treatment.line) return Treatment.line;
     final hero = resolveExerciseHero(
       exercise: e,
-      treatment: pref,
-      bodyFocus: e.bodyFocus ?? true,
       surface: HeroSurface.mediaViewer,
     );
     // Resolver reports treatmentLockedTo when the requested treatment
@@ -4033,8 +4041,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   String? _sourcePathForTreatment(ExerciseCapture e, Treatment t) {
     final hero = resolveExerciseHero(
       exercise: e,
-      treatment: t,
-      bodyFocus: _enhancedBackground,
       surface: HeroSurface.mediaViewer,
     );
     return hero.videoFile?.path;

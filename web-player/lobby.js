@@ -1218,87 +1218,50 @@
   }
 
   /**
-   * Resolve the per-exercise effective treatment for THIS slide in the
-   * lobby. Reads the per-exercise override / practitioner default via
-   * `api.getEffective` (exposed on `HomefitLobbyHandoff`), falling back
-   * to the lobby-global `activeTreatment` when `getEffective` isn't
-   * available (defensive — shouldn't happen post-handoff).
-   *
-   * Returns a treatment string with consent fall-back applied: if the
-   * picked treatment isn't consented for this plan it collapses to
-   * 'line' (so we never emit a URL the caller can't actually render).
-   *
-   * 2026-05-13 (Bundle 1 of the hero-resolver migration, PR #?) — was
-   * a single lobby-global `activeTreatment` driving every row. That's
-   * the B6-Part-1 leak: setting the FIRST exercise to Line caused
-   * every row to render Line. Now the lobby's treatment-pill picker
-   * still applies a plan-global OVERRIDE via
-   * `applyTreatmentOverrideToAllExercises` (writes per-exercise
-   * overrides for every slide), but the renderer reads each row's
-   * effective treatment independently — so an out-of-band per-exercise
-   * preference (eg. an exercise that was Original then the user picks
-   * Line at the lobby) propagates correctly.
-   */
-  function getEffectiveTreatmentFor(slide) {
-    if (!slide) return 'line';
-    var t = (api && api.getEffective)
-      ? api.getEffective(slide, 'treatment')
-      : null;
-    if (!t) t = activeTreatment || 'line';
-    // Apply plan-level consent gates so we don't ask the resolver to
-    // emit a URL the client hasn't consented to. (The resolver itself
-    // collapses to Line when the per-exercise URL is missing; this
-    // upstream gate handles the consent-aware case where the URL IS
-    // present but plan-level consent was revoked.)
-    if (t === 'bw' && !(api.planHasGrayscaleConsent && api.planHasGrayscaleConsent())) return 'line';
-    if (t === 'original' && !(api.planHasOriginalConsent && api.planHasOriginalConsent())) return 'line';
-    return t;
-  }
-
-  function getEffectiveBodyFocusFor(slide) {
-    if (!slide || !api || !api.getEffective) return true;
-    var v = api.getEffective(slide, 'bodyFocus');
-    return v !== false;
-  }
-
-  /**
    * Render the hero element for a slide on the lobby surface. Delegates
    * to `window.HomefitHero.resolve` (web-player/exercise_hero.js) which
    * picks the treatment-correct primary URL + poster URL + caps for
    * THIS exercise. Photos always render as <img>. Videos render as
    * <img> with `data-video-src` carrying the mp4; the scroll-driven
    * `swapToVideoOnActiveRow` lifts it to <video> on the active row
-   * only (single-active-video guarantee per the iOS WKWebView decoder
-   * cap — see swapToVideoOnActiveRow comment).
+   * only.
    *
-   * Bundle 1 of the hero-resolver migration (audit B6 part 1): the
-   * resolver is called PER ROW with `getEffective(slide, 'treatment')`
-   * rather than the lobby-global `activeTreatment`, so a plan with
-   * mixed-treatment exercises renders each row in its own treatment.
-   * The lobby's treatment-pill picker still propagates a plan-global
-   * override via `applyTreatmentOverrideToAllExercises` — that just
-   * writes per-exercise overrides for every slide BEFORE this function
-   * runs, which the resolver then sees as the effective treatment.
+   * Hero-resolver no-fallback refactor (2026-05-14): the resolver
+   * derives treatment + body-focus internally from
+   * `slide.preferred_treatment` / `slide.body_focus`. The lobby's
+   * treatment-pill picker mutates those fields on the in-memory
+   * slide (via `applyTreatmentOverrideToAllExercises` in app.js)
+   * BEFORE this function runs. When the requested treatment isn't
+   * available the resolver returns `mediaTag: 'unavailable'` and
+   * the row renders a coral-tinted placeholder — NEVER a different
+   * treatment's content.
    */
   function renderHeroHTML(slide, objPos) {
     const escape = api.escapeHTML;
     if (!slide) return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
     if (!window.HomefitHero || !window.HomefitHero.resolve) {
-      // Defensive — exercise_hero.js failed to load. Render skeleton
-      // rather than crash; the rest of the lobby still works.
+      // Defensive — exercise_hero.js failed to load.
       return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
     }
 
-    const treatment = getEffectiveTreatmentFor(slide);
-    const bodyFocus = getEffectiveBodyFocusFor(slide);
-    const hero = window.HomefitHero.resolve(slide, {
-      treatment: treatment,
-      bodyFocus: bodyFocus,
-      surface: 'lobby',
-    });
+    const hero = window.HomefitHero.resolve(slide, { surface: 'lobby' });
 
     if (hero.mediaTag === 'skeleton') {
       return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
+    }
+
+    if (hero.mediaTag === 'unavailable') {
+      // Treatment not available — render the no-fallback placeholder
+      // with the exercise name + requested treatment label. NEVER
+      // substitute a different treatment.
+      return `
+        <div class="hero-not-available lobby-hero-media"
+             aria-hidden="true"
+             data-treatment="${escape(hero.treatment)}">
+          <div class="hero-not-available-name">${escape(slide.name || 'Exercise')}</div>
+          <div class="hero-not-available-sub">${escape(hero.treatment.toUpperCase())} not available</div>
+        </div>
+      `;
     }
 
     const isPhoto = slide.media_type === 'photo' || slide.media_type === 'image';
@@ -1313,38 +1276,23 @@
              alt="${escape(slide.name || 'Exercise')}"
              style="object-position: ${escape(objPos)};"
              loading="lazy"
-             data-treatment="${escape(treatment)}">
+             data-treatment="${escape(hero.treatment)}">
       `;
     }
 
-    // Video. Render <img> as the static placeholder; swapToVideoOnActiveRow
-    // lifts it to <video> when the row becomes active. The mp4 URL travels
-    // on `data-video-src` — NEVER on `<img src>` (iOS WKWebView renders
-    // mp4-in-img motion invisibly and allocates HW decoders; cost us
-    // PRs #251–#254 to track down — see v51 fix).
+    // Video. Render <img> as the static placeholder;
+    // swapToVideoOnActiveRow lifts it to <video> when the row becomes
+    // active. The mp4 URL travels on `data-video-src` — NEVER on
+    // `<img src>` (iOS WKWebView mp4-in-img trap).
     const videoSrc = hero.videoSrc || '';
     const posterSrc = hero.posterSrc || '';
-    if (!posterSrc) {
-      // No poster available → skeleton in <img>'s place. The active row
-      // still gets its <video> via swap, but inactive presentation is a
-      // coral skeleton rather than a broken-image / mp4-in-img tip.
-      return `
-        <div class="lobby-hero-skeleton lobby-hero-media" aria-hidden="true"
-             style="object-position: ${escape(objPos)};"
-             data-treatment="${escape(treatment)}"
-             data-video-src="${escape(videoSrc)}"
-             data-poster-src=""
-             data-trim-start="${Number(slide.start_offset_ms) || 0}"
-             data-trim-end="${Number(slide.end_offset_ms) || 0}"></div>
-      `;
-    }
     return `
       <img class="lobby-hero-media${grayscale}"
            src="${escape(posterSrc)}"
            alt="${escape(slide.name || 'Exercise')}"
            style="object-position: ${escape(objPos)};"
            loading="lazy"
-           data-treatment="${escape(treatment)}"
+           data-treatment="${escape(hero.treatment)}"
            data-video-src="${escape(videoSrc)}"
            data-poster-src="${escape(posterSrc)}"
            data-trim-start="${Number(slide.start_offset_ms) || 0}"
@@ -1403,13 +1351,13 @@
         });
       }
 
-      // Re-resolve the URL for THIS row's slide using whatever
-      // treatment the row was rendered for (data-treatment carries it).
+      // Re-resolve the URL for THIS row's slide. The resolver derives
+      // treatment from `refreshed.preferred_treatment` internally
+      // (hero-resolver no-fallback refactor, 2026-05-14).
       const refreshed = slides[slideIdx];
       if (!refreshed) return;
-      const treatment = target.getAttribute('data-treatment') || activeTreatment;
       const newUrl = api.resolveTreatmentUrl
-        ? api.resolveTreatmentUrl(refreshed, treatment)
+        ? api.resolveTreatmentUrl(refreshed)
         : (refreshed.line_drawing_url || refreshed.thumbnail_url || null);
       if (!newUrl) return;
       // Update data-video-src AND src on the live <video>. The data attr

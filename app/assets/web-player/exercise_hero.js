@@ -5,15 +5,25 @@
  * Single stateless function that decides how to render an exercise's
  * hero/poster on any of the four web surfaces (lobby strip, active deck
  * slide, prep-phase countdown, share-as-PNG snapshot). Pure: no DOM ops,
- * no IO, no module-level state. The caller passes in the exercise row
- * (as it arrives from `get_plan_full` or the embedded scheme bridge) plus
- * its EFFECTIVE treatment + body-focus + which surface is asking, and
- * gets back a typed record describing what to render.
+ * no IO, no module-level state.
  *
- * Why this exists: pre-resolver each surface independently re-derived
- * treatment + body-focus + photo-vs-video file selection without sharing
- * any contract. See `docs/audits/photo-video-treatment-audit-2026-05-13.md`
- * for the full divergence map and B6/D13 root-causes.
+ * Load-bearing principle (2026-05-14 refactor):
+ *   1. Hero pictures everywhere reflect the per-exercise
+ *      `preferred_treatment` set by the practitioner. The resolver derives
+ *      treatment INTERNALLY from `exercise.preferred_treatment` + body
+ *      focus from `exercise.body_focus`. Callers do NOT pass treatment or
+ *      bodyFocus arguments.
+ *   2. No silent fallbacks across treatments or media kinds. If the
+ *      requested treatment's variant isn't available the resolver returns
+ *      null — the caller renders an explicit "treatment not available"
+ *      placeholder. Showing a DIFFERENT treatment's content silently is
+ *      worse than showing nothing: it hides bugs and violates principle 1.
+ *
+ * Legitimate exceptions to "no fallback":
+ *   - Signed-URL refresh on 403 (existing machinery, orthogonal).
+ *   - Transient "generating…" state while a variant is being extracted
+ *     (a separate pending indicator is the caller's responsibility — the
+ *     resolver only ever says "not available right now").
  *
  * Loaded via `<script src="exercise_hero.js">` BEFORE `app.js` and
  * `lobby.js` so the resolver is available to all callers. Exposed as
@@ -21,96 +31,126 @@
  *
  * Surfaces:
  *   - 'lobby'    — pre-workout row strip (lobby.js renderHeroHTML).
- *                  Caller renders <img> for inactive rows; the active
- *                  row swaps to <video> via swapToVideoOnActiveRow.
- *   - 'deck'     — active slide playback (app.js buildMedia). Caller
- *                  renders .video-loop-pair (two <video>) for videos,
- *                  rotation-wrapped <img> for photos.
+ *   - 'deck'     — active slide playback (app.js buildMedia).
  *   - 'prep'     — prep-phase countdown hero (app.js buildPrepOverlay).
- *                  Caller renders a static <img class="hero-poster">.
  *   - 'snapshot' — share-as-PNG poster pass (lobby.js triggerLobbyShare).
- *                  Caller pre-fetches `posterSrc` as a data URL for
- *                  html2canvas rasterisation. Critical: `<video poster>`
- *                  does NOT inherit CSS filters during rasterisation —
- *                  see `bakeFilterIntoDataUrl` below for the workaround.
  *
- * Photo vs video branching: photos always emit `mediaTag: 'img'`; videos
- * emit `mediaTag: 'video'` (deck) or `mediaTag: 'img'` with `videoSrc`
- * for lobby/snapshot (the caller decides whether to swap to <video>).
- * `mediaTag: 'skeleton'` is returned when the slide has neither a usable
- * src nor a poster (rest periods, or exercises with no media yet).
+ * Mid-session treatment switching: the gear popover + the lobby's
+ * treatment pill both MUTATE `exercise.preferred_treatment` (and
+ * `exercise.body_focus`) on the in-memory slide object. The next render
+ * picks the new treatment up via the resolver. The resolver itself is
+ * stateless and idempotent.
  *
- * Fallback chains for missing variants are spelled out in the body —
- * see `pickPosterSrc` and `pickPrimarySrc`. The web player's existing
- * `signed URL 403 → reFetchPlan → re-resolve` machinery (web-player/
- * app.js:445 + lobby.js:1242) keeps working unchanged because the
- * resolver is idempotent on its inputs.
+ * See `docs/audits/photo-video-treatment-audit-2026-05-13.md` for the
+ * audit that motivated this refactor.
  */
 
 (function () {
   'use strict';
 
   // ==========================================================================
-  // Treatment poster URL fallback chain
+  // Treatment from wire — map the backend's `preferred_treatment` enum
   // ==========================================================================
   //
-  // The wire shape diverges between the public web player and the
-  // embedded WKWebView preview:
-  //
-  //   - Public: `get_plan_full` returns ONE thumbnail field per exercise
-  //     (`thumbnail_url`). For videos that's the B&W _thumb.jpg variant
-  //     extracted on-device during conversion; for photos it's the raw
-  //     colour JPG.
-  //
-  //   - Embedded: the scheme bridge emits THREE fields per exercise
-  //     (`thumbnail_url`, `thumbnail_url_line`, `thumbnail_url_color`)
-  //     which resolve to /local/{id}/hero, /local/{id}/hero_line, and
-  //     /local/{id}/hero_color respectively. The native handler picks
-  //     the right variant on disk.
-  //
-  // The fallback chain is:
-  //   Line     → `thumbnail_url_line` → legacy `thumbnail_url`
-  //   Original → `thumbnail_url_color` → legacy `thumbnail_url`
-  //   B&W      → `thumbnail_url_color` → legacy `thumbnail_url`
-  //              (caller applies `.is-grayscale` CSS filter)
-  //
-  // Until Bundle 2's PR 6 ships the photo variant pipeline + uploads
-  // `_thumb_color.jpg` + `_thumb_line.jpg` for the public surface,
-  // public Line + Original posters fall back to the legacy field —
-  // which IS the line drawing for photos but B&W for videos. Embedded
-  // surface gets the right variant immediately since the bridge already
-  // emits all three URL fields.
-  function pickPosterSrc(exercise, treatment) {
-    if (!exercise) return null;
-    var legacy = exercise.thumbnail_url || null;
-    if (treatment === 'line') {
-      return exercise.thumbnail_url_line || legacy;
-    }
-    // bw + original both want the color JPG; CSS `.is-grayscale`
-    // applies the filter for B&W playback.
-    return exercise.thumbnail_url_color || legacy;
+  // The wire value lives on `exercise.preferred_treatment` as one of
+  // 'line' | 'grayscale' | 'original' | null. Internally the web player
+  // uses 'line' | 'bw' | 'original'. Mirrors `treatmentFromWire` in
+  // `app.js` — kept here as the resolver's own derivation so it stays
+  // self-contained.
+  function treatmentFromWire(wire) {
+    if (wire === 'grayscale') return 'bw';
+    if (wire === 'original') return 'original';
+    return 'line';
   }
 
   // ==========================================================================
-  // Primary (playback) URL fallback chain
+  // Treatment poster URL — strict per-treatment lookup, no cross-treatment fallback
   // ==========================================================================
   //
-  // Mirrors `resolveTreatmentUrl` in app.js. Kept here as a single
-  // source of truth so callers don't end up forking the fallback
-  // semantics.
+  // Returns the poster URL for the requested treatment, or null if that
+  // variant isn't available. Callers MUST handle null by rendering a
+  // placeholder; the resolver does NOT silently substitute a different
+  // treatment.
   //
-  // Body-focus ON  → segmented variant preferred (raw bg dimmed, body
-  //                   pristine). Falls back to untouched original.
-  // Body-focus OFF → untouched original preferred. Falls back to
-  //                   segmented (so the slide can still play if the
-  //                   raw variant is missing).
+  // Wire shape:
+  //   - Public (`get_plan_full`): ONE thumbnail field — `thumbnail_url`.
+  //     For videos that's the B&W `_thumb.jpg` variant; for photos it's
+  //     the raw colour JPG. Photo three-treatment parity (Wave 22) writes
+  //     the line-drawing JPG path to `thumbnail_url` for photos, so the
+  //     same field holds DIFFERENT semantic content for the two media
+  //     types — see audit F21 for the divergence.
   //
-  // 'line' is unaffected by body-focus — line drawing IS its own
-  // pipeline, not a dual-output variant.
+  //   - Embedded (scheme bridge): THREE fields — `thumbnail_url`,
+  //     `thumbnail_url_line`, `thumbnail_url_color`. The native handler
+  //     picks the right `_thumb*.jpg` on disk.
+  //
+  // Strict rules:
+  //   - Line: `thumbnail_url_line` ONLY. If absent, null.
+  //     EXCEPTION: For photos on the public surface, `thumbnail_url`
+  //     IS the line-drawing JPG (Wave 22 semantics). So when
+  //     `thumbnail_url_line` is absent AND the exercise is a photo, we
+  //     fall through to `thumbnail_url` — that's not a treatment
+  //     fallback, it's the same logical field under a different name.
+  //   - B&W: For videos, `thumbnail_url` (the B&W variant). For photos,
+  //     `thumbnail_url_color` (raw colour JPG; CSS filter does grayscale).
+  //     If absent, null.
+  //   - Original: `thumbnail_url_color` ONLY. If absent, null.
+  function pickPosterSrc(exercise, treatment) {
+    if (!exercise) return null;
+    var isPhoto = exercise.media_type === 'photo' || exercise.media_type === 'image';
+
+    if (treatment === 'line') {
+      if (exercise.thumbnail_url_line) return exercise.thumbnail_url_line;
+      // Photos: `thumbnail_url` IS the line drawing under Wave 22 photo
+      // three-treatment parity (the public surface uploads the line
+      // drawing JPG as the canonical thumbnail). This is the SAME logical
+      // field, not a treatment fallback.
+      if (isPhoto && exercise.thumbnail_url) return exercise.thumbnail_url;
+      return null;
+    }
+
+    if (treatment === 'bw') {
+      // Videos: the canonical `_thumb.jpg` IS the B&W extract from raw.
+      // No CSS filter needed — the bytes are already greyscale.
+      if (!isPhoto && exercise.thumbnail_url) return exercise.thumbnail_url;
+      // Photos: B&W is realised by applying CSS grayscale on top of the
+      // raw colour JPG. So we need a colour source.
+      if (isPhoto && exercise.thumbnail_url_color) return exercise.thumbnail_url_color;
+      return null;
+    }
+
+    if (treatment === 'original') {
+      if (exercise.thumbnail_url_color) return exercise.thumbnail_url_color;
+      return null;
+    }
+    return null;
+  }
+
+  // ==========================================================================
+  // Primary (playback) URL — strict per-treatment lookup, no cross-treatment fallback
+  // ==========================================================================
+  //
+  // Returns the playback URL for the requested treatment, or null if
+  // that variant isn't available. NO silent fallback to a different
+  // treatment.
+  //
+  // Body-focus ON  → segmented variant ONLY. Falls through to untouched
+  //                   raw is NOT a cross-treatment substitution — it's
+  //                   the same treatment, different body-focus rendering
+  //                   on the same source. Photos have no segmented JPG
+  //                   pipeline on this branch, so body-focus is ignored
+  //                   for photos.
+  //
+  // 'line' is unaffected by body-focus (line drawings are their own
+  // pipeline).
   function pickPrimarySrc(exercise, treatment, bodyFocus) {
     if (!exercise) return null;
     if (treatment === 'bw') {
       if (bodyFocus) {
+        // Segmented variant for body-focus ON. When body-focus is ON the
+        // segmented variant IS the right rendering of grayscale — falling
+        // back to the untouched original is the SAME treatment expressed
+        // differently, not a cross-treatment substitution, so we allow it.
         return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
       }
       return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
@@ -121,7 +161,7 @@
       }
       return exercise.original_url || exercise.original_segmented_url || null;
     }
-    // 'line' + unknown treatments → line drawing (the always-available default).
+    // 'line' is the always-available variant in the conversion pipeline.
     return exercise.line_drawing_url || exercise.media_url || null;
   }
 
@@ -130,20 +170,20 @@
   // ==========================================================================
   //
   // `hasBodyFocus`     — videos only. Photos have no segmented variant
-  //                      pipeline today (see audit F21) so the toggle is
-  //                      a no-op. Callers should disable the body-focus
-  //                      pill with the existing tooltip when this is
-  //                      false.
+  //                      pipeline today; callers should disable the
+  //                      body-focus pill with the existing tooltip.
   //
   // `availableTreatments` — the treatments the slide can actually play.
-  //                         Falls back to ['line'] when neither
-  //                         grayscale nor original have URLs (consent
-  //                         withheld, or signed-URL expiry).
+  //                         Always includes 'line'; adds 'bw' / 'original'
+  //                         when the underlying URLs exist.
   //
-  // `treatmentLockedTo`   — set to 'line' when the requested treatment
-  //                          has no URL. Caller can short-circuit to
-  //                          Line rendering and disable the picker
-  //                          segment for the locked treatment.
+  // `treatmentLockedTo`   — set to 'line' when the practitioner's chosen
+  //                          treatment ISN'T available locally (consent
+  //                          absent, signed-URL expiry, missing file).
+  //                          Caller renders the "not available"
+  //                          placeholder; resolver itself returns null
+  //                          for src / posterSrc rather than silently
+  //                          substituting Line.
   function computeCaps(exercise, treatment) {
     var availableTreatments = ['line'];
     var hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
@@ -171,60 +211,67 @@
   /**
    * Resolve the hero/poster shape for a single exercise on a single surface.
    *
+   * Treatment and body-focus are derived INTERNALLY from
+   * `exercise.preferred_treatment` and `exercise.body_focus`. The caller
+   * does NOT pass these as arguments. To switch treatments mid-session
+   * (gear popover, lobby treatment pill), mutate
+   * `exercise.preferred_treatment` on the in-memory slide and re-render.
+   *
    * @param {object} exercise - slide row from get_plan_full / embedded bridge.
    *   Required fields (any may be null):
-   *     - media_type:                'photo' | 'video' | 'image' | 'rest'
+   *     - media_type:          'photo' | 'video' | 'image' | 'rest'
+   *     - preferred_treatment: 'line' | 'grayscale' | 'original' | null
+   *     - body_focus:          boolean | null  (null defaults to true)
    *     - line_drawing_url, media_url
    *     - grayscale_url, grayscale_segmented_url
    *     - original_url, original_segmented_url
    *     - thumbnail_url, thumbnail_url_line, thumbnail_url_color
-   *     - start_offset_ms, end_offset_ms     (soft trim window)
    *
    * @param {object} opts
-   * @param {'line'|'bw'|'original'} opts.treatment - effective treatment for THIS exercise.
-   * @param {boolean} opts.bodyFocus               - effective body-focus for THIS exercise.
    * @param {'lobby'|'deck'|'prep'|'snapshot'} opts.surface
    *
    * @returns {{
-   *   mediaTag: 'img'|'video'|'skeleton',
+   *   mediaTag: 'img'|'video'|'unavailable'|'skeleton',
    *   src: string|null,
    *   posterSrc: string|null,
    *   videoSrc: string|null,
    *   domClass: string,
    *   filterCss: string|null,
+   *   treatment: 'line'|'bw'|'original',
    *   caps: { hasBodyFocus: boolean, availableTreatments: string[], treatmentLockedTo: string|null }
    * }}
    *
    * Field semantics:
-   *   - `mediaTag`   — what the caller should emit:
-   *                      'img'      = static image (photos always, video
-   *                                    lobby/prep/snapshot inactive rows)
-   *                      'video'    = playing video (deck active slide,
-   *                                    lobby active row post-swap)
-   *                      'skeleton' = rest period or no media yet
-   *   - `src`        — the URL to put on `<img src>` or `<video src>` for
-   *                    the active-treatment playback frame. Same as
-   *                    `videoSrc` for videos; same as `posterSrc` for
-   *                    photos in `bw`/`original` (single JPG + CSS filter).
-   *   - `posterSrc`  — the URL to use as `<video poster>` (when caller
-   *                    emits a <video>) or as the inactive-row `<img src>`
-   *                    (lobby). Treatment-correct: matches the active
-   *                    treatment unless the variant is unavailable.
-   *   - `videoSrc`   — for videos, the actual mp4 URL. NEVER use this as
-   *                    `<img src>` — iOS WKWebView lenient-renders mp4 in
-   *                    <img>, allocating HW decoders invisibly. Always
-   *                    null for photos.
-   *   - `domClass`   — additional class to apply (eg. 'is-grayscale').
-   *                    Caller appends to its own classes.
-   *   - `filterCss`  — explicit `filter:` CSS string for callers that
-   *                    can't apply the class (eg. the snapshot bake
-   *                    path). null when no filter needed.
-   *   - `caps`       — see `computeCaps` above.
+   *   - `mediaTag`     — what the caller should emit:
+   *                        'img'         = static image (photos always; video
+   *                                        lobby/prep/snapshot inactive rows)
+   *                        'video'       = playing video (deck active slide,
+   *                                        lobby active row post-swap)
+   *                        'unavailable' = the requested treatment's variant
+   *                                        isn't on disk / in the wire payload.
+   *                                        Caller renders the coral-tinted
+   *                                        "treatment not available" placeholder.
+   *                                        NEVER substitute a different treatment.
+   *                        'skeleton'    = rest period or no media at all.
+   *   - `src`          — primary URL (playback for videos, image for photos).
+   *                       NULL when mediaTag is 'unavailable' or 'skeleton'.
+   *   - `posterSrc`    — poster URL (treatment-correct). NULL when the
+   *                       per-treatment thumbnail variant isn't available.
+   *   - `videoSrc`     — for videos, the actual mp4 URL. NEVER use this as
+   *                       `<img src>` — iOS WKWebView lenient-renders mp4
+   *                       in <img>, allocating HW decoders invisibly.
+   *   - `domClass`     — class to apply (eg. 'is-grayscale' for photos
+   *                       in B&W treatment).
+   *   - `filterCss`    — explicit `filter:` CSS string for callers that
+   *                       can't apply the class (eg. the snapshot bake
+   *                       path).
+   *   - `treatment`    — the effective treatment the resolver picked
+   *                       (always equals `treatmentFromWire(exercise.preferred_treatment)`
+   *                       unless the slide is rest).
+   *   - `caps`         — see `computeCaps`.
    */
   function resolveExerciseHero(exercise, opts) {
     var options = opts || {};
-    var treatment = options.treatment || 'line';
-    var bodyFocus = options.bodyFocus !== false;
     var surface = options.surface || 'deck';
 
     // Rest periods: no hero, no poster, no playable src.
@@ -236,40 +283,77 @@
         videoSrc: null,
         domClass: '',
         filterCss: null,
+        treatment: 'line',
         caps: { hasBodyFocus: false, availableTreatments: [], treatmentLockedTo: null },
       };
     }
 
+    // Derive treatment + body-focus internally. The caller may have
+    // mutated `preferred_treatment` (gear popover / lobby pill) but does
+    // NOT pass treatment as an argument.
+    var treatment = treatmentFromWire(exercise.preferred_treatment);
+    var bodyFocus = exercise.body_focus !== false; // null/undefined/true → true
+
     var isPhoto = exercise.media_type === 'photo' || exercise.media_type === 'image';
     var caps = computeCaps(exercise, treatment);
 
-    // If the requested treatment isn't available, fall back to 'line'
-    // (every conversion produces a line drawing — it's the always-
-    // available default). This matches `slideTreatment` in app.js.
-    var effective = caps.treatmentLockedTo === 'line' ? 'line' : treatment;
+    // No silent cross-treatment fallback. If the practitioner's chosen
+    // treatment isn't available, the resolver advertises that via
+    // `caps.treatmentLockedTo` and returns nulls — the caller renders
+    // the "not available" placeholder.
+    if (caps.treatmentLockedTo === 'line' && treatment !== 'line') {
+      return {
+        mediaTag: 'unavailable',
+        src: null,
+        posterSrc: null,
+        videoSrc: null,
+        domClass: '',
+        filterCss: null,
+        treatment: treatment, // report what was REQUESTED, not what we'd
+                              // silently render — so the caller's
+                              // placeholder can label the gap.
+        caps: caps,
+      };
+    }
 
-    var posterSrc = pickPosterSrc(exercise, effective);
-    var primarySrc = pickPrimarySrc(exercise, effective, bodyFocus);
+    var posterSrc = pickPosterSrc(exercise, treatment);
+    var primarySrc = pickPrimarySrc(exercise, treatment, bodyFocus);
 
-    // Apply the grayscale class when on the B&W treatment. For photos
-    // and for video posters (which don't inherit CSS filters from
-    // <video> siblings), this is the only thing flipping the visual
-    // from colour to B&W since both share the same colour-JPG source.
-    var domClass = effective === 'bw' ? 'is-grayscale' : '';
-    var filterCss = effective === 'bw' ? 'grayscale(1) contrast(1.05)' : null;
+    // Apply the grayscale class when on the B&W treatment AND the source
+    // file is colour. For videos the canonical `_thumb.jpg` is ALREADY
+    // greyscale on disk, so no extra filter is needed; we still flag
+    // `is-grayscale` for the `<video>` element so the playing colour mp4
+    // is rendered B&W. For photos the source is always raw colour, so
+    // the filter is the only thing converting the pixels.
+    var domClass = treatment === 'bw' ? 'is-grayscale' : '';
+    var filterCss = treatment === 'bw' ? 'grayscale(1) contrast(1.05)' : null;
 
     if (isPhoto) {
-      // Photos always render as <img>. The treatment URL IS a JPG (Wave
-      // 22 photo three-treatment parity). Both `src` and `posterSrc`
-      // point at the same file; CSS filter handles B&W.
-      var photoSrc = primarySrc || posterSrc || null;
+      // Photos always render as <img>. The treatment URL IS a JPG.
+      var photoSrc = primarySrc;
+      var photoPoster = posterSrc;
+      if (!photoSrc) {
+        // Photo line/colour file isn't present for the requested
+        // treatment. Render the unavailable placeholder.
+        return {
+          mediaTag: 'unavailable',
+          src: null,
+          posterSrc: null,
+          videoSrc: null,
+          domClass: '',
+          filterCss: null,
+          treatment: treatment,
+          caps: caps,
+        };
+      }
       return {
-        mediaTag: photoSrc ? 'img' : 'skeleton',
+        mediaTag: 'img',
         src: photoSrc,
-        posterSrc: posterSrc || photoSrc,
+        posterSrc: photoPoster || photoSrc,
         videoSrc: null,
         domClass: domClass,
         filterCss: filterCss,
+        treatment: treatment,
         caps: caps,
       };
     }
@@ -277,29 +361,37 @@
     // Video. `videoSrc` is the actual mp4 URL the caller should put on
     // `<video src>` when emitting a video tag. `posterSrc` is what
     // shows in lobby <img> mode + as the <video poster> during buffer.
-    // `src` mirrors `videoSrc` for the deck surface; for lobby (which
-    // renders <img> for inactive rows), `src` is `posterSrc` so the
-    // caller can do `mediaTag === 'img' ? src : videoSrc` uniformly.
     var videoSrc = primarySrc;
     var mediaTag;
     var src;
 
+    if (!videoSrc && !posterSrc) {
+      // Nothing on the wire — placeholder.
+      return {
+        mediaTag: 'unavailable',
+        src: null,
+        posterSrc: null,
+        videoSrc: null,
+        domClass: '',
+        filterCss: null,
+        treatment: treatment,
+        caps: caps,
+      };
+    }
+
     if (surface === 'deck') {
       // Deck active slide always plays a <video>. Caller wraps in
       // .video-loop-pair and stamps poster= from posterSrc.
-      mediaTag = videoSrc ? 'video' : 'skeleton';
+      mediaTag = videoSrc ? 'video' : 'unavailable';
       src = videoSrc;
     } else if (surface === 'prep') {
-      // Prep phase is a static hero (the <video> is paused at
-      // currentTime=0 underneath the overlay). Use posterSrc.
-      mediaTag = posterSrc ? 'img' : 'skeleton';
+      // Prep phase is a static hero. Use posterSrc.
+      mediaTag = posterSrc ? 'img' : 'unavailable';
       src = posterSrc;
     } else {
-      // lobby + snapshot: render <img> + data-video-src; the caller's
-      // single-active-video swap logic decides when to upgrade to
-      // <video>. Skeleton when there's no poster (would-be img src=''
-      // shows broken-image, AND can't put mp4 in <img> per the v51 fix).
-      mediaTag = posterSrc ? 'img' : 'skeleton';
+      // lobby + snapshot: render <img> + data-video-src; the active-row
+      // swap logic decides when to upgrade to <video>.
+      mediaTag = posterSrc ? 'img' : 'unavailable';
       src = posterSrc;
     }
 
@@ -310,6 +402,7 @@
       videoSrc: videoSrc,
       domClass: domClass,
       filterCss: filterCss,
+      treatment: treatment,
       caps: caps,
     };
   }
@@ -323,19 +416,6 @@
   // element, the rasterised PNG renders the poster URL as-is. To get
   // a treatment-correct snapshot we have to bake the filter into the
   // poster's pixel data BEFORE html2canvas reads it.
-  //
-  // Implementation: load the source URL into an HTMLImageElement, draw
-  // into a same-origin canvas with `ctx.filter` set, export to a data
-  // URL. The caller then swaps the image into the live DOM and
-  // immediately into html2canvas; the bitmap pre-filtered.
-  //
-  // Used by `web-player/lobby.js triggerLobbyShare()` for the active
-  // video's poster. Inactive lobby rows are already <img> with the
-  // `.is-grayscale` class, and html2canvas's `onclone` step DOES inherit
-  // CSS, so they don't need this treatment.
-  //
-  // Returns a Promise resolving to a `data:image/...` URL, or null on
-  // error.
   function bakeFilterIntoDataUrl(srcUrl, filterCss) {
     if (!srcUrl) return Promise.resolve(null);
     if (!filterCss) {
@@ -356,18 +436,11 @@
               resolve(null);
               return;
             }
-            // Canvas 2D `filter` is supported on every browser we
-            // target (Safari 14+, Chrome 70+, Firefox 70+). If the
-            // implementation silently ignores it the result is the
-            // unfiltered bitmap, which is at worst a no-op.
             try { ctx.filter = filterCss; } catch (_) { /* ignore */ }
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             try {
               resolve(canvas.toDataURL('image/png'));
             } catch (_) {
-              // Canvas tainted (cross-origin without ACAO). The caller
-              // falls back to the original URL — rasterisation will
-              // skip the filter but at least produce a poster frame.
               resolve(null);
             }
           } catch (_) {
@@ -389,5 +462,15 @@
   window.HomefitHero = Object.freeze({
     resolve: resolveExerciseHero,
     bakeFilterIntoDataUrl: bakeFilterIntoDataUrl,
+    // Exported for callers (lobby treatment pill, gear popover) that
+    // need to mutate `exercise.preferred_treatment` and want to map
+    // a user-facing treatment ('line'/'bw'/'original') back to the
+    // wire enum ('line'/'grayscale'/'original').
+    treatmentFromWire: treatmentFromWire,
+    treatmentToWire: function (t) {
+      if (t === 'bw') return 'grayscale';
+      if (t === 'original') return 'original';
+      return 'line';
+    },
   });
 })();

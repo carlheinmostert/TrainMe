@@ -338,6 +338,14 @@ class _LogEntry {
   final String stack;
   final String raw;
 
+  /// Short kind tag rendered as a chip in the entry card — pulled from
+  /// the trailing `[VARIANT bw/regen]` / `[BACKFILL start bw]` / etc.
+  /// segment of the first log line. Null for legacy entries without a
+  /// kind marker. Used purely for at-a-glance grouping so practitioners
+  /// can tell a thumbnail-variant miss apart from a full conversion
+  /// failure without reading the error string.
+  final String? kind;
+
   const _LogEntry({
     required this.timestamp,
     required this.exerciseId,
@@ -345,23 +353,46 @@ class _LogEntry {
     required this.error,
     required this.stack,
     required this.raw,
+    required this.kind,
   });
 
   /// Parse one entry chunk. Tolerant of malformed entries — anything
   /// that can't be parsed cleanly returns null and gets skipped.
+  ///
+  /// First line may carry a trailing `[KIND ...]` segment that the
+  /// variant + backfill writers append (e.g. `[VARIANT bw/backfill]`
+  /// or `[BACKFILL success line]`). Capture it as `kind` and let the
+  /// timestamp parse off the prefix before the bracket.
   static _LogEntry? parse(String chunk) {
     final lines = chunk.split('\n');
     if (lines.isEmpty) return null;
     DateTime? ts;
     String? exerciseId;
     String? rawFilePath;
+    String? kind;
     final errorLines = <String>[];
     final stackLines = <String>[];
     var section = _Section.preamble;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
       if (i == 0) {
-        ts = DateTime.tryParse(line.trim());
+        // The first line is the timestamp, optionally followed by a
+        // `[KIND ...]` bracketed tag. Split on ` [` so the timestamp
+        // parses without the trailing tag — DateTime.tryParse is
+        // strict and would otherwise return null.
+        final bracketIdx = line.indexOf(' [');
+        final tsPart = bracketIdx < 0 ? line : line.substring(0, bracketIdx);
+        ts = DateTime.tryParse(tsPart.trim());
+        if (bracketIdx >= 0) {
+          final tagPart = line.substring(bracketIdx).trim();
+          // Strip the surrounding brackets so we render `VARIANT bw/backfill`
+          // not `[VARIANT bw/backfill]`.
+          if (tagPart.startsWith('[') && tagPart.endsWith(']')) {
+            kind = tagPart.substring(1, tagPart.length - 1).trim();
+          } else {
+            kind = tagPart;
+          }
+        }
         continue;
       }
       if (line.startsWith('Exercise: ')) {
@@ -375,6 +406,13 @@ class _LogEntry {
       if (line.startsWith('Error: ')) {
         section = _Section.error;
         errorLines.add(line.substring('Error: '.length));
+        continue;
+      }
+      if (line.startsWith('Detail: ')) {
+        // BACKFILL entries don't have an Error: line, but they do
+        // carry a Detail: line we want shown in the same body slot.
+        section = _Section.error;
+        errorLines.add(line.substring('Detail: '.length));
         continue;
       }
       if (line.trim() == 'Stack:') {
@@ -399,6 +437,7 @@ class _LogEntry {
       error: errorLines.join('\n').trim(),
       stack: stackLines.join('\n').trim(),
       raw: chunk,
+      kind: kind,
     );
   }
 }
@@ -446,6 +485,32 @@ class _EntryCard extends StatelessWidget {
                 ),
             ],
           ),
+          if (entry.kind != null) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _kindBg(entry.kind!),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: _kindBorder(entry.kind!),
+                    width: 0.6,
+                  ),
+                ),
+                child: Text(
+                  entry.kind!,
+                  style: TextStyle(
+                    fontFamily: 'Menlo',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: _kindFg(entry.kind!),
+                  ),
+                ),
+              ),
+            ),
+          ],
           if (entry.rawFilePath != null) ...[
             const SizedBox(height: 6),
             Text(
@@ -540,5 +605,28 @@ class _EntryCard extends StatelessWidget {
     final hh = local.hour.toString().padLeft(2, '0');
     final mm = local.minute.toString().padLeft(2, '0');
     return '$y-$m-$d $hh:$mm';
+  }
+
+  // Kind-chip colours — three tiers so the at-a-glance distinction is
+  // obvious without reading the text:
+  //   VARIANT  → coral (warning — a specific treatment variant missing)
+  //   BACKFILL → sage  (informational — eager regeneration activity)
+  //   other    → grey  (legacy full-conversion failure or untagged)
+  static Color _kindBg(String kind) {
+    if (kind.startsWith('VARIANT')) return AppColors.primary.withValues(alpha: 0.12);
+    if (kind.startsWith('BACKFILL')) return const Color(0x3386EFAC); // sage 20%
+    return AppColors.surfaceRaised;
+  }
+
+  static Color _kindBorder(String kind) {
+    if (kind.startsWith('VARIANT')) return AppColors.primary.withValues(alpha: 0.5);
+    if (kind.startsWith('BACKFILL')) return const Color(0x8086EFAC);
+    return AppColors.surfaceBorder;
+  }
+
+  static Color _kindFg(String kind) {
+    if (kind.startsWith('VARIANT')) return AppColors.primary;
+    if (kind.startsWith('BACKFILL')) return const Color(0xFF86EFAC);
+    return AppColors.textSecondaryOnDark;
   }
 }
