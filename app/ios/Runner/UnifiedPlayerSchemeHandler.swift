@@ -122,6 +122,22 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
       respondWithAsset(urlSchemeTask, assetName: "html2canvas.min.js", contentType: "application/javascript; charset=utf-8")
       return
     }
+    if path == "exercise_hero.js" {
+      // PR #324 (2026-05-14) — hero resolver module. Loaded by
+      // index.html BEFORE app.js + lobby.js so the resolver is
+      // available when those scripts wire their renderers. Without
+      // this route, the request hangs (status "-") and the lobby's
+      // defensive fallback renders skeleton placeholders for every
+      // exercise row.
+      respondWithAsset(urlSchemeTask, assetName: "exercise_hero.js", contentType: "application/javascript; charset=utf-8")
+      return
+    }
+    if path == "jspdf.umd.min.js" {
+      // PR #325 (2026-05-14) — vendored jsPDF for the multi-page
+      // PDF export pipeline. Same loading pattern as html2canvas.
+      respondWithAsset(urlSchemeTask, assetName: "jspdf.umd.min.js", contentType: "application/javascript; charset=utf-8")
+      return
+    }
     if path == "config.js" {
       // feat/web-player-env-vars — the public surface generates this
       // at deploy time from Vercel env vars (see web-player/build.sh)
