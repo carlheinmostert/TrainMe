@@ -217,8 +217,6 @@ class _MiniPreviewState extends State<MiniPreview> {
     if (ex.mediaType != MediaType.video) return null;
     final hero = resolveExerciseHero(
       exercise: ex,
-      treatment: _treatmentFor(ex),
-      bodyFocus: _bodyFocusFor(ex),
       surface: HeroSurface.mediaViewer,
     );
     return hero.videoFile?.path;
@@ -428,8 +426,6 @@ class _PhotoFrame extends StatelessWidget {
     // peek.
     final hero = resolveExerciseHero(
       exercise: exercise,
-      treatment: treatment,
-      bodyFocus: exercise.bodyFocus ?? true,
       surface: HeroSurface.studioCard,
     );
     final file = hero.posterFile;
@@ -567,8 +563,6 @@ class _HeroFrameImage extends StatelessWidget {
     // surfaces (Studio card, filmstrip, peek).
     final hero = resolveExerciseHero(
       exercise: exercise,
-      treatment: treatment,
-      bodyFocus: exercise.bodyFocus ?? true,
       surface: HeroSurface.studioCard,
     );
     final useFile = hero.posterFile;

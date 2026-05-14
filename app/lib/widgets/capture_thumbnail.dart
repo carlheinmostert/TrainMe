@@ -100,8 +100,6 @@ class CaptureThumbnail extends StatelessWidget {
 
     final hero = resolveExerciseHero(
       exercise: exercise,
-      treatment: effectiveTreatment,
-      bodyFocus: exercise.bodyFocus ?? true,
       surface: HeroSurface.peek,
     );
     final file = hero.posterFile ?? File(exercise.displayFilePath);

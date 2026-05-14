@@ -977,8 +977,6 @@ class _FilmstripCell extends StatelessWidget {
     // still read as B&W — see resolver `HeroSurface.filmstrip` rules.
     final hero = resolveExerciseHero(
       exercise: exercise,
-      treatment: Treatment.line,
-      bodyFocus: exercise.bodyFocus ?? true,
       surface: HeroSurface.filmstrip,
     );
     final file = hero.posterFile;
