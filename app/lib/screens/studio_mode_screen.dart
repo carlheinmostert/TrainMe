@@ -3885,8 +3885,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   bool _hasArchive(ExerciseCapture e) {
     final hero = resolveExerciseHero(
       exercise: e,
-      treatment: Treatment.grayscale,
-      bodyFocus: e.bodyFocus ?? true,
       surface: HeroSurface.mediaViewer,
     );
     return hero.caps.availableTreatments.contains(Treatment.grayscale);
@@ -4010,8 +4008,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     if (pref == Treatment.line) return Treatment.line;
     final hero = resolveExerciseHero(
       exercise: e,
-      treatment: pref,
-      bodyFocus: e.bodyFocus ?? true,
       surface: HeroSurface.mediaViewer,
     );
     // Resolver reports treatmentLockedTo when the requested treatment
@@ -4045,8 +4041,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   String? _sourcePathForTreatment(ExerciseCapture e, Treatment t) {
     final hero = resolveExerciseHero(
       exercise: e,
-      treatment: t,
-      bodyFocus: _enhancedBackground,
       surface: HeroSurface.mediaViewer,
     );
     return hero.videoFile?.path;

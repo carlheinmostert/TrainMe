@@ -202,11 +202,6 @@ class _MiniPreviewState extends State<MiniPreview> {
   Treatment _treatmentFor(ExerciseCapture ex) =>
       ex.preferredTreatment ?? Treatment.line;
 
-  /// True when the exercise wants the segmented body-pop variant for
-  /// non-line treatments. Mirrors the Preview tab's _enhancedBackground
-  /// getter (`bodyFocus ?? true` — default ON, opt-out per exercise).
-  bool _bodyFocusFor(ExerciseCapture ex) => ex.bodyFocus ?? true;
-
   /// Returns the video path the mini should play, or null when the
   /// exercise isn't a playable video (rest / photo / missing file).
   /// Delegates to [resolveExerciseHero] (HeroSurface.mediaViewer)
@@ -217,8 +212,6 @@ class _MiniPreviewState extends State<MiniPreview> {
     if (ex.mediaType != MediaType.video) return null;
     final hero = resolveExerciseHero(
       exercise: ex,
-      treatment: _treatmentFor(ex),
-      bodyFocus: _bodyFocusFor(ex),
       surface: HeroSurface.mediaViewer,
     );
     return hero.videoFile?.path;
@@ -428,8 +421,6 @@ class _PhotoFrame extends StatelessWidget {
     // peek.
     final hero = resolveExerciseHero(
       exercise: exercise,
-      treatment: treatment,
-      bodyFocus: exercise.bodyFocus ?? true,
       surface: HeroSurface.studioCard,
     );
     final file = hero.posterFile;
@@ -567,8 +558,6 @@ class _HeroFrameImage extends StatelessWidget {
     // surfaces (Studio card, filmstrip, peek).
     final hero = resolveExerciseHero(
       exercise: exercise,
-      treatment: treatment,
-      bodyFocus: exercise.bodyFocus ?? true,
       surface: HeroSurface.studioCard,
     );
     final useFile = hero.posterFile;

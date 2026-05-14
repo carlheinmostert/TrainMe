@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
-import '../models/treatment.dart';
 import '../services/api_client.dart' show PlanAnalyticsSummary;
 import '../services/conversion_service.dart';
 import '../services/exercise_hero_resolver.dart';
@@ -977,8 +976,6 @@ class _FilmstripCell extends StatelessWidget {
     // still read as B&W — see resolver `HeroSurface.filmstrip` rules.
     final hero = resolveExerciseHero(
       exercise: exercise,
-      treatment: Treatment.line,
-      bodyFocus: exercise.bodyFocus ?? true,
       surface: HeroSurface.filmstrip,
     );
     final file = hero.posterFile;
