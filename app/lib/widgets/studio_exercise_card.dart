@@ -208,26 +208,35 @@ class StudioExerciseCard extends StatelessWidget {
               SizedBox(
                 width: cardHeight,
                 height: cardHeight,
+                child: MiniPreview(
+                  exercise: exercise,
+                  width: double.infinity,
+                  borderRadius: BorderRadius.zero,
+                  staticHero: true,
+                ),
+              ),
+              // -----------------------------------------------------
+              // RIGHT — text column with corner media-type badge
+              // -----------------------------------------------------
+              Expanded(
                 child: Stack(
-                  fit: StackFit.expand,
                   children: [
-                    // The MiniPreview already routes through the
-                    // exercise hero resolver and applies the per-
-                    // exercise `hero_crop_offset` via
-                    // `heroCropAlignment(exercise)` inside its
-                    // _HeroFrameImage / _PhotoFrame children.
-                    MiniPreview(
-                      exercise: exercise,
-                      width: double.infinity,
-                      borderRadius: BorderRadius.zero,
-                      staticHero: true,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      child: _CardTextColumn(
+                        exercise: exercise,
+                        title: _resolvedTitle(),
+                      ),
                     ),
-                    // Media-type indicator (Change 5). Passive,
+                    // Media-type indicator (was Change 5, moved
+                    // 2026-05-14 — Carl's QA: badge now floats in
+                    // the top-left corner of the text column rather
+                    // than overlaying the Hero image). Passive,
                     // non-interactive. Suppressed for rest periods.
                     if (!exercise.isRest)
                       Positioned(
                         top: 6,
-                        right: 6,
+                        left: 6,
                         child: IgnorePointer(
                           child: _MediaTypeBadge(
                             mediaType: exercise.mediaType,
@@ -235,18 +244,6 @@ class StudioExerciseCard extends StatelessWidget {
                         ),
                       ),
                   ],
-                ),
-              ),
-              // -----------------------------------------------------
-              // RIGHT — text column
-              // -----------------------------------------------------
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  child: _CardTextColumn(
-                    exercise: exercise,
-                    title: _resolvedTitle(),
-                  ),
                 ),
               ),
             ],
