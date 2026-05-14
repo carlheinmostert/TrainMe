@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — scheme-handler auto-register assets</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-14 &middot; scheme-handler-auto-register</div>
+    <h1>QA &mdash; auto-register web-player assets in iOS scheme handler</h1>
+    <p class="lede">
+      <strong>Scope:</strong> <code>app/ios/Runner/UnifiedPlayerSchemeHandler.swift</code>. iOS embedded preview only &mdash; the public web player (<code>session.homefit.studio</code>) is unaffected.
+      <br><br>
+      <strong>Why this exists:</strong> PR #330 was a per-file hot-fix that added <code>exercise_hero.js</code> + <code>jspdf.umd.min.js</code> to a hardcoded if-else dispatch chain in <code>webView(_:start:)</code>. The underlying brittleness &mdash; every new asset in <code>app/assets/web-player/</code> needs an explicit Swift entry &mdash; remains.
+      <br><br>
+      <strong>Fix:</strong> data-driven asset resolver. The dispatch chain is now (1) <code>config.js</code> inert stub, (2) <code>api/plan/&lt;id&gt;</code> + <code>local/&lt;id&gt;/&lt;kind&gt;</code> dynamic routes, (3) generic asset lookup against the Flutter asset bundle (<code>FlutterDartProject.lookupKey(forAsset:)</code> + <code>Bundle.main.path(forResource:)</code>). Empty path falls back to <code>index.html</code>. Content-Type is derived from the filename extension. Unknown paths still 404 via the existing <code>safeDidFail</code> path.
+      <br><br>
+      <strong>Install:</strong> after merging the PR, install on Carl&apos;s iPhone via <code>./install-device.sh</code> (Carl&apos;s usual workflow) or on the simulator via <code>./install-sim.sh</code>. The change is a pure Swift refactor &mdash; no SQLite migration, no SW cache bump, no <code>pubspec.yaml</code> bump.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Branch <code>feat/scheme-handler-auto-register-assets</code> merged into <code>staging</code> (or checked out locally + <code>./install-sim.sh</code>).</li>
+        <li>The bundle already includes <code>exercise_hero.js</code> + <code>jspdf.umd.min.js</code> from the post PR #330 sync; no need to re-run <code>tool/sync_web_player_bundle.dart</code>.</li>
+        <li>Tests assume a published plan with at least one video exercise; if you don&apos;t have one ready, capture a 3-second video and publish before starting.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Existing assets still serve</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Lobby loads &mdash; <code>index.html</code> at <code>/</code> is served.</strong> Open a published plan&apos;s preview from Studio. <strong>Expected:</strong> the lobby renders with the practitioner header + at least one exercise row + the Share-as-PDF button. Empty path (i.e. <code>homefit-local://plan/</code>) is mapped to <code>index.html</code>. If you see the WKWebView&apos;s native &quot;Cannot Open Page&quot; or the lobby is fully blank, this regressed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>App boots &mdash; <code>app.js</code> + <code>api.js</code> served.</strong> From the lobby, tap an exercise row to enter the workout player. <strong>Expected:</strong> the player loads (countdown / rep-block stack / progress pills appear). If you see the lobby but tapping a row does nothing, <code>app.js</code> didn&apos;t load (check Console.app for <code>[UnifiedPreview]</code> NSLog entries).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Styles applied &mdash; <code>styles.css</code> served.</strong> The lobby + workout-player surface should render with the dark coral homefit theme, not the unstyled-HTML default white background. If the page is light-grey / unstyled, <code>styles.css</code> failed to load.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Hero rows render &mdash; <code>lobby.js</code> + <code>exercise_hero.js</code> served.</strong> On the lobby, each exercise row should show its Hero thumbnail (square coral-bordered image) on the left + exercise name + rep count. If rows are blank skeleton placeholders, the hero resolver script didn&apos;t load. This is the load-bearing case PR #330 hot-fixed; the new resolver should keep it working.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>PDF export &mdash; <code>jspdf.umd.min.js</code> + <code>html2canvas.min.js</code> served.</strong> On the lobby, tap the Share button. <strong>Expected:</strong> a PDF preview opens with the plan rendered as paginated PNG pages. If the button taps but nothing happens (or a console error logs about <code>jspdf is not defined</code>), one of the vendored scripts didn&apos;t load.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Dynamic routes still match correctly</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Plan JSON loads &mdash; <code>api/plan/&lt;planId&gt;</code> route fires.</strong> The lobby calls <code>fetch(&#39;api/plan/&lt;planId&gt;&#39;)</code> early on; if this route is wrongly shadowed by the asset resolver, the page renders &quot;Plan not found&quot; or sits on the loading spinner forever. <strong>Expected:</strong> the lobby renders with the correct plan title + exercise count within ~2 seconds of entering the preview.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Local media loads &mdash; <code>local/&lt;exerciseId&gt;/&lt;kind&gt;</code> route fires.</strong> Open a video exercise in the workout player. <strong>Expected:</strong> the converted video plays back. The route shape is <code>homefit-local://plan/local/&lt;id&gt;/line</code> (or <code>/archive</code> / <code>/hero</code> etc.) and is matched BEFORE the asset resolver, so video files never get mistakenly resolved as bundle assets.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Unknown media kind still 404s.</strong> This is harder to drive from the UI; the existing <code>parseLocalMediaPath</code> rejects any kind outside the whitelist (<code>line/archive/segmented/hero/hero_color/hero_line</code>). Run the app + scrub Console.app for <code>[UnifiedPreview] rejected unknown kind</code> entries while interacting; <strong>expected:</strong> no rejections during normal playback. If you see them, a JS surface is asking for a kind the iOS guard doesn&apos;t accept.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; <code>config.js</code> still served as inert stub</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong><code>config.js</code> returns the inert stub, not 404.</strong> The bundle&apos;s <code>index.html</code> includes <code>&lt;script src=&quot;config.js&quot;&gt;</code> as the FIRST script tag. After this PR, the response should still be the literal text <code>window.HOMEFIT_CONFIG = Object.freeze({});</code> (not a 404 and not a file from disk). <strong>How to verify:</strong> open the app, open Safari&apos;s Web Inspector against the embedded WebView, view the Network tab, and check the response body for <code>config.js</code> &mdash; should be the 1-line stub, ~52 bytes, served as <code>application/javascript</code>. If Carl can&apos;t easily attach the inspector, item 10 is the next-best proxy.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Proxy for item 9 &mdash; no &quot;not connected&quot; / &quot;Plan not found&quot; on lobby open.</strong> If <code>config.js</code> were 404ing or serving a bad payload, <code>api.js</code>&apos;s <code>isLocalSurface()</code> path would still work (the inline fallback wraps the missing config), but the lobby loading state would log warnings. <strong>Expected:</strong> the lobby loads to the practitioner header + exercise list with no &quot;Network error&quot; / &quot;No connection&quot; screen.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Source-of-truth lives in <code>app/ios/Runner/UnifiedPlayerSchemeHandler.swift</code>. The bundle file list is owned by <code>app/tool/sync_web_player_bundle.dart</code>&apos;s exclude list &mdash; no Swift entry needed when adding a new file. Open an issue if a future file extension type needs adding to <code>contentTypeForAsset</code> (the resolver itself doesn&apos;t need to change).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'scheme-handler-auto-register.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'scheme-handler-auto-register', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
