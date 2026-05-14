@@ -246,6 +246,23 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
           ));
         }
         break;
+      case 'share_file':
+        // 2026-05-14 — lobby multi-page PDF export. The web player
+        // hands us raw base64 of an arbitrary file (typically a PDF)
+        // plus a mimeType + filename. We decode + write to a temp
+        // file + present iOS UIActivityViewController. The share
+        // sheet includes Save to Files, AirDrop, Messages, Mail.
+        final b64 = payload['base64'];
+        final mime = payload['mimeType'];
+        final shareFileName = payload['fileName'];
+        if (b64 is String && b64.isNotEmpty) {
+          unawaited(_shareFilePayload(
+            b64,
+            shareFileName is String ? shareFileName : 'homefit-plan.bin',
+            mime is String ? mime : 'application/octet-stream',
+          ));
+        }
+        break;
       default:
         if (kDebugMode) {
           debugPrint('[UnifiedPreview] bridge: unknown type "$type"');
@@ -291,6 +308,44 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[UnifiedPreview] share_image failed: $e');
+      }
+    }
+  }
+
+  /// 2026-05-14 — companion to [_shareImagePayload] for arbitrary
+  /// (mimeType, filename, base64) tuples. Used by the lobby's multi-
+  /// page PDF export pipeline: the WebView hands us
+  /// `share_file` with `{ base64, fileName, mimeType }` and we present
+  /// iOS UIActivityViewController so the practitioner can Save to
+  /// Files / AirDrop / Messages / Mail the PDF.
+  ///
+  /// Best-effort — any failure (malformed base64, write blocked) is
+  /// logged in debug mode and swallowed. The lobby modal already shows
+  /// a Download anchor + Share button as fallbacks so the practitioner
+  /// has another path if the native sheet doesn't surface.
+  Future<void> _shareFilePayload(
+    String base64Str,
+    String fileName,
+    String mimeType,
+  ) async {
+    try {
+      final bytes = base64Decode(base64Str);
+      final tempDir = await getTemporaryDirectory();
+      final safeName = fileName.isNotEmpty ? fileName : 'homefit-plan.bin';
+      final file = File('${tempDir.path}/$safeName');
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null
+          ? box.localToGlobal(Offset.zero) & box.size
+          : const Rect.fromLTWH(0, 0, 100, 100);
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: mimeType, name: safeName)],
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UnifiedPreview] share_file failed: $e');
       }
     }
   }

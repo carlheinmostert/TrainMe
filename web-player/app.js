@@ -93,6 +93,35 @@ const PLAYER_VERSION = 'v69-modal-first-desktop';
         fileName: typeof fileName === 'string' ? fileName : '',
       });
     },
+    /// 2026-05-14 — share an arbitrary file (mime + filename) via the
+    /// native iOS share sheet. Mirrors shareImage but accepts raw
+    /// base64 bytes + a mimeType so non-image artifacts (PDF, ZIP, …)
+    /// can route through UIActivityViewController without bolting
+    /// per-format bridge methods.
+    ///
+    /// Introduced for the lobby multi-page PDF export pipeline
+    /// (web-player/lobby.js triggerLobbyShare) which generates an
+    /// `application/pdf` blob via jsPDF and needs the iOS share sheet
+    /// to surface Save to Files, AirDrop, Messages, Mail, etc.
+    ///
+    /// Args:
+    ///   `base64`   — raw base64 of the file bytes (NO data: prefix).
+    ///   `fileName` — suggested filename presented to the user.
+    ///   `mimeType` — IANA mime type ("application/pdf").
+    ///
+    /// Returns nothing. If the bridge channel is absent (live web
+    /// player), this is a no-op and the caller's fallback path is
+    /// expected to handle the surface (e.g. navigator.share files +
+    /// download anchor).
+    shareFile: function (base64, fileName, mimeType) {
+      if (typeof base64 !== 'string' || !base64) return;
+      postBridge({
+        type: 'share_file',
+        base64: base64,
+        fileName: typeof fileName === 'string' ? fileName : '',
+        mimeType: typeof mimeType === 'string' ? mimeType : 'application/octet-stream',
+      });
+    },
   };
 
   window.homefitBridge = bridge;
