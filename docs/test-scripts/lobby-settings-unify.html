@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lobby settings unify — QA</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-14 · Lobby + deck gear unification</div>
+    <h1>Lobby settings unify — QA</h1>
+    <p class="lede">
+      <strong>Scope:</strong> the gear popover on the lobby and the gear popover on the deck now render the
+      <strong>same</strong> unified panel — treatment selector, body-focus toggle, "Reset to practitioner" button. All three controls write a
+      <strong>plan-scoped</strong> override (no more per-exercise client overrides), so toggling on either surface sets the scope for the whole session.
+      <br><br>
+      <strong>Principle:</strong> practitioner-set per-exercise <code>preferred_treatment</code> + <code>body_focus</code> stay sacred; the client's plan-scoped override layers ON TOP of every exercise.
+      Reset returns each exercise to its practitioner-set default — so a mixed plan (Ex 1 = B&amp;W, Ex 2 = Line, Ex 3 = Colour) snaps back to mixed on reset.
+      <br><br>
+      <strong>What's NOT in scope:</strong> the SHARE/PDF export pipeline (separate PR), photo three-treatment thumbnail variants (parallel work),
+      Studio cards / filmstrip / Studio card hero (practitioner-facing, untouched by client override). Test 7 verifies those stay unaffected.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>PR <code>feat/lobby-settings-unify</code> merged to <code>staging</code>.</li>
+        <li>Visit <code>https://staging.session.homefit.studio/p/&lt;plan-id&gt;</code> for a plan with at least 3 video exercises.</li>
+        <li>For best coverage, use a plan where the practitioner has set MIXED <code>preferred_treatment</code> per exercise (e.g. Ex 1 = B&amp;W, Ex 2 = Line, Ex 3 = Colour). If you don't have one, set one up in the trainer app or via the mobile preview.</li>
+        <li>Plan with both <code>grayscale</code> and <code>original</code> consent granted (so no consent locks block the test flow).</li>
+      </ul>
+    </div>
+
+    <h2>Lobby gear popover</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Lobby gear popover content matches the deck gear popover content.</strong> Open the lobby. Tap the gear icon in the bottom-right CTA bar. The popover opens upward. <strong>Expected:</strong> a single <strong>For this session</strong> panel with three controls — <strong>Treatment</strong> (Line / B&amp;W / Colour), <strong>Body focus</strong> toggle, and <strong>Reset to practitioner</strong> button. Identical visual layout to the deck's gear popover (test 5 confirms the deck side).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Plan-scoped treatment: pick Line on lobby gear &rarr; every row renders Line.</strong> With a mixed-treatment plan, tap the gear &rarr; tap <strong>Line</strong>. Popover closes. <strong>Expected:</strong> every hero row in the lobby (including ones the practitioner set to B&amp;W or Colour) renders the line drawing. Same on the deck after tapping Start Workout.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Plan-scoped treatment: pick Colour on lobby gear &rarr; every row renders Colour.</strong> With the same plan from #2, open gear &rarr; tap <strong>Colour</strong>. <strong>Expected:</strong> every hero renders the colour raw footage. Verify the deck does the same.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Reset to practitioner &rarr; lobby returns to the mixed-treatment original state.</strong> After #2 or #3 has set a global treatment, open the gear and tap <strong>Reset to practitioner</strong>. <strong>Expected:</strong> Ex 1 returns to B&amp;W, Ex 2 to Line, Ex 3 to Colour (whatever the practitioner set per-exercise). The Reset button greys out (no overrides remain).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Deck gear popover (post Start Workout)</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Deck gear popover visually identical to lobby gear popover.</strong> Tap Start Workout. On the first slide, tap the gear icon in the top-right chrome stack. <strong>Expected:</strong> the popover heading reads <strong>For this session</strong>; below: <strong>Mute</strong> toggle, <strong>Treatment</strong> (Line / B&amp;W / Colour), <strong>Body focus</strong> toggle, <strong>Reset to practitioner</strong> button. (The lobby popover omits the Mute row because there's no audio playing pre-workout; otherwise identical content.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Per-exercise gear: tapping a treatment applies session-wide (NOT just current exercise).</strong> Reset state from #4 (or fresh reload). Mid-workout, tap the gear &rarr; tap <strong>B&amp;W</strong>. Swipe to the next exercise. <strong>Expected:</strong> both the previous AND the next exercise render in B&amp;W. Tap gear again &rarr; tap <strong>Line</strong>. Swipe back. <strong>Expected:</strong> both render in Line. (Pre-PR: tapping a treatment only affected the current exercise.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Per-exercise gear &rarr; Reset to practitioner &rarr; all exercises revert to their practitioner default.</strong> After #6 has set a global treatment, tap gear &rarr; tap <strong>Reset to practitioner</strong>. Swipe through all exercises. <strong>Expected:</strong> each exercise returns to its practitioner-set per-exercise treatment (mixed if the plan was mixed).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Body focus</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Body focus toggle on lobby applies to every video.</strong> Set treatment to <strong>B&amp;W</strong> or <strong>Colour</strong> first (Body focus disables on Line treatment — that's expected; see test 10). Open lobby gear, toggle <strong>Body focus</strong> off. <strong>Expected:</strong> every video hero in the lobby renders the raw (non-segmented) footage. Toggle back on &rarr; the body-popped segmented variant returns on every video row.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Body focus disabled state with tooltip for photo-only sessions.</strong> Open a plan whose first video doesn't exist (photo-only plan). Open the lobby gear. <strong>Expected:</strong> the Body focus row is greyed out / disabled. Hover (desktop) or tap (mobile) reveals a tooltip <code>Body focus is available for video exercises only.</code></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Body focus disabled state on Line treatment.</strong> Set treatment to <strong>Line</strong> via the gear. <strong>Expected:</strong> the Body focus row is disabled with tooltip <code>Body focus applies to colour playback only</code> (segmented variant only exists for B&amp;W / Colour). Tapping the row is a no-op.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Practitioner surfaces (Flutter app) — should be UNCHANGED</h2>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&#10003;</button><button class="fail" type="button" aria-label="Fail 11">&#10007;</button></div>
+        <span class="num">11.</span>
+        <span class="text"><strong>Studio cards / filmstrip / Studio card hero unaffected by client override.</strong> On staging web, set a plan to <strong>Colour</strong> via the lobby gear (a destructive setting from the practitioner's POV). Switch to the Flutter app, open the same plan in Studio mode. <strong>Expected:</strong> the Studio cards' Hero thumbnails still render each exercise's practitioner-set treatment (B&amp;W / Line / Colour mix). The filmstrip on the session card still renders B&amp;W videos. None of these surfaces consult <code>clientOverride</code> (which is a web-only construct). No regression.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Persistence + multi-plan + WebView</h2>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&#10003;</button><button class="fail" type="button" aria-label="Fail 12">&#10007;</button></div>
+        <span class="num">12.</span>
+        <span class="text"><strong>Reload &rarr; client override persists.</strong> Set a treatment via either gear, then refresh the browser tab. <strong>Expected:</strong> the override is still active — the heroes render in the chosen treatment, and opening the gear shows that pill as the active one. (Persistence path: <code>localStorage</code> key <code>homefit.override::&lt;planId&gt;</code>.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&#10003;</button><button class="fail" type="button" aria-label="Fail 13">&#10007;</button></div>
+        <span class="num">13.</span>
+        <span class="text"><strong>Override is per-plan, not global.</strong> Set a treatment override on plan A. Navigate to plan B (a different plan URL). <strong>Expected:</strong> plan B opens with its OWN (zero) overrides — every exercise renders its practitioner-set per-exercise treatment. Setting an override on plan B does not affect plan A on subsequent visits.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&#10003;</button><button class="fail" type="button" aria-label="Fail 14">&#10007;</button></div>
+        <span class="num">14.</span>
+        <span class="text"><strong>Embedded workflow preview (iOS WKWebView) — same flow.</strong> In the Flutter app, open a session in Studio mode, tap <strong>Preview</strong> in the workflow toolbar. The embedded web player loads. <strong>Expected:</strong> the lobby gear opens the same unified popover, treatment + body-focus + reset all work, no JS errors in the WebView. R-10 parity confirmed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I'll triage. <code>14 items</code> across 5 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-settings-unify.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
