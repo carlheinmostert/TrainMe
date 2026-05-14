@@ -29,26 +29,29 @@ const int _kFilmstripMaxCells = 4;
 /// when there are NO videos in the session (documented mixed-treatment
 /// aesthetic: B&W videos OR line photos, never side-by-side).
 List<ExerciseCapture> _pickFilmstripHeroes(Session session) {
-  final videos = <ExerciseCapture>[];
+  // 2026-05-14 — Carl QA: videos-win-drop-photos was producing
+  // single-cell filmstrips on mixed sessions (e.g. 1 video + 1 photo
+  // showed only the video). New rule: walk videos in session order
+  // first (up to N), then top up with photos until N or out of media.
+  // Mixed-media filmstrips are now expected; the docstring's
+  // "B&W videos OR line photos, never side-by-side" aesthetic is
+  // retired.
+  final picks = <ExerciseCapture>[];
   for (final ex in session.exercises) {
     if (ex.isRest) continue;
     if (ex.mediaType == MediaType.video) {
-      videos.add(ex);
-      if (videos.length >= _kFilmstripMaxCells) break;
+      picks.add(ex);
+      if (picks.length >= _kFilmstripMaxCells) return picks;
     }
   }
-  if (videos.isNotEmpty) return videos;
-  // No videos — fall back to up to N photos (audit F17 fix; was
-  // clamped to a single photo by design pre-2026-05-13).
-  final photos = <ExerciseCapture>[];
   for (final ex in session.exercises) {
     if (ex.isRest) continue;
     if (ex.mediaType == MediaType.photo) {
-      photos.add(ex);
-      if (photos.length >= _kFilmstripMaxCells) break;
+      picks.add(ex);
+      if (picks.length >= _kFilmstripMaxCells) return picks;
     }
   }
-  return photos;
+  return picks;
 }
 
 /// Visual session card — one row in a client's session list.
