@@ -228,6 +228,19 @@
         </a>
       </li>
       <li>
+        <a href="./fix-lobby-thumbnails-legacy-fallback.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Lobby hero thumbnails &mdash; legacy plan soft-fallback (P0 visual regression from PR #348)</div>
+              <div class="scope"><strong>Root cause:</strong> PR #348's default-treatment swap (NULL &rarr; B&amp;W) made plans created <strong>before PR #319</strong> (2026-05-13 photo variant pipeline) render empty grey hero thumbnails in the embedded preview. Those legacy plans only have a single canonical <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">thumbnail_url</code> file on disk &mdash; neither <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_thumb_color.jpg</code> nor <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_thumb_line.jpg</code> was generated when they were captured. The iOS scheme bridge emits all three URLs unconditionally; WKWebView resolves the missing variants to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">URLError.fileDoesNotExist</code> and the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img&gt;</code> renders blank. <strong>Fix:</strong> JS-side soft fallback in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pickPosterSrc</code> (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/exercise_hero.js</code>). When the requested variant URL isn't present, fall back to the canonical <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">thumbnail_url</code>. The CSS <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.is-grayscale</code> filter on the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img&gt;</code> still applies so the B&amp;W look survives. <strong>R-10:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/exercise_hero.js</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/assets/web-player/exercise_hero.js</code> byte-identical. <strong>8 items in 3 sections; load-bearing: #1 (legacy plan preview opens with all hero thumbnails filled &mdash; the regression), #2-3 (photo + video both render), #5-6 (fresh plan still hits the right variant, no silent fallback masking real bugs).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">P0</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-circuit-attempt-8.html">
           <div class="row">
             <div>
