@@ -902,39 +902,38 @@
     const svg = circuitEl.querySelector('.lobby-circuit-lanes');
     if (!frame || !svg) return;
 
-    // ROOT-CAUSE FIX (2026-05-15) — wait for layout-stable signals BEFORE
-    // we measure the frame.
+    // SEVENTH-ATTEMPT FIX (2026-05-15) — paint synchronously; let observers
+    // re-paint as the layout settles.
     //
-    // Five prior attempts (#257/#258, #259, #260, #317, #322) patched the
-    // wrong end of the pipeline. The bug was that `frame.offsetHeight` was
-    // read ONCE on entry — before lazy-loaded hero <img> elements inside
-    // the frame had decoded. The frame at that moment was sized to its
-    // placeholder skeleton (header + collapsed rows), so:
-    //   • the static lane rect was drawn from stale geometry, AND
-    //   • the tracer's `d` attribute was authored from stale geometry,
-    //     so the 30-frame poll loop in #322 retried `getTotalLength()` on
-    //     the SAME stale path.
+    // PR #337 (sixth attempt) added an `await Promise.all(imgs.map ...))`
+    // chain that resolved on each hero <img>'s `load` event. That works
+    // for eager images, but the lobby hero rows use `loading="lazy"` —
+    // and lazy images that haven't entered the viewport NEVER START
+    // LOADING, so `load`/`error` events never fire and `complete` stays
+    // false. The await hung forever and `paintLanesAndTracer()` was
+    // never called → SVG stayed empty → no animation. Carl confirmed
+    // inert on the embedded WKWebView preview where Circuit A's rows
+    // are typically below the viewport on initial paint.
     //
-    // Both QA symptoms — "tracer invisible / only loops the header" and
-    // "Exercise 3 falls outside CIRCUIT A border in PDF preview modal" —
-    // are the same root cause expressed differently.
+    // Real fix is twofold:
+    //   • make the hero <img>s `loading="eager"` (≤30 exercises per
+    //     plan, decoded JPGs are cheap), so frame geometry stabilises
+    //     within the first decode cycle.
+    //   • drop the await entirely. Call paintLanesAndTracer() once
+    //     synchronously; the ResizeObserver attached below re-fires
+    //     it when the now-eager images decode and resize the frame.
+    //   • add a MutationObserver on childList so subsequent row
+    //     re-renders (treatment toggles, etc.) also trigger a recompute.
     //
-    // Fix: wait for fonts + all <img>s in the frame to settle, THEN
-    // measure. The ResizeObserver attached below additionally catches
-    // any subsequent layout shift (orientation flips, treatment toggles,
-    // late image decode) and re-runs the lane+tracer recompute.
-    //
-    // ResizeObserver wiring is hoisted into this per-frame call (it used
-    // to live in the outer `renderCircuitLanes`). Attaching it BEFORE the
-    // await window means a layout change during the await still triggers
-    // a recompute.
+    // Defence-in-depth from #322 (the WAAPI tracer hardening + the
+    // 30-frame poll for `getTotalLength()`) stays in place INSIDE
+    // paintLanesAndTracer().
     if (typeof ResizeObserver !== 'undefined' && !circuitEl.__laneObserverAttached) {
       const observer = new ResizeObserver(() => {
         if (circuitEl.__laneRenderRaf != null) return;
         circuitEl.__laneRenderRaf = requestAnimationFrame(() => {
           circuitEl.__laneRenderRaf = null;
-          // Recompute synchronously; re-entering this fn is cheap and the
-          // images are already decoded by the time the observer fires.
+          // Recompute synchronously; cheap.
           renderCircuitLanesFor(circuitEl);
         });
       });
@@ -943,26 +942,25 @@
       circuitEl.__laneObserver = observer;
     }
 
-    // Wait for layout-stable signals, then run the measurement + paint
-    // pass. Wrapped so it works on older WebKit lacking `document.fonts`
-    // or `Promise.allSettled`.
-    const waitForLayoutStable = () => {
-      const fontsReady = (document.fonts && typeof document.fonts.ready !== 'undefined')
-        ? document.fonts.ready
-        : Promise.resolve();
-      const imgs = Array.from(frame.querySelectorAll('img'));
-      const imgPromises = imgs.map((img) => {
-        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-        return new Promise((resolve) => {
-          const done = () => resolve();
-          img.addEventListener('load', done, { once: true });
-          img.addEventListener('error', done, { once: true });
+    // Re-paint when rows are added/removed/swapped inside the frame
+    // (treatment toggles, prep state changes, etc.).
+    if (typeof MutationObserver !== 'undefined' && !circuitEl.__laneMutationObserverAttached) {
+      const mObserver = new MutationObserver(() => {
+        if (circuitEl.__laneRenderRaf != null) return;
+        circuitEl.__laneRenderRaf = requestAnimationFrame(() => {
+          circuitEl.__laneRenderRaf = null;
+          renderCircuitLanesFor(circuitEl);
         });
       });
-      return Promise.all([fontsReady, ...imgPromises]);
-    };
+      mObserver.observe(frame, { childList: true, subtree: true });
+      circuitEl.__laneMutationObserverAttached = true;
+      circuitEl.__laneMutationObserver = mObserver;
+    }
 
-    waitForLayoutStable().then(() => paintLanesAndTracer());
+    // Paint synchronously. With eager hero images the frame either has
+    // its final geometry already or will resize within the next frame —
+    // the ResizeObserver above will re-fire us in that case. NO awaiting.
+    paintLanesAndTracer();
 
     function paintLanesAndTracer() {
     const frameW = frame.offsetWidth;
@@ -1205,6 +1203,11 @@
       }
       c.__laneObserver = null;
       c.__laneObserverAttached = false;
+      if (c.__laneMutationObserver) {
+        try { c.__laneMutationObserver.disconnect(); } catch (_) {}
+      }
+      c.__laneMutationObserver = null;
+      c.__laneMutationObserverAttached = false;
       c.__laneRenderRaf = null;
     });
     circuits.forEach(renderCircuitLanesFor);
@@ -1346,13 +1349,19 @@
 
     if (isPhoto) {
       // Photos are always static <img>. CSS .is-grayscale handles B&W.
+      // loading="eager" (not "lazy") — see SEVENTH-attempt fix in
+      // renderCircuitLanesFor. Lazy heroes outside initial viewport
+      // never fired load events, which hung the await chain that
+      // gated SVG painting. ~30 small JPGs per plan is fine on
+      // cellular, and the eager paint settles frame geometry within
+      // the first decode cycle so circuit lane SVGs land correctly.
       const src = hero.src || hero.posterSrc || '';
       return `
         <img class="lobby-hero-media${grayscale}"
              src="${escape(src)}"
              alt="${escape(slide.name || 'Exercise')}"
              style="object-position: ${escape(objPos)};"
-             loading="lazy"
+             loading="eager"
              data-treatment="${escape(hero.treatment)}">
       `;
     }
@@ -1361,6 +1370,7 @@
     // swapToVideoOnActiveRow lifts it to <video> when the row becomes
     // active. The mp4 URL travels on `data-video-src` — NEVER on
     // `<img src>` (iOS WKWebView mp4-in-img trap).
+    // loading="eager" — see SEVENTH-attempt fix in renderCircuitLanesFor.
     const videoSrc = hero.videoSrc || '';
     const posterSrc = hero.posterSrc || '';
     return `
@@ -1368,7 +1378,7 @@
            src="${escape(posterSrc)}"
            alt="${escape(slide.name || 'Exercise')}"
            style="object-position: ${escape(objPos)};"
-           loading="lazy"
+           loading="eager"
            data-treatment="${escape(hero.treatment)}"
            data-video-src="${escape(videoSrc)}"
            data-poster-src="${escape(posterSrc)}"

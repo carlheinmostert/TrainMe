@@ -17,6 +17,12 @@
 // styles.css / app.js). PNG export was superseded by the PDF pipeline on
 // 2026-05-14; stale CSS / HTML for the old modal needs to flush from cached
 // clients. See chore/web-player-remove-png-modal.
+//
+// 2026-05-15 (later) — bumped again for the SEVENTH-attempt circuit-animation
+// fix: hero <img> loading="lazy" → "eager" + drop await chain in
+// renderCircuitLanesFor + add MutationObserver. PR #337 (6th attempt) was
+// inert because lazy images outside viewport never fired `load`, hanging
+// the await forever. See fix/circuit-geometry-attempt-7.
 const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
 // App shell files — always cached
