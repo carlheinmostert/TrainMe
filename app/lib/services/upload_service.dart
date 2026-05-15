@@ -1996,10 +1996,20 @@ class UploadService {
     //     the line drawing already shipped, the web player handles
     //     `original_url=null` gracefully.
     //
-    // No equivalent of `rawArchiveUploadedAt` is set: photos aren't
-    // tracked the way videos are (no archive pipeline + 90-day
-    // retention) and Storage upserts are idempotent on retry. Re-publish
-    // re-transfers the photo, which is cheap (sub-MB).
+    // Photos now stamp `rawArchiveUploadedAt` on successful upload — same
+    // pattern as videos above. Before 2026-05-15 only videos stamped, so the
+    // fast-path skip (`nonRestExercises.every(e => e.rawArchiveUploadedAt
+    // != null)`) at the top of this function never fired for photo plans.
+    // On re-publish the existence-check loop ran, but `listRawArchive`
+    // returns empty (the bucket has no SELECT policy for `authenticated` by
+    // design — privacy model), so every photo's variants attempted upload,
+    // hit 409 Duplicate, and the publish reported "0 of N files".
+    //
+    // Now: photo upload success stamps the timestamp + saves the exercise.
+    // Next publish's fast-path skip handles the no-change case with zero
+    // upload attempts. Belt-and-braces: `uploadRawArchive` now uses
+    // `upsert: true`, so even if a row escapes the stamp the re-upload is
+    // an idempotent silent overwrite (no exception, no failure record).
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
       if (exercise.mediaType.name != 'photo') continue;
@@ -2030,6 +2040,20 @@ class UploadService {
           '$practiceId/${session.id}/${exercise.id}$normalisedExt';
       if (existingRaw.contains(storagePath)) {
         debugPrint('_uploadRawArchives: skip photo $storagePath (exists)');
+        // Still stamp locally so future publishes hit the fast-path skip
+        // and don't even bother with the listing call. Mirrors the video
+        // exists-skip stamping above.
+        if (exercise.rawArchiveUploadedAt == null) {
+          await loudSwallow(
+            () => _storage.saveExercise(
+              exercise.copyWith(rawArchiveUploadedAt: DateTime.now()),
+            ),
+            kind: 'raw_archive_local_stamp',
+            source: 'UploadService._uploadRawArchives',
+            severity: 'info',
+            swallow: true,
+          );
+        }
         continue;
       }
       final ok = await loudSwallow<bool>(
@@ -2070,6 +2094,23 @@ class UploadService {
         ));
       } else {
         onSuccessfulTick?.call();
+        // Persist the success locally so the next publish skips this
+        // photo via the fast-path. A DB hiccup here must not mask the
+        // fact that the upload itself succeeded — swallow + log loudly.
+        // Mirrors the video success stamping above.
+        await loudSwallow(
+          () => _storage.saveExercise(
+            exercise.copyWith(rawArchiveUploadedAt: DateTime.now()),
+          ),
+          kind: 'raw_archive_local_stamp_failed',
+          source: 'UploadService._uploadRawArchives',
+          severity: 'warn',
+          meta: {
+            'exercise_id': exercise.id,
+            'storage_path': storagePath,
+          },
+          swallow: true,
+        );
       }
     }
 
