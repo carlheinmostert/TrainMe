@@ -42,6 +42,18 @@
 // top:134px; right:8px` whenever JS cleared inline styles on close,
 // putting the popover below the gear and offscreen.
 // See fix/gear-popover-drop-shared-class.
+//
+// 2026-05-15 (NINTH-attempt circuit fix) — bumped for the MutationObserver
+// feedback-loop fix. PR #353 (eighth attempt) wired an observer on the
+// circuit frame that watched childList+subtree changes to catch genuine
+// row swaps. The observer also fired on our own SVG mutations inside
+// paintLanesAndTracer (clear children, append paths) → queued another
+// rAF → re-painted → fired observer → infinite loop. Main thread pegged
+// → preview goes black on circuit plans, share button non-responsive,
+// lobby thumbnails starved. Fix disconnects the observer at the top of
+// paintLanesAndTracer and reconnects in a finally so genuine row
+// changes still get caught afterwards.
+// See fix/circuit-attempt-9-observer-disconnect-during-paint.
 const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
 // App shell files — always cached

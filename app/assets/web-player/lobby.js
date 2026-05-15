@@ -977,6 +977,43 @@
     }
 
     function paintLanesAndTracer() {
+    // NINTH-ATTEMPT FIX (2026-05-15) — pause the MutationObserver while
+    // we mutate the SVG.
+    //
+    // PR #353 (eighth attempt) wired up a `MutationObserver` on the
+    // circuit frame so that genuine row swaps (treatment toggles, prep
+    // state changes) would trigger a re-paint. That observer's scope is
+    // `{ childList: true, subtree: true }` — perfect for "child rows
+    // appeared/disappeared", but ALSO fires every time we ourselves
+    // mutate the SVG: clearing previous paths via `svg.removeChild`,
+    // appending the new lane paths, appending the tracer. Each of
+    // those mutations re-enters the observer → queues another rAF →
+    // calls `renderCircuitLanesFor` → calls us → fires the observer
+    // again → infinite loop. The `__laneRenderRaf` guard does NOT
+    // break it because it's nulled INSIDE the rAF callback before
+    // paintLanesAndTracer runs.
+    //
+    // Effect on the user: main thread pegged, preview goes black on
+    // any circuit plan, share button non-responsive, lobby thumbnails
+    // starved. Carl saw this on every circuit-bearing plan after the
+    // PR #353 deploy.
+    //
+    // Surgical fix: capture the observer reference saved on
+    // `circuitEl.__laneMutationObserver` (it was already being stored
+    // there for the cleanup path in `renderCircuitLanes`), disconnect
+    // it for the duration of the SVG mutations, reconnect in a finally
+    // so genuine row changes still get caught afterwards.
+    //
+    // The ResizeObserver is left untouched — it's not part of the
+    // mutation loop (it fires on frame resize, not on our writes). The
+    // rAF poll in `tryMeasureAndApply` only mutates tracer inline
+    // style, which a `childList` observer doesn't see, so we don't
+    // have to keep the observer paused across those frames.
+    const mObs = circuitEl.__laneMutationObserver;
+    if (mObs) {
+      try { mObs.disconnect(); } catch (_) { /* best-effort */ }
+    }
+    try {
     // EIGHTH-ATTEMPT FIX (2026-05-15) — measure rows individually rather
     // than reading `frame.offsetHeight`.
     //
@@ -1248,6 +1285,17 @@
       requestAnimationFrame(() => tryMeasureAndApply(remaining - 1));
     }
     tryMeasureAndApply(MAX_TRIES);
+    } finally {
+      // Reconnect so genuine row/content changes (treatment toggles,
+      // prep transitions) still re-trigger a paint. We only paused for
+      // the duration of our own SVG mutations above. `tryMeasureAndApply`
+      // is allowed to keep running across rAFs after this — it only
+      // writes inline style on the tracer, which a `childList` observer
+      // doesn't see, so no re-entry risk.
+      if (mObs) {
+        try { mObs.observe(frame, { childList: true, subtree: true }); } catch (_) { /* best-effort */ }
+      }
+    }
     }
   }
 
