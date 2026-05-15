@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../config.dart';
 import '../models/client.dart';
+import '../models/publish_progress.dart';
 import '../models/session.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
@@ -15,6 +16,19 @@ import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'loud_swallow.dart';
 import 'sync_service.dart';
+
+/// Callback invoked by [UploadService.uploadPlan] on every phase boundary
+/// and on every per-file tick within [PublishPhase.uploadingTreatments].
+///
+/// The snapshot is always self-contained — consumers do not need to track
+/// previous events to render the current sheet state. See [PublishProgress]
+/// for the contract.
+///
+/// Kept as a callback rather than a stream so existing call sites
+/// (StudioModeScreen + tests) stay synchronous-await on the
+/// `Future<PublishResult>` return. The sheet UI wraps the callback to fan
+/// events out to a `ValueNotifier<PublishProgress>`.
+typedef PublishProgressSink = void Function(PublishProgress progress);
 
 // TODO: move to background URLSession for true non-blocking publish.
 // Today the upload runs on the Dart isolate tied to the app lifecycle; the
@@ -69,6 +83,65 @@ class PublishFailureMessage implements Exception {
   const PublishFailureMessage(this.message);
   @override
   String toString() => message;
+}
+
+/// Thrown by [UploadService.uploadPlan] when atomic raw-archive uploads
+/// fail (PR-C of the 2026-05-15 publish-flow refactor).
+///
+/// Today every raw-archive variant upload is required: any per-file
+/// failure in the upload pass terminates the publish with this exception,
+/// the credit refund fires in the same catch block, and the new
+/// [PublishProgressSheet] renders the failure state with a
+/// "Show which files →" tap-through to [UploadDiagnosticSheet].
+///
+/// The failure list carries enough detail (kind, exercise index/name,
+/// storage path, local path, exists-on-disk) to drive that sheet without
+/// a second round-trip. Mirrors the existing [UploadFailureRecord]
+/// shape used by the diagnostic surface in PR #345.
+///
+/// Subsequent steps (plan version bump, exercise upsert, audit row) do
+/// NOT run when this fires — the publish is terminal at the upload phase
+/// and the credit is refunded so the practice can retry without paying
+/// twice. Spec: docs/design/mockups/publish-flow-refactor.html.
+class PublishFailedException implements Exception {
+  /// The phase that failed. Always [PublishPhase.uploadingTreatments] in
+  /// the current implementation, but carried explicitly so future
+  /// failures elsewhere (e.g. media bucket push) can reuse this type.
+  final PublishPhase phase;
+
+  /// Per-file failure records for the upload pass. Non-empty when
+  /// [phase] is [PublishPhase.uploadingTreatments]. Surfaced to the
+  /// `Show which files →` link on the failure sheet — opens the existing
+  /// [UploadDiagnosticSheet] with the same records.
+  final List<UploadFailureRecord> failures;
+
+  /// Files successfully uploaded before the failure. Drives the
+  /// "Uploading treatments" row's "N of M files" subtitle in the
+  /// failure state — keeps the partial progress visible so the
+  /// practitioner sees how far the publish got.
+  final int filesUploaded;
+
+  /// Total files the upload pass would have transferred. Same as the
+  /// final tick before the failure fired.
+  final int filesTotal;
+
+  /// Short user-visible summary suitable for snackbar / banner display.
+  /// Defaults to the standard upload-failure copy; callers can override
+  /// for specialised wording.
+  final String userMessage;
+
+  PublishFailedException({
+    required this.phase,
+    required this.failures,
+    required this.filesUploaded,
+    required this.filesTotal,
+    String? userMessage,
+  }) : userMessage = userMessage ??
+            'Some files could not upload — your credit was refunded. '
+                'Tap retry to publish again.';
+
+  @override
+  String toString() => userMessage;
 }
 
 /// One per-file failure record captured during the best-effort raw-archive
@@ -639,7 +712,28 @@ class UploadService {
   ///
   /// Precondition: all exercises should have [ConversionStatus.done]. The
   /// caller should check [Session.allConversionsComplete] first.
-  Future<PublishResult> uploadPlan(Session session) async {
+  ///
+  /// PR-C (2026-05-15) — optional [onProgress] callback fires on every
+  /// phase boundary and per-file tick inside the upload phase. Drives
+  /// the new [PublishProgressSheet] UI. Existing callers that don't pass
+  /// the callback work unchanged.
+  Future<PublishResult> uploadPlan(
+    Session session, {
+    PublishProgressSink? onProgress,
+  }) async {
+    // Local emit helper so we can drop the callback into every phase
+    // boundary without sprinkling null-checks. Safe to invoke regardless
+    // of whether the caller attached a sink.
+    void emit(PublishProgress p) {
+      try {
+        onProgress?.call(p);
+      } catch (_) {
+        // Never let a UI consumer's exception derail the publish path.
+      }
+    }
+
+    // Phase 1 — Preparing. Pre-flight, consent gates, balance check.
+    emit(PublishProgress.markActive(PublishPhase.preparing));
     // Milestone B: the AuthGate guarantees a signed-in user at this point,
     // so any null here is a bug we want surfaced loudly (not papered over
     // with a sentinel uuid that would silently pollute audit rows).
@@ -854,6 +948,12 @@ class UploadService {
     // path stacks orphaned objects in the `media` bucket every time.
     final uploadedPaths = <String>[];
 
+    // Phase 2 — Reserving credit. Wraps client upsert + plan ensure +
+    // consume_credit. Emitted just before the try block so a hard
+    // throw in any of those steps lands the sheet on the reserving-
+    // credit row.
+    emit(PublishProgress.markActive(PublishPhase.reservingCredit));
+
     try {
       // ----------------------------------------------------------------
       // Step 3: Consume credits atomically BEFORE any plan mutation.
@@ -1051,6 +1151,21 @@ class UploadService {
       // zero list calls, zero uploads, zero network for files. Just
       // build the URL map from the known path pattern.
       // ----------------------------------------------------------------
+      // PR-C — start uploading-treatments phase. Per-file ticks emit
+      // via `emit(PublishProgress.uploadTick(...))` after each
+      // successful upload. The total is an upper bound (line-drawing
+      // bucket + raw-archive variants); the metadata-only fast-path
+      // can leave it at zero, in which case the sheet renders the row
+      // as "complete in 0s" with no progress bar.
+      emit(PublishProgress.markActive(PublishPhase.uploadingTreatments));
+      int filesUploaded = 0;
+      // Best-effort total estimate — counts files that COULD upload
+      // (one per non-rest exercise per variant). The actual run may
+      // skip some because they already exist in storage; the sheet's
+      // "N of M files" is a worst-case ceiling, the bar still fills
+      // as ticks land.
+      int filesTotal = 0;
+
       final mediaUrls = <String, String>{}; // exerciseId -> media URL
       final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
 
@@ -1058,6 +1173,47 @@ class UploadService {
           session.exercises.where((e) => !e.isRest).toList();
       final allPreviouslyUploaded = nonRestExercises.isNotEmpty &&
           nonRestExercises.every((e) => e.rawArchiveUploadedAt != null);
+
+      // Count the files this publish might upload (used for the sheet's
+      // "N of M files" subtitle). Order:
+      //   * media bucket: main mp4/jpg per exercise + _thumb.jpg + _thumb_line.jpg
+      //   * raw-archive bucket: raw mp4 / raw jpg + segmented + _thumb_color + mask
+      // Fast-path metadata-only republishes only refresh _thumb_line if
+      // missing, so we count one possible variant per exercise there.
+      if (allPreviouslyUploaded) {
+        // Just the line-thumb backfill candidate per exercise.
+        filesTotal = nonRestExercises.length;
+      } else {
+        for (final ex in nonRestExercises) {
+          filesTotal += 1; // main media
+          if (ex.absoluteThumbnailPath != null) filesTotal += 2; // _thumb + _thumb_line
+        }
+      }
+      // Raw-archive variants — every variant is now required (PR-A).
+      // Count what's plausibly on disk; the upload pass below will
+      // skip whichever variants are missing.
+      for (final ex in nonRestExercises) {
+        if (ex.archiveFilePath != null && ex.archiveFilePath!.isNotEmpty) {
+          filesTotal += 1;
+        }
+        if (ex.segmentedRawFilePath != null &&
+            ex.segmentedRawFilePath!.isNotEmpty) {
+          filesTotal += 1;
+        }
+        if (ex.mediaType.name == 'photo' && ex.rawFilePath.isNotEmpty) {
+          filesTotal += 1;
+        }
+        if (ex.absoluteThumbnailPath != null) {
+          filesTotal += 1; // _thumb_color
+        }
+        if (ex.maskFilePath != null && ex.maskFilePath!.isNotEmpty) {
+          filesTotal += 1;
+        }
+      }
+      emit(PublishProgress.uploadTick(
+        filesUploaded: 0,
+        filesTotal: filesTotal,
+      ));
 
       if (allPreviouslyUploaded) {
         debugPrint('uploadPlan: metadata-only republish — skipping main file uploads');
@@ -1102,6 +1258,11 @@ class UploadService {
                   await _api.uploadMedia(
                       path: lineStoragePath, file: lineThumbFile);
                   uploadedPaths.add(lineStoragePath);
+                  filesUploaded += 1;
+                  emit(PublishProgress.uploadTick(
+                    filesUploaded: filesUploaded,
+                    filesTotal: filesTotal,
+                  ));
                 }
               }
             }
@@ -1126,6 +1287,11 @@ class UploadService {
           if (!existingFiles.contains(storagePath)) {
             await _api.uploadMedia(path: storagePath, file: file);
             uploadedPaths.add(storagePath);
+            filesUploaded += 1;
+            emit(PublishProgress.uploadTick(
+              filesUploaded: filesUploaded,
+              filesTotal: filesTotal,
+            ));
           }
           mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
 
@@ -1138,6 +1304,11 @@ class UploadService {
                 await _api.uploadMedia(
                     path: thumbStoragePath, file: thumbFile);
                 uploadedPaths.add(thumbStoragePath);
+                filesUploaded += 1;
+                emit(PublishProgress.uploadTick(
+                  filesUploaded: filesUploaded,
+                  filesTotal: filesTotal,
+                ));
               }
               thumbUrls[exercise.id] =
                   _api.publicMediaUrl(path: thumbStoragePath);
@@ -1166,6 +1337,11 @@ class UploadService {
                     await _api.uploadMedia(
                         path: lineStoragePath, file: lineThumbFile);
                     uploadedPaths.add(lineStoragePath);
+                    filesUploaded += 1;
+                    emit(PublishProgress.uploadTick(
+                      filesUploaded: filesUploaded,
+                      filesTotal: filesTotal,
+                    ));
                   }
                 }
               }
@@ -1173,6 +1349,52 @@ class UploadService {
           }
         }
       }
+
+      // ----------------------------------------------------------------
+      // Step 7.5 (PR-C order): atomic raw-archive upload.
+      //
+      // PR-C (2026-05-15) reorders this BEFORE the exercise upsert so a
+      // raw-archive failure can throw [PublishFailedException], unwind
+      // the credit refund + media-bucket cleanup, and leave the
+      // `exercises` table untouched. The pre-PR-C order ran exercise
+      // upsert first and treated raw uploads as best-effort; the new
+      // [PublishProgressSheet] needs every upload to be required so the
+      // failure state is meaningful.
+      //
+      // Closure shares the same `filesUploaded` / `filesTotal` ints with
+      // the media-bucket loop above, so the sheet's "N of M files"
+      // counter advances seamlessly across both buckets.
+      // ----------------------------------------------------------------
+      final optionalArtifactFailureList = await _uploadRawArchives(
+        session: session,
+        practiceId: practiceId,
+        onSuccessfulTick: () {
+          filesUploaded += 1;
+          emit(PublishProgress.uploadTick(
+            filesUploaded: filesUploaded,
+            filesTotal: filesTotal,
+          ));
+        },
+      );
+
+      // PR-C: any raw-archive failure is now terminal. Throw and let the
+      // outer catch refund the credit + clean up the media bucket. The
+      // exception carries the per-file failure list so the sheet's
+      // "Show which files →" link can open [UploadDiagnosticSheet]
+      // without re-fetching.
+      if (optionalArtifactFailureList.isNotEmpty) {
+        throw PublishFailedException(
+          phase: PublishPhase.uploadingTreatments,
+          failures: optionalArtifactFailureList,
+          filesUploaded: filesUploaded,
+          filesTotal: filesTotal,
+        );
+      }
+      final optionalArtifactsHadFailures =
+          optionalArtifactFailureList.isNotEmpty;
+
+      // PR-C — uploads complete; transition to the "Saving plan" row.
+      emit(PublishProgress.markActive(PublishPhase.savingPlan));
 
       // ----------------------------------------------------------------
       // Step 6: Upsert exercise rows (batched). FK to plans is satisfied
@@ -1284,35 +1506,12 @@ class UploadService {
         );
       }
 
-      // ----------------------------------------------------------------
-      // Step 7.5: best-effort raw-archive upload.
-      //
-      // For every exercise with a local `archiveFilePath` that hasn't yet
-      // been uploaded, stream the compressed 720p H.264 copy into the
-      // private `raw-archive` bucket at:
-      //     {practiceId}/{planId}/{exerciseId}.mp4
-      //
-      // This is intentionally best-effort:
-      //   - Each exercise is wrapped in its own try/catch, so one failure
-      //     doesn't cascade and take down the rest.
-      //   - ALL failures are swallowed — publish continues regardless.
-      //   - The bucket may not exist yet (parallel backend work in flight);
-      //     a 404 here simply leaves `rawArchiveUploadedAt` null and the
-      //     next publish retries. Do NOT surface this to the practitioner.
-      //   - Already-uploaded exercises (`rawArchiveUploadedAt != null`) are
-      //     skipped to save bandwidth on re-publish.
-      //
-      // Ordering: runs AFTER plan/exercises/orphan-cleanup succeeded so
-      // the main plan is complete even if every raw upload fails. The
-      // practitioner never waits on raw archive — they can re-publish to
-      // back-fill later.
-      // ----------------------------------------------------------------
-      final optionalArtifactFailureList = await _uploadRawArchives(
-        session: session,
-        practiceId: practiceId,
-      );
-      final optionalArtifactsHadFailures =
-          optionalArtifactFailureList.isNotEmpty;
+      // PR-C — Step 7.5 (raw-archive upload) moved up to run BEFORE the
+      // exercise upsert above so failures throw before persisting plan
+      // state. See the new atomic-upload block higher in this method.
+
+      // PR-C — exercises persisted; transition to the "Finalising" row.
+      emit(PublishProgress.markActive(PublishPhase.finalising));
 
       // ----------------------------------------------------------------
       // Step 8: append an audit row to `plan_issuances`. Records who
@@ -1393,6 +1592,10 @@ class UploadService {
       // Fire-and-forget; failure is invisible to the publish path.
       unawaited(SyncService.instance.refreshCreditBalance(practiceId));
 
+      // PR-C — every row now green; the sheet shows the 1-second
+      // "All set" beat then auto-dismisses.
+      emit(PublishProgress.allDone());
+
       return PublishResult.success(
         url: planUrl,
         version: newVersion,
@@ -1430,12 +1633,28 @@ class UploadService {
       // If we already consumed credits, compensate with a refund row so
       // the ledger stays balanced — otherwise the bio is charged for a
       // plan that never published.
+      //
+      // PR-C — atomicity demands the refund actually lands. Retry once
+      // on transient error so a single network blip can't strand the
+      // practitioner with a debit and no plan. The underlying
+      // `refund_credit` RPC is idempotent on `plan_id`, so a double-fire
+      // is safe.
       if (creditConsumed) {
         refundApplied = await _refundCredits(
           practiceId: practiceId,
           planId: session.id,
           credits: creditsToCharge,
         );
+        if (refundApplied != true) {
+          // Single retry — most refund misses are transient socket
+          // drops. The RPC's idempotency guard means a second call
+          // against an already-refunded plan is a no-op.
+          refundApplied = await _refundCredits(
+            practiceId: practiceId,
+            planId: session.id,
+            credits: creditsToCharge,
+          );
+        }
       }
 
       // Wave 16 / Milestone V server-side backstop: if the pre-flight
@@ -1447,6 +1666,7 @@ class UploadService {
       // (it shouldn't — same auth context that just got a server
       // error) we fall through with an empty list + the client name.
       if (e is PostgrestException && e.code == 'P0003') {
+        emit(PublishProgress.failure(phase: PublishPhase.reservingCredit));
         List<UnconsentedTreatment> violations = const [];
         try {
           violations = await _api.validatePlanTreatmentConsent(
@@ -1464,6 +1684,56 @@ class UploadService {
         await _recordFailure(session, exc.toString());
         return PublishResult.unconsentedTreatments(exc);
       }
+
+      // PR-C — atomic-upload terminal failure. Emit the failure
+      // snapshot pointing at the uploading-treatments row and return
+      // the per-file failure list via [PublishResult.networkFailed]'s
+      // error payload so the sheet's "Show which files →" link can
+      // hand the same records to [UploadDiagnosticSheet].
+      if (e is PublishFailedException) {
+        emit(PublishProgress.failure(
+          phase: e.phase,
+          filesUploaded: e.filesUploaded,
+          filesTotal: e.filesTotal,
+        ));
+        await _recordFailure(session, e.userMessage);
+        // Wrap as PublishFailurePayload so the existing
+        // [PublishResult.networkFailed] path still works for callers
+        // that don't know about the atomic-upload exception. The
+        // diagnostic list flows through `optionalArtifactFailures`
+        // even though the publish is terminal — the sheet's
+        // tap-through reads from the result's payload.
+        final payload = PublishFailurePayload(
+          userMessage: e.userMessage,
+          detail: 'Atomic upload failed for ${e.failures.length} file(s).',
+          refundLikelyAttempted: creditConsumed,
+          refundOutcomeUnknown: creditConsumed && refundApplied != true,
+          remoteVersionMayHaveAdvanced: planVersionBumped,
+          remoteVersionCandidate: planVersionBumped ? newVersion : null,
+          leafExceptionType: 'PublishFailedException',
+          innerMessage: e.userMessage,
+        );
+        return PublishResult._(
+          success: false,
+          error: payload,
+          optionalArtifactsHadFailures: true,
+          optionalArtifactFailures: List.unmodifiable(e.failures),
+        );
+      }
+
+      // PR-C — non-atomic-upload failures still land on the failing
+      // phase row in the sheet. Best-effort guess: if uploads had
+      // already begun (filesUploaded > 0 OR uploadedPaths non-empty)
+      // the failure belongs to the upload phase; otherwise it
+      // belongs to the saving-plan phase (replacePlanExercises is
+      // the only network call between upload completion and the
+      // best-effort audit row).
+      final inferredFailedPhase = uploadedPaths.isNotEmpty
+          ? PublishPhase.uploadingTreatments
+          : (creditConsumed
+              ? PublishPhase.savingPlan
+              : PublishPhase.reservingCredit);
+      emit(PublishProgress.failure(phase: inferredFailedPhase));
 
       final payload = PublishFailurePayload.fromPublishCatch(
         caught: e,
@@ -1505,6 +1775,7 @@ class UploadService {
   Future<List<UploadFailureRecord>> _uploadRawArchives({
     required Session session,
     required String practiceId,
+    void Function()? onSuccessfulTick,
   }) async {
     // -----------------------------------------------------------------
     // PR-A (2026-05-15) — consent decoupled from upload.
@@ -1641,6 +1912,7 @@ class UploadService {
         );
         continue;
       }
+      onSuccessfulTick?.call();
 
       // Persist the success locally so a subsequent publish skips this
       // file. A DB hiccup here must not mask the fact that the upload
@@ -1750,6 +2022,8 @@ class UploadService {
           exerciseIndex: indexByExerciseId[exercise.id],
           exerciseName: nameByExerciseId[exercise.id],
         ));
+      } else {
+        onSuccessfulTick?.call();
       }
     }
 
@@ -1850,6 +2124,8 @@ class UploadService {
           exerciseIndex: indexByExerciseId[exercise.id],
           exerciseName: nameByExerciseId[exercise.id],
         ));
+      } else {
+        onSuccessfulTick?.call();
       }
     }
 
@@ -1947,6 +2223,8 @@ class UploadService {
           exerciseIndex: indexByExerciseId[exercise.id],
           exerciseName: nameByExerciseId[exercise.id],
         ));
+      } else {
+        onSuccessfulTick?.call();
       }
     }
 
@@ -2020,6 +2298,8 @@ class UploadService {
           exerciseIndex: indexByExerciseId[exercise.id],
           exerciseName: nameByExerciseId[exercise.id],
         ));
+      } else {
+        onSuccessfulTick?.call();
       }
     }
     return failures;
