@@ -1632,6 +1632,60 @@
     return $lobbySettingsPopover.getAttribute('data-open') === 'true';
   }
 
+  // BUG 14 fix (2026-05-15): on iOS WKWebView the popover's
+  // `position: absolute; bottom: calc(100% + 8px)` inside the
+  // `position: fixed` `.lobby-cta-bar` rendered partially offscreen —
+  // the absolute coordinate space inherited from the fixed bar didn't
+  // line up the way Safari paints it on the live web player. Switch to
+  // `position: fixed` with viewport-aware coordinates computed from the
+  // gear button's clientRect on every open. Any prior inline `position`
+  // / `top` / `left` / `right` / `bottom` is cleared on close so the
+  // stylesheet's static absolute layout stays the desktop fallback if
+  // JS positioning is ever skipped.
+  function repositionLobbySettingsPopover() {
+    if (!$lobbySettingsPopover || !$lobbyGearBtn) return;
+    var gearRect = $lobbyGearBtn.getBoundingClientRect();
+    if (!gearRect) return;
+    // Render once invisibly to measure the popover's intrinsic size.
+    var prevVisibility = $lobbySettingsPopover.style.visibility;
+    $lobbySettingsPopover.style.visibility = 'hidden';
+    $lobbySettingsPopover.style.position = 'fixed';
+    $lobbySettingsPopover.style.right = 'auto';
+    $lobbySettingsPopover.style.bottom = 'auto';
+    $lobbySettingsPopover.style.top = '0px';
+    $lobbySettingsPopover.style.left = '0px';
+    var popRect = $lobbySettingsPopover.getBoundingClientRect();
+    var popW = popRect.width || 280;
+    var popH = popRect.height || 180;
+    var viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
+    var viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+    // Anchor the popover so its bottom-right corner sits 8px above the
+    // gear's top-right corner. Clamp to a 16px viewport margin so it
+    // can't run off-screen on narrow phones.
+    var gap = 8;
+    var margin = 16;
+    var left = Math.round(gearRect.right - popW);
+    if (left < margin) left = margin;
+    if (left + popW > viewportW - margin) left = Math.max(margin, viewportW - margin - popW);
+    var top = Math.round(gearRect.top - gap - popH);
+    if (top < margin) top = margin;
+    if (top + popH > viewportH - margin) top = Math.max(margin, viewportH - margin - popH);
+    $lobbySettingsPopover.style.left = left + 'px';
+    $lobbySettingsPopover.style.top = top + 'px';
+    $lobbySettingsPopover.style.visibility = prevVisibility || '';
+  }
+
+  function clearLobbySettingsPopoverPosition() {
+    if (!$lobbySettingsPopover) return;
+    // Reset every inline override so the stylesheet wins on next paint.
+    $lobbySettingsPopover.style.position = '';
+    $lobbySettingsPopover.style.top = '';
+    $lobbySettingsPopover.style.left = '';
+    $lobbySettingsPopover.style.right = '';
+    $lobbySettingsPopover.style.bottom = '';
+    $lobbySettingsPopover.style.visibility = '';
+  }
+
   function openLobbySettingsPopover() {
     if (!$lobbySettingsPopover || !$lobbyGearBtn) return;
     if (isLobbySettingsPopoverOpen()) return;
@@ -1640,6 +1694,9 @@
     // plan-scoped override + practitioner defaults. Mirrors the deck's
     // `setSettingsPopoverOpen(true)` behaviour.
     if (api && api.paintGearPanel) api.paintGearPanel($lobbySettingsPopover);
+    // Reposition before the transition starts so the popover slides up
+    // from the correct anchor instead of jumping after open.
+    repositionLobbySettingsPopover();
     // Tick to let the browser paint `display:block` before the
     // opacity/transform transition kicks in.
     requestAnimationFrame(() => {
@@ -1656,6 +1713,7 @@
       // If we're not open, still ensure aria + hidden agree.
       $lobbyGearBtn.setAttribute('aria-expanded', 'false');
       $lobbySettingsPopover.hidden = true;
+      clearLobbySettingsPopoverPosition();
       return;
     }
     $lobbySettingsPopover.removeAttribute('data-open');
@@ -1667,6 +1725,7 @@
         // Guard against a re-open that happened during the transition.
         if (!isLobbySettingsPopoverOpen()) {
           $lobbySettingsPopover.hidden = true;
+          clearLobbySettingsPopoverPosition();
         }
       });
     }, 180);
@@ -2177,6 +2236,21 @@
       });
     }
 
+    // BUG 14 fix companion: when the viewport changes (orientation
+    // rotate, keyboard show/hide, browser-chrome reveal on scroll),
+    // re-anchor the popover so it stays glued to the gear button. The
+    // body of the lobby IS scrollable on iOS, so a passive scroll
+    // listener keeps the popover from drifting away from the gear.
+    if (!window._lobbySettingsReanchorWired) {
+      window._lobbySettingsReanchorWired = true;
+      const reanchor = () => {
+        if (isLobbySettingsPopoverOpen()) repositionLobbySettingsPopover();
+      };
+      window.addEventListener('resize', reanchor, { passive: true });
+      window.addEventListener('orientationchange', reanchor, { passive: true });
+      window.addEventListener('scroll', reanchor, { passive: true, capture: true });
+    }
+
     if ($lobbyMatrixInner) {
       $lobbyMatrixInner.addEventListener('click', (evt) => {
         const pill = evt.target.closest('.pill[data-slide]');
@@ -2578,12 +2652,14 @@
   // thumbnail, the "N of M pages" badge, the Download + Share buttons,
   // and a contextual hint per environment. Wires the Share button to
   // the supplied `onShare` callback (which routes through native bridge
-  // / Web Share / new-tab fallback depending on environment).
+  // / Web Share / new-tab fallback depending on environment), and the
+  // Download button to `onDownload` if provided (iOS WKWebView ignores
+  // `<a download>` clicks, so we route through the native bridge there).
   function showExportModal(opts) {
     const modal = ensureExportModal();
     const refs = modal._refs;
     if (!refs) return false;
-    const { previewImageDataUrl, blobUrl, fileName, pageCount, onShare, onRetry } = opts;
+    const { previewImageDataUrl, blobUrl, fileName, pageCount, onShare, onDownload, onRetry } = opts;
     refs.spinner.style.display = 'none';
     refs.errorMsg.style.display = 'none';
     refs.retryBtn.style.display = 'none';
@@ -2598,6 +2674,26 @@
 
     refs.downloadLink.href = blobUrl;
     refs.downloadLink.setAttribute('download', fileName);
+
+    // BUG 8 fix (2026-05-15): bare `<a download>` is silently ignored by
+    // iOS WKWebView (and `window.open` of a blob URL was the historical
+    // fallback, but that also misbehaves under the custom scheme handler).
+    // When `onDownload` is supplied — currently set by the caller on
+    // iOS embedded surfaces — we run it instead of the default anchor
+    // click, routing the PDF through `homefitBridge.shareFile` which
+    // surfaces UIActivityViewController with Save to Files preselectable.
+    // Desktop / live web Safari falls through to the native anchor
+    // behaviour (the click handler returns truthy → default not
+    // prevented → browser triggers the download).
+    refs.downloadLink.onclick = (evt) => {
+      if (typeof onDownload === 'function') {
+        evt.preventDefault();
+        try { onDownload(); } catch (err) {
+          try { console.warn('[homefit-lobby] download btn rejected:', err); } catch (_) {}
+        }
+      }
+      // else: anchor's native href + download attribute take over.
+    };
 
     // Wire share button — replace any prior listener.
     refs.shareBtn.onclick = (evt) => {
@@ -2727,11 +2823,16 @@
     const fetchOpts = isEmbedded
       ? { credentials: 'omit' }
       : { mode: 'cors', credentials: 'omit' };
-    // 8s per-fetch budget — long enough for a slow mobile network to
-    // bring a hero JPG down (~250KB typical), short enough that a stalled
-    // Supabase signed URL fails fast and the error modal fires instead of
-    // hanging the spinner.
-    const FETCH_TIMEOUT_MS = 8000;
+    // Per-fetch budget. BUG 10a fix (2026-05-15): bumped from 8s to 15s
+    // on iOS embedded WKWebView. The custom `homefit-local://` scheme
+    // handler shares the network queue with the heavier-than-Safari
+    // WebKit layout pass; a slow hero JPG can take 6-10s to settle even
+    // when the file is already on disk. 8s was too tight and one missed
+    // image would cause html2canvas to try the fetch directly during
+    // page rasterisation, blowing the per-page budget. Desktop / live
+    // web Safari keeps the 8s budget — they fetch faster and signed-URL
+    // stalls there should fail fast.
+    const FETCH_TIMEOUT_MS = isEmbedded ? 15000 : 8000;
     async function fetchWithTimeout(src) {
       // AbortController is supported in every browser we ship to (Safari
       // 11.1+, Chrome 66+). The try/catch around AbortController
@@ -2823,7 +2924,7 @@
       const sample = diag.preloadErrors.slice(0, 3).join('; ');
       lines.push(`Preload: ${sample}${diag.preloadErrors.length > 3 ? ` (+${diag.preloadErrors.length - 3} more)` : ''}`);
     }
-    lines.push(`Refresh with Cmd+Shift+R and try again.`);
+    lines.push(`Reload and try again.`);
     return lines.join(' ');
   }
 
@@ -3032,7 +3133,7 @@
       const JsPdfCtor = resolveJsPdf();
       if (!JsPdfCtor) {
         showExportError(
-          'PDF library failed to load. Please reload the page (Cmd+Shift+R) and try again.',
+          'PDF library failed to load. Reload the page and try again.',
           () => { triggerLobbyShare().catch(() => {}); },
         );
         return;
@@ -3263,11 +3364,18 @@
               } catch (_) {}
             };
 
-            // 15s hard ceiling on the whole rasterisation call. Combined
-            // with `imageTimeout: 4000` below, this ensures the spinner
-            // doesn't sit forever if html2canvas's internal image-loading
-            // gets stuck on an unswappable URL. On timeout we surface the
-            // existing "Couldn't generate the PDF" error + Retry path.
+            // BUG 10a fix (2026-05-15): 30s hard ceiling (was 15s).
+            // Multi-page renders on iOS WKWebView regularly burned 15-20s
+            // on page 2+ when one image hadn't fully pre-fetched and
+            // html2canvas had to refetch under heavier WebView layout
+            // contention. 30s gives the slow path enough oxygen without
+            // making the user wait forever on a truly stuck pipeline.
+            // Combined with `imageTimeout: 4000` below, this ensures
+            // the spinner doesn't sit forever if html2canvas's internal
+            // image-loading gets stuck on an unswappable URL. On timeout
+            // we surface the existing "Couldn't generate the PDF"
+            // error + Retry path.
+            const PAGE_RENDER_TIMEOUT_MS = 30000;
             const h2cPromise = html2canvas(pageEl, {
               backgroundColor: '#0F1117',
               scale: 2, // 2x for retina-quality output regardless of devicePixelRatio
@@ -3289,7 +3397,10 @@
               },
             });
             const timeoutPromise = new Promise((_, reject) => {
-              setTimeout(() => reject(new Error(`page ${i + 1} render timeout (15s)`)), 15000);
+              setTimeout(
+                () => reject(new Error(`page ${i + 1} render timeout (${PAGE_RENDER_TIMEOUT_MS / 1000}s)`)),
+                PAGE_RENDER_TIMEOUT_MS,
+              );
             });
             pageCanvas = await Promise.race([h2cPromise, timeoutPromise]);
           } catch (err) {
@@ -3332,6 +3443,20 @@
             diag.pdfError = (err && err.message) || String(err);
             throw err;
           }
+
+          // BUG 10a fix (2026-05-15): explicit canvas cleanup so the GC
+          // can reclaim the 1588×N bitmap before the next page renders.
+          // Without this, iOS WKWebView held ~10MB per page in flight
+          // and a 4-page render could trip the WebView's per-process
+          // memory ceiling — visible as the page-2 spinner stalling
+          // and then a hard reload. Shrinking width/height to 0 nudges
+          // the canvas backing store free even if a stray reference
+          // pins the wrapper.
+          try {
+            pageCanvas.width = 0;
+            pageCanvas.height = 0;
+          } catch (_) {}
+          pageCanvas = null;
 
           diag.pagesRendered += 1;
         }
@@ -3409,12 +3534,37 @@
         }
       };
 
+      // BUG 8 fix (2026-05-15): WKWebView ignores `<a download>` clicks
+      // entirely. On the embedded Flutter surface, Download routes
+      // through the same `homefitBridge.shareFile` path as Share — the
+      // iOS share sheet UIActivityViewController already exposes Save
+      // to Files, which is the practitioner's natural "download"
+      // affordance on iOS. Live web + desktop fall through to the
+      // anchor's native download behaviour (onDownload undefined).
+      const onDownload = isEmbedded
+        ? async () => {
+            try {
+              const b64 = await blobToBase64(pdfBlob);
+              if (window.homefitBridge && typeof window.homefitBridge.shareFile === 'function') {
+                window.homefitBridge.shareFile(b64, fileName, 'application/pdf');
+                return;
+              }
+              // Bridge missing (older Dart side) — fall back to
+              // window.open which iOS WKWebView renders inline.
+              try { window.open(blobUrl, '_blank'); } catch (_) {}
+            } catch (err) {
+              try { console.warn('[homefit-lobby] download rejected:', err); } catch (_) {}
+            }
+          }
+        : undefined;
+
       showExportModal({
         previewImageDataUrl: firstPageDataUrl || '',
         blobUrl,
         fileName,
         pageCount,
         onShare,
+        onDownload,
         onRetry: () => { triggerLobbyShare().catch(() => {}); },
       });
 
