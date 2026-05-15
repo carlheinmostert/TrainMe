@@ -189,6 +189,19 @@
         </a>
       </li>
       <li>
+        <a href="./fix-studio-card-title-spacing.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Studio card &mdash; equalise vertical spacing above and below the exercise title</div>
+              <div class="scope">Small visual fix. Carl flagged the Studio exercise card has unequal vertical whitespace around the title: gap from media-type icon (top element) down to the title <em>vs</em> gap from chip strip (bottom element) up to the title were different. Outer text-column <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Column</code> switches from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">MainAxisAlignment.center</code> to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">spaceBetween</code> with three children: a 29pt invisible top spacer (matches the badge's 33pt container minus the 10pt column top-padding), the title block (title + plan summary + optional notes), and the state chip strip pinned to the bottom. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">spaceBetween</code> on three children distributes free space equally between the two gaps, so the title block sits visually centred between top-element and bottom-element. Rest periods (no badge, no chip strip) keep <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">MainAxisAlignment.center</code>. Touches only <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/lib/widgets/studio_exercise_card.dart</code>. <strong>6 items in 4 sections; load-bearing: #1 (gap above == gap below on default video card), #2 (same with notes + chips), #5 (rest periods unaffected).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./feat-publish-decouple-consent.html">
           <div class="row">
             <div>

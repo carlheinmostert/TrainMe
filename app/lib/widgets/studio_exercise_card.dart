@@ -302,9 +302,14 @@ class _CardTextColumn extends StatelessWidget {
     final isRest = exercise.isRest;
     final notes = (exercise.notes ?? '').trim();
     final summary = _planSummary(exercise);
-    return Column(
+
+    // Title block — title + summary + (optional) notes. Lives between
+    // the top element (media-type badge, in the parent Stack) and the
+    // bottom element (state chip strip). Wrapped so `spaceBetween` on
+    // the outer Column can balance gaps above and below it.
+    final titleBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
         if (exerciseHasMissingMedia(exercise)) ...[
           _MediaStatusBanner(exerciseId: exercise.id),
@@ -336,10 +341,40 @@ class _CardTextColumn extends StatelessWidget {
             monospace: false,
           ),
         ],
-        if (!isRest) ...[
-          const SizedBox(height: 6),
-          _StateChipStrip(exercise: exercise),
-        ],
+      ],
+    );
+
+    // Rest periods have neither the media-type badge nor the state
+    // chip strip, so there's nothing to balance against — just centre
+    // the title block in the available column space.
+    if (isRest) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [titleBlock],
+      );
+    }
+
+    // Carl QA 2026-05-15 — equalise the visual gap above the title
+    // (down from the media-type badge floating at top-left of the
+    // text column) and below the title (up from the state chip strip
+    // pinned to the card bottom). `spaceBetween` on a 3-child column
+    // distributes the free space equally between the two gaps, so the
+    // middle child (title block) sits visually centred between the
+    // top-element (badge clearance spacer) and bottom-element (chip
+    // strip). Spacer height matches the badge's 33pt container minus
+    // the 10pt top padding of the text-column Padding, with a small
+    // overshoot for visual comfort.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // Invisible top spacer — reserves room for the Positioned
+        // `_MediaTypeBadge` so the title block's top gap measures
+        // from the badge's visual bottom, not from the column's top.
+        const SizedBox(height: 29),
+        titleBlock,
+        _StateChipStrip(exercise: exercise),
       ],
     );
   }
