@@ -3477,9 +3477,10 @@ body.is-fullscreen .playpause-toggle {
   stroke: currentColor;
 }
 
-/* Lobby share button — sits next to the gear, triggers the lobby PNG
-   export + iOS share sheet (Wave Free Lobby Export, 2026-05-05). Mirrors
-   .lobby-gear-btn shape so the two buttons read as one cluster. */
+/* Lobby share button — sits next to the gear, triggers the lobby PDF
+   export + iOS share sheet (Wave Free Lobby Export, 2026-05-05; PDF
+   pivot 2026-05-14). Mirrors .lobby-gear-btn shape so the two buttons
+   read as one cluster. */
 .lobby-share-btn {
   flex: 0 0 48px;
   width: 48px;
@@ -3523,10 +3524,9 @@ body.is-fullscreen .playpause-toggle {
    Snapshot pages are rasterised offscreen via the .lobby-export-page
    container (see below); these legacy rules are kept so that any
    accidental capture of the live #lobby root also drops the chrome.
-   Pivot 2026-05-14: PNG single-image export retired in favour of a
-   multi-page PDF pipeline. The .is-exporting class also strips the
-   active-row coral highlight + circuit chrome overflow so each
-   paginated page chunk rasterises cleanly. */
+   The .is-exporting class also strips the active-row coral highlight
+   + circuit chrome overflow so each paginated page chunk rasterises
+   cleanly. */
 html.is-exporting .lobby-cta-bar,
 html.is-exporting .lobby-meta-version,
 html.is-exporting #lobby-settings-popover {
@@ -3724,105 +3724,6 @@ html.is-exporting .lobby-row.is-active,
   font-family: 'Inter', -apple-system, sans-serif;
   font-size: 11px;
   text-align: right;
-}
-
-/* Desktop export modal (Wave Free Lobby Export hardening, 2026-05-05).
-   Shown after the snapshot completes when navigator.share isn't available
-   (macOS Safari/Chrome desktop). User clicks Download anchor → fresh
-   user-activation → browser honours the download. */
-.lobby-export-modal[hidden] { display: none; }
-.lobby-export-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.lobby-export-modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(15, 17, 23, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-.lobby-export-modal-card {
-  position: relative;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: 16px;
-  padding: 20px;
-  max-width: min(520px, 100%);
-  max-height: calc(100vh - 48px);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
-}
-.lobby-export-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.lobby-export-modal-title {
-  margin: 0;
-  font-family: 'Montserrat', -apple-system, sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-ink-primary);
-}
-.lobby-export-modal-close {
-  background: transparent;
-  border: 0;
-  color: var(--c-ink-secondary);
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-.lobby-export-modal-close:hover {
-  color: var(--c-ink-primary);
-  background: rgba(255, 255, 255, 0.05);
-}
-.lobby-export-modal-img {
-  width: 100%;
-  height: auto;
-  max-height: calc(100vh - 220px);
-  object-fit: contain;
-  border-radius: 8px;
-  background: #0F1117;
-}
-.lobby-export-modal-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-}
-.lobby-export-modal-download {
-  display: inline-block;
-  text-align: center;
-  background: var(--c-accent);
-  color: #0F1117;
-  font-family: 'Montserrat', -apple-system, sans-serif;
-  font-weight: 600;
-  font-size: 14px;
-  padding: 12px 16px;
-  border-radius: 999px;
-  text-decoration: none;
-  cursor: pointer;
-}
-.lobby-export-modal-download:hover {
-  filter: brightness(1.05);
-}
-.lobby-export-modal-hint {
-  margin: 0;
-  text-align: center;
-  color: var(--c-ink-secondary);
-  font-family: 'Inter', -apple-system, sans-serif;
-  font-size: 12px;
 }
 
 /* Lobby settings popover — anchored to the viewport-bottom and opens
