@@ -189,6 +189,45 @@
         </a>
       </li>
       <li>
+        <a href="./fix-pdf-aspect-ratio.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Lobby PDF aspect ratio &mdash; drop border-box padding mismatch (BUG 6c)</div>
+              <div class="scope">Closes <strong>BUG 6c</strong> from the 2026-05-14 QA pass. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.lobby-export-page</code> had <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">width: 794px</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">box-sizing: border-box</code> + 28&thinsp;px horizontal padding. html2canvas captured the full 794&thinsp;px outer width but only 738&thinsp;px was content; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pdf.addImage</code> then stretched the 1588&thinsp;px canvas to fill A4's 210&thinsp;mm, inflating content horizontally by ~7%. <strong>Fix:</strong> the padding moves to an inner <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.lobby-export-page-inner</code> wrapper &mdash; the outer 794&thinsp;px IS now the content width, so html2canvas captures the right rectangle and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">addImage</code> stamps without horizontal distortion. The padding renders inside the rasterised image as real PDF margin space. Web-player only; mobile preview tab gets the fix through the byte-identical bundle sync. <strong>6 items in 4 sections; load-bearing: #1-2 (single-page text + hero aspect on Mac), #3-4 (multi-page both pages match), #5 (side-by-side parity with lobby), #6 (bundle drift CI green).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./fix-gear-popover-css-override.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Gear popover &mdash; drop stale CSS <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">bottom</code> rule that overrode JS-set <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top</code> (landscape iOS)</div>
+              <div class="scope"><strong>PR #338's JS fix was still broken on landscape iOS.</strong> The reposition function correctly computed "open above gear" coords via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: fixed</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top = gearRect.top &minus; gap &minus; popH</code>, but a stale <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.lobby-settings-popover { position: absolute; bottom: calc(100% + 8px); right: 16px; }</code> rule in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">styles.css</code> won the cascade and anchored the popover to the fixed CTA bar's containing block &mdash; pushing it below the gear and off the bottom of the screen in landscape. <strong>Fix:</strong> drop <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: absolute</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">bottom</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">right</code> from the base CSS rule; switch base to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: fixed</code> so there's no FOUC. CSS-only change; JS untouched (lobby.js bundle byte-identical). <strong>3 items in 3 sections; load-bearing: #2 (landscape on-screen check &mdash; the actual bug).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./fix-editor-sheet-late-init.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; P0 regression &mdash; editor sheet opens with content (LateInit fix)</div>
+              <div class="scope"><strong>P0 unblock.</strong> PR #340's commit <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">13b8c59</code> (Demo-default + swipe wrap) introduced a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">LateInitializationError</code> in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">exercise_editor_sheet.dart</code>: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_pageForCell()</code> reads <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_pageController.hasClients</code> for the nearest-cycle math, but the late-final <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_pageController</code> isn't assigned yet when <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">initState</code> calls the helper to compute its own <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">initialPage</code>. Flutter's release-mode error widget silently swaps the subtree, leaving the bottom sheet's grey backdrop chrome visible with no content &mdash; Carl's "blank grey sheet" symptom. <strong>Forward-fix:</strong> guard the read with a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_pageControllerInitialized</code> bool flipped true the instant assignment lands, falling back to the midpoint anchor on the pre-assignment path. Preserves Demo-default + swipe-wrap exactly &mdash; 4 verification items only.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">P0</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-15-editor-sheet-demo-tab-and-swipe.html">
           <div class="row">
             <div>

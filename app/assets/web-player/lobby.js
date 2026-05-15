@@ -3037,6 +3037,13 @@
   function buildExportPageElement(items, pageIndex, pageCount, planTitle, summaryLine) {
     const wrap = document.createElement('div');
     wrap.className = 'lobby-export-page';
+    // BUG 6c (2026-05-15): inner wrapper holds the padding so the outer
+    // 794px width equals the A4 content area. Without this split,
+    // html2canvas captured the full bordered-box width (794px including
+    // 56px horizontal padding) and addImage then stretched the 1588px
+    // canvas to fill 210mm, inflating content horizontally by ~7%.
+    const inner = document.createElement('div');
+    inner.className = 'lobby-export-page-inner';
 
     if (pageIndex === 0) {
       const header = document.createElement('div');
@@ -3049,7 +3056,7 @@
       summaryEl.textContent = summaryLine;
       header.appendChild(titleEl);
       if (summaryLine) header.appendChild(summaryEl);
-      wrap.appendChild(header);
+      inner.appendChild(header);
     } else {
       const running = document.createElement('div');
       running.className = 'lobby-export-page-running';
@@ -3060,7 +3067,7 @@
       runPage.textContent = `page ${pageIndex + 1} of ${pageCount}`;
       running.appendChild(runTitle);
       running.appendChild(runPage);
-      wrap.appendChild(running);
+      inner.appendChild(running);
     }
 
     // Body — a fresh .lobby-list <ul> hosting cloned items. We keep
@@ -3088,7 +3095,7 @@
       ul.appendChild(clone);
     }
     body.appendChild(ul);
-    wrap.appendChild(body);
+    inner.appendChild(body);
 
     const footer = document.createElement('div');
     footer.className = 'lobby-export-page-footer';
@@ -3100,8 +3107,9 @@
     brand.textContent = 'Visual plans clients follow. · homefit.studio';
     footer.appendChild(count);
     footer.appendChild(brand);
-    wrap.appendChild(footer);
+    inner.appendChild(footer);
 
+    wrap.appendChild(inner);
     return wrap;
   }
 
