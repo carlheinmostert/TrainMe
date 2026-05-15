@@ -40,6 +40,7 @@ class UploadDiagnosticSheet extends StatelessWidget {
     if (failures.isEmpty) return Future<void>.value();
     return showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true, // layer over the publish progress sheet
       backgroundColor: AppColors.surfaceRaised,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(

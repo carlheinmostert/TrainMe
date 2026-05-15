@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-15 — Upload diagnostic sheet root-navigator fix</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.cr {
+    background: rgba(96,165,250,0.12); color: #60A5FA;
+    border-color: rgba(96,165,250,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 &middot; modal-stacking fix &middot; useRootNavigator</div>
+    <h1>Device QA &mdash; Upload diagnostic sheet opens over publish progress sheet</h1>
+    <p class="lede">
+      <strong>Bug:</strong> on the failure state of the publish progress sheet, the &ldquo;Show which files &rarr;&rdquo; link rendered correctly but was non-responsive when tapped &mdash; nothing happened. The diagnostic sheet never opened.
+      <br><br>
+      <strong>Root cause:</strong> Flutter modal-stacking issue. <code>UploadDiagnosticSheet.show()</code> called <code>showModalBottomSheet</code> against the same <code>Navigator</code> that already had the <code>PublishProgressSheet</code> open. Pushing a new modal onto a navigator that already owns a modal is a no-op &mdash; Flutter silently rejects the push, the new sheet never appears, and the tap looks like a dead button.
+      <br><br>
+      <strong>Fix:</strong> single-line change in <code>app/lib/widgets/upload_diagnostic_sheet.dart</code> &mdash; add <code>useRootNavigator: true</code> to the <code>showModalBottomSheet</code> call so it pushes onto the ROOT navigator (which has no modal on it), letting the diagnostic sheet layer cleanly on top of the publish progress sheet.
+      <br><br>
+      <strong>Sensitivity:</strong> low &mdash; a single named parameter on a single call site. No behaviour changes outside the diagnostic-sheet open path.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>fix/upload-diagnostic-sheet-root-navigator</code> installed on Carl's iPhone via <code>./install-device.sh</code>.</li>
+        <li>One fully-consented test client (B&amp;W + Original ON) with a fresh session of 3+ video captures.</li>
+        <li>Wi-Fi reachable and Control Center one-tap away so Airplane mode can be flipped mid-upload.</li>
+      </ul>
+    </div>
+
+    <h2>Repro &middot; diagnostic sheet opens on tap</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open the prepared session. Tap <strong>PUBLISH</strong>. Wait for <em>Uploading treatments</em> to reach the active (pulsing coral) state with <em>N of M files</em> ticking up. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">Flip <strong>Airplane mode</strong> ON. Within ~10s the upload fails: row turns coral with <em>!</em>; header morphs to coral <em>&ldquo;Publish failed&rdquo;</em>; the <em>&ldquo;Show which files &rarr;&rdquo;</em> coral-underline link appears above <em>Retry publish</em>. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>The fix.</strong> Tap <em>&ldquo;Show which files &rarr;&rdquo;</em>. Expect: the <code>UploadDiagnosticSheet</code> opens IMMEDIATELY on top of the publish progress sheet &mdash; one row per failed variant (kind chip, exercise #N + name, storage path, local path, exists-on-disk). Previously this tap was a dead button; with <code>useRootNavigator: true</code> the new sheet layers correctly. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Confirm <strong>Copy all</strong> still works inside the diagnostic sheet (writes to clipboard, SnackBar acks). Swipe the diagnostic sheet down to dismiss. Expect: you return to the failure-state publish progress sheet underneath &mdash; both navigators intact, no nav stack corruption. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Re-open path &middot; chip then diagnostic</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">From item 4, swipe the publish progress sheet down too. Toolbar shows the failure chip. Tap the chip to re-open. The sheet re-attaches with the failure state and <em>&ldquo;Show which files &rarr;&rdquo;</em>. Tap it again &mdash; diagnostic sheet still opens cleanly. This confirms the fix survives the re-open-via-chip path, not just the first failure render. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">Close diagnostic sheet, toggle airplane mode OFF, tap <em>&ldquo;Retry publish&rdquo;</em>. Expect: publish re-fires and succeeds (all rows green, sage &ldquo;All set&rdquo; beat, auto-dismiss). No leaked navigator state from the previous failure path. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Regression &middot; happy path untouched</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">Fresh session, network ON throughout. Publish. Expect: all five rows green &rarr; sage &ldquo;All set&rdquo; beat &rarr; auto-dismiss &rarr; sage &ldquo;Plan published&rdquo; chip for ~3s. Diagnostic sheet code path is untouched on the happy path. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">From <code>app/</code>: <code>flutter analyze</code> exits 0 with <em>&ldquo;No issues found!&rdquo;</em>. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Single-line fix on <code>app/lib/widgets/upload_diagnostic_sheet.dart</code>: <code>useRootNavigator: true</code> on the <code>showModalBottomSheet</code> call so the diagnostic sheet pushes onto the root navigator and layers over the publish progress sheet (a modal in its own right). No other call sites touched.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'fix-upload-diagnostic-root-navigator.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'fix-upload-diagnostic-root-navigator', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (!noteInput) return;
+          noteInput.placeholder = status === 'fail' ? 'What broke? (optional)' : 'Note (optional)';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status');
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          if (next) {
+            state[num] = { status: next, note: noteInput ? noteInput.value : '' };
+            setPlaceholder('pass');
+            if (noteInput) setTimeout(function() { noteInput.focus(); }, 30);
+          } else { delete state[num]; }
+          save();
+        });
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status');
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          if (next) {
+            state[num] = { status: next, note: noteInput ? noteInput.value : '' };
+            setPlaceholder('fail');
+            if (noteInput) setTimeout(function() { noteInput.focus(); }, 30);
+          } else { delete state[num]; }
+          save();
+        });
+        if (noteInput) {
+          noteInput.addEventListener('input', function() {
+            var status = li.getAttribute('data-status');
+            if (!status) return;
+            state[num] = { status: status, note: noteInput.value };
+            save();
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
