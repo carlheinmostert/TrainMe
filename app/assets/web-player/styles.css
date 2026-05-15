@@ -3303,8 +3303,10 @@ body.is-fullscreen .playpause-toggle {
 /*
  * Round 4 (2026-05-04) — treatment selector moved behind the gear.
  * Bar is now Start + gear in a single row. The treatment row lives
- * inside `#lobby-settings-popover` which is `position: absolute`
- * inside `.lobby-cta-bar` and opens UPWARD from above the gear.
+ * inside `#lobby-settings-popover` which is JS-positioned
+ * (`position: fixed` + viewport-aware top/left from
+ * `repositionLobbySettingsPopover()` in lobby.js) and opens UPWARD
+ * from above the gear.
  */
 .lobby-cta-bar {
   position: fixed;
@@ -3736,21 +3738,16 @@ html.is-exporting .lobby-row.is-active,
   text-align: right;
 }
 
-/* Lobby settings popover — anchored to the viewport-bottom and opens
-   UPWARD from the gear. `position: absolute` inside `.lobby-cta-bar`
-   so it reads "stuck to the bar" rather than free-floating. The bar
-   has `z-index: 60`; this lives inside it, no conflict.
-
-   Anchored to the right edge of the bar's inner container (where the
-   gear sits). Width grows to a comfortable popover size on phone +
-   tablet; max-width clamps it on desktop. */
+/* Lobby settings popover — positioned by JS via `repositionLobbySettingsPopover()`
+   in `lobby.js`. JS computes viewport-aware `top` / `left` coords from the
+   gear button's clientRect and sets `position: fixed` so the popover anchors
+   to the viewport (not the fixed CTA bar's containing block). Without this
+   CSS deferring to JS, the prior `position: absolute; bottom: calc(100% + 8px)`
+   rule won the cascade and pushed the popover offscreen in landscape on iOS
+   (PR #338 follow-up). Keep `position: fixed` here so there's no FOUC
+   between hidden-flip and JS reposition. */
 .lobby-settings-popover {
-  position: absolute;
-  /* Float above the bar — bar's top padding is 12px; we sit just above
-     it with an 8px gap. `bottom: 100%` aligns the popover's bottom
-     edge to the bar's top edge; `+8px` lift comes from translateY. */
-  bottom: calc(100% + 8px);
-  right: 16px;
+  position: fixed;
   z-index: 70;
   min-width: 240px;
   max-width: calc(100vw - 32px);
@@ -3800,11 +3797,11 @@ html.is-exporting .lobby-row.is-active,
 
 /* Lobby-settings-unify (2026-05-14): the lobby popover hosts the
    unified gear panel — same width footprint as the deck popover so
-   the two read as one component. min-width matches the deck. The
-   `position: absolute; bottom: calc(100% + 8px); right: 16px;` from
-   the base `.lobby-settings-popover` rule above wins on cascade
-   (declared later than the shared `.settings-popover` block), so the
-   anchor still opens upward from the gear in the CTA bar. */
+   the two read as one component. min-width matches the deck. Anchor
+   positioning is JS-driven (`repositionLobbySettingsPopover()` in
+   lobby.js); the base `.lobby-settings-popover` rule above uses
+   `position: fixed` with no static `top`/`bottom`/`left`/`right`,
+   so the JS-set coords are the only positional rules in play. */
 .lobby-settings-popover.settings-popover {
   min-width: 264px;
 }

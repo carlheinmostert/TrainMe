@@ -162,9 +162,11 @@ class ExerciseCapture {
   /// exercise.
   ///
   /// Semantics:
-  ///   * `null` → no explicit choice, render as [Treatment.line] (the
-  ///     de-identifying default). This is the value for every exercise
-  ///     at capture time and after a fresh install.
+  ///   * `null` → no explicit choice, render as [Treatment.grayscale]
+  ///     (B&W) per the 2026-05-15 publish-flow refactor (PR-B). New
+  ///     captures land with an explicit `grayscale` value via
+  ///     `StickyDefaults.applyGlobalCaptureDefaults`; this read-time
+  ///     fallback only matters for legacy NULL rows captured pre-2026-05-12.
   ///   * non-null → the practitioner cycled the treatment on this
   ///     exercise (via the Studio `_MediaViewer` vertical swipe, a
   ///     plan-preview segment tap, or a Studio-card tile tap) and wants

@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./feat-default-treatment-swap.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Default treatment swap line&rarr;B&amp;W + soft fallback (PR-B of publish-flow refactor)</div>
+              <div class="scope"><strong>Second of three PRs implementing the 2026-05-15 publish-flow refactor spec.</strong> Two changes ship together. <strong>(1) Default-default flip:</strong> the read-time fallback for <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">preferred_treatment IS NULL</code> moves from line to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">grayscale</code> (B&amp;W). PR #309 already flipped the WRITE side at capture time; PR-B flips the READ side in 4 places (Dart resolver, Studio viewer, MiniPreview, web JS <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">treatmentFromWire</code>) so legacy NULL rows render B&amp;W too. <strong>(2) Soft fallback on the player:</strong> when the practitioner preferred B&amp;W / Original but the client only granted line consent, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">get_plan_full</code> returns <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">grayscale_url=null</code> while keeping <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">line_drawing_url</code> populated. Today's no-fallback resolver renders the coral &ldquo;treatment not available&rdquo; placeholder; after PR-B the same case silently renders the line drawing &mdash; no label, no warning (Carl chose Option A, 2026-05-15). <strong>The no-fallback principle still covers the FILE-MISSING case</strong> (line drawing also absent / URL expired): the coral placeholder still fires there. <strong>Out of scope (PR-C):</strong> publish progress sheet, atomic-publish failure UX, partial-success toast removal. <strong>Sensitive zone:</strong> web-player resolver &mdash; Carl review before merge. <strong>15 items in 6 sections; load-bearing: #1-3 (new capture defaults to B&amp;W), #4-5 (legacy NULL rows render B&amp;W), #7 (consent-revoked &rarr; silent line fallback &mdash; the point of the PR), #9 (file-missing still shows coral placeholder), #10 (consent-revoked shape renders line silently), #12 (cycle behaves gracefully across all consent states).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-studio-card-title-spacing.html">
           <div class="row">
             <div>
