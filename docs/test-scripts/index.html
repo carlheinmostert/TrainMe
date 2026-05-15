@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./fix-lobby-pdf-stack.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Lobby gear popover + PDF Download bridge + multi-page timeout + copy polish</div>
+              <div class="scope">Four-fix stack closing 2026-05-14 QA flags. <strong>BUG 14:</strong> gear popover offscreen on iOS WKWebView &mdash; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: absolute</code> inside a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: fixed</code> bar didn't lay out the way Safari paints it. Fix: JS-driven <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: fixed</code> with gear-anchored coords on every open + resize/orientation/scroll re-anchor while open. <strong>BUG 8:</strong> Download PDF was a bare <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;a download&gt;</code> &mdash; WKWebView silently ignores those. Fix: on iOS embedded, Download routes through the existing <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefitBridge.shareFile</code> path (same as Share &mdash; UIActivityViewController exposes Save to Files). Desktop falls through to the native anchor. <strong>BUG 10a:</strong> page-2 render timed out on multi-page PDFs &mdash; one unprefetched image forced html2canvas to refetch under heavier WebView layout. Fix: per-page timeout 15s &rarr; 30s, image pre-fetch 8s &rarr; 15s on iOS embedded, explicit <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pageCanvas = null</code> + width/height to 0 after each page. <strong>Polish:</strong> "Cmd+Shift+R" copy &rarr; device-agnostic "Reload and try again" / "Reload the page and try again". <strong>8 items in 8 sections; load-bearing: #1 (popover on-screen), #2 (rotate re-anchor), #3 (Download &rarr; iOS share sheet), #4 (desktop Download regression check), #5 (10+ exercise plan multi-page renders), #6 (single-page baseline), #7 (no more Cmd+Shift+R), #8 (drift CI green).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./studio-card-square-hero.html">
           <div class="row">
             <div>
