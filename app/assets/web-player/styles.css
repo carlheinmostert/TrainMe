@@ -3601,7 +3601,6 @@ html.is-exporting .lobby-row.is-active,
   top: -100000px;
   left: 0;
   width: 794px;
-  padding: 28px 28px 22px;
   box-sizing: border-box;
   background: #0F1117;
   color: var(--c-ink-primary);
@@ -3609,7 +3608,18 @@ html.is-exporting .lobby-row.is-active,
   z-index: -1;
   display: flex;
   flex-direction: column;
+}
+/* BUG 6c (2026-05-15): the outer .lobby-export-page is what html2canvas
+   captures; its width must equal the A4 content area when addImage stamps
+   it at PDF_PAGE_WIDTH_MM. Padding lives on this inner wrapper so the
+   horizontal padding becomes part of the rasterised image (real PDF
+   margin space) rather than inflating the outer width and getting
+   stretched horizontally by ~7% when fit to 210mm. */
+.lobby-export-page-inner {
+  display: flex;
+  flex-direction: column;
   gap: 14px;
+  padding: 28px 28px 22px;
 }
 
 /* Full header (page 1). Plan title, summary line. The summary line is
