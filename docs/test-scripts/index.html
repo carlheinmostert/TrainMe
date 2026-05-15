@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./fix-silence-consent-preflight-toast.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Silence consent-preflight-skipped toast (PR-A cleanup)</div>
+              <div class="scope"><strong>Cosmetic noise removal.</strong> PR-A made the upload flow consent-agnostic; the client-side <code>validate_plan_treatment_consent</code> preflight is informational only &mdash; <code>consume_credit</code> on the server is the authoritative backstop. When the preflight RPC fails transiently (network blip, auth edge), publish still succeeds but a noisy "Published, but treatment-consent pre-check was skipped" SnackBar fired. <strong>Fix:</strong> replace the SnackBar in <code>app/lib/screens/studio_mode_screen.dart</code> with a <code>debugPrint</code> so the diagnostic is preserved for future debugging without surfacing to the user. <strong>3 items; load-bearing: #1 (republish &mdash; no consent-skip toast), #2 (audit + credit consumption proves server guard remains authoritative).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-storage-policies-recovery.html">
           <div class="row">
             <div>

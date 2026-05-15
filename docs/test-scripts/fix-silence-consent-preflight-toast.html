@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fix/silence-consent-preflight-toast — Test Script</title>
+<style>
+  body {
+    background: #0F1117;
+    color: #E5E7EB;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    margin: 0;
+    padding: 24px;
+    line-height: 1.55;
+  }
+  h1 { color: #FF6B35; font-family: 'Montserrat', sans-serif; font-weight: 700; margin: 0 0 8px; font-size: 22px; }
+  h2 { color: #FF6B35; font-family: 'Montserrat', sans-serif; font-weight: 600; margin: 24px 0 8px; font-size: 16px; }
+  .meta { color: #9CA3AF; font-size: 13px; margin-bottom: 24px; }
+  .item {
+    background: #1A1D24;
+    border: 1px solid #2A2E37;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 12px 0;
+  }
+  .item-num { color: #FF6B35; font-weight: 700; }
+  .item-body { margin: 8px 0 12px; }
+  .buttons { display: flex; gap: 8px; margin: 8px 0; }
+  button {
+    background: #2A2E37;
+    color: #E5E7EB;
+    border: 1px solid #3A3E47;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.pass { border-color: #22C55E; color: #22C55E; }
+  button.fail { border-color: #EF4444; color: #EF4444; }
+  button.pass.active { background: #22C55E; color: #0F1117; }
+  button.fail.active { background: #EF4444; color: #0F1117; }
+  textarea {
+    width: 100%;
+    background: #0F1117;
+    color: #E5E7EB;
+    border: 1px solid #3A3E47;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    margin-top: 8px;
+    box-sizing: border-box;
+    min-height: 60px;
+  }
+  .save-status { color: #9CA3AF; font-size: 11px; margin-left: 8px; }
+  code { background: #2A2E37; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>fix/silence-consent-preflight-toast</h1>
+<div class="meta">PR-A made the upload flow consent-agnostic. The client-side preflight RPC <code>validate_plan_treatment_consent</code> is now informational only; <code>consume_credit</code> on the server is the authoritative backstop. When the preflight fails transiently, publish still succeeds — but a noisy SnackBar fires. This patch silences the SnackBar; keeps the diagnostic as a <code>debugPrint</code>.</div>
+
+<h2>Test 1 — Normal publish: no consent-skip toast</h2>
+<div class="item">
+  <div><span class="item-num">1.</span> <strong>Open a client with a published plan that you can republish.</strong></div>
+  <div class="item-body">
+    Open Studio for an existing session that has at least one consented exercise. Make a small edit (rename a circuit, change reps). Tap <strong>Publish</strong>. Observe the success state.
+    <br><br>
+    <strong>Expected:</strong> "Published" toast (the standard success one). <strong>NO</strong> toast that says "Published, but treatment-consent pre-check was skipped". The publish flow looks exactly like it did before this change for the happy-path case.
+  </div>
+  <div class="buttons">
+    <button class="pass" data-id="1" data-state="pass">Pass</button>
+    <button class="fail" data-id="1" data-state="fail">Fail</button>
+    <span class="save-status" id="status-1"></span>
+  </div>
+  <textarea data-id="1" placeholder="Notes (optional)..."></textarea>
+</div>
+
+<h2>Test 2 — Publish still succeeds (server guard remains authoritative)</h2>
+<div class="item">
+  <div><span class="item-num">2.</span> <strong>Confirm the credit was consumed and the plan version bumped.</strong></div>
+  <div class="item-body">
+    After Test 1, open the web portal Audit tab. Confirm a fresh <code>plan.published</code> row appears for the session you just republished, with a credit consumption logged immediately before it.
+    <br><br>
+    <strong>Expected:</strong> Audit shows the publish event. Credit balance dropped by 1 (or 2 for &gt; 75min plans). This proves the server-side <code>consume_credit</code> still enforces consent end-to-end even with no client-side preflight noise.
+  </div>
+  <div class="buttons">
+    <button class="pass" data-id="2" data-state="pass">Pass</button>
+    <button class="fail" data-id="2" data-state="fail">Fail</button>
+    <span class="save-status" id="status-2"></span>
+  </div>
+  <textarea data-id="2" placeholder="Notes (optional)..."></textarea>
+</div>
+
+<h2>Test 3 — Diagnostic debugPrint still fires (developer-only check)</h2>
+<div class="item">
+  <div><span class="item-num">3.</span> <strong>(Optional — only if you can capture device logs.)</strong> Confirm the diagnostic line is preserved.</div>
+  <div class="item-body">
+    If you have the Mac connected and can stream device logs (Console.app filtering on the app), look for a line containing <code>Consent preflight skipped:</code> when the preflight RPC fails. This only fires when the preflight RPC itself errors (network blip, auth edge); on a clean network you may never see it — that's fine.
+    <br><br>
+    <strong>Expected:</strong> If the preflight ever skips, a debugPrint appears in logs. No UI toast either way.
+    <br><br>
+    Skip this test if you can't easily capture device logs; Tests 1 + 2 are the load-bearing ones.
+  </div>
+  <div class="buttons">
+    <button class="pass" data-id="3" data-state="pass">Pass</button>
+    <button class="fail" data-id="3" data-state="fail">Fail</button>
+    <span class="save-status" id="status-3"></span>
+  </div>
+  <textarea data-id="3" placeholder="Notes (optional)..."></textarea>
+</div>
+
+<script>
+const SLUG = 'fix-silence-consent-preflight-toast';
+const results = {};
+
+function save() {
+  fetch(`/api/test-results/${SLUG}.json`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(results),
+  }).then(() => {
+    // no-op; per-row indicator updated by caller
+  }).catch(() => {});
+}
+
+document.querySelectorAll('button[data-id]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.id;
+    const state = btn.dataset.state;
+    results[id] = results[id] || {};
+    results[id].state = state;
+    results[id].notes = document.querySelector(`textarea[data-id="${id}"]`).value;
+    results[id].ts = new Date().toISOString();
+    // toggle active style on the pair
+    document.querySelectorAll(`button[data-id="${id}"]`).forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`status-${id}`).textContent = `saved · ${state}`;
+    save();
+  });
+});
+
+document.querySelectorAll('textarea[data-id]').forEach(t => {
+  t.addEventListener('input', () => {
+    const id = t.dataset.id;
+    if (!results[id]) results[id] = {};
+    results[id].notes = t.value;
+    results[id].ts = new Date().toISOString();
+    document.getElementById(`status-${id}`).textContent = 'notes saved';
+    save();
+  });
+});
+</script>
+
+</body>
+</html>
