@@ -33,6 +33,15 @@
 // .lobby-export-page-inner max-width: 688px + margin: 0 auto so the export
 // content lays out identically to the live lobby. See
 // fix/pdf-aspect-content-width-match.
+//
+// 2026-05-15 (lobby gear popover landscape fix) — bumped for the cascade
+// fix: dropped the shared `settings-popover` class from the lobby
+// popover element + switched JS positioning to setProperty('important').
+// PR #343 was inert in landscape because the deck's landscape media
+// query (styles.css line 2401) re-asserted `position:absolute;
+// top:134px; right:8px` whenever JS cleared inline styles on close,
+// putting the popover below the gear and offscreen.
+// See fix/gear-popover-drop-shared-class.
 const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
 // App shell files — always cached
