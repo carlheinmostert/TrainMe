@@ -24,6 +24,16 @@
 // inert because lazy images outside viewport never fired `load`, hanging
 // the await forever. See fix/circuit-geometry-attempt-7.
 //
+// 2026-05-15 (even later) — bumped for the SECOND-attempt lobby PDF aspect-
+// ratio fix. PR #344 (first attempt) was based on a wrong-physics diagnosis
+// and changed nothing observable. Real issue: export inner content box was
+// 738px (794px outer - 56px padding) vs live lobby content box of 688px
+// (720px max-width - 32px padding) → same content filled 1.073x more
+// horizontal space, reading as horizontal stretch. Fix sets
+// .lobby-export-page-inner max-width: 688px + margin: 0 auto so the export
+// content lays out identically to the live lobby. See
+// fix/pdf-aspect-content-width-match.
+//
 // 2026-05-15 (lobby gear popover landscape fix) — bumped for the cascade
 // fix: dropped the shared `settings-popover` class from the lobby
 // popover element + switched JS positioning to setProperty('important').
