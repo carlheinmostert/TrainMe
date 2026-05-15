@@ -144,75 +144,10 @@ class PublishFailedException implements Exception {
   String toString() => userMessage;
 }
 
-/// One per-file failure record captured during the best-effort raw-archive
-/// upload pass in [UploadService._uploadRawArchives]. PR #335 added
-/// `debugPrint` lines on each `loudSwallow` miss; the in-app diagnostic
-/// sheet (`widgets/upload_diagnostic_sheet.dart`) needs the same data on
-/// the UI side without parsing log output, so we now collect a list of
-/// these alongside the `hadFailures` bool and surface it through
-/// [PublishResult.optionalArtifactFailures].
-///
-/// Fields mirror the `meta` map passed to `loudSwallow` so a paste of the
-/// "Copy all" output reads the same as a server-side `error_logs` row.
-class UploadFailureRecord {
-  /// loudSwallow `kind` — e.g. `raw_archive_color_thumb_failed`,
-  /// `raw_archive_segmented_upload_failed`. Same value the support
-  /// console search would key off.
-  final String kind;
-
-  /// `{practice_id}/{plan_id}/{exercise_id}<suffix>` — the bucket path
-  /// the upload was targeting at the time of failure.
-  final String storagePath;
-
-  /// Absolute on-device path of the source file we were trying to push.
-  /// Captured so Carl can spot truncated or zero-byte source files even
-  /// when the storage path looks reasonable.
-  final String localPath;
-
-  /// `File(localPath).existsSync()` AT the failure point — answers the
-  /// "did the source disappear?" question that's otherwise invisible
-  /// from a debug log alone.
-  final bool fileExists;
-
-  /// 0-based slot of this exercise within `session.exercises` (the same
-  /// order the practitioner sees in Studio). Null when we can't compute
-  /// it (defensive — should always be set).
-  final int? exerciseIndex;
-
-  /// Display name of the exercise at upload time, if any. Falls back to
-  /// the trimmed exercise id when the practitioner hasn't named it yet.
-  final String? exerciseName;
-
-  /// Exercise UUID — pulled into its own field so the diagnostic row
-  /// can render a short id when [exerciseName] is null.
-  final String exerciseId;
-
-  const UploadFailureRecord({
-    required this.kind,
-    required this.storagePath,
-    required this.localPath,
-    required this.fileExists,
-    required this.exerciseId,
-    this.exerciseIndex,
-    this.exerciseName,
-  });
-
-  /// Plain-text representation for the "Copy all" affordance. One block
-  /// per record, separated by a blank line in the caller. Mirrors the
-  /// shape the existing `loudSwallow` debugPrint produces so a paste of
-  /// the clipboard is grep-compatible with terminal logs.
-  String toClipboardText() {
-    final indexPart = exerciseIndex != null ? '#${exerciseIndex! + 1}' : '#?';
-    final namePart = (exerciseName == null || exerciseName!.isEmpty)
-        ? exerciseId
-        : exerciseName!;
-    return 'kind=$kind\n'
-        'exercise=$indexPart $namePart ($exerciseId)\n'
-        'storage_path=$storagePath\n'
-        'local_path=$localPath\n'
-        'file_exists=$fileExists';
-  }
-}
+// `UploadFailureRecord` moved to `models/publish_progress.dart` (PR-C
+// reactive-failures fix) so [PublishProgress.failure] can carry the
+// failure list on the stream event without a circular import — the
+// service already imports the model.
 
 /// Structured payload for [PublishResult.networkFailed]: short practitioner copy
 /// ([userMessage]) plus optional diagnostics for clipboard / `last_publish_error`.
@@ -1691,10 +1626,19 @@ class UploadService {
       // error payload so the sheet's "Show which files →" link can
       // hand the same records to [UploadDiagnosticSheet].
       if (e is PublishFailedException) {
+        // PR-C reactive-failures fix — carry the per-file diagnostic
+        // list on the same stream event that flips `failed=true`. The
+        // progress sheet reads from this snapshot so the "Show which
+        // files →" tap-target appears on the same rebuild as the
+        // coral failure row. Previously the host's setState pushed
+        // failures out-of-band after `uploadPlan` returned, by which
+        // point the sheet widget had already captured `failures: []`
+        // at construction.
         emit(PublishProgress.failure(
           phase: e.phase,
           filesUploaded: e.filesUploaded,
           filesTotal: e.filesTotal,
+          failures: e.failures,
         ));
         await _recordFailure(session, e.userMessage);
         // Wrap as PublishFailurePayload so the existing

@@ -3619,17 +3619,22 @@ html.is-exporting .lobby-row.is-active,
   display: flex;
   flex-direction: column;
 }
-/* BUG 6c (2026-05-15): the outer .lobby-export-page is what html2canvas
-   captures; its width must equal the A4 content area when addImage stamps
-   it at PDF_PAGE_WIDTH_MM. Padding lives on this inner wrapper so the
-   horizontal padding becomes part of the rasterised image (real PDF
-   margin space) rather than inflating the outer width and getting
-   stretched horizontally by ~7% when fit to 210mm. */
+/* BUG 6d (2026-05-15): match the live lobby content width so rows lay out
+   identically in the rasterised PDF page. The live lobby renders inside
+   .lobby-inner { max-width: 720px } minus 16px padding each side = 688px
+   content. The export outer is 794px (A4 portrait at 96dpi). Without an
+   explicit max-width on this inner, content would fill 794px - 56px = 738px,
+   which is 1.073x wider than the live 688px box — visible as "horizontal
+   stretch" when viewing the PDF beside the live lobby. Clamping to 688px
+   here and centring with margin: 0 auto lets the extra horizontal space
+   inside the 794px page become real PDF margin (which A4 needs anyway). */
 .lobby-export-page-inner {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 28px 28px 22px;
+  max-width: 688px;
+  margin: 0 auto;
 }
 
 /* Full header (page 1). Plan title, summary line. The summary line is
@@ -3809,8 +3814,17 @@ html.is-exporting .lobby-row.is-active,
    positioning is JS-driven (`repositionLobbySettingsPopover()` in
    lobby.js); the base `.lobby-settings-popover` rule above uses
    `position: fixed` with no static `top`/`bottom`/`left`/`right`,
-   so the JS-set coords are the only positional rules in play. */
-.lobby-settings-popover.settings-popover {
+   so the JS-set coords are the only positional rules in play.
+   2026-05-15: selector moved from `.lobby-settings-popover.settings-popover`
+   to `.lobby-settings-popover--variant` companion class because the
+   shared `.settings-popover` class was dropped (it was inheriting
+   the deck's `position: absolute; top: 134px; right: 8px` from the
+   landscape media query at line 2401 via cascade whenever JS cleared
+   inline styles — putting this popover below the gear and offscreen
+   in landscape). The `settings-popover--lobby` modifier on the element
+   carries width-only intent now; positioning is exclusively JS-driven
+   via setProperty('important'). */
+.settings-popover--lobby {
   min-width: 264px;
 }
 

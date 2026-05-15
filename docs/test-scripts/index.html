@@ -189,6 +189,19 @@
         </a>
       </li>
       <li>
+        <a href="./fix-publish-sheet-failures-reactive.html">
+          <div class="row">
+            <div>
+              <div class="name">-1 &middot; Publish sheet &ldquo;Show which files&rdquo; tap-target appears on first failure render (P1 wiring fix on PR-C)</div>
+              <div class="scope"><strong>P1 wiring bug:</strong> on PR-C's publish failure state the <em>&ldquo;Show which files &rarr;&rdquo;</em> tap-target was invisible. The Flutter wiring captured <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_publishFailures</code> at sheet-construction time when it was still <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">const []</code>; by the time <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">uploadPlan()</code> returned with the populated list, the sheet widget had already captured the empty prop. <strong>Fix:</strong> extend <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PublishProgress.failure</code> to carry a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">List&lt;UploadFailureRecord&gt; failures</code>; emit it on the same stream event that flips <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">failed=true</code>; sheet reads from snapshot, not from a captured prop. Out-of-band <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">setState</code> path retained as a fallback for the chip re-open path. <strong>8 items:</strong> repro the failure (#1-2), confirm tap-target visible on first failure render (#3, the fix), diagnostic sheet opens (#4), re-open after swipe-dismiss preserves failure list (#5), retry succeeds (#6), happy-path regression (#7), <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">flutter analyze</code> clean (#8). <strong>Sensitive zone:</strong> publish flow.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./feat-publish-progress-sheet.html">
           <div class="row">
             <div>

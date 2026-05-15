@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../services/upload_service.dart' show UploadFailureRecord;
+import '../models/publish_progress.dart' show UploadFailureRecord;
 import '../theme.dart';
 
 /// Diagnostic bottom sheet that surfaces the per-file failure list from
