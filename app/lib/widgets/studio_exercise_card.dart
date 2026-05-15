@@ -172,7 +172,7 @@ class StudioExerciseCard extends StatelessWidget {
       child: InkWell(
         onTap: () {
           onTap();
-          _openSheet(context, ExerciseEditorTab.plan);
+          _openSheet(context, ExerciseEditorTab.demo);
         },
         onLongPress: onReplaceMedia,
         borderRadius: BorderRadius.circular(16),
