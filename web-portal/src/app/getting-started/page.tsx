@@ -362,7 +362,7 @@ export default function GettingStartedPage() {
               that.
             </P>
 
-            <RefineSubsection heading="Hand them a PDF instead &mdash; or as well">
+            <RefineSubsection heading="Hand them a PDF instead — or as well">
               <P>
                 Every plan ships two ways. The live URL is what
                 you&rsquo;ve seen above &mdash; interactive, with
