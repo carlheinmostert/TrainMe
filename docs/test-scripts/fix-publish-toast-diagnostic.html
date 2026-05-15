@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — publish toast diagnostic + copy polish</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  pre {
+    background: var(--raised); padding: 12px 16px; border-radius: 8px;
+    border: 1px solid var(--border); overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--text);
+    margin: 8px 0;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 &middot; publish-toast-diagnostic</div>
+    <h1>QA &mdash; publish toast diagnostic + recovery copy polish</h1>
+    <p class="lede">
+      <strong>Scope:</strong> <code>app/lib/services/upload_service.dart</code> (5 <code>loudSwallow</code> upload sites) + <code>app/lib/screens/studio_mode_screen.dart</code> (one toast string).
+      <br><br>
+      <strong>Why this exists:</strong> the &ldquo;<em>Published, but some optional treatment files are still processing (raw-archive upload incomplete). Line treatment is live now; retry publish later to backfill.</em>&rdquo; toast fires on every publish on staging, but doesn&apos;t name <strong>which</strong> file is failing. The generic <code>loudSwallow</code> rejection swallows the error string, leaving the practitioner with no signal beyond &ldquo;something didn&apos;t upload.&rdquo;
+      <br><br>
+      <strong>Diagnostic patch:</strong> each variant <code>loudSwallow</code> block (main mp4, segmented mp4, photo color, color thumb, mask) now appends <code>local_path</code> + <code>file_exists</code> bool to its <code>meta</code> map, AND emits a <code>debugPrint</code> line on failure with <code>kind</code> + <code>path</code> + <code>exists</code>. Surfaces in Xcode device console or via the failed-pill long-press conversion error log.
+      <br><br>
+      <strong>Copy polish:</strong> the toast now reads &ldquo;<em>Published. Some optional treatment files are still processing &mdash; retry publish in a minute to backfill the rest. Line treatment is live now.</em>&rdquo; (drops the parenthetical &ldquo;raw-archive upload incomplete&rdquo; jargon; adds a concrete recovery path).
+      <br><br>
+      <strong>Install:</strong> after the PR merges to <code>staging</code>, run <code>./install-device.sh</code> with the staging build. Then exercise the publish flow on a session that previously triggered the toast.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Staging build (branch <code>fix/publish-toast-diagnostic</code> merged into <code>staging</code>) installed on Carl&apos;s iPhone.</li>
+        <li>A session ready to publish that has previously fired the &ldquo;raw-archive upload incomplete&rdquo; toast. (Any recent publish session on staging should reproduce.)</li>
+        <li>Best signal: Xcode &rarr; Window &rarr; Devices and Simulators &rarr; iPhone CHM &rarr; Open Console, filter on <code>Runner</code> and watch for <code>_uploadRawArchives FAILED</code> lines. Alternative: long-press the failed-pill on the session card to read <code>{Documents}/conversion_error.log</code> (PR #213 sheet).</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Toast copy reads cleanly</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Toast wording is the new copy.</strong> Publish a session that triggers the &ldquo;optional treatment files&rdquo; toast. <strong>Expected:</strong> the SnackBar shows &ldquo;<em>Published. Some optional treatment files are still processing &mdash; retry publish in a minute to backfill the rest. Line treatment is live now.</em>&rdquo; The parenthetical &ldquo;(raw-archive upload incomplete)&rdquo; should NOT appear. If you still see &ldquo;raw-archive upload incomplete&rdquo; in parentheses, the copy didn&apos;t deploy.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Toast does NOT fire when all uploads succeed.</strong> Publish a session that has previously fully published (i.e. all <code>rawArchiveUploadedAt</code> stamps are present). <strong>Expected:</strong> only the green &ldquo;Published &#10003;&rdquo; toast &mdash; no &ldquo;optional treatment files&rdquo; SnackBar layered on top. If you see the long warning toast on a clean publish, the optional-artifacts gate regressed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Diagnostic <code>debugPrint</code> surfaces the failing variant</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Open Console.app, attach to iPhone CHM, filter <code>Runner</code>.</strong> Then publish the failing session. <strong>Expected:</strong> at least one log line of the shape <code>_uploadRawArchives FAILED kind=&lt;kind&gt; path=&lt;path&gt; local=&lt;abs&gt; exists=&lt;bool&gt;</code> &mdash; with one of these <code>kind</code> values:
+          <code>raw_archive_upload_failed</code>, <code>raw_archive_segmented_upload_failed</code>, <code>raw_archive_photo_upload_failed</code>, <code>raw_archive_color_thumb_failed</code>, <code>raw_archive_mask_upload_failed</code>.
+          <strong>Copy the full line into the notes field.</strong> If no <code>FAILED</code> line shows but the toast still fires, the diagnostic patch didn&apos;t catch the path (escalate).</span>
+        <div class="note-row"><input type="text" class="note" placeholder="Paste the _uploadRawArchives FAILED line here"></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Read the <code>exists=</code> bool.</strong> If <code>exists=false</code>, the local file is missing on disk &mdash; we&apos;ll need to investigate why the variant didn&apos;t get produced by the conversion pipeline (likely the photo <code>_thumb_color.jpg</code> not generated). If <code>exists=true</code>, the file IS on disk but the upload is rejected server-side (RLS, content-type, wrong path) &mdash; we&apos;ll need to check the Supabase storage logs. Either way, paste the <code>exists=</code> finding into the note.</span>
+        <div class="note-row"><input type="text" class="note" placeholder="exists=true OR exists=false (and which kind)"></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Long-press the failed-pill on the session card.</strong> The conversion-error sheet (PR #213) should open with the last 5 entries from <code>conversion_error.log</code>. The new <code>raw_archive_*</code> kinds should render as chips alongside any conversion failures. <strong>Skip if not applicable</strong> &mdash; this surface only fires if there&apos;s an existing failed-pill on the card. If the long-press worked but the new <code>raw_archive_*</code> meta isn&apos;t there, that means <code>loudSwallow</code>&apos;s <code>log_error</code> RPC pathway didn&apos;t pick up the new meta fields (separate issue).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; No behavioral regression</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Publish still succeeds end-to-end.</strong> Despite the optional-artifact failure, the &ldquo;Published &#10003;&rdquo; toast should still appear, the plan version should bump, the line-drawing should be available on the public web player (open in Safari + verify the published plan loads). The diagnostic patch is observation-only &mdash; it must not break the publish path.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Re-publish 30 seconds later: the &ldquo;backfill in a minute&rdquo; promise holds.</strong> Hit publish again on the same session. <strong>Expected:</strong> previously-uploaded variants are skipped (look for <code>_uploadRawArchives: skip</code> lines in console); the still-failing variant fires the same <code>FAILED</code> line again (deterministic). If the second publish &ldquo;succeeds&rdquo; with no toast, the failure was actually transient (good news). If it fails the same way, the failure is genuinely deterministic and the diagnostic line is the smoking gun.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Source-of-truth: <code>app/lib/services/upload_service.dart</code> &rarr; <code>_uploadRawArchives</code> (5 <code>loudSwallow</code> blocks) and <code>app/lib/screens/studio_mode_screen.dart</code> &rarr; the &ldquo;optional treatment files&rdquo; SnackBar. Once item 3 lands a copy-pasted <code>FAILED</code> line, we have everything we need to fix the deterministic failure in a follow-up PR.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'fix-publish-toast-diagnostic.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'fix-publish-toast-diagnostic', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1487,10 +1487,16 @@ class UploadService {
           'plan_id': session.id,
           'exercise_id': exercise.id,
           'storage_path': storagePath,
+          'local_path': absPath,
+          'file_exists': file.existsSync(),
         },
         swallow: true,
       );
       if (ok != true) {
+        debugPrint(
+          '_uploadRawArchives FAILED kind=raw_archive_upload_failed '
+          'path=$storagePath local=$absPath exists=${file.existsSync()}',
+        );
         hadFailures = true;
         // loudSwallow swallowed the throw. Keep the legacy on-device
         // breadcrumb so existing diagnostic tooling still sees it, even
@@ -1593,10 +1599,18 @@ class UploadService {
           'plan_id': session.id,
           'exercise_id': exercise.id,
           'storage_path': segStoragePath,
+          'local_path': absSeg,
+          'file_exists': segFile.existsSync(),
         },
         swallow: true,
       );
-      if (ok != true) hadFailures = true;
+      if (ok != true) {
+        debugPrint(
+          '_uploadRawArchives FAILED kind=raw_archive_segmented_upload_failed '
+          'path=$segStoragePath local=$absSeg exists=${segFile.existsSync()}',
+        );
+        hadFailures = true;
+      }
     }
 
     // --- Photo raw upload (Wave 22) ---
@@ -1688,10 +1702,18 @@ class UploadService {
             'plan_id': session.id,
             'exercise_id': exercise.id,
             'storage_path': storagePath,
+            'local_path': absRaw,
+            'file_exists': rawFile.existsSync(),
           },
           swallow: true,
         );
-        if (ok != true) hadFailures = true;
+        if (ok != true) {
+          debugPrint(
+            '_uploadRawArchives FAILED kind=raw_archive_photo_upload_failed '
+            'path=$storagePath local=$absRaw exists=${rawFile.existsSync()}',
+          );
+          hadFailures = true;
+        }
       }
     }
 
@@ -1776,10 +1798,19 @@ class UploadService {
             'exercise_id': exercise.id,
             'media_type': mediaName,
             'storage_path': colorStoragePath,
+            'local_path': colorThumbAbs,
+            'file_exists': colorFile.existsSync(),
           },
           swallow: true,
         );
-        if (ok != true) hadFailures = true;
+        if (ok != true) {
+          debugPrint(
+            '_uploadRawArchives FAILED kind=raw_archive_color_thumb_failed '
+            'path=$colorStoragePath local=$colorThumbAbs '
+            'exists=${colorFile.existsSync()}',
+          );
+          hadFailures = true;
+        }
       }
     }
 
@@ -1834,10 +1865,18 @@ class UploadService {
           'plan_id': session.id,
           'exercise_id': exercise.id,
           'storage_path': maskStoragePath,
+          'local_path': absMask,
+          'file_exists': maskFile.existsSync(),
         },
         swallow: true,
       );
-      if (ok != true) hadFailures = true;
+      if (ok != true) {
+        debugPrint(
+          '_uploadRawArchives FAILED kind=raw_archive_mask_upload_failed '
+          'path=$maskStoragePath local=$absMask exists=${maskFile.existsSync()}',
+        );
+        hadFailures = true;
+      }
     }
     return hadFailures;
   }
