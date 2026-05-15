@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./fix-gear-popover-css-override.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Gear popover &mdash; drop stale CSS <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">bottom</code> rule that overrode JS-set <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top</code> (landscape iOS)</div>
+              <div class="scope"><strong>PR #338's JS fix was still broken on landscape iOS.</strong> The reposition function correctly computed "open above gear" coords via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: fixed</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top = gearRect.top &minus; gap &minus; popH</code>, but a stale <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.lobby-settings-popover { position: absolute; bottom: calc(100% + 8px); right: 16px; }</code> rule in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">styles.css</code> won the cascade and anchored the popover to the fixed CTA bar's containing block &mdash; pushing it below the gear and off the bottom of the screen in landscape. <strong>Fix:</strong> drop <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: absolute</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">bottom</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">right</code> from the base CSS rule; switch base to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">position: fixed</code> so there's no FOUC. CSS-only change; JS untouched (lobby.js bundle byte-identical). <strong>3 items in 3 sections; load-bearing: #2 (landscape on-screen check &mdash; the actual bug).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-editor-sheet-late-init.html">
           <div class="row">
             <div>
