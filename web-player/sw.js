@@ -12,6 +12,10 @@
 // it, browsers happily serve stale HTML / headers / CSP from the cache
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
+//
+// 2026-05-15 — bumped for circuit-geometry root-cause fix (lobby.js).
+// Layout-stable measurement chain (fonts.ready + img load/error promises +
+// per-frame ResizeObserver). See fix/circuit-geometry-root-cause.
 const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
 // App shell files — always cached

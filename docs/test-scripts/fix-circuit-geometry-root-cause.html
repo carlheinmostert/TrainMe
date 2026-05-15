@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-15 - Circuit geometry root-cause fix</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 - Circuit geometry (root-cause fix)</div>
+    <h1>Device QA - Circuit lane geometry + tracer animation</h1>
+    <p class="lede">
+      <strong>Background.</strong> The lobby's coral spiral tracer that runs around a circuit's frame has been broken in the iOS embedded preview for five prior attempts. Today's QA also surfaced a second symptom: in the PDF preview modal, the circuit's coral border closes too early - Exercise 3 of a 2-exercise <code>CIRCUIT A</code> falls outside the visual frame.
+      <br><br>
+      <strong>Confirmed root cause:</strong> <code>frame.offsetHeight</code> was read ONCE inside <code>renderCircuitLanesFor()</code> on entry - before the lazy-loaded hero <code>&lt;img&gt;</code> elements had decoded. The frame at that moment was sized to placeholder skeleton heights. The static SVG lane rect AND the tracer's <code>d</code> attribute were both derived from this stale geometry, so the 30-frame retry loop in PR #322 was retrying <code>getTotalLength()</code> on the SAME stale path. One root cause, two symptoms.
+      <br><br>
+      <strong>Why each prior fix failed:</strong>
+      <br>- PR #257/#258 - restructured DOM frame markup, but never addressed the measurement timing.
+      <br>- PR #259 - introduced <code>renderCircuitLanesFor</code> with the single-measurement bug.
+      <br>- PR #260 - switched CSS animation -> WAAPI (correct hardening, doesn't fix geometry).
+      <br>- PR #317 - added 1 rAF retry of <code>getTotalLength()</code> (retrying the wrong thing).
+      <br>- PR #322 - added 30-frame poll + CSS-vs-WAAPI hardening (still retrying the wrong thing).
+      <br><br>
+      <strong>The durable fix:</strong>
+      <br>- <code>await document.fonts.ready</code> for font metrics.
+      <br>- <code>await Promise.all(...img load/error)</code> for every hero image in the frame.
+      <br>- Re-read <code>offsetWidth</code> / <code>offsetHeight</code> only after both signals resolve.
+      <br>- <code>ResizeObserver</code> attached BEFORE measurement, per-circuit, so any subsequent layout shift (orientation flip, treatment toggle, late image decode) triggers a clean recompute.
+      <br>- Existing 30-frame poll + WAAPI hardening kept as defence-in-depth.
+      <br><br>
+      <strong>R-10 parity:</strong> both <code>web-player/lobby.js</code> and <code>app/assets/web-player/lobby.js</code> edited byte-identical (sw.js cache name bumped via build.sh on Vercel deploy).
+      <br><br>
+      <strong>In scope:</strong> circuit lane rect + tracer animation in embedded preview + live web staging + PDF preview modal. Cold-cache path. Orientation flip.
+      <br><br>
+      <strong>Out of scope:</strong> any non-circuit lobby behaviour, prep hero treatment, photo body-focus, filmstrip sharpness - all separate.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>fix/circuit-geometry-root-cause</code> installed on Carl's iPhone via <code>./install-device.sh staging</code>.</li>
+        <li>A session with at least one circuit containing <strong>3 exercises x 3 cycles</strong> (the exact shape today's QA used to surface symptom B). The hero videos must be already converted so the line-drawing treatment is selectable.</li>
+        <li>Same plan accessible at <code>staging.session.homefit.studio/p/&lt;planId&gt;</code> in Mobile Safari for the live regression check.</li>
+      </ul>
+    </div>
+
+    <h2>Embedded preview - both symptoms cleared (THE core test)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      One root cause, two visible symptoms. Both must pass on the same circuit, same preview session.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">+</button><button class="fail" type="button" aria-label="Fail 1">x</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open a session containing a <strong>3-exercise circuit x 3 cycles</strong>. Tap <strong>Preview</strong> in the workflow pill. Within <strong>2 seconds</strong> of the lobby appearing, the coral spiral tracer is animating around <strong>all 3 exercises</strong> (not just the header row), making one full lap every ~9s x cycles. Failure modes: tracer invisible / tracer only loops the header row / tracer clipped above the bottom exercise.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">+</button><button class="fail" type="button" aria-label="Fail 2">x</button></div>
+        <span class="num">2.</span>
+        <span class="text">Static lane outlines (lighter coral, drawn under the moving tracer) frame ALL 3 exercises in the circuit - the bottom edge of the frame sits BELOW the last exercise row, not above it. (This is today's QA symptom B - "Ex 3 falls outside CIRCUIT A border" - same root cause as #1.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Cold-cache path</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The analyst flagged this explicitly: stale-geometry failure modes only reproduce on first load when images haven't been decoded yet. Pull-to-refresh forces the cold path.
+    </p>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">+</button><button class="fail" type="button" aria-label="Fail 3">x</button></div>
+        <span class="num">3.</span>
+        <span class="text">From the embedded preview lobby, pull-to-refresh (or close the preview and re-open). Within 2 seconds of the lobby re-appearing, the tracer is again animating around ALL 3 exercises, and the frame still wraps all 3. Same result as #1 + #2 on the cold-cache path.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Orientation flip</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Rotation triggers a re-measure via the per-circuit <code>ResizeObserver</code>. New geometry, fresh tracer.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">+</button><button class="fail" type="button" aria-label="Fail 4">x</button></div>
+        <span class="num">4.</span>
+        <span class="text">Rotate the device to landscape while the embedded preview lobby is open. SVG re-renders with new dimensions, tracer restarts cleanly around all 3 exercises (not stuck on the portrait geometry, not clipped, not frozen). Rotate back to portrait - same clean restart.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Live web staging - no regression</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Same lobby.js drives both surfaces; ensure no regression in the public path.
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">+</button><button class="fail" type="button" aria-label="Fail 5">x</button></div>
+        <span class="num">5.</span>
+        <span class="text">Open the same plan at <code>staging.session.homefit.studio/p/&lt;planId&gt;</code> in Mobile Safari. Tracer animates around all 3 exercises on first paint. (No "tracer drawn for one row" failure mode on the public surface either.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Bundle drift + regression</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">+</button><button class="fail" type="button" aria-label="Fail 6">x</button></div>
+        <span class="num">6.</span>
+        <span class="text">CI green: <code>web-player-drift-guard</code> passes. Or run locally: <code>cd app &amp;&amp; dart run tool/sync_web_player_bundle.dart --check</code> -> "web-player bundle in sync".</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">+</button><button class="fail" type="button" aria-label="Fail 7">x</button></div>
+        <span class="num">7.</span>
+        <span class="text">Standalone (non-circuit) exercises in the lobby still render cleanly - no static lane outlines, no tracer (regression check; the fix is scoped to <code>.lobby-circuit</code> only).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">+</button><button class="fail" type="button" aria-label="Fail 8">x</button></div>
+        <span class="num">8.</span>
+        <span class="text">Lobby PDF export modal: tap share / export, generated PNG shows the circuit's coral frame wrapping ALL 3 exercises (matches what's on screen). This is today's QA symptom B in its other surfacing - same root cause, same fix.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass criterion for the headline test: #1 + #2 + #3 + #4 all green on the same 3-exercise x 3-cycle circuit. If any of those fail, the fix is incomplete - escalate before merge.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'fix-circuit-geometry-root-cause.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'fix-circuit-geometry-root-cause', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status') || '';
+          if (status) {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
