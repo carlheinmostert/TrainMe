@@ -36,6 +36,48 @@ Audit screen also formats SSR-side, currently pinned to `timeZone: 'UTC'` ([web-
 
 ---
 
+## DAL strictness — convert remaining `.from()` plan writes/reads to RPCs
+
+**Status:** Surfaced **2026-05-15** during a DAL CRUD audit Carl asked for. Cleanup, not urgent. The DAL seam itself is intact (CI gate `tools/enforce_data_access_seams.py` blocks any new direct DB or storage call landing outside the three designated files); this item is about strengthening the *contract* on the writes that already live inside the DAL.
+
+**What's not strict today.** Inside the per-surface DAL files there are a handful of writes/reads that go through raw `.from('table').upsert()` / `.insert()` / `.select()` rather than SECURITY DEFINER RPCs:
+
+- **Mobile** (`app/lib/services/api_client.dart`):
+  - `upsertPlan` → `raw.from('plans').upsert(row)` (line 619). Used for both the pre-consume FK-satisfying upsert and the post-consume version bump.
+  - `getPlanPublishState` → `raw.from('plans').select(...)` (lines 667–678).
+  - `insertPlanIssuance` → `raw.from('plan_issuances').insert(row)` (line 753).
+- **Portal** (`web-portal/src/lib/supabase/api.ts`):
+  - `plan_issuances` selects (lines 430, 453) — audit log + last-issuance lookups.
+  - `practice_members` selects (lines 218, 248, 336) — membership lookups not yet wrapped.
+  - `pending_payments` + `credit_ledger` reads/writes from the `AdminApi` (service-role) class — these are inside the DAL but bypass RPCs because they're service-role-scoped (purchase webhook flow).
+
+**Why this is "belt and braces" not a real gap:**
+- All call sites are inside the DAL files (CI-enforced). The seam holds.
+- RLS protects every table server-side — `plans`, `plan_issuances`, `practice_members` are all scoped by `user_practice_ids()` helper fns. A direct `.from()` write can't escape practice scope.
+- `credit_ledger` writes are already RPC-only (`consume_credit`, `record_purchase_with_rebates`) — that's the load-bearing one and it's locked down.
+
+**Why convert anyway:**
+- Single contract per write path — typed params, explicit error kinds, easier to audit ("what writes to `plan_issuances`? grep for the RPC name").
+- The trap where `CREATE OR REPLACE FUNCTION` silently drops columns (see `feedback_schema_migration_column_preservation.md`) doesn't apply to `.from()` writes — but every new column added to `plans` today requires the call site to know about it; an RPC centralises the column list.
+- Future audit features (insert pre-conditions, atomic multi-row ops) are easier to layer onto an RPC.
+
+**Scope of the conversion:**
+1. **`upsert_plan(payload jsonb)` RPC** — wrap the pre-consume + post-consume + rename paths. Returns the merged row.
+2. **`get_plan_publish_state(p_plan_id)` RPC** — already similar to the existing `get_plan_full` pattern but lighter; returns just `version`, `sent_at`, `first_opened_at`, `last_opened_at`, `unlock_credit_prepaid_at`.
+3. **`record_plan_issuance(payload jsonb)` RPC** — wraps the existing `INSERT` with practice-scope check.
+4. **`list_practice_members(p_practice_id)` RPC** — wraps the existing direct selects.
+5. Mobile + portal DAL files swap the `.from(...)` calls for the new RPC names.
+6. CI gate stays as-is — it doesn't care about `.from()` vs `.rpc()` inside the DAL, only that nothing leaks *outside* the DAL.
+
+**Why deferred:**
+- Nothing currently broken.
+- Conversion is a few hours of work but it touches the publish flow, which is the load-bearing critical path. Worth doing during a quiet stretch, not under TestFlight crunch.
+- The portal `AdminApi` service-role paths (`pending_payments`, etc.) can stay as direct `.from()` — those run inside the PayFast webhook context with the service-role key and the seam is the function boundary, not an RPC.
+
+**Suggested trigger:** after TestFlight v2 ships and there's a calm week with no merge-train pressure. The conversion is a single PR per RPC, each safely reviewable in isolation.
+
+---
+
 ## Consent-driven analytics collection (Wave 17)
 
 **Status:** Designed **2026-04-21** with Carl. Full design locked in [`docs/design-reviews/analytics-consent-mvp-2026-04-21.md`](design-reviews/analytics-consent-mvp-2026-04-21.md). MVP pillar — ships alongside the other MVP features, not as a post-MVP add-on. Foundation for the future paid Analytics subscription (Y2+).
