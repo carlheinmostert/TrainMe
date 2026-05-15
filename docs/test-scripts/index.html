@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./feat-publish-decouple-consent.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Publish: decouple consent from upload (PR-A of publish-flow refactor)</div>
+              <div class="scope"><strong>First of three PRs implementing the 2026-05-15 publish-flow refactor spec.</strong> Today, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_uploadRawArchives</code> in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/lib/services/upload_service.dart</code> skips the photo-raw + colour-thumb uploads when the client's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">video_consent</code> doesn't include that treatment. <strong>After PR-A:</strong> every variant uploads on every publish regardless of consent &mdash; consent stays as a pure player-side visibility gate via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">get_plan_full</code>'s NULL signed URLs. <strong>Why:</strong> today, granting previously-revoked consent requires the practitioner to re-publish to push the missing files; after PR-A those files are already in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">raw-archive</code> so toggling consent ON later works without a republish. <strong>Out of scope (PR-B + PR-C):</strong> default treatment swap to B&amp;W, soft fallback to line drawing when preferred treatment lacks consent, atomic publish UI / progress sheet, &ldquo;partial success&rdquo; toast removal. <strong>Sensitive zone:</strong> publish flow &mdash; Carl review before merge. <strong>10 items in 5 sections; load-bearing: #3 (fully-revoked client publish has empty failure list via Details sheet), #4-5 (re-publish with flipped consent stays clean), #7 (revoke-then-grant works without republish &mdash; the point of the PR), #9 (flutter analyze clean).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-publish-toast-diagnostic-sheet.html">
           <div class="row">
             <div>
