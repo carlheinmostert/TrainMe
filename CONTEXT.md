@@ -107,6 +107,13 @@ _Avoid_: progress bar, dots
 **Rep stack**:
 The vertical block stack used on the client web player; reps stack bottom-up with rest blocks between sets.
 
+**PDF handout**:
+The static printable multi-page PDF derived from a plan's lobby content — exercises, reps, sets, hold positions, Hero frames, practitioner notes, plus a QR code linking to the live plan. Generated on-device, free, available pre-publish and post-publish from the Preview step (mobile) or the lobby's Share button (web). Some practitioners ship only PDFs and never publish.
+_Avoid_: printout, snapshot, lobby PNG (the PNG-modal path was superseded by PDF)
+
+**Lobby export**:
+Internal/technical name for the on-device PDF generation pipeline (`web-player/lobby.js` jsPDF rasterisation + multi-page assembly) and the iOS shell bridge (`unified_preview_screen.dart` `share_file` MessageChannel). Surfaced to practitioners as **PDF handout**.
+
 ### Billing & credits
 
 **Credit**:
