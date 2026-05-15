@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Baseline recovery phase 2 — auth.users trigger</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  pre {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 14px; overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--text-mute); line-height: 1.5;
+  }
+  footer {
+    margin-top: 48px; padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">infrastructure recovery &middot; supabase migration &middot; phase 2</div>
+    <h1>Baseline recovery phase 2 &mdash; <code>auth.users</code> trigger</h1>
+    <p class="lede">
+      <strong>Why this matters.</strong> Same root cause as PR #354: the 2026-05-11 baseline migration was generated via <code>pg_dump --schema=public</code>, which silently DROPPED any trigger whose target table lives outside the public schema. The function <code>public.claim_pending_practice_memberships()</code> made it into the baseline, but the <code>AFTER INSERT ON auth.users</code> trigger that invokes it did not. <strong>Result:</strong> on every Supabase Branching-cloned DB (staging + every per-PR preview), an owner can invite a practitioner by email, the row lands in <code>pending_practice_members</code>, but when the invitee signs up nothing fires &mdash; the pending row never drains and the invitee lands without their expected practice membership. <strong>Production has the trigger</strong> (it was applied directly when milestone U shipped) so this only bites on staging + previews.<br><br>
+      <strong>The migration.</strong> <code>supabase/migrations/20260515140953_baseline_recovery_phase2_auth_trigger.sql</code> restores the trigger verbatim from <code>supabase/archive/schema_milestone_u_add_member_by_email.sql:450&ndash;455</code>. Pre-flight check confirms the trigger function exists in the baseline before creating the trigger. Idempotent: DROP TRIGGER IF EXISTS then CREATE TRIGGER, wrapped in a DO block with <code>insufficient_privilege</code> exception handling.<br><br>
+      <strong>Sensitive zone &mdash; auth-schema trigger.</strong> Carl review before merge.
+    </p>
+
+    <h2>1 &middot; Confirm the bug pre-merge (baseline state on staging)</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text">On the current staging build (before this PR's migration applies), open the staging Supabase SQL editor against <code>vadjvkmldtoeyspyoqbx</code>. Run: <code>SELECT tgname FROM pg_trigger WHERE tgrelid = 'auth.users'::regclass AND tgname = 'claim_pending_practice_memberships_trigger';</code>. Expect <strong>0 rows</strong> &mdash; this is the &ldquo;before&rdquo; evidence of the missing trigger.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text">End-to-end repro of the symptom (optional &mdash; only do this if you want a functional &ldquo;before&rdquo; observation). Sign in to <code>staging.manage.homefit.studio</code> as a practice owner. Members &rarr; Invite by email a fresh address you control. Confirm a row appears in <code>pending_practice_members</code> via the SQL editor. Sign up that fresh address against staging. Confirm in the SQL editor that the row is <strong>still in <code>pending_practice_members</code></strong> (not drained) AND there is no corresponding row in <code>practice_members</code> for that user/practice pair. <em>Skip if no fresh email handy &mdash; item 1 is sufficient as &ldquo;before&rdquo; evidence.</em></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Merge the PR (Supabase Branching auto-applies)</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text">PR review: open the diff for <code>supabase/migrations/20260515140953_baseline_recovery_phase2_auth_trigger.sql</code>. Confirm the trigger DDL matches <code>supabase/archive/schema_milestone_u_add_member_by_email.sql</code> lines 450&ndash;455 byte-for-byte (function name, table, AFTER INSERT, FOR EACH ROW). Pre-flight check guards against the function being missing.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Merge the PR into <code>staging</code>. Supabase Branching auto-applies the migration to <code>vadjvkmldtoeyspyoqbx</code>. Check the dashboard's Migrations tab for the staging branch shows the new file as Applied with no errors. (No <code>insufficient_privilege</code> RAISE NOTICE expected on hosted Supabase, but the DO block's exception handler catches it gracefully if it fires.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Verify the fix on staging</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text">Re-run the trigger lookup from item 1: <code>SELECT tgname, tgenabled FROM pg_trigger WHERE tgrelid = 'auth.users'::regclass AND tgname = 'claim_pending_practice_memberships_trigger';</code>. Expect <strong>1 row</strong> with <code>tgenabled = 'O'</code> (origin/enabled).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text">End-to-end fix verification. Invite a fresh email from the owner account on <code>staging.manage.homefit.studio</code>. Confirm the row appears in <code>pending_practice_members</code>. Sign up that email against staging. Then verify in the SQL editor: (a) the <code>pending_practice_members</code> row for that email is <strong>gone</strong>, (b) a corresponding <code>practice_members</code> row exists with <code>role = 'practitioner'</code>, <code>joined_at</code> set to ~now, and the new user's <code>auth.users.id</code> as <code>trainer_id</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text">UX-side check on staging mobile / web portal: the newly-signed-up user lands inside their inviting practice (visible in the practice switcher chip + on the Members roster of the inviting practice). No follow-up &ldquo;you have no practice&rdquo; bootstrap detour.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Idempotency + safety check</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text">(Optional belt-and-braces.) Manually re-run the migration body against staging via the SQL editor &mdash; the DROP TRIGGER IF EXISTS / CREATE TRIGGER pair should succeed cleanly. The pre-flight DO block raises an exception only if <code>public.claim_pending_practice_memberships</code> is missing &mdash; on staging it is not, so it should pass silently.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text">(Optional belt-and-braces.) After the staging soak, queue a comparable verification on prod the next time a real new practitioner signs up via an email invite. No migration apply needed on prod &mdash; the trigger has been there since milestone U shipped &mdash; this is just a smoke check that we haven't accidentally regressed anything in the function body itself between then and the baseline cutover.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Test script for <code>fix/baseline-recovery-phase2</code> &mdash; <code>supabase/migrations/20260515140953_baseline_recovery_phase2_auth_trigger.sql</code>. Source file: <code>supabase/archive/schema_milestone_u_add_member_by_email.sql</code>. Companion to PR #354. Failed items &rarr; targeted fix brief; pass-notes feed the next wave's backlog.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'fix-baseline-recovery-phase2.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'fix-baseline-recovery-phase2', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 300);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
