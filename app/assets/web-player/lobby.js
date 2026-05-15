@@ -1659,11 +1659,19 @@
     // Render once invisibly to measure the popover's intrinsic size.
     var prevVisibility = $lobbySettingsPopover.style.visibility;
     $lobbySettingsPopover.style.visibility = 'hidden';
-    $lobbySettingsPopover.style.position = 'fixed';
-    $lobbySettingsPopover.style.right = 'auto';
-    $lobbySettingsPopover.style.bottom = 'auto';
-    $lobbySettingsPopover.style.top = '0px';
-    $lobbySettingsPopover.style.left = '0px';
+    // 2026-05-15: every position-related property goes via setProperty
+    // with 'important' so the cascade has zero ambiguity. PR #343 left
+    // the popover inheriting the deck's landscape rules (top:134px;
+    // right:8px) via the shared `.settings-popover` class even though
+    // that class has now been dropped from the element. Belt-and-braces:
+    // if any stylesheet ever reintroduces a positional rule for any
+    // ancestor / variant class, !important on the JS-set values keeps
+    // this popover anchored to the gear button regardless.
+    $lobbySettingsPopover.style.setProperty('position', 'fixed', 'important');
+    $lobbySettingsPopover.style.setProperty('right', 'auto', 'important');
+    $lobbySettingsPopover.style.setProperty('bottom', 'auto', 'important');
+    $lobbySettingsPopover.style.setProperty('top', '0px', 'important');
+    $lobbySettingsPopover.style.setProperty('left', '0px', 'important');
     var popRect = $lobbySettingsPopover.getBoundingClientRect();
     var popW = popRect.width || 280;
     var popH = popRect.height || 180;
@@ -1680,20 +1688,24 @@
     var top = Math.round(gearRect.top - gap - popH);
     if (top < margin) top = margin;
     if (top + popH > viewportH - margin) top = Math.max(margin, viewportH - margin - popH);
-    $lobbySettingsPopover.style.left = left + 'px';
-    $lobbySettingsPopover.style.top = top + 'px';
+    $lobbySettingsPopover.style.setProperty('left', left + 'px', 'important');
+    $lobbySettingsPopover.style.setProperty('top', top + 'px', 'important');
     $lobbySettingsPopover.style.visibility = prevVisibility || '';
   }
 
   function clearLobbySettingsPopoverPosition() {
     if (!$lobbySettingsPopover) return;
-    // Reset every inline override so the stylesheet wins on next paint.
-    $lobbySettingsPopover.style.position = '';
-    $lobbySettingsPopover.style.top = '';
-    $lobbySettingsPopover.style.left = '';
-    $lobbySettingsPopover.style.right = '';
-    $lobbySettingsPopover.style.bottom = '';
-    $lobbySettingsPopover.style.visibility = '';
+    // 2026-05-15: `removeProperty` is the correct mirror to
+    // `setProperty(..., 'important')` — assigning '' to style.X leaves
+    // any !important flag in place on some browsers. Strip every
+    // position-related override cleanly so the stylesheet (lobby base
+    // rules: position:fixed; no top/left) wins on the next paint.
+    $lobbySettingsPopover.style.removeProperty('position');
+    $lobbySettingsPopover.style.removeProperty('top');
+    $lobbySettingsPopover.style.removeProperty('left');
+    $lobbySettingsPopover.style.removeProperty('right');
+    $lobbySettingsPopover.style.removeProperty('bottom');
+    $lobbySettingsPopover.style.removeProperty('visibility');
   }
 
   function openLobbySettingsPopover() {

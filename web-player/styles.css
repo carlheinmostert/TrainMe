@@ -3801,8 +3801,17 @@ html.is-exporting .lobby-row.is-active,
    positioning is JS-driven (`repositionLobbySettingsPopover()` in
    lobby.js); the base `.lobby-settings-popover` rule above uses
    `position: fixed` with no static `top`/`bottom`/`left`/`right`,
-   so the JS-set coords are the only positional rules in play. */
-.lobby-settings-popover.settings-popover {
+   so the JS-set coords are the only positional rules in play.
+   2026-05-15: selector moved from `.lobby-settings-popover.settings-popover`
+   to `.lobby-settings-popover--variant` companion class because the
+   shared `.settings-popover` class was dropped (it was inheriting
+   the deck's `position: absolute; top: 134px; right: 8px` from the
+   landscape media query at line 2401 via cascade whenever JS cleared
+   inline styles — putting this popover below the gear and offscreen
+   in landscape). The `settings-popover--lobby` modifier on the element
+   carries width-only intent now; positioning is exclusively JS-driven
+   via setProperty('important'). */
+.settings-popover--lobby {
   min-width: 264px;
 }
 

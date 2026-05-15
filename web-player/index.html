@@ -205,11 +205,22 @@
            next render. The lobby-only treatment-pill row remains above
            as a fast in-bar swap; both write to the same clientOverride
            state. -->
-      <div id="lobby-settings-popover" class="lobby-settings-popover settings-popover settings-popover--lobby"
+      <!-- 2026-05-15 (gear popover landscape fix): the shared `settings-popover`
+           class was DROPPED from this element. The deck popover's class
+           carries `position: absolute; top: 156px; right: 12px` (styles.css
+           line 939) and a landscape media query at line 2401 that re-asserts
+           `top: 134px; right: 8px`. Even with PR #343's positional rules
+           removed from `.lobby-settings-popover`, the cascade was still
+           re-applying the deck's coords whenever JS cleared inline styles
+           on close — putting the popover below the gear and offscreen in
+           landscape. Keeping `settings-popover--lobby` preserves the
+           min-width rule at styles.css line 3805 (now matched via that
+           variant class). Title also dropped `settings-popover-title`. -->
+      <div id="lobby-settings-popover" class="lobby-settings-popover settings-popover--lobby"
            role="dialog"
            aria-labelledby="lobby-settings-title"
            hidden>
-        <div class="lobby-settings-popover-title settings-popover-title" id="lobby-settings-title">For this session</div>
+        <div class="lobby-settings-popover-title" id="lobby-settings-title">For this session</div>
         <div class="settings-panel-rows">
           <div class="settings-row-segmented" data-prop="treatment" role="radiogroup" aria-label="Treatment">
             <span class="settings-row-label">Treatment</span>
