@@ -64,6 +64,18 @@
 // paintLanesAndTracer and reconnects in a finally so genuine row
 // changes still get caught afterwards.
 // See fix/circuit-attempt-9-observer-disconnect-during-paint.
+//
+// 2026-05-15 (TENTH-attempt — nested CSS boxes) — bumped for the wholesale
+// architecture replacement. The SVG-tracer + ResizeObserver +
+// MutationObserver + getTotalLength architecture is gone; circuit chrome
+// is now N visually-nested <div> rings emitted by lobby.js's
+// circuitGroupHTML(), animated by a single CSS keyframe (`lobby-circuit-
+// pulse`) staggered via `--box-index` custom property. No JS animation,
+// no measurement, no observers, no rAF chain. This class of bugs cannot
+// regress without explicitly removing the CSS. Bumps the cache so
+// Safari clients flush the obsolete SVG-tracer code paths.
+// See fix/circuit-animation-attempt-10-nested-boxes and
+// docs/design/mockups/circuit-nested-boxes.html (variant 1).
 const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
 // App shell files — always cached

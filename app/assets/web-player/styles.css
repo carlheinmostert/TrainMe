@@ -2984,13 +2984,12 @@ body.is-fullscreen .playpause-toggle {
 .lobby-hero-media {
   object-fit: cover;
   display: block;
-  /* EIGHTH-attempt circuit-animation fix (2026-05-15) — explicit
-     aspect-ratio on the image element (in addition to the 1/1 on its
-     parent .lobby-hero) so the row reserves vertical space BEFORE the
-     image decodes. Without this, on first paint the row could collapse
-     to ~0 height and renderCircuitLanesFor() in lobby.js sized the SVG
-     to nothing, leaving the coral tracer drawn along an invisible
-     path. */
+  /* Explicit aspect-ratio on the image element (in addition to the 1/1
+     on its parent .lobby-hero) so the row reserves vertical space BEFORE
+     the image decodes. Originally added as the EIGHTH-attempt SVG-tracer
+     fix; the nested-box chrome (attempt #10) doesn't measure DOM so this
+     constraint is no longer load-bearing for the circuit chrome, but
+     it's still useful for clean layout reservation. */
   aspect-ratio: 1 / 1;
 }
 
@@ -3177,71 +3176,93 @@ body.is-fullscreen .playpause-toggle {
    - Carl: "I want the visual to more reflect an actual circuit to make
      people understand easier that there is repetition here." The
      closed loop is a literal circuit. */
-/* Lanes wave (v54) — circuit rendered as a single <li class="lobby-circuit">
-   hosting an SVG lanes overlay + a .lobby-circuit-frame containing the
-   header (surface-2, isolated) + the body (coral-tinted, where the
-   in-circuit rows live as <div>s). N coral rounded-rectangle outlines
-   are drawn into the SVG by lobby.js's renderCircuitLanes() — one per
-   round — plus an animated tracer that spirals from the innermost lane
-   outward. Geometry mocked up at docs/design/mockups/lobby-circuit-lanes.html.
+/* Nested-box wave (attempt #10, 2026-05-15) — circuit rendered as a single
+   <li class="lobby-circuit"> hosting a header strip + N visually-nested
+   <div class="lobby-circuit-box"> rings. The innermost box wraps a
+   .lobby-circuit-body that hosts the in-circuit rows as <div>s.
 
-   Why one container instead of fragmented borders across sibling LIs:
-   PRs #257/#258 split the frame across <li>s but the browser auto-
-   closed the outer <li> when it encountered the nested <li> rows,
-   ejecting them from the container in the parsed DOM. v54 fixes both
-   issues — single LI with the rows as <div>s inside its body. */
+   N visible rings = circuit-cycle count, capped at 5 (CIRCUIT_BOX_CAP in
+   lobby.js). ×1 → 1 ring (just the inner). ×3 → 3 rings. ×6+ → 5 rings.
+   The cycles chip in the header still reads the truthful count.
+
+   Why nested DOM rings instead of an SVG-tracer overlay:
+   Attempts #1–#9 all patched layers of an SVG architecture that depended
+   on runtime DOM measurement, ResizeObservers, MutationObservers,
+   getTotalLength polling, and WAAPI-vs-CSS-cascade priority on
+   position:fixed ancestors. Every fix introduced new failure modes.
+   N real DOM rings + pure CSS keyframes can't race — there is no
+   measurement step, no observer, no rAF chain. The chrome cannot
+   regress without explicitly removing the CSS.
+
+   Geometry mocked up at docs/design/mockups/circuit-nested-boxes.html
+   (variant 1, outward ripple).
+
+   Why one outer container instead of fragmented borders across sibling
+   <li>s: PRs #257/#258 split the frame across <li>s but the browser
+   auto-closed the outer <li> when it encountered the nested <li> rows,
+   ejecting them from the parsed DOM. The single-LI shell with rows-as-
+   <div>s pattern is preserved here. */
 .lobby-circuit {
   position: relative;
   list-style: none;
   margin: 8px 0;
-  /* padding is set per-instance by JS to lanePad (= 5 * cycles), so the
-     SVG (inset:0) extends outward from the frame by lanePad on each side. */
   padding: 0;
 }
 
-.lobby-circuit-lanes {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  overflow: visible;
-  z-index: 0;
+/* Nested-box rings.
+   - Every ring carries a coral border + animated pulse.
+   - --box-index 0 is innermost, --box-index N-1 is outermost.
+   - Each successive ring gets +4px outer padding and +4px radius via
+     `lobby-circuit-box-depth-N` rules below.
+   - The animation staggers by 0.4s per depth so the pulse ripples
+     outward from the innermost ring (variant 1). */
+.lobby-circuit-box {
+  border: 2px solid rgba(255, 107, 53, 0.25);
+  border-radius: 10px;
+  padding: 4px;
+  animation: lobby-circuit-pulse 2.4s ease-in-out infinite;
+  animation-delay: calc(var(--box-index) * 0.4s);
 }
 
-.lobby-circuit-lanes .lane-static {
-  fill: none;
-  stroke: rgba(255, 107, 53, 0.60);
-  stroke-width: 2;
-  stroke-linejoin: round;
+/* Per-depth radius + padding tuning. Innermost (depth-0) carries the
+   tighter radius; each outer ring expands by 4px to match the eye's
+   expectation that nested rings keep a consistent gap.
+   Depth-0 padding is set on .lobby-circuit-box-inner below so the body
+   gets a small interior margin against the innermost ring. */
+.lobby-circuit-box-depth-1 { border-radius: 14px; padding: 4px; }
+.lobby-circuit-box-depth-2 { border-radius: 18px; padding: 4px; }
+.lobby-circuit-box-depth-3 { border-radius: 22px; padding: 4px; }
+.lobby-circuit-box-depth-4 { border-radius: 26px; padding: 4px; }
+
+/* Innermost ring (depth-0) is the only one with a solid surface so the
+   rows sit on a flat panel instead of floating over the page bg through
+   transparent outer rings. */
+.lobby-circuit-box-inner {
+  padding: 6px;
+  background: var(--c-surface-bg);
 }
 
-.lobby-circuit-lanes .lane-tracer {
-  fill: none;
-  stroke: rgba(255, 107, 53, 0.95);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  filter: drop-shadow(0 0 4px rgba(255, 107, 53, 0.5));
-  /* E14 attempt #3 (2026-05-13) — drove the tracer with a CSS keyframes
-     animation that referenced `var(--path-len)` (set by JS via
-     setProperty). On iOS embedded WKWebView the keyframe's
-     `stroke-dashoffset: var(--path-len)` was resolving to an invalid
-     value at animation creation time, leaving the keyframe inert and
-     the tracer appearing static. JS-driven WAAPI was layered on top
-     but suppressed by cascade priority on position:fixed ancestors.
-     The lane-tracer animation is now entirely WAAPI-driven in
-     `renderCircuitLanesFor` (lobby.js) — `tracer.animate(...)` with
-     numeric strokeDashoffset values. Reduce-motion is honoured in JS,
-     not via @media, so the surface-aware decision (practitioner vs
-     client) lives in one place. */
+/* Variant 1 — outward ripple. Pulse from inner → outer with a staggered
+   animation-delay. Each ring brightens its border + flares a coral glow
+   then settles back to the dim coral border. */
+@keyframes lobby-circuit-pulse {
+  0%, 100% {
+    border-color: rgba(255, 107, 53, 0.25);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25% {
+    border-color: rgba(255, 107, 53, 1);
+    box-shadow: 0 0 24px 4px rgba(255, 107, 53, 0.65),
+                0 0 0 2px rgba(255, 107, 53, 0.45);
+  }
+  55%, 99% {
+    border-color: rgba(255, 107, 53, 0.25);
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
-.lobby-circuit-frame {
-  position: relative;
-  z-index: 1;
-  border-radius: 18px;
-  overflow: hidden;
+@media (prefers-reduced-motion: reduce) {
+  .lobby-circuit-box { animation: none !important; }
 }
 
 .lobby-circuit-header {
@@ -3250,8 +3271,9 @@ body.is-fullscreen .playpause-toggle {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 16px;
+  margin-bottom: 8px;
   background: var(--c-surface-base);
-  border-bottom: 1px solid rgba(255, 107, 53, 0.30);
+  border-radius: 10px;
 }
 
 .lobby-circuit-header-label {
@@ -3283,9 +3305,11 @@ body.is-fullscreen .playpause-toggle {
   color: var(--c-brand);
 }
 
+/* Body lives inside the innermost ring (lobby-circuit-box-inner) which
+   already provides a solid background + a small padding. Drop the
+   per-body background + inset padding here so the coral tint of the
+   former frame doesn't fight with the inner ring's surface fill. */
 .lobby-circuit-body {
-  background: rgba(255, 107, 53, 0.04);
-  padding: 8px 16px 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3542,11 +3566,15 @@ html.is-exporting .lobby-meta-version,
 html.is-exporting #lobby-settings-popover {
   display: none !important;
 }
-html.is-exporting .lobby-circuit-lanes .lane-tracer {
-  /* Snapshot a quiet "settled" frame — pause the spiral animation
-     mid-render via animation: none. */
+/* Nested-box pulse (attempt #10) — suppress the keyframe during export so
+   the rasterised page captures a quiet "settled" frame. We snap to the
+   25%-into-keyframe state (bright coral border + small glow) so the
+   PDF still reads as "this is a circuit" instead of a flat dim ring. */
+html.is-exporting .lobby-circuit-box,
+.lobby-export-page .lobby-circuit-box {
   animation: none !important;
-  stroke-dashoffset: 0 !important;
+  border-color: rgba(255, 107, 53, 0.95) !important;
+  box-shadow: none !important;
 }
 html.is-exporting .lobby-export-footer {
   display: flex !important;
@@ -3572,17 +3600,15 @@ html.is-exporting .lobby-row.is-active,
   background: transparent !important;
 }
 
-/* Circuit chrome (the SVG lanes overlay) is positioned `inset: 0`
-   with overflow:visible so the spiral can extend past the frame —
-   correct in the live UI, but on the offscreen export the SVG's
-   bounding box can clip asymmetrically because the parent <li>
-   isn't given the same lanePad inset that the live render computes.
-   Force the export container to honour the visible overflow on every
-   level so the chrome rasterises symmetrically. */
+/* Nested-box circuit chrome — every ring needs to render its border on
+   the exported page. html2canvas is conservative with `overflow:hidden`
+   parents and can clip a child's border-shadow when the parent isn't
+   explicitly visible. Force overflow:visible at every level the chrome
+   nests inside so the outermost ring's border is never clipped on the
+   right edge of the page. */
 .lobby-export-page,
 .lobby-export-page .lobby-circuit,
-.lobby-export-page .lobby-circuit-lanes,
-.lobby-export-page .lobby-circuit-frame {
+.lobby-export-page .lobby-circuit-box {
   overflow: visible !important;
 }
 

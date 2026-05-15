@@ -576,15 +576,10 @@
     if (circuitGroup) items.push(circuitGroup);
 
     $lobbyList.innerHTML = items.map(itemToHTML).join('');
-    // Lanes wave (v54) — populate the empty <svg class="lobby-circuit-lanes">
-    // hosts that circuitGroupHTML emitted. ResizeObserver wired here re-runs
-    // on layout change. Defer to next frame so the LIs are laid out before
-    // we measure their bounding boxes.
-    if (typeof requestAnimationFrame !== 'undefined') {
-      requestAnimationFrame(renderCircuitLanes);
-    } else {
-      renderCircuitLanes();
-    }
+    // ATTEMPT #10 (2026-05-15) — no post-render JS for circuits. The
+    // SVG-tracer architecture (v54 + nine fixes) is gone; nested-box
+    // animation is pure CSS keyframes driven by class assignment in
+    // circuitGroupHTML(). No measurement, no observers, no rAF chain.
     // Pill scroll-fill wave — stamp each matrix pill with the ordinal
     // position of its owning lobby row. setActiveRow uses these to fill
     // pills as the user scrolls forward, drain them on scroll-back.
@@ -750,23 +745,41 @@
     `;
   }
 
+  // Maximum number of visible nested-box rings. Beyond five the visual
+  // gets silly and adjacent rings start to merge optically. Plans with
+  // more than five rounds still display correctly — only the chrome
+  // caps at five (the `×N` chip in the header still reads truthfully).
+  const CIRCUIT_BOX_CAP = 5;
+
   function circuitGroupHTML(group) {
     const escape = api.escapeHTML;
-    // Lanes wave (v54) — DOM restructure: the circuit is now a single
-    // <li class="lobby-circuit"> hosting an SVG lanes overlay + a
-    // .lobby-circuit-frame containing the header + body. Rows inside the
-    // body are emitted as <div>, NOT <li>. This is critical: rows are
-    // also <li>s when standalone, and the browser auto-closes the outer
-    // <li> when it encounters a nested <li>, ejecting the rows from the
-    // circuit-group container in the parsed DOM. PRs #257/#258 closed-
-    // loop attempts framed only the header for exactly this reason.
+    // ATTEMPT #10 (2026-05-15) — pure-CSS nested boxes, N = round count.
     //
-    // The selector .lobby-row[data-slide-index] still matches both <li>
-    // and <div> so the existing scroll coupling (recomputeActiveRow,
-    // setActiveRow, lazyKickVideosNear) keeps working unchanged.
+    // The prior nine attempts patched layers of an SVG-tracer architecture
+    // that depended on runtime DOM measurement, ResizeObservers,
+    // MutationObservers, font-load awaits and getTotalLength polling.
+    // Every fix introduced new failure modes; the most recent (PR #360)
+    // was a stopgap. Replaced wholesale with N actual nested DOM rings.
     //
-    // Lanes + tracer SVG is mounted empty here; renderCircuitLanes()
-    // populates it with per-circuit geometry post-render and on resize.
+    // Structure:
+    //   <li class="lobby-circuit"> (positioning + cycles data)
+    //     <header> Circuit name · ×N
+    //     <.lobby-circuit-box .lobby-circuit-box-outer> (when N > 1)
+    //       … (additional rings, one per round, up to the cap)
+    //         <.lobby-circuit-box .lobby-circuit-box-inner> (always present)
+    //           <.lobby-circuit-body> (rows live here, padding handled by CSS)
+    //
+    // N visible boxes = circuit-cycle count, capped at CIRCUIT_BOX_CAP.
+    // ×1 → 1 box (just the inner). ×3 → 3 boxes. ×N → min(N, cap).
+    // Geometry sized via CSS only — no measurement, no observers,
+    // no JS animation. Animation is a pure CSS keyframe (`v1-pulse`)
+    // applied via class with `animation-delay` for the outward ripple.
+    //
+    // Rows still emit as <div>, NOT <li>, so the browser doesn't auto-
+    // close the outer <li>. (PRs #257/#258 lesson preserved.) The
+    // selector `.lobby-row[data-slide-index]` matches both <li> and
+    // <div> so scroll-coupling (recomputeActiveRow, setActiveRow,
+    // lazyKickVideosNear) keeps working unchanged.
     //
     // Cycles chip: `×3` only — no "ROUNDS" suffix.
     // Round 5 — Fix 1 — `group.circuitName` is now always non-null (the
@@ -775,7 +788,8 @@
     const labelText = group.circuitName
       ? group.circuitName
       : 'Circuit';
-    const rounds = group.rounds || 1;
+    const rounds = Math.max(1, group.rounds || 1);
+    const visibleBoxes = Math.min(rounds, CIRCUIT_BOX_CAP);
     const cyclesText = `×${rounds}`;
     const lastIdx = group.rows.length - 1;
     const rows = group.rows.map((r, i) => {
@@ -793,542 +807,57 @@
           `class="lobby-row is-circuit in-circuit${lastMod}`
         );
     }).join('');
+
+    // Build the nested rings outside-in. The innermost ring is always
+    // the deepest div and wraps `.lobby-circuit-body`. For a ×3 plan we
+    // emit boxes numbered 3 (outermost) → 2 → 1 (innermost). Each box
+    // gets its own staggered `animation-delay` via the `--box-index`
+    // custom property (0 = innermost, N-1 = outermost) so the CSS
+    // keyframe can stagger ripples without per-N selectors.
+    let body = `<div class="lobby-circuit-body">${rows}</div>`;
+    for (let depth = 0; depth < visibleBoxes; depth++) {
+      // depth=0 is innermost, depth=visibleBoxes-1 is outermost.
+      const isInner = depth === 0;
+      const isOuter = depth === visibleBoxes - 1;
+      const classes = [
+        'lobby-circuit-box',
+        `lobby-circuit-box-depth-${depth}`,
+        isInner ? 'lobby-circuit-box-inner' : '',
+        isOuter ? 'lobby-circuit-box-outer' : '',
+      ].filter(Boolean).join(' ');
+      body = `<div class="${classes}" style="--box-index:${depth}; --box-total:${visibleBoxes}">${body}</div>`;
+    }
+
     return `
-      <li class="lobby-circuit" data-circuit="${escape(group.circuitId || '')}" data-cycles="${rounds}">
-        <svg class="lobby-circuit-lanes" aria-hidden="true" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"></svg>
-        <div class="lobby-circuit-frame">
-          <div class="lobby-circuit-header">
-            <span class="lobby-circuit-header-label">${escape(labelText)}</span>
-            <span class="lobby-circuit-header-cycles" aria-label="${escape(rounds)} rounds">${escape(cyclesText)}</span>
-          </div>
-          <div class="lobby-circuit-body">${rows}</div>
+      <li class="lobby-circuit" data-circuit="${escape(group.circuitId || '')}" data-cycles="${rounds}" data-visible-boxes="${visibleBoxes}">
+        <div class="lobby-circuit-header">
+          <span class="lobby-circuit-header-label">${escape(labelText)}</span>
+          <span class="lobby-circuit-header-cycles" aria-label="${escape(rounds)} rounds">${escape(cyclesText)}</span>
         </div>
+        ${body}
       </li>
     `;
   }
 
   // ==========================================================================
-  // Circuit lanes overlay — N concentric coral outlines + animated tracer
+  // Circuit chrome — N nested coral-bordered boxes, pure CSS animation
   // ==========================================================================
   //
-  // For each .lobby-circuit, draw N rounded-rectangle lane outlines (one
-  // per round) in coral, plus a single tracer path that spirals from the
-  // innermost lane outward. Animation: 0–90% draw, 90–100% pause; total
-  // duration = cycles * 9s. ResizeObserver re-runs on layout change.
-  //
-  // Geometry ports docs/design/mockups/lobby-circuit-lanes.html:
-  //   lanePad = 5 * cycles   (outermost lane offset from frame edge)
-  //   gap     = 5            (radial distance between lanes)
-  //   radius  = 18           (matches .lobby-circuit-frame border-radius)
-  //
-  // The SVG covers the entire .lobby-circuit element; the .lobby-circuit
-  // itself is positioned with extra padding (via inline style) so lanes
-  // grow OUTWARD from the frame without clipping.
-
-  const SVG_NS = 'http://www.w3.org/2000/svg';
-  let _laneResizeObserver = null;
-  let _laneRenderRaf = null;
-
-  function buildLanePathD(rect, radius) {
-    const startX = rect.x + radius;
-    const startY = rect.y;
-    return [
-      `M ${startX} ${startY}`,
-      `H ${rect.x + rect.w - radius}`,
-      `A ${radius} ${radius} 0 0 1 ${rect.x + rect.w} ${rect.y + radius}`,
-      `V ${rect.y + rect.h - radius}`,
-      `A ${radius} ${radius} 0 0 1 ${rect.x + rect.w - radius} ${rect.y + rect.h}`,
-      `H ${rect.x + radius}`,
-      `A ${radius} ${radius} 0 0 1 ${rect.x} ${rect.y + rect.h - radius}`,
-      `V ${rect.y + radius}`,
-      `A ${radius} ${radius} 0 0 1 ${startX} ${startY}`,
-      'Z',
-    ].join(' ');
-  }
-
-  // Spiral path: clockwise rounded-rectangle perimeter per lane, with
-  // diagonal connectors between lanes (entering each next lane at its
-  // top-left arc-end so the cycles chip area at top-right stays clean).
-  function buildSpiralPathD(innerRect, lanes, gap, radius) {
-    const cmds = [];
-    for (let i = 0; i < lanes; i++) {
-      const offset = i * gap;
-      const r = {
-        x: innerRect.x - offset,
-        y: innerRect.y - offset,
-        w: innerRect.w + offset * 2,
-        h: innerRect.h + offset * 2,
-      };
-      const startX = r.x + radius;
-      const startY = r.y;
-      if (i === 0) {
-        cmds.push(`M ${startX} ${startY}`);
-      } else {
-        // Diagonal connector from the previous lane's top-left arc-end
-        // (which sits one gap inward of this lane's top-left start).
-        cmds.push(`L ${startX} ${startY}`);
-      }
-      cmds.push(`H ${r.x + r.w - radius}`);
-      cmds.push(`A ${radius} ${radius} 0 0 1 ${r.x + r.w} ${r.y + radius}`);
-      cmds.push(`V ${r.y + r.h - radius}`);
-      cmds.push(`A ${radius} ${radius} 0 0 1 ${r.x + r.w - radius} ${r.y + r.h}`);
-      cmds.push(`H ${r.x + radius}`);
-      cmds.push(`A ${radius} ${radius} 0 0 1 ${r.x} ${r.y + r.h - radius}`);
-      cmds.push(`V ${r.y + radius}`);
-      cmds.push(`A ${radius} ${radius} 0 0 1 ${startX} ${startY}`);
-    }
-    return cmds.join(' ');
-  }
-
-  function renderCircuitLanesFor(circuitEl) {
-    const cycles = parseInt(circuitEl.dataset.cycles, 10) || 1;
-    const lanePad = 5 * cycles;
-    const gap = 5;
-    const radius = 18;
-
-    // v54.1 — drop the per-instance LI padding (was `lanePad`) so the
-    // frame edges align with standalone rows' padding (.lobby-row { padding:
-    // 0 16px }). The SVG is positioned to extend OUTSIDE the LI by lanePad
-    // on each side via negative `inset`, so outer lanes draw beyond the
-    // LI's bounding box visually but the frame + cards inside align with
-    // standalone rows. Carl's request: "exercises outside of the circuit
-    // is a bit to the left (meaning the hero left edge not aligned)".
-    circuitEl.style.padding = '0';
-    // Vertical breathing so adjacent rows don't get crowded by the
-    // outward-extending lanes.
-    circuitEl.style.margin = `${Math.max(8, lanePad + 4)}px 0`;
-
-    const frame = circuitEl.querySelector('.lobby-circuit-frame');
-    const svg = circuitEl.querySelector('.lobby-circuit-lanes');
-    if (!frame || !svg) return;
-
-    // SEVENTH-ATTEMPT FIX (2026-05-15) — paint synchronously; let observers
-    // re-paint as the layout settles.
-    //
-    // PR #337 (sixth attempt) added an `await Promise.all(imgs.map ...))`
-    // chain that resolved on each hero <img>'s `load` event. That works
-    // for eager images, but the lobby hero rows use `loading="lazy"` —
-    // and lazy images that haven't entered the viewport NEVER START
-    // LOADING, so `load`/`error` events never fire and `complete` stays
-    // false. The await hung forever and `paintLanesAndTracer()` was
-    // never called → SVG stayed empty → no animation. Carl confirmed
-    // inert on the embedded WKWebView preview where Circuit A's rows
-    // are typically below the viewport on initial paint.
-    //
-    // Real fix is twofold:
-    //   • make the hero <img>s `loading="eager"` (≤30 exercises per
-    //     plan, decoded JPGs are cheap), so frame geometry stabilises
-    //     within the first decode cycle.
-    //   • drop the await entirely. Call paintLanesAndTracer() once
-    //     synchronously; the ResizeObserver attached below re-fires
-    //     it when the now-eager images decode and resize the frame.
-    //   • add a MutationObserver on childList so subsequent row
-    //     re-renders (treatment toggles, etc.) also trigger a recompute.
-    //
-    // Defence-in-depth from #322 (the WAAPI tracer hardening + the
-    // 30-frame poll for `getTotalLength()`) stays in place INSIDE
-    // paintLanesAndTracer().
-    if (typeof ResizeObserver !== 'undefined' && !circuitEl.__laneObserverAttached) {
-      const observer = new ResizeObserver(() => {
-        if (circuitEl.__laneRenderRaf != null) return;
-        circuitEl.__laneRenderRaf = requestAnimationFrame(() => {
-          circuitEl.__laneRenderRaf = null;
-          // Recompute synchronously; cheap.
-          renderCircuitLanesFor(circuitEl);
-        });
-      });
-      observer.observe(frame);
-      circuitEl.__laneObserverAttached = true;
-      circuitEl.__laneObserver = observer;
-    }
-
-    // Re-paint when rows are added/removed/swapped inside the frame
-    // (treatment toggles, prep state changes, etc.).
-    if (typeof MutationObserver !== 'undefined' && !circuitEl.__laneMutationObserverAttached) {
-      const mObserver = new MutationObserver(() => {
-        if (circuitEl.__laneRenderRaf != null) return;
-        circuitEl.__laneRenderRaf = requestAnimationFrame(() => {
-          circuitEl.__laneRenderRaf = null;
-          renderCircuitLanesFor(circuitEl);
-        });
-      });
-      mObserver.observe(frame, { childList: true, subtree: true });
-      circuitEl.__laneMutationObserverAttached = true;
-      circuitEl.__laneMutationObserver = mObserver;
-    }
-
-    // Paint synchronously. With eager hero images the frame either has
-    // its final geometry already or will resize within the next frame —
-    // the ResizeObserver above will re-fire us in that case. NO awaiting.
-    paintLanesAndTracer();
-
-    // EIGHTH-ATTEMPT defence-in-depth (2026-05-15) — re-call after fonts
-    // settle. Web fonts loading mid-paint can shift row heights (the
-    // circuit header label uses var(--f-body)). The ResizeObserver below
-    // catches it too, but fonts.ready resolves in a known phase and is
-    // cheap to chain.
-    if (document.fonts && typeof document.fonts.ready === 'object') {
-      document.fonts.ready.then(() => {
-        // Guard: circuit may have been removed from the DOM by now (plan
-        // switched, lobby closed). Bail silently in that case.
-        if (!circuitEl.isConnected) return;
-        renderCircuitLanesFor(circuitEl);
-      }).catch(() => { /* best-effort */ });
-    }
-
-    function paintLanesAndTracer() {
-    // NINTH-ATTEMPT FIX (2026-05-15) — pause the MutationObserver while
-    // we mutate the SVG.
-    //
-    // PR #353 (eighth attempt) wired up a `MutationObserver` on the
-    // circuit frame so that genuine row swaps (treatment toggles, prep
-    // state changes) would trigger a re-paint. That observer's scope is
-    // `{ childList: true, subtree: true }` — perfect for "child rows
-    // appeared/disappeared", but ALSO fires every time we ourselves
-    // mutate the SVG: clearing previous paths via `svg.removeChild`,
-    // appending the new lane paths, appending the tracer. Each of
-    // those mutations re-enters the observer → queues another rAF →
-    // calls `renderCircuitLanesFor` → calls us → fires the observer
-    // again → infinite loop. The `__laneRenderRaf` guard does NOT
-    // break it because it's nulled INSIDE the rAF callback before
-    // paintLanesAndTracer runs.
-    //
-    // Effect on the user: main thread pegged, preview goes black on
-    // any circuit plan, share button non-responsive, lobby thumbnails
-    // starved. Carl saw this on every circuit-bearing plan after the
-    // PR #353 deploy.
-    //
-    // Surgical fix: capture the observer reference saved on
-    // `circuitEl.__laneMutationObserver` (it was already being stored
-    // there for the cleanup path in `renderCircuitLanes`), disconnect
-    // it for the duration of the SVG mutations, reconnect in a finally
-    // so genuine row changes still get caught afterwards.
-    //
-    // The ResizeObserver is left untouched — it's not part of the
-    // mutation loop (it fires on frame resize, not on our writes). The
-    // rAF poll in `tryMeasureAndApply` only mutates tracer inline
-    // style, which a `childList` observer doesn't see, so we don't
-    // have to keep the observer paused across those frames.
-    const mObs = circuitEl.__laneMutationObserver;
-    if (mObs) {
-      try { mObs.disconnect(); } catch (_) { /* best-effort */ }
-    }
-    try {
-    // EIGHTH-ATTEMPT FIX (2026-05-15) — measure rows individually rather
-    // than reading `frame.offsetHeight`.
-    //
-    // The seven prior attempts (PRs #317, #322, #337, #342, plus three
-    // earlier rounds) all tuned WHEN to paint. The real bug is HOW we
-    // measure: `frame.offsetHeight` is the SUM of its children's heights,
-    // and the children are mostly `<img class="lobby-hero-media">` inside
-    // `<div class="lobby-hero">`. The hero wrapper has `aspect-ratio: 1/1`
-    // (good — reserves space) but the row's flex/grid layout can still
-    // resolve to 0 height on the very first synchronous read, before the
-    // browser has done a layout pass.
-    //
-    // Walking rows directly via `getBoundingClientRect()` avoids the
-    // parent-collapse problem: each row's box is computed in isolation,
-    // and even a fresh `<img>` with `aspect-ratio` on its parent returns
-    // a non-zero rect. Sum header + rows for the total.
-    //
-    // (The companion CSS change adds `aspect-ratio: 1/1` directly to
-    // `.lobby-hero-media` as belt-and-braces — the parent already has
-    // it, but adding it on the image itself reserves height even if the
-    // parent's flex resolution hasn't finished.)
-    const frameRect = frame.getBoundingClientRect();
-    const frameW = frameRect.width;
-
-    const header = frame.querySelector('.lobby-circuit-header');
-    const body = frame.querySelector('.lobby-circuit-body');
-    const rows = Array.from(frame.querySelectorAll('.lobby-row'));
-    const headerH = header ? header.getBoundingClientRect().height : 0;
-    const rowsH = rows.reduce((sum, row) => {
-      const r = row.getBoundingClientRect();
-      return sum + r.height;
-    }, 0);
-
-    // .lobby-circuit-body has padding: 8px 16px 14px and a gap: 6px
-    // between rows. Add the padding (8 + 14 = 22) and the inter-row gap
-    // (6 * max(0, rows-1)) so the computed frame height matches the
-    // visual frame even when rows haven't laid out yet.
-    let bodyPaddingV = 22;
-    let rowGap = 6 * Math.max(0, rows.length - 1);
-    if (body && typeof window.getComputedStyle === 'function') {
-      try {
-        const cs = window.getComputedStyle(body);
-        const pt = parseFloat(cs.paddingTop) || 0;
-        const pb = parseFloat(cs.paddingBottom) || 0;
-        const g = parseFloat(cs.rowGap || cs.gap) || 0;
-        bodyPaddingV = pt + pb;
-        rowGap = g * Math.max(0, rows.length - 1);
-      } catch (_) { /* fall back to defaults */ }
-    }
-
-    let frameH = headerH + rowsH + bodyPaddingV + rowGap;
-
-    // Fallback: if our row-sum is still degenerate (rows have not yet
-    // contributed any height), fall back to the original frame.offsetHeight
-    // read. Either is fine — we just need a positive number.
-    if (frameH <= 0) frameH = frame.offsetHeight;
-
-    if (frameW <= 0 || frameH <= 0) return;
-
-    // SVG covers the frame + lanePad on each side. Position with negative
-    // inset so the SVG's (lanePad, lanePad) viewBox coord lands at the
-    // LI's top-left (= frame's top-left).
-    const totalW = frameW + 2 * lanePad;
-    const totalH = frameH + 2 * lanePad;
-
-    svg.style.position = 'absolute';
-    svg.style.top = `-${lanePad}px`;
-    svg.style.left = `-${lanePad}px`;
-    svg.style.right = `-${lanePad}px`;
-    svg.style.bottom = `-${lanePad}px`;
-    svg.style.width = `${totalW}px`;
-    svg.style.height = `${totalH}px`;
-    svg.style.overflow = 'visible';
-    svg.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
-    svg.setAttribute('width', String(totalW));
-    svg.setAttribute('height', String(totalH));
-
-    // Inner rect (innermost lane outline) hugs .lobby-circuit-frame at
-    // (lanePad, lanePad) of the SVG viewBox — which displays at frame's
-    // (0, 0) on screen due to the negative inset.
-    const innerRect = { x: lanePad, y: lanePad, w: frameW, h: frameH };
-
-    // Wipe previous paths (resize re-render).
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-    // Static lane outlines, slightly more saturated outermost.
-    for (let i = 0; i < cycles; i++) {
-      const offset = i * gap;
-      const laneRect = {
-        x: innerRect.x - offset,
-        y: innerRect.y - offset,
-        w: innerRect.w + offset * 2,
-        h: innerRect.h + offset * 2,
-      };
-      const path = document.createElementNS(SVG_NS, 'path');
-      path.setAttribute('class', 'lane-static');
-      path.setAttribute('d', buildLanePathD(laneRect, radius));
-      const opacity = 0.45 + (i / Math.max(1, cycles - 1)) * 0.30;
-      path.setAttribute('stroke-opacity', opacity.toFixed(2));
-      svg.appendChild(path);
-    }
-
-    // Tracer path — single continuous spiral.
-    const tracer = document.createElementNS(SVG_NS, 'path');
-    tracer.setAttribute('class', 'lane-tracer');
-    tracer.setAttribute('d', buildSpiralPathD(innerRect, cycles, gap, radius));
-    svg.appendChild(tracer);
-
-    // E14 attempt #3 — Embedded WKWebView circuit-animation fix.
-    //
-    // PR #317 (attempt #2) reasoned that `getTotalLength()` returned 0
-    // on the first read in embedded WKWebView because layout hadn't
-    // run, and added a single `requestAnimationFrame` retry. Carl QA'd:
-    // STILL static.
-    //
-    // Root cause re-investigation (2026-05-13, deeper pass):
-    //
-    //   1. The CSS rule on `.lane-tracer` declares `animation:
-    //      lobby-circuit-tracer ...` referencing `var(--path-len)` in
-    //      its @keyframes. We NEVER set --path-len anywhere, so the
-    //      keyframe value resolves to invalid → keyframe is dropped →
-    //      animation interpolates from undefined to 0 (no motion).
-    //      This CSS animation is registered on the element regardless
-    //      of whether WAAPI runs.
-    //
-    //   2. WAAPI animations and CSS animations on the same property
-    //      run concurrently. By spec, WAAPI's `replace` composite mode
-    //      should win the cascade. In practice on iOS WebKit, with the
-    //      element inside a `position: fixed` ancestor (the lobby IS
-    //      position: fixed), animation priority resolution is buggy
-    //      and the CSS animation's "no-op" keyframes can suppress the
-    //      WAAPI animation's visible effect. That's plausibly what's
-    //      happening here.
-    //
-    //   3. A single rAF retry is also too thin: WKWebView's SVG
-    //      renderer can take SEVERAL frames to ingest a freshly-set
-    //      `d` attribute on a path that was created via `createElementNS`.
-    //      Test on real device: even after 1 rAF, `getTotalLength()`
-    //      sometimes still returns 0. After ~3-5 frames it stabilises.
-    //
-    // Fix strategy (three layers — each layer is independently
-    // correct, layered for defence-in-depth):
-    //
-    //   (a) Disable the CSS animation explicitly via
-    //       `tracer.style.animation = 'none'`. Removes the CSS-vs-WAAPI
-    //       priority dance entirely; WAAPI is the only animation in
-    //       play.
-    //
-    //   (b) Also set `--path-len` as an inline CSS variable on the
-    //       element AND drop a `data-path-len` attribute. If for any
-    //       reason WAAPI fails to start (older iOS, security context,
-    //       composited-layer bug), a fallback CSS animation can still
-    //       resolve `var(--path-len)`. We don't re-enable the CSS
-    //       animation here, but the variable is set so a future debug
-    //       session can opt into a CSS-only path by removing the
-    //       `animation: none` override.
-    //
-    //   (c) Bounded poll loop instead of a single rAF retry. Up to
-    //       ~30 frames (~500ms at 60fps; ~750ms at 40fps) tries to
-    //       read a positive `getTotalLength()`. Each retry runs in a
-    //       fresh rAF — gives the SVG renderer time to ingest the
-    //       path's `d` attribute. After the bound is hit, bail
-    //       silently — the static lane outlines stay visible; only
-    //       the tracer overlay is missing.
-    //
-    //   (d) Verify WAAPI actually started by checking the returned
-    //       Animation's `playState`. If it's `idle` or `finished`
-    //       immediately (one cause: bug in WebKit's animation
-    //       engine), fall back to a CSS-only static settled state.
-    function applyTracer(pathLen) {
-      if (!pathLen || pathLen <= 1) return; // degenerate; bail
-      const tracerLen = Math.min(60, pathLen * 0.12);
-      const dur = cycles * 9 * 1000; // ms — 18s/27s/36s/45s for ×2/×3/×4/×5
-
-      // Set strokeDasharray (controls the visible "trail" length) AND
-      // the --path-len CSS variable on the element so a future CSS
-      // animation has a resolvable value if we ever flip back.
-      tracer.style.strokeDasharray = `${tracerLen.toFixed(2)} ${pathLen.toFixed(2)}`;
-      tracer.style.setProperty('--path-len', pathLen.toFixed(2));
-      tracer.style.setProperty('--dur', `${dur}ms`);
-
-      // Layer (a) — disable the CSS animation declaration so WAAPI
-      // doesn't have to fight the cascade. The CSS rule is the
-      // problem identified in attempt #3 — its undefined --path-len
-      // produces an invalid keyframe that, on iOS WebKit, can shadow
-      // the WAAPI animation when the element is inside a
-      // position:fixed ancestor.
-      tracer.style.animation = 'none';
-
-      // Reduce-motion check — Accessibility preference. In the embedded
-      // surface (practitioner walks through the preview before publish)
-      // we honour it the same as the public surface for parity. If a
-      // practitioner sets Reduce Motion their device-wide, the lobby
-      // shows a settled spiral.
-      const reduceMotion = window.matchMedia &&
-        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-      if (typeof tracer.animate !== 'function' || reduceMotion) {
-        // No WAAPI support or reduce-motion active — leave the tracer
-        // visible at the settled end-state so the static lanes still
-        // look intentional.
-        tracer.style.strokeDashoffset = '0';
-        return;
-      }
-
-      // Cancel any prior animation (resize re-render). `getAnimations`
-      // may itself be missing on older WebKit; treat as a soft fail.
-      try {
-        if (typeof tracer.getAnimations === 'function') {
-          tracer.getAnimations().forEach((a) => a.cancel());
-        }
-      } catch (_) { /* best-effort cleanup */ }
-
-      let anim;
-      try {
-        anim = tracer.animate(
-          [
-            { strokeDashoffset: pathLen.toFixed(2) },
-            { strokeDashoffset: 0, offset: 0.9 },
-            { strokeDashoffset: 0 },
-          ],
-          { duration: dur, iterations: Infinity, easing: 'linear' }
-        );
-      } catch (_) {
-        // WAAPI rejected the call — fall through to settled-at-zero
-        // so the static lane outlines stay visible.
-        tracer.style.strokeDashoffset = '0';
-        return;
-      }
-
-      // Layer (d) — verify the animation actually entered a running
-      // state. If `playState` is `idle` (WAAPI created the Animation
-      // object but never started it — happens on some iOS WebKit
-      // builds when the element isn't yet rendered), kick it
-      // explicitly via `.play()` and re-check on the next frame. If
-      // still idle, fall back to the static end-state.
-      if (anim && anim.playState === 'idle') {
-        try { anim.play(); } catch (_) { /* best-effort */ }
-        // Schedule a one-shot verify pass after a couple of frames.
-        // If the animation is still inert, settle.
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (anim && (anim.playState === 'idle' || anim.playState === 'finished')) {
-              tracer.style.strokeDashoffset = '0';
-            }
-          });
-        });
-      }
-    }
-
-    // Layer (c) — bounded poll loop. SVG `getTotalLength()` is intrinsic
-    // to the path's `d` attribute and should be available immediately
-    // per spec, but iOS WebKit can take several frames before the SVG
-    // renderer has ingested a freshly-set `d` attribute on a path
-    // created via createElementNS. Try up to MAX_TRIES rAFs.
-    const MAX_TRIES = 30; // ~500ms at 60fps / ~750ms at 40fps
-    function tryMeasureAndApply(remaining) {
-      let len = 0;
-      try { len = tracer.getTotalLength(); } catch (_) { len = 0; }
-      if (len > 1) {
-        applyTracer(len);
-        return;
-      }
-      if (remaining <= 0) {
-        // Bail silently — static lanes stay visible. This is the
-        // graceful degradation path; never throws, never crashes.
-        return;
-      }
-      requestAnimationFrame(() => tryMeasureAndApply(remaining - 1));
-    }
-    tryMeasureAndApply(MAX_TRIES);
-    } finally {
-      // Reconnect so genuine row/content changes (treatment toggles,
-      // prep transitions) still re-trigger a paint. We only paused for
-      // the duration of our own SVG mutations above. `tryMeasureAndApply`
-      // is allowed to keep running across rAFs after this — it only
-      // writes inline style on the tracer, which a `childList` observer
-      // doesn't see, so no re-entry risk.
-      if (mObs) {
-        try { mObs.observe(frame, { childList: true, subtree: true }); } catch (_) { /* best-effort */ }
-      }
-    }
-    }
-  }
-
-  function renderCircuitLanes() {
-    if (!$lobbyList) return;
-    const circuits = $lobbyList.querySelectorAll('.lobby-circuit');
-    // ROOT-CAUSE FIX (2026-05-15) — ResizeObserver wiring moved INTO
-    // `renderCircuitLanesFor` (one observer per circuit, attached before
-    // the layout-stable await). The outer module-level observer is no
-    // longer load-bearing; we still tear it down on re-render so we
-    // don't double-observe after a list rebuild.
-    if (_laneResizeObserver) {
-      try { _laneResizeObserver.disconnect(); } catch (_) {}
-      _laneResizeObserver = null;
-    }
-    // Reset the per-circuit observer flags so the new circuit elements
-    // (which are fresh DOM nodes after a list rebuild) get a fresh
-    // observer attached on this pass.
-    circuits.forEach((c) => {
-      if (c.__laneObserver) {
-        try { c.__laneObserver.disconnect(); } catch (_) {}
-      }
-      c.__laneObserver = null;
-      c.__laneObserverAttached = false;
-      if (c.__laneMutationObserver) {
-        try { c.__laneMutationObserver.disconnect(); } catch (_) {}
-      }
-      c.__laneMutationObserver = null;
-      c.__laneMutationObserverAttached = false;
-      c.__laneRenderRaf = null;
-    });
-    circuits.forEach(renderCircuitLanesFor);
-  }
+  // ATTEMPT #10 (2026-05-15) — the previous SVG-tracer architecture lived
+  // here. It ran nine fixes through the year (PRs #257/#258 → #260 → #317
+  // → #322 → #337 → #342 → #353 → #360) trying to keep an SVG path animated
+  // in sync with runtime DOM measurement of the circuit frame. Every fix
+  // patched a layer of an architecture that always raced — ResizeObservers
+  // re-firing into MutationObservers, getTotalLength polling, font-load
+  // awaits, WAAPI vs CSS-keyframe priority dances on position:fixed
+  // ancestors. The whole class of bugs is gone now: the new chrome is N
+  // visually-nested <div> boxes emitted by circuitGroupHTML(), animated by
+  // pure CSS keyframes (`v1-pulse`) declared in styles.css. No JS animation,
+  // no measurement, no observers, no retries. The mockup that drove this
+  // is `docs/design/mockups/circuit-nested-boxes.html` (variant 1, outward
+  // ripple). The exported PDF inherits the same nested-box DOM but the
+  // animation is suppressed in the `html.is-exporting` / `.lobby-export-page`
+  // contexts so a static frame rasterises.
 
   /**
    * Round 6 — compose the dose-line via the central formatReps() +
@@ -1466,12 +995,12 @@
 
     if (isPhoto) {
       // Photos are always static <img>. CSS .is-grayscale handles B&W.
-      // loading="eager" (not "lazy") — see SEVENTH-attempt fix in
-      // renderCircuitLanesFor. Lazy heroes outside initial viewport
-      // never fired load events, which hung the await chain that
-      // gated SVG painting. ~30 small JPGs per plan is fine on
-      // cellular, and the eager paint settles frame geometry within
-      // the first decode cycle so circuit lane SVGs land correctly.
+      // loading="eager" (not "lazy") — kept from a prior attempt at
+      // fixing the circuit animation (when the SVG tracer needed the
+      // hero images decoded so the frame measurement was stable). The
+      // nested-box chrome no longer needs that, but ~30 small JPGs per
+      // plan is fine on cellular and avoiding lazy-load makes scroll
+      // less janky, so the choice stays.
       const src = hero.src || hero.posterSrc || '';
       return `
         <img class="lobby-hero-media${grayscale}"
@@ -1487,7 +1016,10 @@
     // swapToVideoOnActiveRow lifts it to <video> when the row becomes
     // active. The mp4 URL travels on `data-video-src` — NEVER on
     // `<img src>` (iOS WKWebView mp4-in-img trap).
-    // loading="eager" — see SEVENTH-attempt fix in renderCircuitLanesFor.
+    // loading="eager" — historical: the SEVENTH-attempt SVG-tracer fix needed
+    // synchronous image decode to measure circuit-frame bounds. The tracer
+    // is gone (attempt #10 went to nested DOM boxes) but the eager loading
+    // is still load-bearing for poster-to-video swap timing.
     const videoSrc = hero.videoSrc || '';
     const posterSrc = hero.posterSrc || '';
     return `
@@ -3377,20 +2909,10 @@
       const root = document.documentElement;
       root.classList.add('is-exporting');
 
-      // Cancel any in-flight WAAPI animations on circuit tracers so
-      // cloned circuit chrome rasterises as a settled frame instead of
-      // a mid-motion snapshot. Re-rendered after the pipeline completes.
-      const _exportTracers = Array.from($lobby.querySelectorAll('.lobby-circuit-lanes .lane-tracer'));
-      for (const t of _exportTracers) {
-        try {
-          if (typeof t.getAnimations === 'function') {
-            for (const a of t.getAnimations()) {
-              try { a.cancel(); } catch (_) {}
-            }
-          }
-          t.style.strokeDashoffset = '0';
-        } catch (_) {}
-      }
+      // Nested-box circuit chrome (attempt #10) is pure CSS — the
+      // animation is suppressed via `html.is-exporting .lobby-circuit-box`
+      // in styles.css, which freezes the keyframe at a bright-coral
+      // settled frame. No JS animation cancellation needed.
 
       let pdfBlob = null;
       let firstPageDataUrl = null;
@@ -3613,15 +3135,12 @@
           throw err;
         }
       } finally {
-        // Restore live DOM regardless of success / failure.
+        // Restore live DOM regardless of success / failure. Nested-box
+        // circuit chrome (attempt #10) is pure CSS — the animation
+        // resumes on its own once `is-exporting` is removed.
         originalSrcs.forEach((src, img) => { try { img.src = src; } catch (_) {} });
         originalPosters.forEach((poster, v) => { try { v.poster = poster; } catch (_) {} });
         root.classList.remove('is-exporting');
-        try {
-          requestAnimationFrame(() => {
-            try { renderCircuitLanes(); } catch (_) {}
-          });
-        } catch (_) {}
       }
 
       if (!pdfBlob) {
