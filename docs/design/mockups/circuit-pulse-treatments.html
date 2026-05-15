@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circuit pulse — 8 treatments</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #1A1D26;
+    --surface-raised: #232734;
+    --surface-elev: #2A2E3C;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255, 107, 53, 0.12);
+    --coral-dim: rgba(255, 107, 53, 0.25);
+    --coral-mid: rgba(255, 107, 53, 0.45);
+    --coral-strong: rgba(255, 107, 53, 0.7);
+    --text: #F5F7FB;
+    --text-dim: #9CA3AF;
+    --text-mute: #6B7280;
+    --montserrat: 'Montserrat', system-ui, -apple-system, sans-serif;
+    --inter: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--inter);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 32px 20px 80px;
+  }
+  .page-title {
+    font-family: var(--montserrat);
+    font-weight: 800;
+    font-size: 28px;
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  .page-subtitle {
+    color: var(--text-dim);
+    text-align: center;
+    margin-bottom: 36px;
+    font-size: 13px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 28px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+  .variant {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .variant-label {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--coral);
+  }
+  .variant-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    min-height: 48px;
+    line-height: 1.45;
+  }
+
+  /* Stage container */
+  .stage {
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 42px 36px 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  /* CIRCUIT A header */
+  .circuit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+  .circuit-label {
+    font-family: var(--montserrat);
+    font-weight: 800;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--coral);
+  }
+  .circuit-cycles {
+    background: var(--coral-bg);
+    border: 1px solid var(--coral);
+    border-radius: 14px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--coral);
+  }
+
+  /* Circuit frame */
+  .circuit-frame {
+    position: relative;
+    width: 100%;
+    border: 2px solid var(--coral);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg);
+  }
+
+  /* Exercise row */
+  .ex-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .ex-row .thumb {
+    width: 60px;
+    height: 60px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #4B5563, #2A2E3C);
+    flex-shrink: 0;
+  }
+  .ex-row .body { flex: 1; }
+  .ex-row .name { font-family: var(--montserrat); font-weight: 700; font-size: 13px; }
+  .ex-row .meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+  /* ═══ TREATMENT 1 · TWO-RING EXPANDING OUTWARD ═══════════════════════════ */
+  .t1 .circuit-frame::before,
+  .t1 .circuit-frame::after {
+    content: ""; position: absolute; inset: -8px;
+    border-radius: 18px; border: 2px solid var(--coral);
+    opacity: 0; pointer-events: none;
+  }
+  .t1 .circuit-frame::before { animation: t1-ring 2.4s ease-out infinite; }
+  .t1 .circuit-frame::after  { inset: -20px; border-radius: 24px; animation: t1-ring 2.4s ease-out infinite; animation-delay: 0.8s; }
+  @keyframes t1-ring {
+    0%   { transform: scale(0.94); opacity: 0; }
+    25%  { opacity: 0.9; }
+    100% { transform: scale(1.06); opacity: 0; }
+  }
+
+  /* ═══ TREATMENT 2 · TRIPLE-RING BOX-SHADOW PROPAGATION ═══════════════════ */
+  .t2 .circuit-frame {
+    animation: t2-shadow 2.8s ease-out infinite;
+  }
+  @keyframes t2-shadow {
+    0%   { box-shadow: 0 0 0 0px var(--coral-strong), 0 0 0 0px var(--coral-mid), 0 0 0 0px var(--coral-dim); }
+    33%  { box-shadow: 0 0 0 6px var(--coral-strong), 0 0 0 0px var(--coral-mid), 0 0 0 0px var(--coral-dim); }
+    66%  { box-shadow: 0 0 0 6px transparent,        0 0 0 14px var(--coral-mid), 0 0 0 0px var(--coral-dim); }
+    100% { box-shadow: 0 0 0 6px transparent,        0 0 0 14px transparent,     0 0 0 24px var(--coral-dim); }
+  }
+
+  /* ═══ TREATMENT 3 · INNER ROWS THEN FRAME (SEQUENCED) ════════════════════ */
+  .t3 .circuit-frame {
+    animation: t3-frame 2.6s ease-out infinite;
+    animation-delay: 0.5s;
+  }
+  .t3 .ex-row { animation: t3-row 2.6s ease-out infinite; }
+  @keyframes t3-row {
+    0%, 50%, 100% { box-shadow: inset 0 0 0 1px transparent; }
+    20% { box-shadow: inset 0 0 0 1.5px var(--coral); }
+  }
+  @keyframes t3-frame {
+    0%, 60%, 100% { box-shadow: 0 0 0 0px transparent; }
+    30%           { box-shadow: 0 0 0 6px var(--coral-dim); }
+  }
+
+  /* ═══ TREATMENT 4 · STAGGERED ROW PULSE ═════════════════════════════════ */
+  .t4 .ex-row { animation: t4-row 1.6s ease-in-out infinite; }
+  .t4 .ex-row:nth-child(2) { animation-delay: 0.4s; }
+  .t4 .ex-row:nth-child(3) { animation-delay: 0.8s; }
+  @keyframes t4-row {
+    0%, 100% { box-shadow: inset 0 0 0 1px transparent; }
+    50%      { box-shadow: inset 0 0 0 1.5px var(--coral-strong); }
+  }
+
+  /* ═══ TREATMENT 5 · HEARTBEAT (SYNCHRONOUS PULSE) ═══════════════════════ */
+  .t5 .circuit-frame { animation: t5-frame 1.4s ease-in-out infinite; }
+  .t5 .ex-row { animation: t5-row 1.4s ease-in-out infinite; }
+  @keyframes t5-frame {
+    0%, 100% { box-shadow: 0 0 0 0 transparent; border-color: var(--coral); }
+    40%      { box-shadow: 0 0 0 5px var(--coral-dim); border-color: var(--coral); }
+    50%      { border-color: var(--coral); }
+  }
+  @keyframes t5-row {
+    0%, 100% { transform: scale(1); }
+    40%      { transform: scale(1.005); }
+  }
+
+  /* ═══ TREATMENT 6 · BREATHING (SLOW SCALE) ══════════════════════════════ */
+  .t6 .circuit-frame { animation: t6-breathe 3.6s ease-in-out infinite; transform-origin: center; }
+  @keyframes t6-breathe {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+    50%      { transform: scale(1.012); box-shadow: 0 0 16px 2px var(--coral-mid); }
+  }
+
+  /* ═══ TREATMENT 7 · MARCHING ANTS (DASHED BORDER IN MOTION) ════════════ */
+  .t7 .circuit-frame {
+    border: 2px dashed var(--coral);
+    background-image:
+      linear-gradient(90deg, var(--coral) 50%, transparent 50%),
+      linear-gradient(90deg, var(--coral) 50%, transparent 50%),
+      linear-gradient(0deg, var(--coral) 50%, transparent 50%),
+      linear-gradient(0deg, var(--coral) 50%, transparent 50%);
+    background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+    background-size: 12px 2px, 12px 2px, 2px 12px, 2px 12px;
+    background-position: 0 0, 100% 100%, 0 100%, 100% 0;
+    animation: t7-march 0.6s linear infinite;
+    border: 2px solid transparent;
+  }
+  @keyframes t7-march {
+    to {
+      background-position: 12px 0, calc(100% - 12px) 100%, 0 calc(100% - 12px), 100% 12px;
+    }
+  }
+
+  /* ═══ TREATMENT 8 · CHASE LIGHT (BRIGHT SPOT TRAVELS PERIMETER) ════════ */
+  .t8 .circuit-frame {
+    overflow: hidden;
+  }
+  .t8 .circuit-frame::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 14px;
+    background: conic-gradient(from 0deg, transparent 0deg, transparent 270deg, var(--coral) 320deg, transparent 360deg);
+    animation: t8-chase 2.4s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .t8 .circuit-frame::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    border-radius: 12px;
+    background: var(--bg);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .t8 .circuit-header,
+  .t8 .ex-row { position: relative; z-index: 2; }
+  @keyframes t8-chase {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Annotation flag */
+  .annotation {
+    background: var(--coral-bg);
+    border-left: 3px solid var(--coral);
+    padding: 9px 12px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .annotation b { color: var(--coral); font-weight: 700; }
+  .annotation code {
+    background: rgba(255, 107, 53, 0.15);
+    padding: 0 4px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--coral);
+  }
+
+  .footer {
+    max-width: 800px;
+    margin: 56px auto 0;
+    padding: 20px 24px;
+    background: var(--surface);
+    border-radius: 14px;
+    text-align: center;
+  }
+  .footer h2 {
+    font-family: var(--montserrat);
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--coral);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .footer p {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .footer p b { color: var(--text); }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Circuit pulse — 8 treatments</h1>
+<p class="page-subtitle">Pure CSS · zero JS · 10th-attempt strategy · all live-animating below · 2026-05-15</p>
+
+<div class="grid">
+
+  <!-- 1 -->
+  <div class="variant t1">
+    <span class="variant-label">1 · Two-ring expanding outward</span>
+    <div class="variant-note">Two coral rings pulse outward from the frame edge, staggered by 0.8s. Energy radiating away from the work.</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> two <code>::before</code> / <code>::after</code> pseudo-elements, scale + opacity keyframes. Most "loop-out" semantic.</div>
+  </div>
+
+  <!-- 2 -->
+  <div class="variant t2">
+    <span class="variant-label">2 · Triple-ring deep propagation</span>
+    <div class="variant-note">Box-shadow grows in three layered stages (strong → medium → soft). More dramatic visual reach.</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> single <code>box-shadow</code> with 3 comma-separated layers. Most performant — only one element animates.</div>
+  </div>
+
+  <!-- 3 -->
+  <div class="variant t3">
+    <span class="variant-label">3 · Inner rows then frame (sequenced)</span>
+    <div class="variant-note">Exercise row borders pulse first, then the circuit frame pulses outward. "Energy gathers in the work, then expands through the circuit."</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> two keyframes — one on <code>.ex-row</code>, one on <code>.circuit-frame</code> with <code>animation-delay</code>. Closest match to "pulse the inner, then N+1".</div>
+  </div>
+
+  <!-- 4 -->
+  <div class="variant t4">
+    <span class="variant-label">4 · Staggered row pulse only</span>
+    <div class="variant-note">Each exercise row pulses in turn (cascading down). Frame stays still. Subtler — "exercise heartbeat through the circuit".</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> single keyframe on <code>.ex-row</code>, <code>animation-delay</code> per row index. Simplest possible.</div>
+  </div>
+
+  <!-- 5 -->
+  <div class="variant t5">
+    <span class="variant-label">5 · Heartbeat (synchronous pulse)</span>
+    <div class="variant-note">Frame and rows pulse together in unison, faster cadence. Reads as "this group is alive, looping as one unit".</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> two synchronised keyframes, same timing. Most "alive" feel. Faster cadence (1.4s) than the others.</div>
+  </div>
+
+  <!-- 6 -->
+  <div class="variant t6">
+    <span class="variant-label">6 · Breathing (slow scale)</span>
+    <div class="variant-note">Whole frame gently scales in and out like breathing, paired with a soft glow. "This group has presence, calmly waiting".</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> single transform: scale + box-shadow on the frame. Slowest cadence (3.6s). Quietest.</div>
+  </div>
+
+  <!-- 7 -->
+  <div class="variant t7">
+    <span class="variant-label">7 · Marching ants</span>
+    <div class="variant-note">Classic "marching ants" — animated dashed border moves around the frame. Indicates the group is in motion / selected.</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> background-image gradients + background-position animation. Familiar pattern (Photoshop selection).</div>
+  </div>
+
+  <!-- 8 -->
+  <div class="variant t8">
+    <span class="variant-label">8 · Chase light (perimeter sweep)</span>
+    <div class="variant-note">A bright coral spot continuously sweeps around the frame's perimeter. Closest "directional motion" to the retired spiral tracer.</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="circuit-frame">
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> conic-gradient + rotate, with an inner cover for the centre. Most "motion around perimeter" — visual heir to the spiral.</div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <h2>What they all have in common</h2>
+  <p><b>Pure CSS keyframes.</b> No JS, no observers, no measurement, no DOM mutation. Animations run on the compositor thread.</p>
+  <p><b>Same code path in Safari and WKWebView.</b> The class of bugs we've been fighting (timing races, mutation feedback loops) literally cannot occur.</p>
+  <p>Pick a treatment (or a hybrid — e.g., heartbeat + chase) and I'll spawn the 10th-attempt fix agent.</p>
+</div>
+
+</body>
+</html>
