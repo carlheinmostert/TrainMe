@@ -193,14 +193,15 @@ class _MiniPreviewState extends State<MiniPreview> {
   }
 
   /// Treatment the mini should reflect — mirrors the Preview tab's
-  /// current selection via `preferredTreatment`. Falls back to line.
+  /// current selection via `preferredTreatment`. Falls back to B&W
+  /// (grayscale) per the 2026-05-15 publish-flow refactor (PR-B).
   ///
   /// Read internally for state-tracking (e.g. `didUpdateWidget`
   /// path comparison) — the actual file selection routes through
   /// [resolveExerciseHero] so all surfaces converge on the same
   /// contract.
   Treatment _treatmentFor(ExerciseCapture ex) =>
-      ex.preferredTreatment ?? Treatment.line;
+      ex.preferredTreatment ?? Treatment.grayscale;
 
   /// Returns the video path the mini should play, or null when the
   /// exercise isn't a playable video (rest / photo / missing file).
