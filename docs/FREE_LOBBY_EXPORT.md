@@ -9,7 +9,7 @@ Status: **draft, pre-implementation**. Author: Carl + Claude, 2026-05-04.
 
 ## Post-implementation update (2026-05-15)
 
-**This spec is partially superseded.** The shipped format is **multi-page A4 PDF**, not PNG. The "Format decision" matrix in section 2 below is **reference-only** — the trade-off was re-run during implementation (2026-05-13 → 2026-05-14) and PDF won on multi-exercise layout and print fidelity. PNG remains as a desktop-only fallback inside the in-page modal (a workaround for the cross-browser blob-download bug; see `gotcha_desktop_blob_download` memory) and is **not** the primary surface.
+**This spec is partially superseded.** The shipped format is **multi-page A4 PDF**, not PNG. The "Format decision" matrix in section 2 below is **reference-only** — the trade-off was re-run during implementation (2026-05-13 → 2026-05-14) and PDF won on multi-exercise layout and print fidelity. PNG is no longer supported on any surface — both mobile (via iOS `share_file` bridge) and desktop (PDF download from the JS-injected modal) use the PDF pipeline. The dead PNG-modal markup, CSS, and `shareImage` bridge were removed 2026-05-15 (PR #339).
 
 Other shipped reality the rest of this spec doesn't reflect:
 
