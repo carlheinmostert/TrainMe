@@ -111,6 +111,19 @@
   //     `thumbnail_url_color` (raw colour JPG; CSS filter does grayscale).
   //     If absent, null.
   //   - Original: `thumbnail_url_color` ONLY. If absent, null.
+  //
+  // LEGACY PLAN SOFT FALLBACK (2026-05-15):
+  //   Plans captured before PR #319 (2026-05-13 photo variant pipeline)
+  //   have only `thumbnail_url` on disk — neither `_thumb_color.jpg` nor
+  //   `_thumb_line.jpg` was generated. The iOS scheme bridge emits all
+  //   three URLs unconditionally; WKWebView resolving the missing variants
+  //   returns `URLError.fileDoesNotExist` and renders an empty grey square.
+  //   PR #348's default-treatment swap (NULL → B&W) made this visible on
+  //   every legacy plan opened in embedded preview.
+  //   Defence-in-depth: when the requested variant URL isn't present, fall
+  //   back to the canonical `thumbnail_url`. The CSS `.is-grayscale` filter
+  //   on the <img> still applies, so a B&W render still looks B&W; an
+  //   Original render of a legacy photo will be its (only) stored variant.
   function pickPosterSrc(exercise, treatment) {
     if (!exercise) return null;
     var isPhoto = exercise.media_type === 'photo' || exercise.media_type === 'image';
@@ -121,7 +134,9 @@
       // three-treatment parity (the public surface uploads the line
       // drawing JPG as the canonical thumbnail). This is the SAME logical
       // field, not a treatment fallback.
-      if (isPhoto && exercise.thumbnail_url) return exercise.thumbnail_url;
+      // Legacy soft fallback: also fall back to `thumbnail_url` for videos
+      // when `thumbnail_url_line` isn't on disk.
+      if (exercise.thumbnail_url) return exercise.thumbnail_url;
       return null;
     }
 
@@ -132,11 +147,19 @@
       // Photos: B&W is realised by applying CSS grayscale on top of the
       // raw colour JPG. So we need a colour source.
       if (isPhoto && exercise.thumbnail_url_color) return exercise.thumbnail_url_color;
+      // Legacy soft fallback: for photos with no _thumb_color.jpg on disk,
+      // fall back to the canonical thumbnail. CSS filter still applies.
+      if (isPhoto && exercise.thumbnail_url) return exercise.thumbnail_url;
       return null;
     }
 
     if (treatment === 'original') {
       if (exercise.thumbnail_url_color) return exercise.thumbnail_url_color;
+      // Legacy soft fallback: no _thumb_color.jpg on disk → use the
+      // canonical thumbnail. For legacy photos that's already the (only)
+      // stored variant; for legacy videos that's the B&W extract — not
+      // ideal but better than an empty grey square.
+      if (exercise.thumbnail_url) return exercise.thumbnail_url;
       return null;
     }
     return null;

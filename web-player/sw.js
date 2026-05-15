@@ -42,6 +42,16 @@
 // top:134px; right:8px` whenever JS cleared inline styles on close,
 // putting the popover below the gear and offscreen.
 // See fix/gear-popover-drop-shared-class.
+//
+// 2026-05-15 (lobby hero thumbnails legacy soft-fallback) — bumped for
+// pickPosterSrc soft-fallback in exercise_hero.js. PR #348's default-
+// treatment swap (NULL → B&W) made legacy plans (pre-PR-#319 photo
+// variant pipeline) render empty grey thumbnails: the iOS scheme bridge
+// unconditionally emits `thumbnail_url_color`, but `_thumb_color.jpg`
+// doesn't exist on disk for those plans → WKWebView gets
+// fileDoesNotExist. Defence-in-depth: fall back to canonical
+// `thumbnail_url` when the specific variant is missing; CSS .is-grayscale
+// filter still applies. See fix/lobby-thumbnails-legacy-soft-fallback.
 const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
 // App shell files — always cached
