@@ -154,8 +154,8 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">72 waves awaiting device QA</h3>
-      <!-- Note: count includes the new 2026-05-15 PR-C publish-progress-sheet wave (#0). -->
+      <h3 class="title">73 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-15 fix-circuit-attempt-8 wave (EIGHTH attempt) at the top. -->
               </div>
             </div>
             <div style="text-align: right;">
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">72 waves awaiting device QA</h3>
+      <h3 class="title">73 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./fix-circuit-attempt-8.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Circuit animation &mdash; EIGHTH attempt (measure rows individually + aspect-ratio CSS)</div>
+              <div class="scope"><strong>Eighth attempt at the recurring circuit-animation bug.</strong> PR #342 (seventh attempt &mdash; eager heroes + drop await + MutationObserver) shipped to Carl and was confirmed inert. <strong>Why seven prior attempts all failed.</strong> Each one fixed WHEN to paint (rAF retry, await image load, ResizeObserver, eager loading). None fixed HOW we measure. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">renderCircuitLanesFor()</code> in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/lobby.js</code> reads <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">frame.offsetHeight</code> synchronously at the top of <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">paintLanesAndTracer()</code>. The frame's height equals the SUM of its child rows' heights, and rows contain <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img class="lobby-hero-media"&gt;</code> which can still resolve to 0 on first synchronous read even with eager loading. Result: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">frameH = 0</code>, SVG sized to nothing, tracer drawn along an invisible path. <strong>The eighth-attempt fix.</strong> (1) Stop reading <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">frame.offsetHeight</code> &mdash; sum row heights via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">getBoundingClientRect()</code> on each <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.lobby-row</code> + header height + computed body padding/gap. Walking rows directly avoids parent-collapse. (2) Add <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">aspect-ratio: 1/1</code> directly on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.lobby-hero-media</code> &mdash; the parent already has it; adding it on the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img&gt;</code> itself reserves height even before flex resolution finishes. (3) Defence-in-depth: keep ResizeObserver + MutationObserver from PR #342; add <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">document.fonts.ready</code> re-call for web-font shifts; soft fallback to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">frame.offsetHeight</code> if row-sum is degenerate. <strong>R-10:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/lobby.js</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">styles.css</code> AND <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/assets/web-player/</code> mirrors byte-identical (MD5-confirmed). <strong>Sensitive zone:</strong> eighth attempt at a recurring bug &mdash; Carl review before merge. <strong>8 items in 7 sections; load-bearing: #1 (tracer visible without scrolling within 2s &mdash; THIS is what #342 failed), #2 (frame wraps all 3 exercises), #3 (cold-cache path), #4 (treatment-toggle MutationObserver re-paint), #5 (orientation flip).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./feat-publish-progress-sheet.html">
           <div class="row">

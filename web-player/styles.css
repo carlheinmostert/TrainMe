@@ -2984,6 +2984,14 @@ body.is-fullscreen .playpause-toggle {
 .lobby-hero-media {
   object-fit: cover;
   display: block;
+  /* EIGHTH-attempt circuit-animation fix (2026-05-15) — explicit
+     aspect-ratio on the image element (in addition to the 1/1 on its
+     parent .lobby-hero) so the row reserves vertical space BEFORE the
+     image decodes. Without this, on first paint the row could collapse
+     to ~0 height and renderCircuitLanesFor() in lobby.js sized the SVG
+     to nothing, leaving the coral tracer drawn along an invisible
+     path. */
+  aspect-ratio: 1 / 1;
 }
 
 .lobby-hero-media.is-grayscale {

@@ -962,9 +962,78 @@
     // the ResizeObserver above will re-fire us in that case. NO awaiting.
     paintLanesAndTracer();
 
+    // EIGHTH-ATTEMPT defence-in-depth (2026-05-15) — re-call after fonts
+    // settle. Web fonts loading mid-paint can shift row heights (the
+    // circuit header label uses var(--f-body)). The ResizeObserver below
+    // catches it too, but fonts.ready resolves in a known phase and is
+    // cheap to chain.
+    if (document.fonts && typeof document.fonts.ready === 'object') {
+      document.fonts.ready.then(() => {
+        // Guard: circuit may have been removed from the DOM by now (plan
+        // switched, lobby closed). Bail silently in that case.
+        if (!circuitEl.isConnected) return;
+        renderCircuitLanesFor(circuitEl);
+      }).catch(() => { /* best-effort */ });
+    }
+
     function paintLanesAndTracer() {
-    const frameW = frame.offsetWidth;
-    const frameH = frame.offsetHeight;
+    // EIGHTH-ATTEMPT FIX (2026-05-15) — measure rows individually rather
+    // than reading `frame.offsetHeight`.
+    //
+    // The seven prior attempts (PRs #317, #322, #337, #342, plus three
+    // earlier rounds) all tuned WHEN to paint. The real bug is HOW we
+    // measure: `frame.offsetHeight` is the SUM of its children's heights,
+    // and the children are mostly `<img class="lobby-hero-media">` inside
+    // `<div class="lobby-hero">`. The hero wrapper has `aspect-ratio: 1/1`
+    // (good — reserves space) but the row's flex/grid layout can still
+    // resolve to 0 height on the very first synchronous read, before the
+    // browser has done a layout pass.
+    //
+    // Walking rows directly via `getBoundingClientRect()` avoids the
+    // parent-collapse problem: each row's box is computed in isolation,
+    // and even a fresh `<img>` with `aspect-ratio` on its parent returns
+    // a non-zero rect. Sum header + rows for the total.
+    //
+    // (The companion CSS change adds `aspect-ratio: 1/1` directly to
+    // `.lobby-hero-media` as belt-and-braces — the parent already has
+    // it, but adding it on the image itself reserves height even if the
+    // parent's flex resolution hasn't finished.)
+    const frameRect = frame.getBoundingClientRect();
+    const frameW = frameRect.width;
+
+    const header = frame.querySelector('.lobby-circuit-header');
+    const body = frame.querySelector('.lobby-circuit-body');
+    const rows = Array.from(frame.querySelectorAll('.lobby-row'));
+    const headerH = header ? header.getBoundingClientRect().height : 0;
+    const rowsH = rows.reduce((sum, row) => {
+      const r = row.getBoundingClientRect();
+      return sum + r.height;
+    }, 0);
+
+    // .lobby-circuit-body has padding: 8px 16px 14px and a gap: 6px
+    // between rows. Add the padding (8 + 14 = 22) and the inter-row gap
+    // (6 * max(0, rows-1)) so the computed frame height matches the
+    // visual frame even when rows haven't laid out yet.
+    let bodyPaddingV = 22;
+    let rowGap = 6 * Math.max(0, rows.length - 1);
+    if (body && typeof window.getComputedStyle === 'function') {
+      try {
+        const cs = window.getComputedStyle(body);
+        const pt = parseFloat(cs.paddingTop) || 0;
+        const pb = parseFloat(cs.paddingBottom) || 0;
+        const g = parseFloat(cs.rowGap || cs.gap) || 0;
+        bodyPaddingV = pt + pb;
+        rowGap = g * Math.max(0, rows.length - 1);
+      } catch (_) { /* fall back to defaults */ }
+    }
+
+    let frameH = headerH + rowsH + bodyPaddingV + rowGap;
+
+    // Fallback: if our row-sum is still degenerate (rows have not yet
+    // contributed any height), fall back to the original frame.offsetHeight
+    // read. Either is fine — we just need a positive number.
+    if (frameH <= 0) frameH = frame.offsetHeight;
+
     if (frameW <= 0 || frameH <= 0) return;
 
     // SVG covers the frame + lanePad on each side. Position with negative
