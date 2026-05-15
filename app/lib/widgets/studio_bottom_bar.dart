@@ -4,6 +4,20 @@ import 'package:flutter/services.dart';
 import '../models/session.dart';
 import '../theme.dart';
 
+/// PR-C visual tone for the optional "Publishing N of M files" chip in
+/// the workflow toolbar. Drives both the chip background colour and
+/// the leading glyph.
+enum PublishingChipTone {
+  /// Mid-publish — coral background, small spinner glyph.
+  inFlight,
+
+  /// Terminal success — sage background, checkmark.
+  success,
+
+  /// Terminal failure — danger-coral, warning glyph + "Tap to retry".
+  failure,
+}
+
 /// Wave 5 (CAPS) bottom-anchored Studio chrome.
 ///
 /// The bottom is a single fully-rounded workflow pill with five
@@ -45,6 +59,27 @@ class StudioBottomBar extends StatelessWidget {
   final VoidCallback onUnlockTap;
   final VoidCallback onShowPublishError;
 
+  /// PR-C — when the practitioner dismisses the new
+  /// [PublishProgressSheet] mid-publish (swipe down), a coral chip
+  /// floats above the workflow pill carrying "Publishing N of M
+  /// files" / "Plan published" / "Tap to retry" depending on state.
+  /// Null hides the chip entirely. Tapping fires
+  /// [onPublishingChipTap], which the host wires to re-open the
+  /// sheet (mid-flight) or re-fire the publish (on failure).
+  final String? publishingChipLabel;
+
+  /// Visual tone of the chip — coral for in-flight (with progress
+  /// fraction), sage for success, danger-coral for failure.
+  final PublishingChipTone publishingChipTone;
+
+  /// Optional 0..1 progress fraction shown as a thin track inside the
+  /// chip during the uploading-treatments phase. Null draws no track.
+  final double? publishingChipProgress;
+
+  /// Tapped to re-open the sheet (mid-flight) or trigger the retry
+  /// flow (failure state). No-op when null.
+  final VoidCallback? onPublishingChipTap;
+
   const StudioBottomBar({
     super.key,
     required this.session,
@@ -60,6 +95,10 @@ class StudioBottomBar extends StatelessWidget {
     required this.onPublishLockedTap,
     required this.onUnlockTap,
     required this.onShowPublishError,
+    this.publishingChipLabel,
+    this.publishingChipTone = PublishingChipTone.inFlight,
+    this.publishingChipProgress,
+    this.onPublishingChipTap,
   });
 
   @override
@@ -187,10 +226,119 @@ class StudioBottomBar extends StatelessWidget {
       // its own internal padding; this is just the outer breathing
       // room above the home indicator.
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [workflowPill],
+        children: [
+          if (publishingChipLabel != null) ...[
+            _PublishingChip(
+              label: publishingChipLabel!,
+              tone: publishingChipTone,
+              progress: publishingChipProgress,
+              onTap: onPublishingChipTap,
+            ),
+            const SizedBox(height: 8),
+          ],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [workflowPill],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// PR-C — workflow-toolbar chip rendered above the CAPS pill when the
+/// publish sheet is dismissed mid-flight. Three tones; tone drives both
+/// the background colour and the leading glyph.
+class _PublishingChip extends StatelessWidget {
+  final String label;
+  final PublishingChipTone tone;
+  final double? progress;
+  final VoidCallback? onTap;
+
+  const _PublishingChip({
+    required this.label,
+    required this.tone,
+    required this.progress,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bg;
+    final Color fg;
+    final IconData glyph;
+    switch (tone) {
+      case PublishingChipTone.inFlight:
+        bg = AppColors.primary.withValues(alpha: 0.16);
+        fg = AppColors.primary;
+        glyph = Icons.cloud_upload_outlined;
+        break;
+      case PublishingChipTone.success:
+        bg = AppColors.rest.withValues(alpha: 0.16);
+        fg = AppColors.rest;
+        glyph = Icons.check_circle_rounded;
+        break;
+      case PublishingChipTone.failure:
+        bg = AppColors.primary.withValues(alpha: 0.22);
+        fg = AppColors.primary;
+        glyph = Icons.error_outline_rounded;
+        break;
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap == null
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              onTap!();
+            },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: fg.withValues(alpha: 0.4), width: 1),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(glyph, size: 16, color: fg),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: fg,
+                  ),
+                ),
+              ],
+            ),
+            if (progress != null) ...[
+              const SizedBox(height: 6),
+              SizedBox(
+                width: 160,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress!.clamp(0.0, 1.0),
+                    minHeight: 3,
+                    backgroundColor: fg.withValues(alpha: 0.2),
+                    valueColor: AlwaysStoppedAnimation<Color>(fg),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

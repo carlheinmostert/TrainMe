@@ -154,8 +154,8 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">71 waves awaiting device QA</h3>
-      <!-- Note: count includes the new 2026-05-03 hold-position wave (#0). -->
+      <h3 class="title">72 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-15 PR-C publish-progress-sheet wave (#0). -->
               </div>
             </div>
             <div style="text-align: right;">
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">71 waves awaiting device QA</h3>
+      <h3 class="title">72 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./feat-publish-progress-sheet.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Publish progress sheet + atomic publish (PR-C of publish-flow refactor)</div>
+              <div class="scope"><strong>Third and final PR of the 2026-05-15 publish-flow refactor.</strong> Replaces the toast-driven publish UX with a bottom sheet rendering five phase rows (Preparing &middot; Reserving credit &middot; Uploading treatments &middot; Saving plan &middot; Finalising). Phase 3 shows aggregated <em>&ldquo;N of M files&rdquo;</em> + a thin coral progress bar; per-file ticks emit from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">UploadService.uploadPlan</code>'s new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">onProgress</code> callback. <strong>Atomic publish:</strong> raw-archive Step 7.5 moves BEFORE exercise upsert so a failure throws <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PublishFailedException</code>, refunds the credit (with one retry on transient error), and cleans up media-bucket orphans. <strong>Non-blocking sheet:</strong> swipe-down doesn't cancel; a coral workflow-toolbar chip carries <em>&ldquo;Publishing K of M files&rdquo;</em> with a tiny progress track and tap-to-reopen. <strong>Failure UX:</strong> failing row turns coral with !, subsequent rows stay pending, header morphs to <em>&ldquo;Publish failed&rdquo;</em>, big <em>&ldquo;Retry publish&rdquo;</em> button + tap-through <em>&ldquo;Show which files &rarr;&rdquo;</em> opens the existing <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">UploadDiagnosticSheet</code> from PR #345. <strong>Success UX:</strong> all five rows green, 1-second sage <em>&ldquo;All set&rdquo;</em> beat, auto-dismiss, sage <em>&ldquo;Plan published&rdquo;</em> chip backstop for ~3s, SHARE cell lights up. <strong>Gone:</strong> the legacy <em>&ldquo;Some optional treatment files are still processing&rdquo;</em> toast and the <em>&ldquo;Published &check;&rdquo;</em> SnackBar &mdash; publish is atomic now. <strong>Sensitive zone:</strong> publish flow &mdash; Carl review on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upload_service.dart</code>'s reordered Step 7.5 + throw site before merge. <strong>13 items across the four wireframe variants A/B/C/D + ledger reconciliation + CI checks; load-bearing: #3 (variant A swipe-dismiss pops chip), #4 (variant D chip re-opens sheet), #5-6 (variant C success beat + share lights up), #8-10 (variant B failure state + Show which files + retry), #11-12 (credit refund actually landed).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./feat-publish-decouple-consent.html">
           <div class="row">

@@ -12,6 +12,7 @@ import 'package:video_player/video_player.dart';
 import '../config.dart';
 import '../models/client.dart';
 import '../models/exercise_capture.dart';
+import '../models/publish_progress.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/exercise_hero_resolver.dart';
@@ -37,6 +38,7 @@ import '../widgets/hero_crop_viewport.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
 import '../widgets/preset_chip_row.dart';
+import '../widgets/publish_progress_sheet.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_bottom_bar.dart';
@@ -123,6 +125,35 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   bool _isPublishing = false;
   String? _publishError;
   late UploadService _uploadService;
+
+  /// PR-C — publish-progress UI state.
+  ///
+  /// [_publishProgress] is a ValueNotifier the publish flow pushes
+  /// [PublishProgress] events into; the sheet subscribes to it. The
+  /// notifier survives the sheet's dismissal so a swipe-down doesn't
+  /// disconnect the flow — the workflow-toolbar chip reads the same
+  /// notifier value.
+  final ValueNotifier<PublishProgress> _publishProgress =
+      ValueNotifier<PublishProgress>(PublishProgress.markActive(
+    PublishPhase.preparing,
+  ));
+
+  /// True while the bottom sheet is on screen. Flipped false on
+  /// `onDismissed`; the chip appears whenever this is false AND
+  /// `_isPublishing` is true (mid-flight dismissal) OR there's a
+  /// terminal state worth surfacing (success toast / failure retry).
+  bool _publishSheetVisible = false;
+
+  /// Per-publish failure list — populated when [PublishFailedException]
+  /// lands. Cleared at the start of each fresh publish so a retry
+  /// starts clean.
+  List<UploadFailureRecord> _publishFailures = const [];
+
+  /// True for ~3s after a successful publish so the workflow toolbar
+  /// chip morphs into the "Plan published" sage variant before
+  /// disappearing. Cleared on timer expiry.
+  bool _publishJustSucceeded = false;
+  Timer? _publishJustSucceededTimer;
 
   /// Wave 44 — Studio AppBar inline-rename of the session title.
   /// Mirrors the SessionCard rename pattern so the Studio header reads
@@ -372,6 +403,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _conversionSub?.cancel();
     _lockTimer?.cancel();
     _analyticsPollTimer?.cancel();
+    _publishJustSucceededTimer?.cancel();
+    _publishProgress.dispose();
     _pulseController.dispose();
     // Wave 39 (Item 5) — unwire reachability hooks before super.
     WidgetsBinding.instance.removeObserver(this);
@@ -1627,6 +1660,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                         _showPublishErrorSnackBar(err, clipboardDetail: null);
                       }
                     },
+                    // PR-C — workflow-toolbar chip surfaces when the
+                    // progress sheet has been swipe-dismissed mid-flight,
+                    // OR for ~3s after a terminal success, OR when a
+                    // dismissed publish has failed and the practitioner
+                    // can re-open the retry sheet.
+                    publishingChipLabel: _resolveChipLabel(),
+                    publishingChipTone: _resolveChipTone(),
+                    publishingChipProgress: _resolveChipProgress(),
+                    onPublishingChipTap: _resolveChipTap(),
                   ),
                 ],
               ),
@@ -2577,6 +2619,92 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return hasExercises && !hasConversionsRunning && !_isPublishing;
   }
 
+  // ---------------------------------------------------------------------------
+  // PR-C — workflow-toolbar chip resolution
+  // ---------------------------------------------------------------------------
+
+  /// Show the chip only when the sheet is NOT visible AND there's
+  /// something worth surfacing (mid-flight publish, sage success beat,
+  /// or terminal failure waiting for retry).
+  bool get _shouldShowPublishingChip {
+    if (_publishSheetVisible) return false;
+    if (_isPublishing) return true;
+    if (_publishJustSucceeded) return true;
+    if (_publishError != null && _publishFailures.isNotEmpty) return true;
+    return false;
+  }
+
+  String? _resolveChipLabel() {
+    if (!_shouldShowPublishingChip) return null;
+    if (_publishJustSucceeded) return 'Plan published';
+    if (_publishError != null && _publishFailures.isNotEmpty) {
+      return 'Tap to retry';
+    }
+    final p = _publishProgress.value;
+    if (p.filesTotal > 0 &&
+        p.currentPhase == PublishPhase.uploadingTreatments) {
+      return 'Publishing ${p.filesUploaded} of ${p.filesTotal} files';
+    }
+    return 'Publishing plan';
+  }
+
+  PublishingChipTone _resolveChipTone() {
+    if (_publishJustSucceeded) return PublishingChipTone.success;
+    if (_publishError != null && _publishFailures.isNotEmpty) {
+      return PublishingChipTone.failure;
+    }
+    return PublishingChipTone.inFlight;
+  }
+
+  double? _resolveChipProgress() {
+    if (_publishJustSucceeded) return null;
+    if (_publishError != null) return null;
+    final p = _publishProgress.value;
+    if (p.filesTotal > 0 &&
+        p.currentPhase == PublishPhase.uploadingTreatments) {
+      return p.filesFraction;
+    }
+    return null;
+  }
+
+  VoidCallback? _resolveChipTap() {
+    if (_publishJustSucceeded) return null;
+    if (_publishError != null && _publishFailures.isNotEmpty) {
+      return _publishFromToolbar;
+    }
+    if (_isPublishing) {
+      return _reopenPublishSheet;
+    }
+    return null;
+  }
+
+  /// Re-open the progress sheet against the same notifier so a
+  /// swipe-dismissed publish can be inspected mid-flight.
+  void _reopenPublishSheet() {
+    if (_publishSheetVisible) return;
+    _publishSheetVisible = true;
+    setState(() {});
+    PublishProgressSheet.show(
+      context,
+      progress: _publishProgress,
+      onRetry: _publishFromToolbar,
+      onSuccessDismiss: () {},
+      onShowFailureDetails: (failures) {
+        final rootContext =
+            rootScaffoldMessengerKey.currentContext ?? context;
+        UploadDiagnosticSheet.show(rootContext, failures);
+      },
+      onDismissed: () {
+        if (!mounted) {
+          _publishSheetVisible = false;
+          return;
+        }
+        setState(() => _publishSheetVisible = false);
+      },
+      failures: _publishFailures,
+    );
+  }
+
   Future<void> _publishFromToolbar() async {
     // Extra guard — archive compression can trail the line-drawing
     // conversion; publishing before the raw-archive lands would
@@ -2614,13 +2742,47 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     setState(() {
       _isPublishing = true;
       _publishError = null;
+      _publishFailures = const [];
+      _publishJustSucceeded = false;
     });
+    _publishJustSucceededTimer?.cancel();
+    // PR-C — seed notifier with "Preparing" so the sheet opens on a
+    // meaningful frame before the service emits.
+    _publishProgress.value = PublishProgress.markActive(PublishPhase.preparing);
+    _publishSheetVisible = true;
+    final sheetFuture = PublishProgressSheet.show(
+      context,
+      progress: _publishProgress,
+      onRetry: _publishFromToolbar,
+      onSuccessDismiss: () {},
+      onShowFailureDetails: (failures) {
+        final rootContext =
+            rootScaffoldMessengerKey.currentContext ?? context;
+        UploadDiagnosticSheet.show(rootContext, failures);
+      },
+      onDismissed: () {
+        if (!mounted) {
+          _publishSheetVisible = false;
+          return;
+        }
+        setState(() => _publishSheetVisible = false);
+      },
+      failures: const [],
+    );
+
     PublishResult? result;
     Session? loadedSession;
     try {
       loadedSession = await widget.storage.getSession(_session.id);
       if (loadedSession == null) return;
-      result = await _uploadService.uploadPlan(loadedSession);
+      result = await _uploadService.uploadPlan(
+        loadedSession,
+        onProgress: (p) {
+          if (!mounted) return;
+          _publishProgress.value = p;
+          if (!_publishSheetVisible) setState(() {});
+        },
+      );
     } catch (e) {
       final practiceId =
           AuthService.instance.currentPracticeId.value ??
@@ -2637,6 +2799,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           remoteVersionMayHaveAdvanced: false,
         ),
       );
+      if (mounted) {
+        _publishProgress.value =
+            PublishProgress.failure(phase: PublishPhase.preparing);
+      }
     } finally {
       if (mounted) {
         // Refresh local state — `uploadPlan` rewrites the session row.
@@ -2645,23 +2811,25 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       }
     }
 
+    unawaited(sheetFuture);
+
     if (!mounted) return;
+    // PR-C \u2014 capture failures for the chip's retry tap-through.
+    final failureList = result.optionalArtifactFailures;
+    if (failureList.isNotEmpty) {
+      setState(() => _publishFailures = failureList);
+    }
     if (result.success) {
       final consentCheckSkipped = result.consentPreflightSkippedReason;
-      final optionalArtifactFailure = result.optionalArtifactFailureReason;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Published \u2713'),
-          duration: const Duration(days: 1),
-          action: SnackBarAction(
-            label: 'OK',
-            textColor: AppColors.primary,
-            onPressed: () {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            },
-          ),
-        ),
-      );
+      // PR-C \u2014 sheet auto-dismissed on success; light the toolbar
+      // chip in sage for ~3s so a swipe-dismissed publisher still
+      // sees the success confirmation. No legacy snackbar.
+      setState(() => _publishJustSucceeded = true);
+      _publishJustSucceededTimer?.cancel();
+      _publishJustSucceededTimer = Timer(const Duration(seconds: 3), () {
+        if (!mounted) return;
+        setState(() => _publishJustSucceeded = false);
+      });
       // Per-set PLAN wave \u2014 surface a follow-up SnackBar when the
       // server fell back to default sets for one or more exercises
       // (publish payload missing / empty `sets[]`). The practitioner
@@ -2704,44 +2872,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         );
       }
-      if (optionalArtifactFailure != null &&
-          optionalArtifactFailure.isNotEmpty) {
-        // BUG 13 (2026-05-15) — capture the per-file failure list so
-        // the `Details` action can open the in-app diagnostic sheet
-        // (`UploadDiagnosticSheet`) instead of making Carl read Xcode
-        // device console. The list is empty on the happy path (the
-        // outer guard wouldn't have fired), but the action stays
-        // guarded for defence in depth.
-        final failures = result.optionalArtifactFailures;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Published. Some optional treatment files are still processing — '
-              'retry publish in a minute to backfill the rest. '
-              'Line treatment is live now.',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                color: Colors.white,
-                fontSize: 13,
-              ),
-            ),
-            backgroundColor: AppColors.surfaceRaised,
-            duration: const Duration(seconds: 12),
-            behavior: SnackBarBehavior.floating,
-            action: failures.isEmpty
-                ? null
-                : SnackBarAction(
-                    label: 'Details',
-                    textColor: AppColors.primary,
-                    onPressed: () {
-                      final rootContext =
-                          rootScaffoldMessengerKey.currentContext ?? context;
-                      UploadDiagnosticSheet.show(rootContext, failures);
-                    },
-                  ),
-          ),
-        );
-      }
+      // PR-C — the legacy "partial success" toast is gone. Publish is
+      // now atomic; any raw-archive upload failure would have thrown
+      // PublishFailedException + landed on the failure path below.
     } else if (result.isUnconsentedTreatments) {
       await _handleUnconsentedTreatments(result.unconsented!);
     } else if (result.isNeedsConsentConfirmation) {
@@ -2756,11 +2889,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final versionDriftWarning = result.networkFailureVersionDriftReason;
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
-      _showPublishErrorSnackBar(
-        errStr,
-        clipboardDetail: result.networkFailureClipboardDetail,
-      );
-      if (refundUnconfirmed) {
+      // PR-C — the bottom sheet is the primary failure surface. Only
+      // fall back to a legacy snackbar when the practitioner swiped
+      // it away mid-flight (sheet no longer visible).
+      if (!_publishSheetVisible) {
+        _showPublishErrorSnackBar(
+          errStr,
+          clipboardDetail: result.networkFailureClipboardDetail,
+        );
+      }
+      if (refundUnconfirmed && !_publishSheetVisible) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -2772,7 +2910,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         );
       }
-      if (versionDriftWarning != null && versionDriftWarning.isNotEmpty) {
+      if (versionDriftWarning != null &&
+          versionDriftWarning.isNotEmpty &&
+          !_publishSheetVisible) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
