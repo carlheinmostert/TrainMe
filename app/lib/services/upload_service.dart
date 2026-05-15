@@ -71,6 +71,76 @@ class PublishFailureMessage implements Exception {
   String toString() => message;
 }
 
+/// One per-file failure record captured during the best-effort raw-archive
+/// upload pass in [UploadService._uploadRawArchives]. PR #335 added
+/// `debugPrint` lines on each `loudSwallow` miss; the in-app diagnostic
+/// sheet (`widgets/upload_diagnostic_sheet.dart`) needs the same data on
+/// the UI side without parsing log output, so we now collect a list of
+/// these alongside the `hadFailures` bool and surface it through
+/// [PublishResult.optionalArtifactFailures].
+///
+/// Fields mirror the `meta` map passed to `loudSwallow` so a paste of the
+/// "Copy all" output reads the same as a server-side `error_logs` row.
+class UploadFailureRecord {
+  /// loudSwallow `kind` — e.g. `raw_archive_color_thumb_failed`,
+  /// `raw_archive_segmented_upload_failed`. Same value the support
+  /// console search would key off.
+  final String kind;
+
+  /// `{practice_id}/{plan_id}/{exercise_id}<suffix>` — the bucket path
+  /// the upload was targeting at the time of failure.
+  final String storagePath;
+
+  /// Absolute on-device path of the source file we were trying to push.
+  /// Captured so Carl can spot truncated or zero-byte source files even
+  /// when the storage path looks reasonable.
+  final String localPath;
+
+  /// `File(localPath).existsSync()` AT the failure point — answers the
+  /// "did the source disappear?" question that's otherwise invisible
+  /// from a debug log alone.
+  final bool fileExists;
+
+  /// 0-based slot of this exercise within `session.exercises` (the same
+  /// order the practitioner sees in Studio). Null when we can't compute
+  /// it (defensive — should always be set).
+  final int? exerciseIndex;
+
+  /// Display name of the exercise at upload time, if any. Falls back to
+  /// the trimmed exercise id when the practitioner hasn't named it yet.
+  final String? exerciseName;
+
+  /// Exercise UUID — pulled into its own field so the diagnostic row
+  /// can render a short id when [exerciseName] is null.
+  final String exerciseId;
+
+  const UploadFailureRecord({
+    required this.kind,
+    required this.storagePath,
+    required this.localPath,
+    required this.fileExists,
+    required this.exerciseId,
+    this.exerciseIndex,
+    this.exerciseName,
+  });
+
+  /// Plain-text representation for the "Copy all" affordance. One block
+  /// per record, separated by a blank line in the caller. Mirrors the
+  /// shape the existing `loudSwallow` debugPrint produces so a paste of
+  /// the clipboard is grep-compatible with terminal logs.
+  String toClipboardText() {
+    final indexPart = exerciseIndex != null ? '#${exerciseIndex! + 1}' : '#?';
+    final namePart = (exerciseName == null || exerciseName!.isEmpty)
+        ? exerciseId
+        : exerciseName!;
+    return 'kind=$kind\n'
+        'exercise=$indexPart $namePart ($exerciseId)\n'
+        'storage_path=$storagePath\n'
+        'local_path=$localPath\n'
+        'file_exists=$fileExists';
+  }
+}
+
 /// Structured payload for [PublishResult.networkFailed]: short practitioner copy
 /// ([userMessage]) plus optional diagnostics for clipboard / `last_publish_error`.
 class PublishFailurePayload implements Exception {
@@ -303,6 +373,16 @@ class PublishResult {
   /// one or more failures while main publish still succeeded.
   final bool optionalArtifactsHadFailures;
 
+  /// Per-file failure breakdown captured during the best-effort
+  /// raw-archive upload pass. Empty when [optionalArtifactsHadFailures]
+  /// is false. Surfaced via the in-app diagnostic sheet so Carl can read
+  /// which file(s) failed without Xcode device console access.
+  ///
+  /// Populated since BUG 13 (2026-05-15) — see PR `fix/publish-toast-diagnostic-sheet`.
+  /// Pre-existing callers that only read [optionalArtifactsHadFailures]
+  /// keep working unchanged.
+  final List<UploadFailureRecord> optionalArtifactFailures;
+
   /// Step 0 consent preflight warning — true when
   /// `validate_plan_treatment_consent` failed and publish continued, relying
   /// on server-side `consume_credit` P0003 as the backstop.
@@ -322,6 +402,7 @@ class PublishResult {
     this.consentConfirmationClient,
     this.fallbackSetExerciseIds = const <String>[],
     this.optionalArtifactsHadFailures = false,
+    this.optionalArtifactFailures = const <UploadFailureRecord>[],
     this.consentPreflightSkipped = false,
   });
 
@@ -332,6 +413,8 @@ class PublishResult {
     required int creditsCharged,
     List<String> fallbackSetExerciseIds = const <String>[],
     bool optionalArtifactsHadFailures = false,
+    List<UploadFailureRecord> optionalArtifactFailures =
+        const <UploadFailureRecord>[],
     bool consentPreflightSkipped = false,
   }) =>
       PublishResult._(
@@ -341,6 +424,8 @@ class PublishResult {
         creditsCharged: creditsCharged,
         fallbackSetExerciseIds: fallbackSetExerciseIds,
         optionalArtifactsHadFailures: optionalArtifactsHadFailures,
+        optionalArtifactFailures:
+            List.unmodifiable(optionalArtifactFailures),
         consentPreflightSkipped: consentPreflightSkipped,
       );
 
@@ -1222,10 +1307,12 @@ class UploadService {
       // practitioner never waits on raw archive — they can re-publish to
       // back-fill later.
       // ----------------------------------------------------------------
-      final optionalArtifactsHadFailures = await _uploadRawArchives(
+      final optionalArtifactFailureList = await _uploadRawArchives(
         session: session,
         practiceId: practiceId,
       );
+      final optionalArtifactsHadFailures =
+          optionalArtifactFailureList.isNotEmpty;
 
       // ----------------------------------------------------------------
       // Step 8: append an audit row to `plan_issuances`. Records who
@@ -1312,6 +1399,7 @@ class UploadService {
         creditsCharged: creditsToCharge,
         fallbackSetExerciseIds: fallbackSetIds,
         optionalArtifactsHadFailures: optionalArtifactsHadFailures,
+        optionalArtifactFailures: optionalArtifactFailureList,
         consentPreflightSkipped: consentPreflightSkipped,
       );
     } catch (e) {
@@ -1408,11 +1496,28 @@ class UploadService {
   /// lands, inline this call site into
   /// `ApiClient.uploadRawArchive({practiceId, planId, exerciseId, localPath})`
   /// which takes the same four inputs.
-  Future<bool> _uploadRawArchives({
+  /// Returns the per-file failure list (empty on the happy path). The
+  /// caller derives the legacy `hadFailures` boolean from
+  /// `result.isNotEmpty`. PR #335 added debugPrint logging; BUG 13
+  /// (2026-05-15) extended that to a structured collection so the
+  /// in-app diagnostic sheet can render which file(s) failed without
+  /// needing Xcode device console access.
+  Future<List<UploadFailureRecord>> _uploadRawArchives({
     required Session session,
     required String practiceId,
   }) async {
-    var hadFailures = false;
+    final failures = <UploadFailureRecord>[];
+    // Snapshot the exercise order ONCE so every failure record reports
+    // a stable 0-based slot even if `session.exercises` is mutated
+    // elsewhere mid-publish (it shouldn't be, but the cost is one map
+    // lookup and the upside is debuggable indices).
+    final indexByExerciseId = <String, int>{
+      for (var i = 0; i < session.exercises.length; i++)
+        session.exercises[i].id: i,
+    };
+    final nameByExerciseId = <String, String?>{
+      for (final e in session.exercises) e.id: e.name,
+    };
     // Fast-path: if all exercises already uploaded, skip the main mp4 +
     // segmented + mask uploads. We still need to backfill the color-thumb
     // variant (Wave Three-Treatment-Thumbs, 2026-05-05) because plans
@@ -1497,7 +1602,15 @@ class UploadService {
           '_uploadRawArchives FAILED kind=raw_archive_upload_failed '
           'path=$storagePath local=$absPath exists=${file.existsSync()}',
         );
-        hadFailures = true;
+        failures.add(UploadFailureRecord(
+          kind: 'raw_archive_upload_failed',
+          storagePath: storagePath,
+          localPath: absPath,
+          fileExists: file.existsSync(),
+          exerciseId: exercise.id,
+          exerciseIndex: indexByExerciseId[exercise.id],
+          exerciseName: nameByExerciseId[exercise.id],
+        ));
         // loudSwallow swallowed the throw. Keep the legacy on-device
         // breadcrumb so existing diagnostic tooling still sees it, even
         // though the primary signal now goes via log_error.
@@ -1609,7 +1722,15 @@ class UploadService {
           '_uploadRawArchives FAILED kind=raw_archive_segmented_upload_failed '
           'path=$segStoragePath local=$absSeg exists=${segFile.existsSync()}',
         );
-        hadFailures = true;
+        failures.add(UploadFailureRecord(
+          kind: 'raw_archive_segmented_upload_failed',
+          storagePath: segStoragePath,
+          localPath: absSeg,
+          fileExists: segFile.existsSync(),
+          exerciseId: exercise.id,
+          exerciseIndex: indexByExerciseId[exercise.id],
+          exerciseName: nameByExerciseId[exercise.id],
+        ));
       }
     }
 
@@ -1712,7 +1833,15 @@ class UploadService {
             '_uploadRawArchives FAILED kind=raw_archive_photo_upload_failed '
             'path=$storagePath local=$absRaw exists=${rawFile.existsSync()}',
           );
-          hadFailures = true;
+          failures.add(UploadFailureRecord(
+            kind: 'raw_archive_photo_upload_failed',
+            storagePath: storagePath,
+            localPath: absRaw,
+            fileExists: rawFile.existsSync(),
+            exerciseId: exercise.id,
+            exerciseIndex: indexByExerciseId[exercise.id],
+            exerciseName: nameByExerciseId[exercise.id],
+          ));
         }
       }
     }
@@ -1809,7 +1938,15 @@ class UploadService {
             'path=$colorStoragePath local=$colorThumbAbs '
             'exists=${colorFile.existsSync()}',
           );
-          hadFailures = true;
+          failures.add(UploadFailureRecord(
+            kind: 'raw_archive_color_thumb_failed',
+            storagePath: colorStoragePath,
+            localPath: colorThumbAbs,
+            fileExists: colorFile.existsSync(),
+            exerciseId: exercise.id,
+            exerciseIndex: indexByExerciseId[exercise.id],
+            exerciseName: nameByExerciseId[exercise.id],
+          ));
         }
       }
     }
@@ -1875,10 +2012,18 @@ class UploadService {
           '_uploadRawArchives FAILED kind=raw_archive_mask_upload_failed '
           'path=$maskStoragePath local=$absMask exists=${maskFile.existsSync()}',
         );
-        hadFailures = true;
+        failures.add(UploadFailureRecord(
+          kind: 'raw_archive_mask_upload_failed',
+          storagePath: maskStoragePath,
+          localPath: absMask,
+          fileExists: maskFile.existsSync(),
+          exerciseId: exercise.id,
+          exerciseIndex: indexByExerciseId[exercise.id],
+          exerciseName: nameByExerciseId[exercise.id],
+        ));
       }
     }
-    return hadFailures;
+    return failures;
   }
 
   /// Append a raw-archive upload failure to `{Documents}/raw_archive_error.log`.

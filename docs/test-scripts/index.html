@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./fix-publish-toast-diagnostic-sheet.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Publish toast &mdash; in-app diagnostic sheet (BUG 13 follow-up)</div>
+              <div class="scope"><strong>Surfaces which raw-archive file is failing on publish without needing Xcode device console.</strong> Builds on PR #335's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">debugPrint</code> logging. The <em>&ldquo;Some optional treatment files are still processing&rdquo;</em> toast now carries a coral <strong>Details</strong> action; tapping opens a bottom sheet titled <em>&ldquo;Upload diagnostic &mdash; last publish&rdquo;</em> listing each failed file (variant <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">kind</code> chip, exercise #N + name, bucket storage path, local path relativised, exists-on-disk indicator). <strong>Copy all</strong> action puts a plain-text block per record on the clipboard for paste back to Claude. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_uploadRawArchives</code> in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upload_service.dart</code> now returns <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">List&lt;UploadFailureRecord&gt;</code>; the list flows through <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PublishResult.optionalArtifactFailures</code> into the new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">widgets/upload_diagnostic_sheet.dart</code>. <strong>Diagnostic-only patch &mdash; no behavioural change to upload retry path.</strong> Sensitive zone (publish flow) flagged for Carl's pre-merge review. <strong>10 items in 6 sections; load-bearing: #1-2 (toast still appears, Details action present), #3-4 (sheet opens with kind/exists/exercise/path rows), #5 (Copy all clipboard paste readable), #7 (happy path unchanged), #8 (paste-back works).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-15-editor-sheet-demo-tab-and-swipe.html">
           <div class="row">
             <div>

@@ -28,6 +28,7 @@ import '../services/sync_service.dart';
 import '../utils/session_title.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
+import '../widgets/upload_diagnostic_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/exercise_editor_sheet.dart';
@@ -2705,21 +2706,39 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       }
       if (optionalArtifactFailure != null &&
           optionalArtifactFailure.isNotEmpty) {
+        // BUG 13 (2026-05-15) — capture the per-file failure list so
+        // the `Details` action can open the in-app diagnostic sheet
+        // (`UploadDiagnosticSheet`) instead of making Carl read Xcode
+        // device console. The list is empty on the happy path (the
+        // outer guard wouldn't have fired), but the action stays
+        // guarded for defence in depth.
+        final failures = result.optionalArtifactFailures;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
+            content: const Text(
               'Published. Some optional treatment files are still processing — '
               'retry publish in a minute to backfill the rest. '
               'Line treatment is live now.',
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Inter',
                 color: Colors.white,
                 fontSize: 13,
               ),
             ),
             backgroundColor: AppColors.surfaceRaised,
-            duration: const Duration(seconds: 8),
+            duration: const Duration(seconds: 12),
             behavior: SnackBarBehavior.floating,
+            action: failures.isEmpty
+                ? null
+                : SnackBarAction(
+                    label: 'Details',
+                    textColor: AppColors.primary,
+                    onPressed: () {
+                      final rootContext =
+                          rootScaffoldMessengerKey.currentContext ?? context;
+                      UploadDiagnosticSheet.show(rootContext, failures);
+                    },
+                  ),
           ),
         );
       }
