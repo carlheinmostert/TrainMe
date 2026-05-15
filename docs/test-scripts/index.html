@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./fix-publish-toast-diagnostic.html">
+          <div class="row">
+            <div>
+              <div class="name">1 &middot; Publish toast diagnostic &mdash; surface which raw-archive variant is failing + polish recovery copy</div>
+              <div class="scope"><strong>Bonus bug from the 2026-05-14 QA wave.</strong> The &ldquo;<em>Published, but some optional treatment files are still processing (raw-archive upload incomplete)</em>&rdquo; toast was firing on every publish on staging, with no way to tell <strong>which</strong> file was failing. <strong>Two changes:</strong> (1) each <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">loudSwallow</code> upload site in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_uploadRawArchives</code> (main mp4, segmented, photo color, color thumb, mask &mdash; five sites total) now extends its <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">meta</code> map with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">local_path</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">file_exists</code> bool AND emits a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">debugPrint</code> line on failure naming the kind + path + exists; (2) the toast string drops the parenthetical jargon and points at a concrete recovery (&ldquo;retry publish in a minute to backfill the rest&rdquo;). <strong>Diagnostic-only patch</strong> &mdash; no behavioral change to the publish flow. Sensitive zone (publish path) flagged in PR body for Carl&apos;s pre-merge review. <strong>7 items in 3 sections; load-bearing: #3 (the FAILED line surfaces in Xcode console), #4 (read the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">exists=</code> bool to know if it&apos;s missing-on-disk vs server-rejected), #6 (no regression: publish still succeeds), #7 (the failure IS deterministic, not transient).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-prep-countdown-override.html">
           <div class="row">
             <div>
