@@ -217,9 +217,33 @@ export default function GettingStartedPage() {
               videos&rdquo; and &ldquo;here is your programme&rdquo;.
             </P>
 
+            <RefineSubsection heading="Tour the tabs">
+              <P>
+                The editor sheet has four tabs:{' '}
+                <strong>Demo</strong>, <strong>Plan</strong>,{' '}
+                <strong>Notes</strong>, <strong>Settings</strong>.
+                The <strong>Demo</strong> tab is the active video
+                &mdash; trim, Hero-frame pick, treatment, body
+                focus, audio. <strong>Plan</strong> is the per-set
+                table (reps, sets, hold, weight, breather).{' '}
+                <strong>Notes</strong> is a free-text cue you write
+                for the client. <strong>Settings</strong> is small
+                per-exercise metadata (prep seconds, video reps per
+                loop).
+              </P>
+              <P>
+                Swipe horizontally between tabs.{' '}
+                <strong>Keep swiping past Settings</strong> to land
+                on the next exercise&rsquo;s Demo &mdash; the swipe
+                wraps through the whole session.
+              </P>
+            </RefineSubsection>
+
             <RefineSubsection heading="Open the editor">
               <P>
-                Tap a card to open the editor sheet. Or tap the{' '}
+                Tap a card to open the editor sheet &mdash; it
+                lands on the <strong>Demo</strong> tab by default,
+                so you see the captured video first. Or tap the{' '}
                 <strong>Adjust</strong> icon in the bottom workflow
                 pill &mdash; same thing, opens the editor for the
                 top card.
@@ -255,12 +279,13 @@ export default function GettingStartedPage() {
               illustration={<RefineTrim />}
             >
               <P>
-                Two coral handles at the bottom of the editor
-                preview. Drag them inward to clip the in and out
-                points. Useful for cutting dead space at the start
-                (you walking up to the camera) or the end (you
-                reaching to stop recording). Drag-down pauses the
-                video while you scrub; release resumes.
+                On the <strong>Demo</strong> tab, two coral handles
+                sit on the trim timeline beneath the video. Drag
+                them inward to clip the in and out points. Useful
+                for cutting dead space at the start (you walking
+                up to the camera) or the end (you reaching to stop
+                recording). Drag-down pauses the video while you
+                scrub; release resumes.
               </P>
             </RefineSubsection>
 
@@ -270,10 +295,16 @@ export default function GettingStartedPage() {
             >
               <P>
                 Pick the static thumbnail the client sees in their
-                player and you see in your session list. Scrub
-                through frames in the editor sheet header &mdash;
-                pick the one that reads cleanly. It&rsquo;s the
-                first impression of every exercise, so it matters.
+                player and you see in your session list.{' '}
+                <strong>
+                  The third coral handle on the Demo tab&rsquo;s
+                  trim timeline
+                </strong>{' '}
+                is the Hero-frame pick &mdash; slide it through
+                the clip to pick a clean frame. (Alongside the two
+                trim in/out handles on the same timeline.)
+                It&rsquo;s the first impression of every exercise,
+                so it matters.
               </P>
             </RefineSubsection>
 
@@ -330,6 +361,36 @@ export default function GettingStartedPage() {
               &mdash; flip back to step 2 if you want to change
               that.
             </P>
+
+            <RefineSubsection heading="Hand them a PDF instead &mdash; or as well">
+              <P>
+                Every plan ships two ways. The live URL is what
+                you&rsquo;ve seen above &mdash; interactive, with
+                timers, treatments, audio, follow-along. The{' '}
+                <strong>PDF handout</strong> is the static print
+                version of the same plan: exercises, reps, sets,
+                hold positions, your notes, the Hero frames, and a
+                QR code on the last page linking to the live plan.
+              </P>
+              <P>
+                Tap <strong>Share lobby</strong> at the bottom of
+                the Preview screen and the iOS share sheet opens
+                with a multi-page A4 PDF attached. Send it via
+                WhatsApp, AirDrop, email &mdash; the same flow as
+                any other file. The PDF is generated on the
+                device. No upload, no credit consumed, no Publish
+                required. It works before you&rsquo;ve published
+                the plan and continues to work after.
+              </P>
+              <P>
+                Two artefacts for two kinds of client. Some clients
+                want the interactive player on their phone; some
+                want a piece of paper they can print and stick on
+                the fridge. Some practitioners only ever share the
+                PDF and never publish. Pick whichever serves the
+                client in front of you.
+              </P>
+            </RefineSubsection>
           </Step>
 
           <Step
