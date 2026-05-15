@@ -1197,13 +1197,24 @@ class ApiClient {
   /// it gets time-limited signed URLs via the `get_plan_full` RPC when
   /// client consent grants grayscale or original treatments.
   ///
-  /// **upsert is explicitly FALSE.** The bucket has no SELECT policy for
-  /// `authenticated` — and when `upsert: true`, Supabase Storage does an
-  /// internal existence check that RLS blocks, making the whole upload
-  /// fail silently. The caller (_uploadRawArchives) already gates by
-  /// `rawArchiveUploadedAt == null` so repeated calls on the same path
-  /// don't happen in practice. If a retry ever does collide, the
-  /// resulting 409 is caught by the caller and logged.
+  /// **upsert is TRUE — idempotent re-upload.** Same content to same
+  /// path is a harmless overwrite. Avoids 409 Duplicate exceptions that
+  /// would otherwise break re-publish: the bucket has no SELECT policy
+  /// for `authenticated` (by design — privacy model), so the caller's
+  /// existence-check (`listRawArchive`) returns empty silently and
+  /// every variant attempts to re-upload. With `upsert: false` those
+  /// re-uploads 409, get caught as "failure", and the whole publish
+  /// reports "0 of N files". With `upsert: true` Supabase Storage uses
+  /// PUT semantics (no SELECT required — only INSERT/UPDATE on
+  /// storage.objects, which the policy grants), and the upload
+  /// succeeds whether the file exists or not. No exception ever fires
+  /// for the duplicate-path case — per the no-exception-control-flow
+  /// rule, we don't use thrown 409s as a signal for "already uploaded".
+  ///
+  /// The fast-path skip in `_uploadRawArchives`
+  /// (`exercise.rawArchiveUploadedAt != null`) means in 99% of
+  /// re-publish cases we never reach this call at all; `upsert: true`
+  /// just handles the 1% edge case where stamping was missed.
   ///
   /// **contentType is set explicitly** to avoid the SDK's mime-sniff
   /// path, which reads the entire file into memory via
@@ -1230,7 +1241,10 @@ class ApiClient {
           .upload(
             path,
             file,
-            fileOptions: FileOptions(upsert: false, contentType: contentType),
+            // Idempotent re-upload — same content to same path is a
+            // harmless overwrite. Avoids 409 Duplicate exceptions that
+            // would otherwise break re-publish.
+            fileOptions: FileOptions(upsert: true, contentType: contentType),
           ),
     );
   }
