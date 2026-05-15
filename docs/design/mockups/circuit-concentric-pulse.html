@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circuit concentric pulse — wireframe</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #1A1D26;
+    --surface-raised: #232734;
+    --surface-elev: #2A2E3C;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255, 107, 53, 0.12);
+    --coral-dim: rgba(255, 107, 53, 0.25);
+    --coral-strong: rgba(255, 107, 53, 0.6);
+    --text: #F5F7FB;
+    --text-dim: #9CA3AF;
+    --text-mute: #6B7280;
+    --border: rgba(255, 255, 255, 0.06);
+    --montserrat: 'Montserrat', system-ui, -apple-system, sans-serif;
+    --inter: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--inter);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 32px 16px 80px;
+  }
+  .page-title {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 24px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .page-subtitle {
+    color: var(--text-dim);
+    text-align: center;
+    margin-bottom: 32px;
+    font-size: 13px;
+  }
+  .variants {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .variant {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .variant-label {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--coral);
+  }
+  .variant-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    min-height: 48px;
+  }
+
+  /* Stage container holding the circuit frame */
+  .stage {
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 40px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* The CIRCUIT A header */
+  .circuit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+  .circuit-label {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--coral);
+  }
+  .circuit-cycles {
+    background: var(--coral-bg);
+    border: 1px solid var(--coral);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--coral);
+  }
+
+  /* The circuit frame — this is where the pulse lives */
+  .circuit-frame {
+    position: relative;
+    width: 100%;
+    border: 2px solid var(--coral);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg);
+  }
+
+  /* Exercise row inside the circuit */
+  .ex-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .ex-row .thumb {
+    width: 64px;
+    height: 64px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #4B5563, #2A2E3C);
+    flex-shrink: 0;
+  }
+  .ex-row .body { flex: 1; }
+  .ex-row .name { font-family: var(--montserrat); font-weight: 700; font-size: 14px; }
+  .ex-row .meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  /* ─── VARIANT A: Concentric pulse via ::before / ::after rings ──────────── */
+  .pulse-a .circuit-frame::before,
+  .pulse-a .circuit-frame::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+    border-radius: 18px;
+    border: 2px solid var(--coral);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .pulse-a .circuit-frame::before {
+    animation: pulse-a-ring 2.4s ease-out infinite;
+  }
+  .pulse-a .circuit-frame::after {
+    inset: -20px;
+    border-radius: 24px;
+    animation: pulse-a-ring 2.4s ease-out infinite;
+    animation-delay: 0.8s;
+  }
+  @keyframes pulse-a-ring {
+    0%   { transform: scale(0.94); opacity: 0; }
+    25%  { opacity: 0.9; }
+    100% { transform: scale(1.06); opacity: 0; }
+  }
+
+  /* ─── VARIANT B: Triple ring with deeper outward propagation ─────────── */
+  .pulse-b .circuit-frame {
+    /* Triple box-shadow rings + base border */
+    box-shadow:
+      0 0 0 0px var(--coral-strong);
+    animation: pulse-b-shadow 2.8s ease-out infinite;
+  }
+  @keyframes pulse-b-shadow {
+    0%   { box-shadow: 0 0 0 0px var(--coral-strong), 0 0 0 0px var(--coral-dim), 0 0 0 0px var(--coral-bg); }
+    33%  { box-shadow: 0 0 0 6px var(--coral-strong), 0 0 0 0px var(--coral-dim), 0 0 0 0px var(--coral-bg); }
+    66%  { box-shadow: 0 0 0 6px transparent,        0 0 0 14px var(--coral-dim), 0 0 0 0px var(--coral-bg); }
+    100% { box-shadow: 0 0 0 6px transparent,        0 0 0 14px transparent,     0 0 0 24px var(--coral-bg); }
+  }
+
+  /* ─── VARIANT C: Inner row borders pulse first, then frame, sequenced ─── */
+  .pulse-c .circuit-frame {
+    border: 2px solid var(--coral);
+    animation: pulse-c-frame 2.6s ease-out infinite;
+    animation-delay: 0.4s;
+  }
+  .pulse-c .ex-row {
+    box-shadow: 0 0 0 1px transparent;
+    animation: pulse-c-row 2.6s ease-out infinite;
+  }
+  @keyframes pulse-c-row {
+    0%, 50%, 100% { box-shadow: 0 0 0 1px transparent; }
+    20% { box-shadow: 0 0 0 1.5px var(--coral); }
+  }
+  @keyframes pulse-c-frame {
+    0%, 60%, 100% { border-color: var(--coral); box-shadow: 0 0 0 0px transparent; }
+    30%           { border-color: var(--coral); box-shadow: 0 0 0 6px var(--coral-dim); }
+  }
+
+  /* ─── VARIANT D: Just the inner row border pulses, gentle ─────────────── */
+  .pulse-d .circuit-frame {
+    border: 2px solid var(--coral);
+  }
+  .pulse-d .ex-row {
+    box-shadow: 0 0 0 1px transparent;
+    animation: pulse-d-row 1.6s ease-in-out infinite;
+  }
+  .pulse-d .ex-row:nth-child(2) { animation-delay: 0.4s; }
+  .pulse-d .ex-row:nth-child(3) { animation-delay: 0.8s; }
+  @keyframes pulse-d-row {
+    0%, 100% { box-shadow: inset 0 0 0 1px transparent; }
+    50%      { box-shadow: inset 0 0 0 1px var(--coral-strong); }
+  }
+
+  /* Annotation flag */
+  .annotation {
+    background: var(--coral-bg);
+    border-left: 3px solid var(--coral);
+    padding: 10px 12px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .annotation b { color: var(--coral); font-weight: 700; }
+
+  .footer {
+    max-width: 720px;
+    margin: 48px auto 0;
+    padding: 20px 24px;
+    background: var(--surface);
+    border-radius: 14px;
+  }
+  .footer h2 {
+    font-family: var(--montserrat);
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--coral);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .footer p {
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .footer b { color: var(--coral); }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Circuit concentric pulse</h1>
+<p class="page-subtitle">Pure CSS · no JS · 10th-attempt strategy for the recurring circuit-animation bug · 2026-05-15</p>
+
+<div class="variants">
+
+  <!-- A — Two concentric rings expanding outward -->
+  <div class="variant pulse-a">
+    <span class="variant-label">A · two-ring expanding outward</span>
+    <div class="variant-note">Two coral rings pulse outward from the frame edge, staggered by 0.8s. Reads as "energy propagating outward — this loops".</div>
+    <div class="stage">
+      <div class="circuit-header">
+        <span class="circuit-label">CIRCUIT A</span>
+        <span class="circuit-cycles">×3</span>
+      </div>
+      <div class="circuit-frame">
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> two <code>::before</code>/<code>::after</code> pseudo-elements on the frame, expanding via <code>transform: scale()</code> + <code>opacity</code>. Pure CSS keyframes. No JS, no observers, no DOM mutation.</div>
+  </div>
+
+  <!-- B — Triple ring deeper propagation -->
+  <div class="variant pulse-b">
+    <span class="variant-label">B · triple-ring deep propagation</span>
+    <div class="variant-note">Box-shadow grows in three stages outward (strong → medium → soft). More dramatic visual. Each cycle reaches further.</div>
+    <div class="stage">
+      <div class="circuit-header">
+        <span class="circuit-label">CIRCUIT A</span>
+        <span class="circuit-cycles">×3</span>
+      </div>
+      <div class="circuit-frame">
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> single <code>box-shadow</code> property with multiple comma-separated layers, animated through 4 keyframe stops. Most performant — only one element animates, compositor-only.</div>
+  </div>
+
+  <!-- C — Row borders pulse, then frame pulses, sequenced -->
+  <div class="variant pulse-c">
+    <span class="variant-label">C · inner-rows-then-frame (sequenced)</span>
+    <div class="variant-note">Exercise row borders pulse first (the "inner" ring), then the circuit frame pulses outward. Reads as "energy gathers in the rows, then expands through the circuit".</div>
+    <div class="stage">
+      <div class="circuit-header">
+        <span class="circuit-label">CIRCUIT A</span>
+        <span class="circuit-cycles">×3</span>
+      </div>
+      <div class="circuit-frame">
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> two separate keyframe animations — one on <code>.ex-row</code> with synchronised pulse, one on <code>.circuit-frame</code> with <code>animation-delay</code> so it fires after the rows. <b>Closest match to your "pulse the inner border, then N+1"</b> phrasing.</div>
+  </div>
+
+  <!-- D — Just rows pulse, staggered -->
+  <div class="variant pulse-d">
+    <span class="variant-label">D · staggered row pulse only</span>
+    <div class="variant-note">Each exercise row pulses in turn (cascade down through the rows). Frame stays still. Subtler — reads as "exercise heartbeat through the circuit".</div>
+    <div class="stage">
+      <div class="circuit-header">
+        <span class="circuit-label">CIRCUIT A</span>
+        <span class="circuit-cycles">×3</span>
+      </div>
+      <div class="circuit-frame">
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div>
+        </div>
+        <div class="ex-row">
+          <div class="thumb"></div>
+          <div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> single keyframe on <code>.ex-row</code> with <code>animation-delay</code> per row. Simplest. Reads as "the work is the rhythm".</div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <h2>Why this works (and what it kills)</h2>
+  <p><b>No JS.</b> Pure CSS keyframes on box-shadow / pseudo-elements. Animations run on the compositor thread, not the main thread.</p>
+  <p><b>No DOM mutation.</b> CSS animations don't trigger MutationObservers. The runaway loop class of bugs goes away forever.</p>
+  <p><b>No measurement.</b> No <code>offsetHeight</code>, no <code>getTotalLength()</code>, no rAF retry. Works the same in Safari and WKWebView because nothing depends on timing.</p>
+  <p><b>What we give up:</b> the spiraling-tracer visual. The pulse is a different semantic — "this group cycles" instead of "energy travels along a path". Carl's call which semantic he prefers.</p>
+</div>
+
+</body>
+</html>
