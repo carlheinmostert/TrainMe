@@ -7,19 +7,29 @@
  * slide, prep-phase countdown, share-as-PNG snapshot). Pure: no DOM ops,
  * no IO, no module-level state.
  *
- * Load-bearing principle (2026-05-14 refactor):
+ * Load-bearing principle (2026-05-14 refactor, amended 2026-05-15 PR-B):
  *   1. Hero pictures everywhere reflect the per-exercise
  *      `preferred_treatment` set by the practitioner. The resolver derives
  *      treatment INTERNALLY from `exercise.preferred_treatment` + body
  *      focus from `exercise.body_focus`. Callers do NOT pass treatment or
  *      bodyFocus arguments.
- *   2. No silent fallbacks across treatments or media kinds. If the
- *      requested treatment's variant isn't available the resolver returns
- *      null — the caller renders an explicit "treatment not available"
- *      placeholder. Showing a DIFFERENT treatment's content silently is
- *      worse than showing nothing: it hides bugs and violates principle 1.
+ *   2. No silent fallback across treatments when the file is truly
+ *      MISSING. If the requested treatment's variant and the line
+ *      drawing are both absent the resolver returns null — the caller
+ *      renders an explicit "treatment not available" placeholder.
+ *      Showing a DIFFERENT treatment's content silently when the real
+ *      file should be there is worse than showing nothing: it hides bugs.
+ *   3. Soft fallback to line drawing when consent is REVOKED. If the
+ *      practitioner preferred B&W / Original but the client only granted
+ *      line consent, `get_plan_full` returns `grayscale_url=null` while
+ *      keeping `line_drawing_url` populated. Treat that as the
+ *      consent-revoked signal and render line silently — line drawings
+ *      are de-identified by design, so the visibility downgrade is the
+ *      expected behaviour of the consent system, not a bug. The
+ *      principle-2 placeholder still fires when line ALSO isn't there
+ *      (genuine file-missing).
  *
- * Legitimate exceptions to "no fallback":
+ * Legitimate exceptions to "no fallback" (besides principle 3):
  *   - Signed-URL refresh on 403 (existing machinery, orthogonal).
  *   - Transient "generating…" state while a variant is being extracted
  *     (a separate pending indicator is the caller's responsibility — the
@@ -57,10 +67,16 @@
   // uses 'line' | 'bw' | 'original'. Mirrors `treatmentFromWire` in
   // `app.js` — kept here as the resolver's own derivation so it stays
   // self-contained.
+  //
+  // Default-default: NULL maps to 'bw' (B&W / grayscale) per the
+  // 2026-05-15 publish-flow refactor (PR-B). The Flutter app already
+  // writes an explicit `'grayscale'` on every new capture; this fallback
+  // matters only for legacy NULL rows captured pre-2026-05-12.
   function treatmentFromWire(wire) {
-    if (wire === 'grayscale') return 'bw';
+    if (wire === 'line') return 'line';
     if (wire === 'original') return 'original';
-    return 'line';
+    // 'grayscale' or anything else (NULL, undefined) → B&W.
+    return 'bw';
   }
 
   // ==========================================================================
@@ -180,10 +196,11 @@
   // `treatmentLockedTo`   — set to 'line' when the practitioner's chosen
   //                          treatment ISN'T available locally (consent
   //                          absent, signed-URL expiry, missing file).
-  //                          Caller renders the "not available"
-  //                          placeholder; resolver itself returns null
-  //                          for src / posterSrc rather than silently
-  //                          substituting Line.
+  //                          The main resolver applies the consent-revoked
+  //                          soft fallback to 'line' when the line drawing
+  //                          IS present; otherwise it returns 'unavailable'.
+  //                          By the time the resolver returns, caps reflect
+  //                          the EFFECTIVE treatment (post-fallback).
   function computeCaps(exercise, treatment) {
     var availableTreatments = ['line'];
     var hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
@@ -247,11 +264,16 @@
    *                                        lobby/prep/snapshot inactive rows)
    *                        'video'       = playing video (deck active slide,
    *                                        lobby active row post-swap)
-   *                        'unavailable' = the requested treatment's variant
-   *                                        isn't on disk / in the wire payload.
+   *                        'unavailable' = the requested treatment AND the
+   *                                        line drawing are both absent
+   *                                        (file truly missing / URL expired).
    *                                        Caller renders the coral-tinted
    *                                        "treatment not available" placeholder.
-   *                                        NEVER substitute a different treatment.
+   *                                        Consent-revoked case (requested
+   *                                        treatment absent but line drawing
+   *                                        present) is handled by the soft
+   *                                        fallback — caller sees treatment='line'
+   *                                        instead of 'unavailable'.
    *                        'skeleton'    = rest period or no media at all.
    *   - `src`          — primary URL (playback for videos, image for photos).
    *                       NULL when mediaTag is 'unavailable' or 'skeleton'.
@@ -265,9 +287,12 @@
    *   - `filterCss`    — explicit `filter:` CSS string for callers that
    *                       can't apply the class (eg. the snapshot bake
    *                       path).
-   *   - `treatment`    — the effective treatment the resolver picked
-   *                       (always equals `treatmentFromWire(exercise.preferred_treatment)`
-   *                       unless the slide is rest).
+   *   - `treatment`    — the effective treatment the resolver picked.
+   *                       Normally equals `treatmentFromWire(exercise.preferred_treatment)`,
+   *                       except when the consent-revoked soft fallback
+   *                       kicks in (preferred treatment's URL absent but
+   *                       line drawing present) — then 'line'. Rest
+   *                       periods always report 'line'.
    *   - `caps`         — see `computeCaps`.
    */
   function resolveExerciseHero(exercise, opts) {
@@ -297,23 +322,53 @@
     var isPhoto = exercise.media_type === 'photo' || exercise.media_type === 'image';
     var caps = computeCaps(exercise, treatment);
 
-    // No silent cross-treatment fallback. If the practitioner's chosen
-    // treatment isn't available, the resolver advertises that via
-    // `caps.treatmentLockedTo` and returns nulls — the caller renders
-    // the "not available" placeholder.
+    // Soft fallback to line drawing for CONSENT-REVOKED case (PR-B,
+    // 2026-05-15). When the requested treatment's playback variant is
+    // absent from the wire payload but the line drawing IS present, the
+    // gap is consent-driven — the client granted line consent only, so
+    // `get_plan_full` returned `grayscale_url=null` while keeping
+    // `line_drawing_url` populated. Render line silently rather than the
+    // coral "treatment not available" placeholder.
+    //
+    // The no-fallback principle still covers the FILE-MISSING case
+    // (the file is truly absent / URL expired): both the requested
+    // variant AND the line drawing are NULL → fall through to the
+    // unavailable placeholder below.
     if (caps.treatmentLockedTo === 'line' && treatment !== 'line') {
-      return {
-        mediaTag: 'unavailable',
-        src: null,
-        posterSrc: null,
-        videoSrc: null,
-        domClass: '',
-        filterCss: null,
-        treatment: treatment, // report what was REQUESTED, not what we'd
-                              // silently render — so the caller's
-                              // placeholder can label the gap.
-        caps: caps,
-      };
+      var hasLinePlayback = !!(exercise.line_drawing_url || exercise.media_url);
+      // For photos the Wave 22 line variant lives on `thumbnail_url` when
+      // `thumbnail_url_line` isn't populated — treat both as evidence the
+      // line drawing exists.
+      var hasLinePoster = !!(
+        exercise.thumbnail_url_line ||
+        (isPhoto && exercise.thumbnail_url)
+      );
+      if (hasLinePlayback || hasLinePoster) {
+        // Mutate the in-memory slide to 'line' so subsequent caller
+        // logic (poster picker, src picker, filter CSS, dom class) all
+        // run on the fallback treatment without further branching.
+        // Mirrors the treatment-pill mutation pattern documented at
+        // the top of the file.
+        treatment = 'line';
+        // Recompute caps for the new treatment so callers see the
+        // post-fallback availability instead of the locked state.
+        caps = computeCaps(exercise, treatment);
+      } else {
+        // No line drawing either → genuine file-missing case.
+        // Surface the coral placeholder per the no-fallback principle.
+        return {
+          mediaTag: 'unavailable',
+          src: null,
+          posterSrc: null,
+          videoSrc: null,
+          domClass: '',
+          filterCss: null,
+          treatment: treatment, // report what was REQUESTED, not what we'd
+                                // silently render — so the caller's
+                                // placeholder can label the gap.
+          caps: caps,
+        };
+      }
     }
 
     var posterSrc = pickPosterSrc(exercise, treatment);

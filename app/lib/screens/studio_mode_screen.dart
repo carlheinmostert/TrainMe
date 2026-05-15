@@ -3886,10 +3886,10 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   late List<ExerciseCapture> _exercises;
 
   /// Active treatment for the current page. Seeded from the exercise's
-  /// stored `preferredTreatment` (null → Line). Every new page load
-  /// re-reads from ITS OWN exercise, so moving to a neighbour does NOT
-  /// carry the previous selection forward.
-  Treatment _treatment = Treatment.line;
+  /// stored `preferredTreatment` (null → B&W per 2026-05-15 publish-flow
+  /// refactor). Every new page load re-reads from ITS OWN exercise, so
+  /// moving to a neighbour does NOT carry the previous selection forward.
+  Treatment _treatment = Treatment.grayscale;
 
   /// Wave 27 — dual-video crossfade. Two VideoPlayerControllers point
   /// at the SAME source file; whichever is in the active slot is fully
@@ -4155,7 +4155,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
 
   /// Resolve the treatment to render for [e]: stored preference if set
   /// AND available (archive present for B&W / Original), otherwise
-  /// [Treatment.line].
+  /// [Treatment.grayscale] (B&W) per the 2026-05-15 publish-flow refactor.
   ///
   /// If the stored preference is no longer available (e.g. the archive
   /// was purged after 90 days), we silently fall back to Line rather
@@ -4163,8 +4163,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// [resolveExerciseHero] caps so the fallback rule is shared with
   /// every other practitioner-facing surface.
   Treatment _effectiveTreatmentFor(ExerciseCapture e) {
-    final pref = e.preferredTreatment;
-    if (pref == null) return Treatment.line;
+    final pref = e.preferredTreatment ?? Treatment.grayscale;
     if (pref == Treatment.line) return Treatment.line;
     final hero = resolveExerciseHero(
       exercise: e,

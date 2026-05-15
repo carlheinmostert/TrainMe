@@ -191,10 +191,15 @@ class ExerciseHero {
 // ============================================================================
 
 /// Map the exercise model's nullable [Treatment] enum to a
-/// non-nullable treatment, defaulting to [Treatment.line]. Mirrors
-/// the web JS `treatmentFromWire` helper.
+/// non-nullable treatment. Defaults to [Treatment.grayscale] (B&W) per the
+/// 2026-05-15 publish-flow refactor (PR-B): the primary practitioner-facing
+/// treatment is now B&W, with line demoted to one option among several.
+/// New captures land with an explicit `preferred_treatment='grayscale'`
+/// via `StickyDefaults.applyGlobalCaptureDefaults`; this read-time default
+/// covers legacy NULL rows captured pre-2026-05-12. Mirrors the web JS
+/// `treatmentFromWire` helper.
 Treatment _treatmentFor(ExerciseCapture exercise) {
-  return exercise.preferredTreatment ?? Treatment.line;
+  return exercise.preferredTreatment ?? Treatment.grayscale;
 }
 
 bool _bodyFocusFor(ExerciseCapture exercise) {

@@ -200,11 +200,11 @@ class StickyDefaults {
   /// for this client" / "no sticky default for this field" fallback:
   ///
   ///   * `preferredTreatment` → [Treatment.grayscale] (B&W). Replaces the
-  ///     pre-2026-05-12 implicit fallback of [Treatment.line], which lives
-  ///     at READ time (`ex.preferredTreatment ?? Treatment.line`). By
-  ///     writing the value EXPLICITLY on new captures we shift the
-  ///     default-default without disturbing existing NULL rows in the
-  ///     database.
+  ///     pre-2026-05-12 implicit fallback of [Treatment.line]. By writing
+  ///     the value EXPLICITLY on new captures we shift the default-default
+  ///     without disturbing existing NULL rows in the database. PR-B
+  ///     (2026-05-15) also flips the READ-time fallback to grayscale, so
+  ///     legacy NULL rows now render as B&W too.
   ///   * `bodyFocus` → `false` (off). Same logic — the existing read-time
   ///     fallback (`bodyFocus ?? true`) keeps legacy NULL rows on the old
   ///     body-focus-ON behaviour while new captures land with an explicit
