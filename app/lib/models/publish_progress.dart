@@ -32,6 +32,81 @@ enum PublishPhase {
   finalising,
 }
 
+/// One per-file failure record captured during the best-effort raw-archive
+/// upload pass in [UploadService._uploadRawArchives]. PR #335 added
+/// `debugPrint` lines on each `loudSwallow` miss; the in-app diagnostic
+/// sheet (`widgets/upload_diagnostic_sheet.dart`) needs the same data on
+/// the UI side without parsing log output, so we now collect a list of
+/// these alongside the `hadFailures` bool and surface it through
+/// [PublishResult.optionalArtifactFailures] and (PR-C reactive fix) the
+/// [PublishProgress.failure] event's [PublishProgress.failures] field.
+///
+/// Lives in the model layer (was in `upload_service.dart` originally) so
+/// [PublishProgress] can carry it without a circular import — the service
+/// already imports the model.
+///
+/// Fields mirror the `meta` map passed to `loudSwallow` so a paste of the
+/// "Copy all" output reads the same as a server-side `error_logs` row.
+class UploadFailureRecord {
+  /// loudSwallow `kind` — e.g. `raw_archive_color_thumb_failed`,
+  /// `raw_archive_segmented_upload_failed`. Same value the support
+  /// console search would key off.
+  final String kind;
+
+  /// `{practice_id}/{plan_id}/{exercise_id}<suffix>` — the bucket path
+  /// the upload was targeting at the time of failure.
+  final String storagePath;
+
+  /// Absolute on-device path of the source file we were trying to push.
+  /// Captured so Carl can spot truncated or zero-byte source files even
+  /// when the storage path looks reasonable.
+  final String localPath;
+
+  /// `File(localPath).existsSync()` AT the failure point — answers the
+  /// "did the source disappear?" question that's otherwise invisible
+  /// from a debug log alone.
+  final bool fileExists;
+
+  /// 0-based slot of this exercise within `session.exercises` (the same
+  /// order the practitioner sees in Studio). Null when we can't compute
+  /// it (defensive — should always be set).
+  final int? exerciseIndex;
+
+  /// Display name of the exercise at upload time, if any. Falls back to
+  /// the trimmed exercise id when the practitioner hasn't named it yet.
+  final String? exerciseName;
+
+  /// Exercise UUID — pulled into its own field so the diagnostic row
+  /// can render a short id when [exerciseName] is null.
+  final String exerciseId;
+
+  const UploadFailureRecord({
+    required this.kind,
+    required this.storagePath,
+    required this.localPath,
+    required this.fileExists,
+    required this.exerciseId,
+    this.exerciseIndex,
+    this.exerciseName,
+  });
+
+  /// Plain-text representation for the "Copy all" affordance. One block
+  /// per record, separated by a blank line in the caller. Mirrors the
+  /// shape the existing `loudSwallow` debugPrint produces so a paste of
+  /// the clipboard is grep-compatible with terminal logs.
+  String toClipboardText() {
+    final indexPart = exerciseIndex != null ? '#${exerciseIndex! + 1}' : '#?';
+    final namePart = (exerciseName == null || exerciseName!.isEmpty)
+        ? exerciseId
+        : exerciseName!;
+    return 'kind=$kind\n'
+        'exercise=$indexPart $namePart ($exerciseId)\n'
+        'storage_path=$storagePath\n'
+        'local_path=$localPath\n'
+        'file_exists=$fileExists';
+  }
+}
+
 /// Per-phase status driving the row's visual treatment in the sheet.
 enum PublishPhaseStatus {
   /// Not yet started — grey circle.
@@ -96,6 +171,23 @@ class PublishProgress {
   /// True only on the terminal success event (all five rows done).
   final bool allDone;
 
+  /// Per-file failure records carried by the terminal failure event so
+  /// the sheet's "Show which files →" tap-target appears on the same
+  /// stream rebuild that flips [failed] to true.
+  ///
+  /// Empty on every non-terminal event and on success. Populated only on
+  /// the failure event emitted by [UploadService.uploadPlan]'s
+  /// [PublishFailedException] catch.
+  ///
+  /// PR-C reactive-failures fix (2026-05-15) — previously the sheet
+  /// captured a `List<UploadFailureRecord>` prop at construction time
+  /// (empty initially), and the out-of-band `setState` in studio_mode
+  /// after `uploadPlan()` returned never propagated to the
+  /// already-constructed sheet widget. Reading from the stream snapshot
+  /// guarantees the tap-target appears the moment the failure event
+  /// lands.
+  final List<UploadFailureRecord> failures;
+
   const PublishProgress({
     required this.statuses,
     required this.currentPhase,
@@ -103,6 +195,7 @@ class PublishProgress {
     required this.filesUploaded,
     required this.filesTotal,
     required this.allDone,
+    this.failures = const [],
   });
 
   /// Convenience: the upload-phase subtitle "N of M files". Empty when
@@ -192,10 +285,18 @@ class PublishProgress {
 
   /// Build the terminal failure snapshot — earlier phases done, the
   /// failing phase coral, later phases stay pending.
+  ///
+  /// [failures] carries per-file diagnostic records from the atomic
+  /// upload path (see [UploadFailureRecord]). On the same stream event
+  /// that flips [failed] to true, the progress sheet reads this list to
+  /// decide whether to render the "Show which files →" tap-target.
+  /// Defaults to empty for non-atomic-upload failure modes where no
+  /// per-file detail is available.
   factory PublishProgress.failure({
     required PublishPhase phase,
     int filesUploaded = 0,
     int filesTotal = 0,
+    List<UploadFailureRecord> failures = const [],
   }) {
     final statuses = <PublishPhase, PublishPhaseStatus>{};
     for (final p in PublishPhase.values) {
@@ -214,6 +315,7 @@ class PublishProgress {
       filesUploaded: filesUploaded,
       filesTotal: filesTotal,
       allDone: false,
+      failures: List.unmodifiable(failures),
     );
   }
 }

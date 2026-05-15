@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/publish_progress.dart';
-import '../services/upload_service.dart' show UploadFailureRecord;
 import '../theme.dart';
 import 'upload_diagnostic_sheet.dart';
 
@@ -50,9 +49,13 @@ class PublishProgressSheet extends StatefulWidget {
   /// [UploadDiagnosticSheet.show].
   final ValueChanged<List<UploadFailureRecord>>? onShowFailureDetails;
 
-  /// Failure list captured when [PublishFailedException] fires. The
-  /// host wires this through after the failure event lands. May be
-  /// empty when the failure isn't an atomic-upload one.
+  /// Fallback failure list for the re-open-after-dismiss path. The
+  /// PR-C reactive-failures fix routes failures through the
+  /// [PublishProgress.failure] stream event so the sheet reads
+  /// `widget.progress.value.failures` directly. This prop is only
+  /// consulted when the stream snapshot's `failures` is empty (e.g.
+  /// the host re-opens the sheet after a swipe-dismiss and the
+  /// notifier still carries an older event).
   final List<UploadFailureRecord> failures;
 
   const PublishProgressSheet({
@@ -263,8 +266,15 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
       );
     }
     if (p.failed) {
+      // PR-C reactive-failures fix — prefer the failures carried by
+      // the failure event (always populated by upload_service when
+      // the failure is an atomic-upload one). Fall back to the prop
+      // only on the re-open path where the host may have rebuilt the
+      // sheet against a notifier that still holds an older event.
+      final failureList =
+          p.failures.isNotEmpty ? p.failures : widget.failures;
       final hasFailureDetails =
-          widget.failures.isNotEmpty && widget.onShowFailureDetails != null;
+          failureList.isNotEmpty && widget.onShowFailureDetails != null;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
@@ -277,7 +287,7 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    widget.onShowFailureDetails!(widget.failures);
+                    widget.onShowFailureDetails!(failureList);
                   },
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
