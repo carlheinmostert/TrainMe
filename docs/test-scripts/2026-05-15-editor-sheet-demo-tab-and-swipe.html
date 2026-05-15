@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-15 — Editor sheet Demo tab + continuous swipe</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 · Editor sheet Demo tab + continuous swipe</div>
+    <h1>Device QA — Editor Sheet Demo Tab + Continuous Swipe + Bottom-Aligned Content</h1>
+    <p class="lede">
+      <strong>What landed:</strong> two coordinated changes on the exercise editor sheet (ADR-0019 inversion extension).
+      <br><br>
+      <strong>(1) Demo tab.</strong> Tab strip renamed + reordered to <code>Demo · Plan · Notes · Settings</code> with <code>Demo</code> as the default opening tab. "Preview" was confusing — it implied passive viewing and clashed with the CAPS workflow's own "Preview" step. "Demo" matches the product narrative (line-drawing demonstrations).
+      <br><br>
+      <strong>(2) Continuous swipe + bottom-aligned content.</strong> Tab swipe is now one continuous PageView spanning every <code>(exercise, tab)</code> cell in the session — swipe past Settings of one exercise and you flow straight into the next exercise's Demo; swipe past the last exercise wraps to the first. Sheet stays parked at the 0.95 max detent (the 0.75 floor is still reachable by dragging the chrome down manually). Plan / Notes / Settings tab content is bottom-aligned — controls sit just above the tab strip for thumb reach, with empty space pushed to the top.
+      <br><br>
+      <strong>In scope:</strong> the editor sheet on every exercise type (photo / video / rest). Tab navigation, sheet detent behavior, chevron jumps, swipe-to-next-exercise overflow + wrap, bottom-aligned tab content visual check.
+      <br><br>
+      <strong>Out of scope:</strong> CAPS workflow Preview WebView (separate surface, unchanged); plan settings sheet's own tab strip (mirrors editor sheet only superficially); session shell PageView (Capture / Studio modes — different control).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>feat/editor-sheet-demo-tab-and-swipe-overflow</code> branch installed on Carl's iPhone via <code>./install-device.sh</code>.</li>
+        <li>At least one client session with ≥ 3 exercises so wrap behaviour is observable (mix of video / photo / rest ideal).</li>
+        <li>Notes content on at least one exercise so the typing-persistence test is meaningful.</li>
+      </ul>
+    </div>
+
+    <h2>1 · Demo tab is the new default + tab strip order</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Verify the rename + reorder + new default tab.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open Studio → tap any exercise card. Editor sheet opens on the <strong>Demo</strong> tab (active tab pill is the leftmost). Video starts playing inside the sheet.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Tab strip reads exactly <strong><code>Demo · Plan · Notes · Settings</code></strong> left-to-right. No <code>Preview</code> label anywhere.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">From Studio, tap the <strong>Adjust</strong> button on the toolbar. Editor sheet opens on Demo for the last non-rest exercise.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Tap each of the four tabs in turn. Each renders the right body: Demo shows the video; Plan shows the set rows + Add Set; Notes shows the textarea; Settings shows Prep + Reps in Video collapsibles.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Sheet stays at 0.95 — floor reachable on demand</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The old rule (Preview at 0.95, others at 0.75) is gone. The sheet always opens and stays at 0.95; the 0.75 floor is a deliberate drag-down destination.
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Open the sheet — it opens at the larger <strong>0.95 detent</strong> (most of the screen, just a thin frosted strip of Studio visible above).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Tap each tab in turn (Demo → Plan → Notes → Settings → Demo). Sheet height stays parked at 0.95 throughout — <strong>no oscillation</strong> between tabs.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Drag the top drag-pill <strong>down slowly</strong> from the chrome. The sheet snaps to the 0.75 floor (more of Studio shows behind). Drag it back up — it snaps to 0.95 again.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Tap the Notes tab → tap inside the textarea. Keyboard appears, sheet stays at 0.95, textarea remains visible (not eaten by the keyboard). Tap <strong>Done</strong>; keyboard dismisses; sheet stays at 0.95.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Bottom-aligned tab content (one-handed reach)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The Plan / Notes / Settings tab content pins to the bottom — empty space sits at the top, controls are just above the tab strip in thumb range. Demo keeps its full-canvas video.
+    </p>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">On an exercise with only 1 or 2 sets, open the <strong>Plan</strong> tab. The "Add Set" button + caption + set rows sit at the <strong>bottom</strong> of the page (near the tab strip), not at the top. Empty space is at the top.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">On an exercise with no notes (or short notes), open the <strong>Notes</strong> tab. The textarea sits at the <strong>bottom</strong> of the page. Empty space is above.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Open the <strong>Settings</strong> tab. Prep + Reps in Video rows sit at the <strong>bottom</strong>. Tap Prep — its preset chip row expands inline. Tap a chip — value commits, row collapses. Values feel comfortably reachable with the thumb.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">On a video exercise, open the <strong>Demo</strong> tab. The video fills the <strong>full upper canvas</strong> as before — no bottom-alignment, no empty space at the top. (Body Focus + Rotate pills bottom-left, treatment pill vertical right, tab strip + bottom rail below.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Continuous swipe — tab boundaries flow into next exercise</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The killer feature. Swipe across tabs, watch one exercise's tabs spill smoothly into the next exercise's Demo.
+    </p>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">Open the sheet on the FIRST exercise. Swipe left through tabs (within the page body, not on the rail or chrome): Demo → Plan → Notes → Settings.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">At <strong>Ex1.Settings</strong>, swipe left <strong>one more time</strong>. The sheet flows smoothly into <strong>Ex2.Demo</strong> (the next exercise's Demo). Bottom rail thumbnail + title + meta updates to Ex2.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">Continue swiping left through Ex2's tabs. When you hit Ex2.Settings, the next swipe lands on <strong>Ex3.Demo</strong> (or Ex3.Rest if Ex3 is a rest period — see test 17).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">Keep swiping left until you reach the LAST exercise's Settings. One more swipe — sheet <strong>wraps back to the first exercise's Demo</strong>. Now swipe right (back) from Ex1.Demo — wraps to Last.Settings.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text">If your session has a rest period: swipe to the rest exercise. Tab strip collapses to a single <strong>Rest</strong> pill. One more swipe past it lands on the NEXT exercise's Demo (rest contributes exactly 1 page in the stream).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Chevrons + chrome swipe still do quick exercise jumps</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Bottom-rail chevrons + horizontal drag on the chrome (drag pill OR rail surface) keep the 1-tap quick-jump-to-next-exercise behaviour. These DON'T wrap (they disable at the first / last exercise).
+    </p>
+    <ul class="checklist">
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">On any exercise, tap the right <strong>chevron</strong> on the bottom rail. Sheet jumps to the next exercise's <strong>Demo</strong> (not the same tab you were on). Bottom rail updates.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
+        <span class="num">19.</span>
+        <span class="text">Tap left chevron. Jumps to previous exercise's Demo. At the FIRST exercise, the left chevron is <strong>disabled</strong> (greyed at 30% opacity). At the LAST exercise, the right chevron is disabled too.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">✓</button><button class="fail" type="button" aria-label="Fail 20">✗</button></div>
+        <span class="num">20.</span>
+        <span class="text">Horizontal swipe on the drag-pill at the top of the sheet, or on the empty space of the bottom rail (not on the title or chevrons). Jumps to next / previous exercise — same as the chevrons.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 · Notes persistence + per-exercise state</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Each exercise has its own Notes controller. Typing on one and navigating away then back should preserve the text.
+    </p>
+    <ul class="checklist">
+      <li data-num="21" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 21">✓</button><button class="fail" type="button" aria-label="Fail 21">✗</button></div>
+        <span class="num">21.</span>
+        <span class="text">Open the sheet on Ex1. Tap Notes → type a few words. Swipe right (chevron) to Ex2 → swipe left back to Ex1. Notes still shows what you typed (and it's saved — closing the sheet and reopening still shows it).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="22" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 22">✓</button><button class="fail" type="button" aria-label="Fail 22">✗</button></div>
+        <span class="num">22.</span>
+        <span class="text">Open Plan on Ex1 → change a set's reps. Swipe to Ex2 → swipe back. Ex1's reps still reflect your change (committed to SQLite + Studio card already shows it on dismiss).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Dismiss flows still work</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Sanity check the existing dismissal paths haven't regressed.
+    </p>
+    <ul class="checklist">
+      <li data-num="23" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 23">✓</button><button class="fail" type="button" aria-label="Fail 23">✗</button></div>
+        <span class="num">23.</span>
+        <span class="text">Tap outside the sheet (on the frosted-scrim background). Sheet dismisses cleanly. Studio screen behind looks normal.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="24" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 24">✓</button><button class="fail" type="button" aria-label="Fail 24">✗</button></div>
+        <span class="num">24.</span>
+        <span class="text">Open the sheet → fast-flick the drag pill <strong>downward</strong> (fling). Sheet dismisses. (Fast upward fling promotes to 0.95 if not already there.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Spec: ADR-0019 (editor-sheet reachability inversion — content extension). Branch: <code>feat/editor-sheet-demo-tab-and-swipe-overflow</code>. Files: <code>app/lib/widgets/exercise_editor_sheet.dart</code>, <code>app/lib/widgets/studio_exercise_card.dart</code>.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-15-editor-sheet-demo-tab-and-swipe.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: '2026-05-15-editor-sheet-demo-tab-and-swipe', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status') || '';
+          if (!status) return;
+          state[num] = {status: status, note: noteInput.value || ''};
+          clearTimeout(debounce);
+          debounce = setTimeout(save, 350);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-15-editor-sheet-demo-tab-and-swipe.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Editor sheet &mdash; Demo tab + continuous swipe with bottom-aligned content (ADR-0019)</div>
+              <div class="scope"><strong>Two coordinated changes on the exercise editor sheet.</strong> <strong>(1) Demo tab.</strong> Tab strip renamed + reordered to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Demo &middot; Plan &middot; Notes &middot; Settings</code> with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Demo</code> as the default opening tab (was Plan). "Preview" implied passive viewing and collided with the CAPS workflow's own "Preview" step &mdash; "Demo" echoes the product narrative (line-drawing demonstrations). <strong>(2) Continuous swipe + bottom-aligned content.</strong> Tab swipe is now one continuous virtual <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PageView.builder</code> spanning every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">(exercise, tab)</code> cell in the session &mdash; swipe past Settings of one exercise and you flow into the next exercise's Demo; swipe past the last exercise wraps to the first. Sheet stays parked at the 0.95 max detent (the 0.75 floor is reachable by dragging the chrome down manually). <strong>Plan / Notes / Settings tab content is now bottom-aligned</strong> &mdash; controls sit just above the tab strip for one-handed thumb reach, with empty space pushed to the top. Demo keeps its full-canvas video. Chevrons + chrome-horizontal-swipe still do bounded "quick jump to next exercise's Demo" (don't wrap; disable at boundaries). <strong>24 items in 7 sections; load-bearing: #1-2 (Demo is default + tab strip order), #5-6 (sheet stays at 0.95 across tabs), #9-11 (bottom-aligned Plan/Notes/Settings), #14-16 (swipe wraps across exercises + session-end wrap), #17 (rest exercises render as 1 page), #19 (chevrons disable at boundaries), #21 (Notes typing persists across navigation).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-lobby-pdf-stack.html">
           <div class="row">
             <div>
