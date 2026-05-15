@@ -2708,8 +2708,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Published, but some optional treatment files are still processing ($optionalArtifactFailure). '
-              'Line treatment is live now; retry publish later to backfill.',
+              'Published. Some optional treatment files are still processing — '
+              'retry publish in a minute to backfill the rest. '
+              'Line treatment is live now.',
               style: const TextStyle(
                 fontFamily: 'Inter',
                 color: Colors.white,
