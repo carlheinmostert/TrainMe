@@ -1506,6 +1506,25 @@ class UploadService {
     required Session session,
     required String practiceId,
   }) async {
+    // -----------------------------------------------------------------
+    // PR-A (2026-05-15) — consent decoupled from upload.
+    //
+    // Every variant file in this function (main raw mp4, segmented
+    // mp4/jpg, photo raw jpg, _thumb_color.jpg, mask mp4) uploads on
+    // every publish if it exists on disk, regardless of the client's
+    // `video_consent` flags. Existing skip-if-missing + skip-if-already-
+    // uploaded short-circuits stay — PR-C will tighten the missing-file
+    // case to fail the publish.
+    //
+    // Consent is now a pure player-side visibility gate: the
+    // `get_plan_full` RPC emits NULL signed URLs for treatments the
+    // client hasn't consented to, so revoked treatments stay invisible
+    // even though the underlying file is in `raw-archive`. The win is
+    // that toggling consent ON later doesn't require a republish — the
+    // file is already in storage waiting for `get_plan_full` to sign it.
+    //
+    // Spec: docs/design/mockups/publish-flow-refactor.html
+    // -----------------------------------------------------------------
     final failures = <UploadFailureRecord>[];
     // Snapshot the exercise order ONCE so every failure record reports
     // a stable 0-based slot even if `session.exercises` is mutated
@@ -1742,16 +1761,19 @@ class UploadService {
     //   `{practiceId}/{planId}/{exerciseId}.jpg`
     //
     // This unlocks the three-treatment story for photos: get_plan_full's
-    // signed URL flips on `original_url` (consent-gated), the web player
-    // shows Colour + B&W as enabled segments and applies the same CSS
-    // grayscale filter to the <img> at playback time. Same source object
-    // serves both — no second file.
+    // signed URL flips on `original_url` (consent-gated AT THE RPC LAYER),
+    // the web player shows Colour + B&W as enabled segments and applies
+    // the same CSS grayscale filter to the <img> at playback time. Same
+    // source object serves both — no second file.
+    //
+    // PR-A (2026-05-15): consent gate removed from this loop. Every photo
+    // raw uploads on every publish regardless of `colourAllowed` — see the
+    // policy comment at the top of this function.
     //
     // Pattern mirrors the video raw-upload above (line 891+):
     //   * per-exercise try/catch via loudSwallow — one failure can't poison
     //     the rest;
-    //   * skipped silently when the client hasn't consented to original
-    //     (raw photos are a treatment surface, same gate as videos);
+    //   * skipped silently when the source file is missing on disk;
     //   * legacy photos with no separate raw on device fall through —
     //     the line drawing already shipped, the web player handles
     //     `original_url=null` gracefully.
@@ -1760,89 +1782,74 @@ class UploadService {
     // tracked the way videos are (no archive pipeline + 90-day
     // retention) and Storage upserts are idempotent on retry. Re-publish
     // re-transfers the photo, which is cheap (sub-MB).
-    final clientId = session.clientId;
-    bool clientGrantedOriginal = false;
-    if (clientId != null && clientId.isNotEmpty) {
-      // Cheapest source of truth: the offline cache — populated on every
-      // SyncService pull and refreshed when the practitioner toggles
-      // consent. Avoids an extra round-trip per publish. CachedClient
-      // exposes `colourAllowed` which mirrors the cloud's
-      // `video_consent.original` jsonb flag.
-      final cached = await _storage.getCachedClientById(clientId);
-      if (cached != null) {
-        clientGrantedOriginal = cached.colourAllowed;
-      }
-    }
-    if (clientGrantedOriginal) {
-      for (final exercise in session.exercises) {
-        if (exercise.isRest) continue;
-        if (exercise.mediaType.name != 'photo') continue;
-        final rawRel = exercise.rawFilePath;
-        if (rawRel.isEmpty) continue;
-        final absRaw = exercise.absoluteRawFilePath;
-        final rawFile = File(absRaw);
-        if (!rawFile.existsSync()) {
-          debugPrint(
-            'UploadService: raw photo missing for exercise ${exercise.id} '
-            'at $absRaw — skipping (pre-migration / pruned).',
-          );
-          continue;
-        }
-        final ext = p.extension(absRaw).toLowerCase();
-        // Default to .jpg when the camera handed us something exotic —
-        // the file content is fine, the bucket only cares about the path
-        // segment for RLS, and get_plan_full's signed URL hard-codes
-        // .jpg as the suffix.
-        final normalisedExt =
-            (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
-                ? '.jpg'
-                : '.jpg';
-        final mime = (ext == '.png')
-            ? 'image/png'
-            : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
-        final storagePath =
-            '$practiceId/${session.id}/${exercise.id}$normalisedExt';
-        if (existingRaw.contains(storagePath)) {
-          debugPrint('_uploadRawArchives: skip photo $storagePath (exists)');
-          continue;
-        }
-        final ok = await loudSwallow<bool>(
-          () async {
-            await _api.uploadRawArchive(
-              path: storagePath,
-              file: rawFile,
-              contentType: mime,
-            );
-            return true;
-          },
-          kind: 'raw_archive_photo_upload_failed',
-          source: 'UploadService._uploadRawArchives',
-          severity: 'warn',
-          meta: {
-            'practice_id': practiceId,
-            'plan_id': session.id,
-            'exercise_id': exercise.id,
-            'storage_path': storagePath,
-            'local_path': absRaw,
-            'file_exists': rawFile.existsSync(),
-          },
-          swallow: true,
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      if (exercise.mediaType.name != 'photo') continue;
+      final rawRel = exercise.rawFilePath;
+      if (rawRel.isEmpty) continue;
+      final absRaw = exercise.absoluteRawFilePath;
+      final rawFile = File(absRaw);
+      if (!rawFile.existsSync()) {
+        debugPrint(
+          'UploadService: raw photo missing for exercise ${exercise.id} '
+          'at $absRaw — skipping (pre-migration / pruned).',
         );
-        if (ok != true) {
-          debugPrint(
-            '_uploadRawArchives FAILED kind=raw_archive_photo_upload_failed '
-            'path=$storagePath local=$absRaw exists=${rawFile.existsSync()}',
+        continue;
+      }
+      final ext = p.extension(absRaw).toLowerCase();
+      // Default to .jpg when the camera handed us something exotic —
+      // the file content is fine, the bucket only cares about the path
+      // segment for RLS, and get_plan_full's signed URL hard-codes
+      // .jpg as the suffix.
+      final normalisedExt =
+          (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
+              ? '.jpg'
+              : '.jpg';
+      final mime = (ext == '.png')
+          ? 'image/png'
+          : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
+      final storagePath =
+          '$practiceId/${session.id}/${exercise.id}$normalisedExt';
+      if (existingRaw.contains(storagePath)) {
+        debugPrint('_uploadRawArchives: skip photo $storagePath (exists)');
+        continue;
+      }
+      final ok = await loudSwallow<bool>(
+        () async {
+          await _api.uploadRawArchive(
+            path: storagePath,
+            file: rawFile,
+            contentType: mime,
           );
-          failures.add(UploadFailureRecord(
-            kind: 'raw_archive_photo_upload_failed',
-            storagePath: storagePath,
-            localPath: absRaw,
-            fileExists: rawFile.existsSync(),
-            exerciseId: exercise.id,
-            exerciseIndex: indexByExerciseId[exercise.id],
-            exerciseName: nameByExerciseId[exercise.id],
-          ));
-        }
+          return true;
+        },
+        kind: 'raw_archive_photo_upload_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'exercise_id': exercise.id,
+          'storage_path': storagePath,
+          'local_path': absRaw,
+          'file_exists': rawFile.existsSync(),
+        },
+        swallow: true,
+      );
+      if (ok != true) {
+        debugPrint(
+          '_uploadRawArchives FAILED kind=raw_archive_photo_upload_failed '
+          'path=$storagePath local=$absRaw exists=${rawFile.existsSync()}',
+        );
+        failures.add(UploadFailureRecord(
+          kind: 'raw_archive_photo_upload_failed',
+          storagePath: storagePath,
+          localPath: absRaw,
+          fileExists: rawFile.existsSync(),
+          exerciseId: exercise.id,
+          exerciseIndex: indexByExerciseId[exercise.id],
+          exerciseName: nameByExerciseId[exercise.id],
+        ));
       }
     }
 
@@ -1856,98 +1863,90 @@ class UploadService {
     // treatments via the get_plan_full RPC's signed URL. CSS
     // grayscale(1) filter renders the B&W variant from the same source.
     //
-    // Gate: any treatment consent (grayscale OR original) — the file
-    // serves both. Skipped silently when neither is granted.
-    bool clientGrantedAnyColor = false;
-    if (clientId != null && clientId.isNotEmpty) {
-      final cached = await _storage.getCachedClientById(clientId);
-      if (cached != null) {
-        clientGrantedAnyColor =
-            cached.grayscaleAllowed || cached.colourAllowed;
+    // PR-A (2026-05-15): consent gate removed. Every `_thumb_color.jpg`
+    // uploads on every publish regardless of `grayscaleAllowed` /
+    // `colourAllowed`. Visibility is gated player-side via
+    // `get_plan_full`'s NULL signed URLs when consent is missing — see
+    // the policy comment at the top of this function.
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      // Bundle 2b — photos now produce a `_thumb_color.jpg` variant
+      // alongside videos (the variant pipeline lives in
+      // conversion_service.dart's photo branch). Without the matching
+      // photo branch every photo plan published since Bundle 2b would
+      // re-upload the raw colour image as `_thumb_color.jpg` via the
+      // `_thumb_line.jpg` replaceFirst no-op (latent bug pre-2b too).
+      // Same storage path — videos + photos converge.
+      final mediaName = exercise.mediaType.name;
+      if (mediaName != 'video' && mediaName != 'photo') continue;
+      final thumbAbs = exercise.absoluteThumbnailPath;
+      if (thumbAbs == null) continue;
+      // Convention: native (video) / OpenCV-isolate (photo) conversion
+      // writes _thumb_color.jpg next to _thumb.jpg in the same
+      // {Documents}/thumbnails/ directory. Pre-Bundle-2b photo rows
+      // had `thumbnailPath = rawFilePath` (not under thumbnails/),
+      // so the replaceFirst was a no-op + the existsSync skipped them.
+      // Post-2b rows resolve correctly.
+      final colorThumbAbs =
+          thumbAbs.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+      if (colorThumbAbs == thumbAbs) {
+        // Defensive: legacy photo rows whose thumbnailPath wasn't
+        // touched by Bundle 2b (e.g. capture that pre-dated install).
+        // Skip — no variant exists on disk.
+        continue;
       }
-    }
-    if (clientGrantedAnyColor) {
-      for (final exercise in session.exercises) {
-        if (exercise.isRest) continue;
-        // Bundle 2b — photos now produce a `_thumb_color.jpg` variant
-        // alongside videos (the variant pipeline lives in
-        // conversion_service.dart's photo branch). Without this gate
-        // change every photo plan published since Bundle 2b would
-        // re-upload the raw colour image as `_thumb_color.jpg` via the
-        // `_thumb_line.jpg` replaceFirst no-op (latent bug pre-2b too).
-        // Same consent gate, same storage path — videos + photos
-        // converge.
-        final mediaName = exercise.mediaType.name;
-        if (mediaName != 'video' && mediaName != 'photo') continue;
-        final thumbAbs = exercise.absoluteThumbnailPath;
-        if (thumbAbs == null) continue;
-        // Convention: native (video) / OpenCV-isolate (photo) conversion
-        // writes _thumb_color.jpg next to _thumb.jpg in the same
-        // {Documents}/thumbnails/ directory. Pre-Bundle-2b photo rows
-        // had `thumbnailPath = rawFilePath` (not under thumbnails/),
-        // so the replaceFirst was a no-op + the existsSync skipped them.
-        // Post-2b rows resolve correctly.
-        final colorThumbAbs =
-            thumbAbs.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
-        if (colorThumbAbs == thumbAbs) {
-          // Defensive: legacy photo rows whose thumbnailPath wasn't
-          // touched by Bundle 2b (e.g. capture that pre-dated install).
-          // Skip — no variant exists on disk.
-          continue;
-        }
-        final colorFile = File(colorThumbAbs);
-        if (!colorFile.existsSync()) {
-          debugPrint(
-            'UploadService: color thumb missing for ${exercise.id} '
-            '($mediaName) at $colorThumbAbs — skipping.',
-          );
-          continue;
-        }
-        final colorStoragePath =
-            '$practiceId/${session.id}/${exercise.id}_thumb_color.jpg';
-        if (existingRaw.contains(colorStoragePath)) {
-          debugPrint('_uploadRawArchives: skip $colorStoragePath (exists)');
-          continue;
-        }
-        final ok = await loudSwallow<bool>(
-          () async {
-            await _api.uploadRawArchive(
-              path: colorStoragePath,
-              file: colorFile,
-              contentType: 'image/jpeg',
-            );
-            return true;
-          },
-          kind: 'raw_archive_color_thumb_failed',
-          source: 'UploadService._uploadRawArchives',
-          severity: 'warn',
-          meta: {
-            'practice_id': practiceId,
-            'plan_id': session.id,
-            'exercise_id': exercise.id,
-            'media_type': mediaName,
-            'storage_path': colorStoragePath,
-            'local_path': colorThumbAbs,
-            'file_exists': colorFile.existsSync(),
-          },
-          swallow: true,
+      final colorFile = File(colorThumbAbs);
+      if (!colorFile.existsSync()) {
+        debugPrint(
+          'UploadService: color thumb missing for ${exercise.id} '
+          '($mediaName) at $colorThumbAbs — skipping.',
         );
-        if (ok != true) {
-          debugPrint(
-            '_uploadRawArchives FAILED kind=raw_archive_color_thumb_failed '
-            'path=$colorStoragePath local=$colorThumbAbs '
-            'exists=${colorFile.existsSync()}',
+        continue;
+      }
+      final colorStoragePath =
+          '$practiceId/${session.id}/${exercise.id}_thumb_color.jpg';
+      if (existingRaw.contains(colorStoragePath)) {
+        debugPrint('_uploadRawArchives: skip $colorStoragePath (exists)');
+        continue;
+      }
+      final ok = await loudSwallow<bool>(
+        () async {
+          await _api.uploadRawArchive(
+            path: colorStoragePath,
+            file: colorFile,
+            contentType: 'image/jpeg',
           );
-          failures.add(UploadFailureRecord(
-            kind: 'raw_archive_color_thumb_failed',
-            storagePath: colorStoragePath,
-            localPath: colorThumbAbs,
-            fileExists: colorFile.existsSync(),
-            exerciseId: exercise.id,
-            exerciseIndex: indexByExerciseId[exercise.id],
-            exerciseName: nameByExerciseId[exercise.id],
-          ));
-        }
+          return true;
+        },
+        kind: 'raw_archive_color_thumb_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'exercise_id': exercise.id,
+          'media_type': mediaName,
+          'storage_path': colorStoragePath,
+          'local_path': colorThumbAbs,
+          'file_exists': colorFile.existsSync(),
+        },
+        swallow: true,
+      );
+      if (ok != true) {
+        debugPrint(
+          '_uploadRawArchives FAILED kind=raw_archive_color_thumb_failed '
+          'path=$colorStoragePath local=$colorThumbAbs '
+          'exists=${colorFile.existsSync()}',
+        );
+        failures.add(UploadFailureRecord(
+          kind: 'raw_archive_color_thumb_failed',
+          storagePath: colorStoragePath,
+          localPath: colorThumbAbs,
+          fileExists: colorFile.existsSync(),
+          exerciseId: exercise.id,
+          exerciseIndex: indexByExerciseId[exercise.id],
+          exerciseName: nameByExerciseId[exercise.id],
+        ));
       }
     }
 
