@@ -2855,21 +2855,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         );
       }
       if (consentCheckSkipped != null && consentCheckSkipped.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Published, but treatment-consent pre-check was skipped ($consentCheckSkipped). '
-              'Server guard still enforced consent.',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                color: Colors.white,
-                fontSize: 13,
-              ),
-            ),
-            backgroundColor: AppColors.surfaceRaised,
-            duration: const Duration(seconds: 7),
-            behavior: SnackBarBehavior.floating,
-          ),
+        // After PR-A's decouple-consent-from-upload, the preflight is
+        // informational only — the server-side consume_credit RPC enforces
+        // consent as the authoritative backstop. When the preflight fails
+        // transiently (network blip, auth edge case), the publish still
+        // succeeds and no user action is required. Silence the SnackBar;
+        // keep the debugPrint for diagnostic visibility.
+        debugPrint(
+          'Consent preflight skipped: $consentCheckSkipped — server guard still enforced',
         );
       }
       // PR-C — the legacy "partial success" toast is gone. Publish is

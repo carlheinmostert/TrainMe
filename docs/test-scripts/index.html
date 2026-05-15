@@ -189,6 +189,32 @@
         </a>
       </li>
       <li>
+        <a href="./fix-silence-consent-preflight-toast.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Silence consent-preflight-skipped toast (PR-A cleanup)</div>
+              <div class="scope"><strong>Cosmetic noise removal.</strong> PR-A made the upload flow consent-agnostic; the client-side <code>validate_plan_treatment_consent</code> preflight is informational only &mdash; <code>consume_credit</code> on the server is the authoritative backstop. When the preflight RPC fails transiently (network blip, auth edge), publish still succeeds but a noisy "Published, but treatment-consent pre-check was skipped" SnackBar fired. <strong>Fix:</strong> replace the SnackBar in <code>app/lib/screens/studio_mode_screen.dart</code> with a <code>debugPrint</code> so the diagnostic is preserved for future debugging without surfacing to the user. <strong>3 items; load-bearing: #1 (republish &mdash; no consent-skip toast), #2 (audit + credit consumption proves server guard remains authoritative).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./fix-baseline-recovery-phase2.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Baseline recovery phase 2 &mdash; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">auth.users</code> INSERT trigger</div>
+              <div class="scope"><strong>Companion to PR #354.</strong> Audit pass on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">supabase/archive/</code> turned up one more artefact silently dropped by <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pg_dump --schema=public</code>: the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">claim_pending_practice_memberships_trigger</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">auth.users</code>. The function lives in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">public.*</code> (so the baseline kept it) but the trigger that invokes it on every signup lives on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">auth.users</code> (so pg_dump dropped it). <strong>Symptom on staging + every PR preview:</strong> owner invites a practitioner by email &rarr; row lands in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pending_practice_members</code> &rarr; invitee signs up &rarr; pending row never drains, no <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">practice_members</code> row created &rarr; invitee lands without their expected practice membership. Production unaffected (trigger applied directly when milestone U shipped). <strong>Fix:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">supabase/migrations/20260515140953_baseline_recovery_phase2_auth_trigger.sql</code> restores the trigger verbatim from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">supabase/archive/schema_milestone_u_add_member_by_email.sql:450&ndash;455</code>. Pre-flight DO block raises if the function is missing; idempotent (DROP TRIGGER IF EXISTS + CREATE TRIGGER); <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">insufficient_privilege</code> exception handler for hosted-Postgres safety. <strong>Sensitive zone:</strong> auth-schema trigger &mdash; Carl review before merge. <strong>9 items in 4 sections; load-bearing: #1 (pg_trigger lookup returns 0 rows pre-merge), #4 (Branching auto-applies), #5 (lookup returns 1 enabled row post-merge), #6 (e2e invite drains pending row + creates practice_members row), #7 (UX: new user lands in inviting practice).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Phase 2</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./fix-storage-policies-recovery.html">
           <div class="row">
             <div>
