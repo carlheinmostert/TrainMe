@@ -454,14 +454,9 @@ class _MediaTypeBadge extends StatelessWidget {
     final icon = mediaType == MediaType.photo
         ? Icons.photo_camera_outlined
         : Icons.videocam_outlined;
-    return Container(
+    return SizedBox(
       width: 33,
       height: 33,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(8),
-      ),
       child: Icon(
         icon,
         size: 21,
