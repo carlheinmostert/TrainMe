@@ -70,6 +70,14 @@ The camera-viewfinder pane of the trainer-app session shell.
 **Studio mode**:
 The editor pane of the trainer-app session shell.
 
+**Demo**:
+The captured-asset editing surface for one exercise — trim window, Hero frame, treatment, body focus, audio. Lives as the default tab of the exercise editor sheet. The word echoes "line-drawing demonstrations" in the product narrative.
+_Avoid_: preview (reserved for the workflow Preview step), media, clip, footage
+
+**Preview**:
+The full-session walkthrough step in the trainer-app CAPS workflow chain (Capture → Adjust → Preview → Publish → Share). Mounts the same web-player bundle the client sees. Session-scoped, never per-exercise.
+_Avoid_: walkthrough, run-through
+
 **Treatment**:
 The visual rendering of a captured video: Line, B&W, or Original.
 _Avoid_: filter, style, variant, mode (when referring to rendering)
