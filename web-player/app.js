@@ -914,6 +914,12 @@ function applyTreatmentOverrideToAllExercises(treatment) {
   // Re-render the deck with new src URLs so post-handoff playback picks
   // up the new treatment.
   try { rebindVideoSources(); } catch (_) { /* deck not yet primed */ }
+  // The prep-overlay HTML (hero poster <img src>) was baked at initial
+  // buildCard() and won't pick up the new treatment by itself — rebind
+  // it explicitly so the upcoming-exercise hero countdown honours the
+  // session override too. (R-10: this surface is shared with the mobile
+  // preview tab.)
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
 }
 
 // Timing constants (from config.dart)
@@ -4224,6 +4230,58 @@ function rebindVideoSources() {
   });
 }
 
+/**
+ * Walk every `.prep-overlay` in the card track and replace it with
+ * fresh markup from `buildPrepOverlay(slide)`. Companion to
+ * `rebindVideoSources()` — videos get a `src` swap in place, but the
+ * prep overlay's `<img class="hero-poster">` was baked at initial
+ * `buildCard()` time with the slide's then-current
+ * `preferred_treatment`. When a session-scoped treatment override flips
+ * every slide's `preferred_treatment` (via `setOverride`), the prep
+ * overlay's poster `<img src>` doesn't refresh on its own and the next
+ * prep countdown flashes the OLD treatment's hero before the video
+ * takes over with the NEW treatment.
+ *
+ * Preserves the overlay's [hidden] state — if it was visible (an
+ * in-flight prep countdown), the new overlay stays visible; if hidden
+ * (idle), the new overlay stays hidden.
+ *
+ * Also preserves the live countdown digit (`.prep-overlay-number`)
+ * value so the swap is invisible to the user mid-countdown.
+ */
+function rebindPrepOverlays() {
+  if (!$cardTrack) return;
+  const overlays = $cardTrack.querySelectorAll('.card-media > .prep-overlay');
+  overlays.forEach((overlayEl) => {
+    const cardMedia = overlayEl.parentElement;
+    if (!cardMedia) return;
+    const card = overlayEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    const wasHidden = overlayEl.hasAttribute('hidden');
+    // Preserve any in-flight countdown digit so a mid-prep override
+    // doesn't visually reset the number.
+    const prevNumEl = overlayEl.querySelector('.prep-overlay-number');
+    const prevNumText = prevNumEl ? prevNumEl.textContent : null;
+    // buildPrepOverlay returns a string wrapped in a `.prep-overlay`
+    // root. Render it into a detached container then transplant the
+    // new root in place of the old one.
+    const tmp = document.createElement('div');
+    tmp.innerHTML = buildPrepOverlay(slide).trim();
+    const newOverlay = tmp.firstElementChild;
+    if (!newOverlay) return;
+    if (!wasHidden) newOverlay.removeAttribute('hidden');
+    if (prevNumText !== null) {
+      const newNumEl = newOverlay.querySelector('.prep-overlay-number');
+      if (newNumEl) newNumEl.textContent = prevNumText;
+    }
+    cardMedia.replaceChild(newOverlay, overlayEl);
+  });
+}
+
 // ----------------------------------------------------------------
 // Wave 42 — Gear panel painters + handlers
 // ----------------------------------------------------------------
@@ -4442,6 +4500,7 @@ function onGearBodyFocusClick() {
   const next = !getEffective(referenceSlide, 'bodyFocus');
   setOverride('bodyFocus', next);
   rebindVideoSources();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
   paintAllGearPanels();
 }
 
@@ -4470,6 +4529,7 @@ function onGearBodyFocusClickLobby() {
   // call before the deck mounts. The deck is still hidden at lobby time;
   // rebindVideoSources iterates and exits cleanly when $cardTrack is empty.
   rebindVideoSources();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
   paintAllGearPanels();
 }
 
@@ -4498,6 +4558,7 @@ function onGearResetClick() {
   }
   applyMuteStateToAllVideos();
   rebindVideoSources();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
   paintAllGearPanels();
 }
 
