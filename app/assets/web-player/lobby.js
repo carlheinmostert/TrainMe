@@ -902,6 +902,69 @@
     const svg = circuitEl.querySelector('.lobby-circuit-lanes');
     if (!frame || !svg) return;
 
+    // ROOT-CAUSE FIX (2026-05-15) — wait for layout-stable signals BEFORE
+    // we measure the frame.
+    //
+    // Five prior attempts (#257/#258, #259, #260, #317, #322) patched the
+    // wrong end of the pipeline. The bug was that `frame.offsetHeight` was
+    // read ONCE on entry — before lazy-loaded hero <img> elements inside
+    // the frame had decoded. The frame at that moment was sized to its
+    // placeholder skeleton (header + collapsed rows), so:
+    //   • the static lane rect was drawn from stale geometry, AND
+    //   • the tracer's `d` attribute was authored from stale geometry,
+    //     so the 30-frame poll loop in #322 retried `getTotalLength()` on
+    //     the SAME stale path.
+    //
+    // Both QA symptoms — "tracer invisible / only loops the header" and
+    // "Exercise 3 falls outside CIRCUIT A border in PDF preview modal" —
+    // are the same root cause expressed differently.
+    //
+    // Fix: wait for fonts + all <img>s in the frame to settle, THEN
+    // measure. The ResizeObserver attached below additionally catches
+    // any subsequent layout shift (orientation flips, treatment toggles,
+    // late image decode) and re-runs the lane+tracer recompute.
+    //
+    // ResizeObserver wiring is hoisted into this per-frame call (it used
+    // to live in the outer `renderCircuitLanes`). Attaching it BEFORE the
+    // await window means a layout change during the await still triggers
+    // a recompute.
+    if (typeof ResizeObserver !== 'undefined' && !circuitEl.__laneObserverAttached) {
+      const observer = new ResizeObserver(() => {
+        if (circuitEl.__laneRenderRaf != null) return;
+        circuitEl.__laneRenderRaf = requestAnimationFrame(() => {
+          circuitEl.__laneRenderRaf = null;
+          // Recompute synchronously; re-entering this fn is cheap and the
+          // images are already decoded by the time the observer fires.
+          renderCircuitLanesFor(circuitEl);
+        });
+      });
+      observer.observe(frame);
+      circuitEl.__laneObserverAttached = true;
+      circuitEl.__laneObserver = observer;
+    }
+
+    // Wait for layout-stable signals, then run the measurement + paint
+    // pass. Wrapped so it works on older WebKit lacking `document.fonts`
+    // or `Promise.allSettled`.
+    const waitForLayoutStable = () => {
+      const fontsReady = (document.fonts && typeof document.fonts.ready !== 'undefined')
+        ? document.fonts.ready
+        : Promise.resolve();
+      const imgs = Array.from(frame.querySelectorAll('img'));
+      const imgPromises = imgs.map((img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        return new Promise((resolve) => {
+          const done = () => resolve();
+          img.addEventListener('load', done, { once: true });
+          img.addEventListener('error', done, { once: true });
+        });
+      });
+      return Promise.all([fontsReady, ...imgPromises]);
+    };
+
+    waitForLayoutStable().then(() => paintLanesAndTracer());
+
+    function paintLanesAndTracer() {
     const frameW = frame.offsetWidth;
     const frameH = frame.offsetHeight;
     if (frameW <= 0 || frameH <= 0) return;
@@ -1118,30 +1181,33 @@
       requestAnimationFrame(() => tryMeasureAndApply(remaining - 1));
     }
     tryMeasureAndApply(MAX_TRIES);
+    }
   }
 
   function renderCircuitLanes() {
     if (!$lobbyList) return;
     const circuits = $lobbyList.querySelectorAll('.lobby-circuit');
-    circuits.forEach(renderCircuitLanesFor);
-
-    // Wire a single ResizeObserver across all circuits — re-render when
-    // any frame size changes (orientation flip, treatment row toggle,
-    // self-grant flow that re-renders the list, font load, etc.).
-    if (typeof ResizeObserver !== 'undefined') {
-      if (_laneResizeObserver) _laneResizeObserver.disconnect();
-      _laneResizeObserver = new ResizeObserver(() => {
-        if (_laneRenderRaf != null) return;
-        _laneRenderRaf = requestAnimationFrame(() => {
-          _laneRenderRaf = null;
-          circuits.forEach(renderCircuitLanesFor);
-        });
-      });
-      circuits.forEach((c) => {
-        const f = c.querySelector('.lobby-circuit-frame');
-        if (f) _laneResizeObserver.observe(f);
-      });
+    // ROOT-CAUSE FIX (2026-05-15) — ResizeObserver wiring moved INTO
+    // `renderCircuitLanesFor` (one observer per circuit, attached before
+    // the layout-stable await). The outer module-level observer is no
+    // longer load-bearing; we still tear it down on re-render so we
+    // don't double-observe after a list rebuild.
+    if (_laneResizeObserver) {
+      try { _laneResizeObserver.disconnect(); } catch (_) {}
+      _laneResizeObserver = null;
     }
+    // Reset the per-circuit observer flags so the new circuit elements
+    // (which are fresh DOM nodes after a list rebuild) get a fresh
+    // observer attached on this pass.
+    circuits.forEach((c) => {
+      if (c.__laneObserver) {
+        try { c.__laneObserver.disconnect(); } catch (_) {}
+      }
+      c.__laneObserver = null;
+      c.__laneObserverAttached = false;
+      c.__laneRenderRaf = null;
+    });
+    circuits.forEach(renderCircuitLanesFor);
   }
 
   /**

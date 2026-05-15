@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-15 — Prep countdown hero respects session treatment override</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.cr {
+    background: rgba(96,165,250,0.12); color: #60A5FA;
+    border-color: rgba(96,165,250,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 &middot; Player &mdash; prep countdown hero treatment</div>
+    <h1>Device QA &mdash; Prep countdown respects session treatment override</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify that flipping the lobby (or deck) gear popover's treatment pill (Line &middot; B&amp;W &middot; Colour) now propagates to the <strong>prep countdown hero overlay</strong> too &mdash; not just the deck video and posters. Closes item 15 of the <code>docs/test-scripts/2026-05-14</code> QA round.
+      <br><br>
+      <strong>Bug being fixed:</strong> PR #329 added a session-scoped treatment override that mirrors onto each slide's <code>preferred_treatment</code>. The video sources got re-bound via <code>rebindVideoSources()</code>, but the prep overlay's <code>&lt;img class="hero-poster" src=...&gt;</code>, baked at initial <code>buildCard()</code> time, was never refreshed. The big coral countdown number over the upcoming exercise's hero flashed the OLD treatment for one beat before the video took over with the NEW one.
+      <br><br>
+      <strong>Fix shape:</strong> new <code>rebindPrepOverlays()</code> helper in <code>web-player/app.js</code> walks every <code>.prep-overlay</code> in the card track and replaces it with fresh <code>buildPrepOverlay(slide)</code> markup. Preserves the <code>[hidden]</code> state and any in-flight countdown digit so the swap is invisible mid-prep. Called from <code>applyTreatmentOverrideToAllExercises()</code>, both body-focus toggles (deck + lobby), and the gear reset handler.
+      <br><br>
+      <strong>Invariant reinforced:</strong> 2026-05-14 hero treatment / no-fallback principle &mdash; when a slide is forced into a treatment, every surface that previews that slide (deck card, poster, prep overlay, lobby) must agree.
+      <br><br>
+      <strong>Out of scope:</strong> mobile preview tab playback (shares the same <code>web-player/</code> bundle, gets the fix for free &mdash; verified by item 8 below), Studio card chrome, lobby row treatment rendering (already worked pre-fix).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Fix deployed at <code>staging.session.homefit.studio</code> (Vercel auto-deploy from <code>fix/prep-countdown-respects-session-override</code> branch &rarr; merged to <code>staging</code>).</li>
+        <li>Hard-refresh on the test device (service worker is auto-rewritten with the deploy SHA, but the first reload after deploy may still hit the cached SW; pull-to-refresh / Settings &rarr; Clear web cache if behaviour looks stale).</li>
+        <li>A test plan with at least one video exercise <strong>and</strong> at least one photo exercise, with <strong>both grayscale and original treatments consented</strong> for that client so all three treatment pills are tappable in the gear popover.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Lobby override propagates to prep countdown</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Cold-open the plan link (lobby visible). Open the lobby's gear popover. Confirm the prep countdown hero matches the picked treatment.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Cold-open the plan link. Lobby renders with the practitioner's per-exercise default treatment on each row. Tap the lobby gear icon &rarr; tap the <strong>B&amp;W</strong> treatment pill. Every lobby row instantly switches to B&amp;W (already worked pre-fix &mdash; sanity check). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">With <strong>B&amp;W</strong> still selected from item 1, tap <strong>Start Workout</strong>. The 15-second prep countdown overlay appears over the first exercise's hero image. The hero image is rendered in B&amp;W (grayscale filter visible). It does <strong>NOT</strong> flash the original / line-drawing treatment for any frame before going B&amp;W. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text">Repeat items 1+2 with <strong>Line</strong> selected in the lobby. The prep hero is the line-drawing treatment (high-contrast, dim background). No grayscale or colour flash. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Repeat items 1+2 with <strong>Colour</strong> selected in the lobby. The prep hero is the full-colour raw treatment. No grayscale flash. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Mid-workout override (deck gear popover)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Start the workout, advance to a later slide, then change the treatment via the deck gear popover. The NEXT prep countdown (between slides) should honour the new treatment immediately.
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">Start the workout (defaults to Line). On slide 2 or 3, tap the deck's gear icon. Pick <strong>B&amp;W</strong>. The currently-playing video flips to B&amp;W (CSS filter, existing behaviour). Skip ahead with the right chevron to trigger the next prep countdown. The 15-second prep hero for the upcoming slide renders in B&amp;W &mdash; no line-drawing flash. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">Repeat item 5 but during an in-flight prep countdown: open the deck gear popover, change treatment. The countdown digit (e.g. "12") stays the same &mdash; no visible reset of the number &mdash; but the hero image behind it switches to the new treatment. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Reset restores per-exercise treatments</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The gear popover's Reset button should restore each slide's practitioner-original <code>preferred_treatment</code>. Prep overlays should respect this too.
+    </p>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">With the session override set to B&amp;W (from previous tests), tap the gear popover's <strong>Reset</strong> button. The deck rebinds. Skip to the next prep countdown &mdash; the hero now matches the upcoming exercise's <strong>per-exercise default</strong> treatment (e.g. line drawing if that's what the practitioner set), not B&amp;W. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Mobile preview parity (R-10)</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">On the Flutter app's workflow Preview step (the embedded web player), repeat item 2 (lobby gear &rarr; B&amp;W &rarr; Start Workout). The prep countdown hero is B&amp;W. The mobile preview shares the <code>web-player/</code> bundle so the fix lands in both surfaces. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Sanity</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text">No regression on the existing prep-countdown behaviour without an override: open a plan, hit Start Workout, the 15-second prep countdown renders the practitioner's chosen hero treatment for slide 1, cleanly fades into the playing video. Hold-still and timing unchanged. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><code>node --check web-player/app.js</code> exits 0; build deploys cleanly on Vercel (staging URL serves the new JS at the bumped SHA). <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Branch: <code>fix/prep-countdown-respects-session-override</code> &mdash; targets <code>staging</code>. Closes item 15 of the 2026-05-14 staging QA round. Reinforces the 2026-05-14 hero-treatment + no-fallback invariant.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'fix-prep-countdown-override.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'fix-prep-countdown-override', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            var status = li.getAttribute('data-status');
+            if (!status) return;
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 400);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
