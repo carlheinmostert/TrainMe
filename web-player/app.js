@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v69-modal-first-desktop';
+const PLAYER_VERSION = 'v70-png-modal-removed';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -66,38 +66,11 @@ const PLAYER_VERSION = 'v69-modal-first-desktop';
     setAudioPlayback: function (active) {
       postBridge({ type: 'audio', active: !!active });
     },
-    /// 2026-05-13 — share a PNG via iOS UIActivityViewController.
-    ///
-    /// The lobby share-as-static export pipeline produces a PNG blob.
-    /// On the live web player path, `navigator.share({ files: [...] })`
-    /// surfaces the iOS share sheet from Mobile Safari directly. Inside
-    /// the embedded Flutter WebView the Web Share API is unreliable
-    /// (WKWebView ships behind a configurable flag, and the Flutter
-    /// WebViewWidget doesn't surface it), so we forward the bytes to
-    /// Dart over the bridge. Dart writes the PNG to a temp file and
-    /// presents UIActivityViewController.
-    ///
-    /// Args:
-    ///   `dataUrl`  — `data:image/png;base64,...` payload (full URL,
-    ///                with prefix; the native side parses it).
-    ///   `fileName` — suggested filename for the share sheet.
-    ///
-    /// Returns nothing — the share sheet is presented best-effort. If
-    /// the bridge channel is absent (production web player), this is a
-    /// no-op and the caller falls back to its desktop modal path.
-    shareImage: function (dataUrl, fileName) {
-      if (typeof dataUrl !== 'string' || !dataUrl) return;
-      postBridge({
-        type: 'share_image',
-        dataUrl: dataUrl,
-        fileName: typeof fileName === 'string' ? fileName : '',
-      });
-    },
     /// 2026-05-14 — share an arbitrary file (mime + filename) via the
-    /// native iOS share sheet. Mirrors shareImage but accepts raw
-    /// base64 bytes + a mimeType so non-image artifacts (PDF, ZIP, …)
-    /// can route through UIActivityViewController without bolting
-    /// per-format bridge methods.
+    /// native iOS share sheet. Accepts raw base64 bytes + a mimeType so
+    /// non-image artifacts (PDF, ZIP, …) can route through
+    /// UIActivityViewController without bolting per-format bridge
+    /// methods.
     ///
     /// Introduced for the lobby multi-page PDF export pipeline
     /// (web-player/lobby.js triggerLobbyShare) which generates an

@@ -3097,9 +3097,7 @@
 
   // Convert a Blob to base64-without-data-URL-prefix. Used by the
   // embedded share-file bridge: the Dart side expects raw base64 +
-  // mime/filename as separate fields (mirrors the share_image path
-  // which uses a full data:image/png;base64,... URL — for PDFs we
-  // stick with the cleaner split-shape).
+  // mime / filename as separate fields.
   function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
       try {
@@ -3170,7 +3168,7 @@
       // of the lobby renders correctly in B&W via onclone CSS, the
       // video row's poster shows up untreated. Bake the filter into a
       // canvas-derived data URL BEFORE the live-DOM swap step picks it
-      // up — html2canvas reads the baked bitmap and the snapshot PNG
+      // up — html2canvas reads the baked bitmap and the snapshot
       // matches the playing treatment.
       if (window.HomefitHero && window.HomefitHero.bakeFilterIntoDataUrl) {
         const videoEls = $lobby.querySelectorAll('video');

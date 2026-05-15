@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v69-modal-first-desktop';
+const PLAYER_VERSION = 'v70-png-modal-removed';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -66,38 +66,11 @@ const PLAYER_VERSION = 'v69-modal-first-desktop';
     setAudioPlayback: function (active) {
       postBridge({ type: 'audio', active: !!active });
     },
-    /// 2026-05-13 — share a PNG via iOS UIActivityViewController.
-    ///
-    /// The lobby share-as-static export pipeline produces a PNG blob.
-    /// On the live web player path, `navigator.share({ files: [...] })`
-    /// surfaces the iOS share sheet from Mobile Safari directly. Inside
-    /// the embedded Flutter WebView the Web Share API is unreliable
-    /// (WKWebView ships behind a configurable flag, and the Flutter
-    /// WebViewWidget doesn't surface it), so we forward the bytes to
-    /// Dart over the bridge. Dart writes the PNG to a temp file and
-    /// presents UIActivityViewController.
-    ///
-    /// Args:
-    ///   `dataUrl`  — `data:image/png;base64,...` payload (full URL,
-    ///                with prefix; the native side parses it).
-    ///   `fileName` — suggested filename for the share sheet.
-    ///
-    /// Returns nothing — the share sheet is presented best-effort. If
-    /// the bridge channel is absent (production web player), this is a
-    /// no-op and the caller falls back to its desktop modal path.
-    shareImage: function (dataUrl, fileName) {
-      if (typeof dataUrl !== 'string' || !dataUrl) return;
-      postBridge({
-        type: 'share_image',
-        dataUrl: dataUrl,
-        fileName: typeof fileName === 'string' ? fileName : '',
-      });
-    },
     /// 2026-05-14 — share an arbitrary file (mime + filename) via the
-    /// native iOS share sheet. Mirrors shareImage but accepts raw
-    /// base64 bytes + a mimeType so non-image artifacts (PDF, ZIP, …)
-    /// can route through UIActivityViewController without bolting
-    /// per-format bridge methods.
+    /// native iOS share sheet. Accepts raw base64 bytes + a mimeType so
+    /// non-image artifacts (PDF, ZIP, …) can route through
+    /// UIActivityViewController without bolting per-format bridge
+    /// methods.
     ///
     /// Introduced for the lobby multi-page PDF export pipeline
     /// (web-player/lobby.js triggerLobbyShare) which generates an
@@ -914,6 +887,12 @@ function applyTreatmentOverrideToAllExercises(treatment) {
   // Re-render the deck with new src URLs so post-handoff playback picks
   // up the new treatment.
   try { rebindVideoSources(); } catch (_) { /* deck not yet primed */ }
+  // The prep-overlay HTML (hero poster <img src>) was baked at initial
+  // buildCard() and won't pick up the new treatment by itself — rebind
+  // it explicitly so the upcoming-exercise hero countdown honours the
+  // session override too. (R-10: this surface is shared with the mobile
+  // preview tab.)
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
 }
 
 // Timing constants (from config.dart)
@@ -4224,6 +4203,58 @@ function rebindVideoSources() {
   });
 }
 
+/**
+ * Walk every `.prep-overlay` in the card track and replace it with
+ * fresh markup from `buildPrepOverlay(slide)`. Companion to
+ * `rebindVideoSources()` — videos get a `src` swap in place, but the
+ * prep overlay's `<img class="hero-poster">` was baked at initial
+ * `buildCard()` time with the slide's then-current
+ * `preferred_treatment`. When a session-scoped treatment override flips
+ * every slide's `preferred_treatment` (via `setOverride`), the prep
+ * overlay's poster `<img src>` doesn't refresh on its own and the next
+ * prep countdown flashes the OLD treatment's hero before the video
+ * takes over with the NEW treatment.
+ *
+ * Preserves the overlay's [hidden] state — if it was visible (an
+ * in-flight prep countdown), the new overlay stays visible; if hidden
+ * (idle), the new overlay stays hidden.
+ *
+ * Also preserves the live countdown digit (`.prep-overlay-number`)
+ * value so the swap is invisible to the user mid-countdown.
+ */
+function rebindPrepOverlays() {
+  if (!$cardTrack) return;
+  const overlays = $cardTrack.querySelectorAll('.card-media > .prep-overlay');
+  overlays.forEach((overlayEl) => {
+    const cardMedia = overlayEl.parentElement;
+    if (!cardMedia) return;
+    const card = overlayEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    const wasHidden = overlayEl.hasAttribute('hidden');
+    // Preserve any in-flight countdown digit so a mid-prep override
+    // doesn't visually reset the number.
+    const prevNumEl = overlayEl.querySelector('.prep-overlay-number');
+    const prevNumText = prevNumEl ? prevNumEl.textContent : null;
+    // buildPrepOverlay returns a string wrapped in a `.prep-overlay`
+    // root. Render it into a detached container then transplant the
+    // new root in place of the old one.
+    const tmp = document.createElement('div');
+    tmp.innerHTML = buildPrepOverlay(slide).trim();
+    const newOverlay = tmp.firstElementChild;
+    if (!newOverlay) return;
+    if (!wasHidden) newOverlay.removeAttribute('hidden');
+    if (prevNumText !== null) {
+      const newNumEl = newOverlay.querySelector('.prep-overlay-number');
+      if (newNumEl) newNumEl.textContent = prevNumText;
+    }
+    cardMedia.replaceChild(newOverlay, overlayEl);
+  });
+}
+
 // ----------------------------------------------------------------
 // Wave 42 — Gear panel painters + handlers
 // ----------------------------------------------------------------
@@ -4442,6 +4473,7 @@ function onGearBodyFocusClick() {
   const next = !getEffective(referenceSlide, 'bodyFocus');
   setOverride('bodyFocus', next);
   rebindVideoSources();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
   paintAllGearPanels();
 }
 
@@ -4470,6 +4502,7 @@ function onGearBodyFocusClickLobby() {
   // call before the deck mounts. The deck is still hidden at lobby time;
   // rebindVideoSources iterates and exits cleanly when $cardTrack is empty.
   rebindVideoSources();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
   paintAllGearPanels();
 }
 
@@ -4498,6 +4531,7 @@ function onGearResetClick() {
   }
   applyMuteStateToAllVideos();
   rebindVideoSources();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
   paintAllGearPanels();
 }
 
