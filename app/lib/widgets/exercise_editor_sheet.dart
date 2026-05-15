@@ -211,6 +211,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   late final DraggableScrollableController _sheetController;
   late final PageController _pageController;
+  // Guard for the `late final _pageController` field. `_pageForCell()` reads
+  // `_pageController.hasClients` to choose between the midpoint-anchor and
+  // nearest-cycle math, but `initState` calls `_pageForCell()` BEFORE the
+  // controller is assigned (to compute its own `initialPage`). Touching a
+  // late-final field before assignment throws `LateInitializationError`,
+  // which Flutter silently swallows by replacing the subtree with an
+  // ErrorWidget — that's how PR #340's regression manifested as a blank
+  // grey sheet on Carl's iPhone. Flip true the instant assignment lands.
+  bool _pageControllerInitialized = false;
   late int _exerciseIndex;
   late ExerciseCapture _exercise;
   // Local mirror of `widget.session.exercises`. The widget reference is
@@ -262,6 +271,9 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     _pageController = PageController(
       initialPage: _pageForCell(_exerciseIndex, _activeTabIndex),
     );
+    // Guard now satisfied — subsequent _pageForCell() calls (chevron jumps,
+    // tab-strip taps) can safely read _pageController.hasClients.
+    _pageControllerInitialized = true;
     _notesFocusNode.addListener(_onNotesFocusChanged);
   }
 
@@ -328,9 +340,14 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       offset += _cellsFor(_exercises[i]);
     }
     offset += tabIdx;
-    // If the controller isn't attached yet (initial build), park near
-    // the midpoint so wrap headroom exists in both directions.
-    if (!_pageController.hasClients) {
+    // Before the controller's `late final` is assigned (we're called from
+    // initState to compute its own initialPage) OR before it's attached to
+    // a viewport, park near the midpoint so wrap headroom exists in both
+    // directions. The `_pageControllerInitialized` guard prevents the
+    // LateInitializationError that otherwise blanks the entire sheet.
+    final controllerReady =
+        _pageControllerInitialized && _pageController.hasClients;
+    if (!controllerReady) {
       final anchor = (_kCycleRepeats ~/ 2) * cycle;
       return anchor + offset;
     }
