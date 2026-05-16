@@ -218,7 +218,7 @@
   // lobby.js PDF_PAGE_HEIGHT). PNG is rejected here: lossless on a
   // photo source is a 4x size hit for zero visible quality on the
   // small lobby thumbnail.
-  function rasteriseToSquare(img, cropRect, targetSize) {
+  function rasteriseToSquare(img, cropRect, targetSize, treatment) {
     var dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     var pxSize = Math.max(1, Math.round(targetSize * dpr));
     var canvas = document.createElement('canvas');
@@ -227,6 +227,18 @@
     var ctx = canvas.getContext('2d');
     if (!ctx) {
       throw new Error('hero_resolver: canvas 2d context unavailable');
+    }
+    // BW treatment is otherwise realised by the CSS rule
+    // `img.is-grayscale { filter: grayscale(1) contrast(1.05); }` at
+    // display time. html2canvas drops CSS filters during PDF export
+    // (same class of bug PR #364 fixed for `object-fit: cover`), so a
+    // bw row rendered into the PDF came out colour. Bake the filter
+    // into the bitmap here when treatment === 'bw' so the data URL is
+    // already grayscale by the time the export pipeline rasterises it.
+    // No-op on the live lobby (the CSS class is still applied but the
+    // bitmap is already grey — visually identical).
+    if (treatment === 'bw' && typeof ctx.filter !== 'undefined') {
+      ctx.filter = 'grayscale(1) contrast(1.05)';
     }
     ctx.drawImage(
       img,
@@ -273,7 +285,7 @@
         img.naturalHeight || img.height,
         opts.heroCropOffset,
       );
-      return rasteriseToSquare(img, rect, opts.targetSize);
+      return rasteriseToSquare(img, rect, opts.targetSize, opts.treatment);
     });
 
     _cache.set(key, task);
