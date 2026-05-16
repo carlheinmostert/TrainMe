@@ -5274,12 +5274,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final exercise = _current;
     final missingArchive = !_hasArchive(exercise);
     final session = _session;
-    // session.practiceId is NULL on cloud-pulled rows because the local
-    // sessions table has no practice_id column (and toMap() doesn't emit
-    // one). Mirror the publish path's fallback: read the active practice
-    // from AuthService when the session itself doesn't carry it.
-    final practiceId =
-        session?.practiceId ?? AuthService.instance.currentPracticeId.value;
+    final practiceId = session?.practiceId;
     final planId = session?.id;
     final treatmentWord = t == Treatment.grayscale ? 'B&W' : 'Original';
 
