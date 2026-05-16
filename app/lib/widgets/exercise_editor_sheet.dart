@@ -75,6 +75,7 @@ Future<void> showExerciseEditorSheet({
   required int initialExerciseIndex,
   required void Function(int index, ExerciseCapture updated) onExerciseChanged,
   ValueChanged<Session>? onSessionUpdate,
+  ValueChanged<ExerciseCapture>? onReplaceMedia,
   ExerciseEditorTab initialTab = ExerciseEditorTab.demo,
 }) async {
   HapticFeedback.selectionClick();
@@ -124,6 +125,7 @@ Future<void> showExerciseEditorSheet({
             initialExerciseIndex: initialExerciseIndex,
             onExerciseChanged: onExerciseChanged,
             onSessionUpdate: onSessionUpdate,
+            onReplaceMedia: onReplaceMedia,
             initialTab: initialTab,
           ),
         ],
@@ -159,6 +161,13 @@ class ExerciseEditorSheet extends StatefulWidget {
   /// the embed propagate back to the Studio screen.
   final ValueChanged<Session>? onSessionUpdate;
 
+  /// Optional replace-media callback — wired to the Demo tab's
+  /// `MediaViewerBody.onReplaceMedia`. The sheet just forwards the
+  /// currently-focused exercise back to the host (Studio screen), which
+  /// runs the image-picker swap via `_replaceMedia(dataIndex)`. Null
+  /// disables the Replace pill on the Demo surface.
+  final ValueChanged<ExerciseCapture>? onReplaceMedia;
+
   /// Tab to land on when the sheet opens. Defaults to Demo.
   final ExerciseEditorTab initialTab;
 
@@ -168,6 +177,7 @@ class ExerciseEditorSheet extends StatefulWidget {
     required this.initialExerciseIndex,
     required this.onExerciseChanged,
     this.onSessionUpdate,
+    this.onReplaceMedia,
     this.initialTab = ExerciseEditorTab.demo,
   });
 
@@ -908,6 +918,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         _emit(updated);
       },
       onSessionUpdate: widget.onSessionUpdate,
+      // 2026-05-16 — Replace pill on the Demo embed. Sheet has only one
+      // exercise in scope (`ex`), but the viewer hands it back through
+      // the callback so the host can do its own id → dataIndex lookup.
+      onReplaceMedia: widget.onReplaceMedia,
       // Round 3 — embedded mode hides the X button (the sheet's drag-down
       // + tap-outside dismiss) and shifts the vertical treatment pill up
       // so it doesn't collide with the bottom-left Body Focus + Rotate

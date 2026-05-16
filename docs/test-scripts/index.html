@@ -190,6 +190,19 @@
         </a>
       </li>
       <li>
+        <a href="./2026-05-16-studio-replace-pill.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Studio long-press regression &mdash; reorder restored + Replace pill on Demo surface</div>
+              <div class="scope"><strong>Closes the regression Carl flagged at the end of the 2026-05-16 session.</strong> Long-pressing a Studio card was firing the image-picker swap instead of activating drag-to-reorder &mdash; two hidden gestures fought for the same input. <strong>Fix:</strong> drop <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">onLongPress: onReplaceMedia</code> from the card <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">InkWell</code> so the gesture bubbles up to the parent's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ReorderableDelayedDragStartListener</code>. Surface the Replace action as a labelled coral pill on the Demo tab's bottom-left chrome cluster &mdash; same visual pattern as the existing Rotate pill (coral 1.5px border, transparent fill, 16px radius, icon + label). Stacks above Rotate for videos; sole pill for photos. <strong>Branch:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fix/studio-replace-pill-restore-reorder</code> off staging tip <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">5e107f8</code>. <strong>13 items in 4 sections; load-bearing: #1 (long-press lifts for reorder, not picker), #4-#5 (Replace pill on video), #6-#7 (Replace pill on photo), #13 (analyze clean).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-16-publish-diagnostic-surface-device-qa.html">
           <div class="row">
             <div>

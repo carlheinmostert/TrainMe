@@ -2118,7 +2118,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           _updateExercise(sheetIndex, u);
         },
         onThumbnailTap: () => _openMediaViewer(exercise),
-        onReplaceMedia: () => _replaceMedia(dataIndex),
+        // 2026-05-16 — viewer hands us the focused exercise (which may
+        // differ from this card's `exercise` if the practitioner has
+        // navigated to a sibling inside the editor sheet via chevrons /
+        // dot row). Map id → dataIndex so Replace targets the on-screen
+        // exercise, not the card that opened the sheet.
+        onReplaceMedia: (focused) {
+          final idx = _session.exercises.indexWhere((e) => e.id == focused.id);
+          if (idx >= 0) {
+            _replaceMedia(idx);
+          }
+        },
         onDelete: () => _deleteExercise(dataIndex),
         // Video-only: pipe the thumbnail peek's "Download original"
         // row into the Save / Share bottom sheet. Rest + photo rows
@@ -3559,6 +3569,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         _clearFocusOnInteraction();
         _updateExercise(sheetIndex, updated);
       },
+      // 2026-05-16 — Replace pill on the Demo embed routes through the
+      // same `_replaceMedia(dataIndex)` flow the card's long-press used
+      // to fire. The sheet hands us the focused exercise so we can map
+      // id → dataIndex.
+      onReplaceMedia: (current) {
+        final dataIndex = _session.exercises.indexWhere(
+          (e) => e.id == current.id,
+        );
+        if (dataIndex >= 0) {
+          _replaceMedia(dataIndex);
+        }
+      },
     );
   }
 
@@ -3603,6 +3625,20 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // survives a viewer close before refresh.
           onSessionUpdate: (next) {
             _touchAndPush(next);
+          },
+          // 2026-05-16 — Replace pill on the bottom-left chrome cluster
+          // routes through the same `_replaceMedia(dataIndex)` flow the
+          // card's long-press used to fire pre-#XXX. The viewer hands us
+          // the currently-focused exercise so we can map id → dataIndex
+          // (the viewer's `_currentIndex` is into the non-rest media
+          // list, not into `session.exercises`).
+          onReplaceMedia: (current) {
+            final dataIndex = _session.exercises.indexWhere(
+              (e) => e.id == current.id,
+            );
+            if (dataIndex >= 0) {
+              _replaceMedia(dataIndex);
+            }
           },
         ),
       ),
@@ -3879,6 +3915,21 @@ class MediaViewerBody extends StatefulWidget {
   /// Defaults to false so the legacy full-screen route push is unchanged.
   final bool embeddedInSheet;
 
+  /// Fired when the practitioner taps the Replace pill on the bottom-
+  /// left chrome cluster. The host runs the image-picker swap (same
+  /// flow the Studio card's long-press used to fire pre-2026-05-16,
+  /// before the long-press was reclaimed for drag-to-reorder).
+  ///
+  /// The viewer hands the currently-focused [ExerciseCapture] back to
+  /// the host so the host can look up the matching data-index by id
+  /// without the viewer leaking its internal `_currentIndex` (the
+  /// viewer's index is into the non-rest media list it was opened with,
+  /// not into `session.exercises`).
+  ///
+  /// The pill is hidden when this callback is null, so legacy callsites
+  /// that don't wire it stay free of a dead pill.
+  final ValueChanged<ExerciseCapture>? onReplaceMedia;
+
   const MediaViewerBody({
     super.key,
     required this.exercises,
@@ -3887,6 +3938,7 @@ class MediaViewerBody extends StatefulWidget {
     this.session,
     this.onSessionUpdate,
     this.embeddedInSheet = false,
+    this.onReplaceMedia,
   });
 
   @override
@@ -5354,16 +5406,46 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       onTap: _onRotateTap,
       onLongPress: _onRotateReset,
     );
+    // Replace pill — only rendered when the host wires the callback.
+    // Studio's full-screen viewer + the editor sheet's Demo embed both
+    // wire it; legacy callers (none today) stay free of a dead pill.
+    final replaceCb = widget.onReplaceMedia;
+    final Widget? replace = replaceCb != null
+        ? _ReplacePill(onTap: () => replaceCb(_current))
+        : null;
 
     if (!isVideo) {
       // Photo path — body focus shown as DISABLED with explanatory
-      // tooltip ("available for video exercises only"). Sets the right
-      // expectation rather than being a silent no-op.
-      return bodyFocus;
+      // tooltip ("available for video exercises only"). Replace pill
+      // stacks above body focus so the affordance is still reachable
+      // on photo exercises (the card's long-press used to fire on both
+      // media types).
+      if (replace == null) return bodyFocus;
+      if (isLandscape) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            bodyFocus,
+            const SizedBox(width: 8),
+            replace,
+          ],
+        );
+      }
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          replace,
+          const SizedBox(height: 8),
+          bodyFocus,
+        ],
+      );
     }
 
     if (isLandscape) {
-      // Single row, oldest-to-newest left-to-right.
+      // Single row, oldest-to-newest left-to-right. Replace appended at
+      // the end of the row so the rebuilt cluster is mute → bodyFocus
+      // → rotate → replace.
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -5372,16 +5454,25 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
           bodyFocus,
           const SizedBox(width: 8),
           rotate,
+          if (replace != null) ...[
+            const SizedBox(width: 8),
+            replace,
+          ],
         ],
       );
     }
     // Portrait stays the historical bottom-up stack: mute (base),
-    // body focus, rotate (top). Reversed Column children so the base
-    // pill sits at the bottom of the cluster's bounding box.
+    // body focus, rotate, replace (top). Children read top-to-bottom
+    // so the base pill sits at the bottom of the cluster's bounding
+    // box; replace lands at the top of the stack.
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (replace != null) ...[
+          replace,
+          const SizedBox(height: 8),
+        ],
         rotate,
         const SizedBox(height: 8),
         bodyFocus,
@@ -5975,6 +6066,66 @@ class _TogglePill extends StatelessWidget {
           )
         : pill;
     return enabled ? wrapped : Opacity(opacity: 0.4, child: wrapped);
+  }
+}
+
+/// Compact coral pill that fires the image-picker swap for the active
+/// exercise. Lives in the bottom-left chrome cluster next to mute /
+/// body-focus / rotate on the Demo surface (Studio's full-screen
+/// viewer + the editor sheet's Demo tab). Replaces the Studio card's
+/// pre-2026-05-16 long-press affordance — that gesture was reclaimed
+/// for drag-to-reorder. Visible for both photos and videos; rest rows
+/// never reach the viewer, so no guard is needed here.
+///
+/// Visual pattern matches [_RotatePill] (coral 1.5 px border, transparent
+/// fill, 16-radius capsule, Inter 12pt w600 label, 16-px icon). Tooltip
+/// fires on long-press so it doesn't fight with the pill's own tap.
+class _ReplacePill extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ReplacePill({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Replace media',
+      triggerMode: TooltipTriggerMode.longPress,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.primary, width: 1.5),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.swap_horiz_rounded,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'Replace',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
