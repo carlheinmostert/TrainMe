@@ -46,6 +46,8 @@ jobs:
         run: scripts/ci/check-migration-column-preservation.sh
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || 'origin/main' }}
+      - name: Hero resolver single-source-of-truth
+        run: scripts/ci/check-hero-resolver.sh
 
   flutter-app:
     name: Flutter app (analyze + test)
