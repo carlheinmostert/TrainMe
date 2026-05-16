@@ -428,6 +428,18 @@ The three cadences live in the same repo on purpose. A web tweak doesn't need a 
 - Web portal deploys via Vercel on push (similar to web-player). DNS CNAME `manage.homefit.studio` → `00596c638d4cefd8.vercel-dns-017.com.` live at Hostinger.
 - Always consider offline-first — the bio must be able to work without signal
 
+## MCP Tooling for Agents
+
+These MCP servers are wired into Carl's Claude Code setup at user scope (`~/.claude.json`, installed 2026-05-16). Reach for them by default for the tasks listed — no need to ask permission.
+
+- **`dart` MCP** (official Dart/Flutter team, ships with Dart SDK 3.9+) — after ANY `.dart` edit, run `dart_analyze` before reporting done. Use `dart_fix` for auto-fixes, `pub_search` to find packages, `dart_test` to run tests. Hot-reload + widget-tree introspection work when a Flutter app is running attached.
+- **`xcodebuild` MCP** (Sentry, v2.5+) — for builds, signing, installing to simulator or Carl's iPhone CHM (`00008150-001A31D40E88401C`), and capturing device logs programmatically. Use this when an agent needs finer control than `install-sim.sh` / `install-device.sh`. The shell scripts remain Carl's preferred manual entry point.
+- **`context7` MCP** (Upstash) — pull current pub.dev / npm docs when working with version-sensitive packages (`opencv_dart`, `sqflite`, `camera`, `webview_flutter_wkwebview`, `supabase_flutter`). Kills stale-API hallucinations.
+- **`ios-simulator` MCP** (joshuayoes) — drive the running simulator via accessibility tree: tap, swipe, screenshot, find element by label. Use this to verify a UI fix yourself instead of asking Carl to tap through. Especially valuable for the golden-path smoke check (per `feedback_golden_path_smoke_before_install.md`).
+- **Dart LSP plugin** (`Piebald-AI/claude-code-lsps`) — go-to-definition / find-references / hover diagnostics for `.dart` files via Claude Code's built-in LSP tool. Use proactively when editing existing code to understand callers + signatures.
+
+Restart Claude Code to load new MCP tools into an existing session.
+
 ## Simulator Testing Notes
 
 - Physical device UDID (Carl's iPhone): `00008150-001A31D40E88401C`
