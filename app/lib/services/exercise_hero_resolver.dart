@@ -36,6 +36,7 @@ import 'package:flutter/widgets.dart' show ColorFilter;
 
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
+import 'thumb_paths.dart';
 
 /// Greyscale matrix used by [ColorFiltered] for the B&W treatment on
 /// surfaces whose source file is colour (photo raw JPG, raw archive
@@ -285,11 +286,11 @@ File? _pickVideoPosterFile(ExerciseCapture exercise, Treatment treatment) {
   String thumbPath;
   switch (treatment) {
     case Treatment.line:
-      thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+      thumbPath = thumbVariantPath(basePath, 'line');
     case Treatment.grayscale:
       thumbPath = basePath; // canonical thumbnail IS B&W
     case Treatment.original:
-      thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+      thumbPath = thumbVariantPath(basePath, 'color');
   }
   final variantFile = File(thumbPath);
   if (variantFile.existsSync()) return variantFile;
