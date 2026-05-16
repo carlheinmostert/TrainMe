@@ -29,8 +29,6 @@ import '../services/sync_service.dart';
 import '../utils/session_title.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
-import '../widgets/upload_diagnostic_sheet.dart';
-import '../widgets/upload_error_details_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/exercise_editor_sheet.dart';
@@ -2694,21 +2692,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (_publishSheetVisible) return;
     _publishSheetVisible = true;
     setState(() {});
+    // Diagnostic views are now inline inside the progress sheet — no
+    // child modals routed through `rootScaffoldMessengerKey` (the
+    // navigator-scope mismatch that PR #357 + PR #362 both failed to
+    // patch). The sheet swaps its body via setState; only the modal
+    // route itself stays put.
     PublishProgressSheet.show(
       context,
       progress: _publishProgress,
       onRetry: _publishFromToolbar,
       onSuccessDismiss: () {},
-      onShowFailureDetails: (failures) {
-        final rootContext =
-            rootScaffoldMessengerKey.currentContext ?? context;
-        UploadDiagnosticSheet.show(rootContext, failures);
-      },
-      onShowErrorDetails: (details) {
-        final rootContext =
-            rootScaffoldMessengerKey.currentContext ?? context;
-        UploadErrorDetailsSheet.show(rootContext, details);
-      },
       onDismissed: () {
         if (!mounted) {
           _publishSheetVisible = false;
@@ -2772,16 +2765,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       progress: _publishProgress,
       onRetry: _publishFromToolbar,
       onSuccessDismiss: () {},
-      onShowFailureDetails: (failures) {
-        final rootContext =
-            rootScaffoldMessengerKey.currentContext ?? context;
-        UploadDiagnosticSheet.show(rootContext, failures);
-      },
-      onShowErrorDetails: (details) {
-        final rootContext =
-            rootScaffoldMessengerKey.currentContext ?? context;
-        UploadErrorDetailsSheet.show(rootContext, details);
-      },
       onDismissed: () {
         if (!mounted) {
           _publishSheetVisible = false;

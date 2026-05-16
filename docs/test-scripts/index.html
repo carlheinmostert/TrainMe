@@ -154,8 +154,8 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">74 waves awaiting device QA</h3>
-      <!-- Note: count includes the new 2026-05-16 publish-diagnostic-surface AND hero-crop-resolver waves at the top. -->
+      <h3 class="title">75 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-16 publish-progress-inline-diagnostics (THE third fix at the modal-stacking tap-dead) wave at the top, on top of the publish-diagnostic-surface AND hero-crop-resolver waves. -->
 
               </div>
             </div>
@@ -166,7 +166,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">74 waves awaiting device QA</h3>
+      <h3 class="title">75 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -176,6 +176,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-16-publish-progress-inline-diagnostics.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Publish progress sheet inline diagnostics &mdash; THE third architectural fix at the modal-stacking tap-dead</div>
+              <div class="scope"><strong>Architectural fix, not a patch.</strong> Third attempt at the publish-failure diagnostic tap-dead. <strong>PR #357</strong> set <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">useRootNavigator: true</code> on the child diagnostic sheets to layer them over the progress sheet &mdash; tap fired haptic + callback but the modal pushed onto a navigator that already owned a modal, rejected. <strong>PR #362</strong> dropped that flag &mdash; same outcome because <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_publishFromToolbar</code> and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_reopenPublishSheet</code> routed diagnostic opens through <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rootScaffoldMessengerKey.currentContext</code>, putting the child sheet on the root navigator while the parent lived on Studio's local navigator. Different navigators &rarr; invisible child. <strong>This PR (third fix):</strong> no second modal. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PublishProgressSheet</code> owns an internal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_view</code> state (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">progress</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">failureDetail</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">errorDetail</code>) and swaps its body via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">setState</code> when the practitioner taps "Show which files" or "Show error details". Back chevron at top-left returns to progress. One modal route, no navigator-scope guesswork &mdash; the whole bug class is gone, not patched. <strong>Files refactored:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">publish_progress_sheet.dart</code> (view state + body builders + drops <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">onShowFailureDetails</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">onShowErrorDetails</code> from public API), <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upload_diagnostic_sheet.dart</code> (chrome stripped, exposes <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">UploadDiagnosticBody</code>), <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upload_error_details_sheet.dart</code> (same refactor &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">UploadErrorDetailsBody</code>), <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">studio_mode_screen.dart</code> (4 caller blocks removed &mdash; the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rootScaffoldMessengerKey</code> routing that caused the bug). <strong>Branch:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fix/publish-progress-inline-diagnostic-views</code> off staging tip <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">5e107f8</code>. <strong>Sensitive zone:</strong> publish flow chrome &mdash; Carl review before merge. <strong>9 items in 3 sections; load-bearing: #1 (THE fix &mdash; failure-detail view opens inline, no second modal pushed), #2 (back chevron returns to progress view), #4 (error-detail view opens inline for non-upload failures), #9 (flutter analyze clean).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-05-16-publish-diagnostic-surface-device-qa.html">
           <div class="row">
