@@ -10,16 +10,6 @@
  */
 
 // ============================================================
-// Build marker (rendered discreetly in the footer for QA)
-// ============================================================
-//
-// MUST mirror the cache name suffix in `web-player/sw.js`. Both rev
-// together — bumping one without the other will leave the version
-// label stale on a freshly-cached client. Convention: drop the
-// `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v70-png-modal-removed';
-
-// ============================================================
 // Native bridge (Wave 4 Phase 2)
 // ============================================================
 //
@@ -5517,19 +5507,24 @@ async function init() {
     document.body.classList.add('is-local-preview');
   }
 
-  // Discreet build marker in the footer — see PLAYER_VERSION at the
-  // top of this file. Stamped pre-fetch so it's visible even on plan
-  // load failure. Appends git SHA + branch from window.HOMEFIT_CONFIG
-  // (populated by web-player/build.sh from Vercel env vars) so the
-  // exact deployed commit is identifiable at a glance. Falls back to
-  // 'dev' / 'local' for environments without git metadata (Flutter
-  // LocalPlayerServer bundle, bare `python -m http.server`, etc.).
+  // Discreet build marker in the footer. Stamped pre-fetch so it's
+  // visible even on plan load failure. Reports git SHA + branch from
+  // window.HOMEFIT_CONFIG (populated by web-player/build.sh from
+  // Vercel env vars) so the exact deployed commit is identifiable at
+  // a glance. Falls back to 'dev' / 'local' for environments without
+  // git metadata (Flutter LocalPlayerServer bundle, bare
+  // `python -m http.server`, etc.). The PLAYER_VERSION hand-coded
+  // string was dropped 2026-05-16 — it was never bumped in lockstep
+  // with the cache name and ended up showing `v70-png-modal-removed`
+  // weeks after the PNG modal was removed, misleading QA into thinking
+  // the player was stale when it wasn't. gitSha is the single source
+  // of truth now.
   const $versionEl = document.getElementById('footer-version');
   if ($versionEl) {
     const _cfg = (typeof window !== 'undefined' && window.HOMEFIT_CONFIG) || {};
     const sha = (typeof _cfg.gitSha === 'string' && _cfg.gitSha) || 'dev';
     const branch = (typeof _cfg.gitBranch === 'string' && _cfg.gitBranch) || 'local';
-    $versionEl.textContent = `${PLAYER_VERSION} · ${sha} · ${branch}`;
+    $versionEl.textContent = `${sha} · ${branch}`;
   }
 
   // Delegated tap handler for the navigable rep stack. stopPropagation
