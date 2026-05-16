@@ -203,6 +203,19 @@
         </a>
       </li>
       <li>
+        <a href="./2026-05-16-pdf-grayscale-bake.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; PDF honours B&amp;W treatment per row &mdash; html2canvas filter-drop fix in resolver</div>
+              <div class="scope"><strong>Closes the gap PR #364 left between the live lobby and the PDF export.</strong> Carl spotted that flipping one row to Colour appeared to flip the entire PDF preview &mdash; root cause: B&amp;W treatment is realised by a CSS rule (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">img.is-grayscale { filter: grayscale(1) contrast(1.05); }</code>) at display time, and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">html2canvas</code> drops CSS filters on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img&gt;</code> tags. Same class of bug PR #364 fixed for <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">object-fit: cover</code>. <strong>Fix:</strong> bake the grayscale into the resolver's canvas op (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rasteriseToSquare</code>) by setting <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ctx.filter</code> when treatment === <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">'bw'</code>. <strong>R-10 parity:</strong> both <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/hero_resolver.js</code> and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/assets/web-player/hero_resolver.js</code> updated byte-identical. <strong>8 items in 4 sections; load-bearing: #1 (live lobby unchanged), #2 (THE fix), #3 (downloaded PDF), #5-#6 (embedded WebView parity), #7 (treatment-switch round-trip).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-16-publish-diagnostic-surface-device-qa.html">
           <div class="row">
             <div>
