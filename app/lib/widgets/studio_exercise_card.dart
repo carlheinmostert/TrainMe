@@ -95,15 +95,20 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
 /// the icon.
 ///
 /// Tap zones:
-///   * Whole card (default)        → editor sheet on Plan tab.
-///   * Long-press anywhere         → replace media (image-picker).
+///   * Whole card (default)        → editor sheet on Demo tab.
+///   * Long-press anywhere         → reserved for the parent's
+///     `ReorderableDelayedDragStartListener` (drag-to-reorder). The
+///     "Replace media" affordance moved to a coral pill on the Demo
+///     surface (see `_ReplacePill` in `studio_mode_screen.dart`).
 ///
 /// The parent contract is unchanged:
 ///   * [onTap] fires on the whole-card tap (Studio screen treats it as
 ///     the focus / collapse signal).
 ///   * [onUpdate] fires on every meaningful edit inside the editor sheet.
 ///   * [onThumbnailTap] retained for backwards-compat — no longer wired.
-///   * [onReplaceMedia] fires on a long-press (image-picker swap).
+///   * [onReplaceMedia] fires from the Replace pill on the Demo surface
+///     (image-picker swap). No longer wired to long-press — the gesture
+///     belongs to the parent's reorder listener.
 ///   * [onDelete], [onDownloadOriginal] retained for parent compatibility.
 class StudioExerciseCard extends StatelessWidget {
   final ExerciseCapture exercise;
@@ -136,7 +141,15 @@ class StudioExerciseCard extends StatelessWidget {
   /// Retained for backwards compatibility. The flood-fill layout no
   /// longer wires this — the whole card opens the editor on Plan.
   final VoidCallback onThumbnailTap;
-  final VoidCallback onReplaceMedia;
+
+  /// Fires from the Replace pill on the Demo surface (image-picker
+  /// swap). Receives the currently-focused [ExerciseCapture] from the
+  /// embedded viewer — this matters when the practitioner has
+  /// navigated to a sibling via the sheet's chevrons / dot row, so
+  /// Replace targets the exercise actually on screen rather than the
+  /// card that opened the sheet. No longer wired to long-press: the
+  /// gesture belongs to the parent's reorder listener.
+  final ValueChanged<ExerciseCapture> onReplaceMedia;
   final VoidCallback onDelete;
   final VoidCallback? onDownloadOriginal;
 
@@ -174,7 +187,11 @@ class StudioExerciseCard extends StatelessWidget {
           onTap();
           _openSheet(context, ExerciseEditorTab.demo);
         },
-        onLongPress: onReplaceMedia,
+        // Long-press is intentionally left unwired so it bubbles up to
+        // the parent's `ReorderableDelayedDragStartListener` (the
+        // drag-to-reorder gesture). The "Replace media" affordance
+        // moved to the Replace pill on the Demo surface — see
+        // `_ReplacePill` in `studio_mode_screen.dart`.
         borderRadius: BorderRadius.circular(16),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
@@ -269,6 +286,12 @@ class StudioExerciseCard extends StatelessWidget {
       session: session,
       initialExerciseIndex: index,
       onExerciseChanged: onUpdate,
+      // 2026-05-16 — Replace pill on the Demo embed forwards the
+      // currently-focused exercise straight through to the host so a
+      // chevron-jumped sibling's media swaps, not the card that opened
+      // the sheet. Parent (Studio screen) does the id → dataIndex
+      // lookup and calls `_replaceMedia(dataIndex)`.
+      onReplaceMedia: onReplaceMedia,
       initialTab: initialTab,
     );
   }
@@ -584,8 +607,8 @@ class _MediaStatusBanner extends StatelessWidget {
   }
 }
 
-/// Red chip — original missing-media affordance. Practitioner long-
-/// presses the card to re-capture.
+/// Red chip — original missing-media affordance. Practitioner taps the
+/// card and uses the Replace pill on the Demo surface to recapture.
 class _MissingMediaChip extends StatelessWidget {
   const _MissingMediaChip();
 
@@ -604,7 +627,7 @@ class _MissingMediaChip extends StatelessWidget {
           SizedBox(width: 6),
           Flexible(
             child: Text(
-              'Media missing — long-press to recapture',
+              'Media missing — tap to recapture',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 11,
