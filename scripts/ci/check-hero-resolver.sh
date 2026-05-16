@@ -63,6 +63,7 @@ HEROCROP_ALLOWED_EXACT=(
   "app/lib/services/upload_service.dart"
   "app/lib/services/sync_service.dart"
   "app/lib/services/unified_preview_scheme_bridge.dart"
+  "app/lib/services/conversion_service.dart"
 )
 
 is_herocrop_allowed() {
