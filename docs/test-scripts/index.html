@@ -177,6 +177,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-16-pdf-video-row-static.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; PDF export: active video row no longer grey-blocks &mdash; swap &lt;video&gt; to &lt;img&gt; pre-rasterise</div>
+              <div class="scope"><strong>Follow-on to PR #368.</strong> When the lobby's active row was a video (per the active-only motion rule), the PDF export captured a solid grey block instead of the hero. Cause: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">html2canvas</code> can't reliably rasterise a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;video&gt;</code> element on iOS WKWebView. <strong>Fix:</strong> in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">buildExportPageElement</code>, swap each cloned <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;video&gt;</code> back to an <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img&gt;</code> using its <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">data-poster-src</code> (already a 1:1 cropped data URL from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">hydrateHeroCrops</code>). <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">html2canvas</code> renders <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img&gt;</code> perfectly. <strong>R-10 parity:</strong> both <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/lobby.js</code> and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/assets/web-player/lobby.js</code> updated byte-identical. <strong>Branch:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fix/pdf-video-row-swap-to-img-on-export</code> off staging tip <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">f05bf04</code>. <strong>6 items in 2 sections; load-bearing: #1 (THE fix &mdash; Safari preview), #2 (downloaded PDF), #3 (embedded WebView R-10 parity), #4 (non-active rows still correct), #6 (live lobby playback unchanged).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-16-publish-progress-inline-diagnostics.html">
           <div class="row">
             <div>
