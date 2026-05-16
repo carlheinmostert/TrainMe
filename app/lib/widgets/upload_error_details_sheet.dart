@@ -22,9 +22,9 @@ import '../theme.dart';
 ///   * Buttons      — "Copy" (writes [PublishErrorDetails.clipboardText]
 ///                    to clipboard) + "Close".
 ///
-/// Uses `useRootNavigator: true` so the sheet layers cleanly above the
-/// already-open progress sheet (same pattern as
-/// [UploadDiagnosticSheet] per PR #357).
+/// Pushes onto the same navigator as the parent [PublishProgressSheet]
+/// (no `useRootNavigator` flag, matching the parent — see the
+/// NAV-SCOPE RULE comment on [show] below).
 class UploadErrorDetailsSheet extends StatelessWidget {
   /// Diagnostic payload to render. Carries the phase, exception type,
   /// user message, optional detail string, pre-formatted clipboard
@@ -33,10 +33,21 @@ class UploadErrorDetailsSheet extends StatelessWidget {
 
   const UploadErrorDetailsSheet({super.key, required this.details});
 
-  /// Open the sheet over the current root navigator. No-op when
+  /// Open the sheet over the current navigator. No-op when
   /// [details] is null — the failure sheet wouldn't have offered the
   /// "Show error details" tap-target in that case anyway, but
   /// defending is cheap.
+  ///
+  /// NAV-SCOPE RULE — do NOT add `useRootNavigator: true` here. The
+  /// parent [PublishProgressSheet.show] pushes onto the local navigator
+  /// (no `useRootNavigator` flag, see `publish_progress_sheet.dart`
+  /// around line 100). When this sheet's `show()` used
+  /// `useRootNavigator: true` (added in PR #357 with the intent of
+  /// layering over the open progress sheet), the modal pushed onto an
+  /// unreachable navigator — taps fired the haptic + callback but no
+  /// modal appeared (PR #362 follow-up, 2026-05-16). Modal stacking on
+  /// the same navigator handles z-order automatically; the parent and
+  /// child must always agree on nav scope.
   static Future<void> show(
     BuildContext context,
     PublishErrorDetails? details,
@@ -44,7 +55,6 @@ class UploadErrorDetailsSheet extends StatelessWidget {
     if (details == null) return Future<void>.value();
     return showModalBottomSheet<void>(
       context: context,
-      useRootNavigator: true,
       backgroundColor: AppColors.surfaceRaised,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(

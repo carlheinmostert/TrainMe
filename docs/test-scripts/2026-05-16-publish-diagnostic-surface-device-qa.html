@@ -190,7 +190,13 @@
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
         <span class="num">4.</span>
-        <span class="text">Tap "Show which files &rarr;". The <code>UploadDiagnosticSheet</code> opens (layered above the progress sheet via <code>useRootNavigator: true</code>). At least one failure card renders with <code>kind=media_thumb_upload_failed</code> (or <code>media_main_upload_failed</code> / <code>media_thumb_line_upload_failed</code> depending on what was deleted). Storage path includes <code>_thumb.jpg</code> or the main mp4 path. "exists: missing" badge if the file was deleted from disk, "exists" if it was server-side only. <span class="scope-tag">device</span></span>
+        <span class="text">Tap "Show which files &rarr;". The <code>UploadDiagnosticSheet</code> opens (layers above the progress sheet via shared-navigator modal stacking, not <code>useRootNavigator</code> &mdash; the two sheets must agree on nav scope so the child doesn't end up on an unreachable navigator, see the NAV-SCOPE RULE comment in <code>upload_diagnostic_sheet.dart</code>). At least one failure card renders with <code>kind=media_thumb_upload_failed</code> (or <code>media_main_upload_failed</code> / <code>media_thumb_line_upload_failed</code> depending on what was deleted). Storage path includes <code>_thumb.jpg</code> or the main mp4 path. "exists: missing" badge if the file was deleted from disk, "exists" if it was server-side only. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Tap-dead regression (PR #362 follow-up):</strong> Show which files &rarr; opens the diagnostic sheet &mdash; the modal is actually <em>visible</em>, NOT just a haptic tick. The original symptom on build <code>b56efba</code> was that the tap fired a haptic + the <code>onShowFailureDetails</code> callback, but no modal appeared because the child sheet was pushed to the root navigator while the parent progress sheet sat on the local navigator (added in PR #357 to "layer over the progress sheet"). Fix dropped <code>useRootNavigator: true</code> from both child sheets so they share the same navigator as the parent. Confirm: tap registers visually (drag handle, "Upload diagnostic &mdash; last publish" heading, at least one failure card all visible on screen within ~250ms). <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -200,9 +206,9 @@
       Verify the raw-archive failure path still works after the refactor. Same flow as #2 but force the failure on the raw-archive bucket (delete the raw mp4 file).
     </p>
     <ul class="checklist">
-      <li data-num="5" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
-        <span class="num">5.</span>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
         <span class="text"><strong>Setup:</strong> fresh session with 1 video. Delete the raw archive mp4 at <code>{Documents}/archive/&lcub;exerciseId&rcub;.mp4</code> after conversion completes. Publish. The "Uploading treatments" row should still flip coral, "Show which files &rarr;" should still appear, tap should still open <code>UploadDiagnosticSheet</code> with a card carrying <code>kind=raw_archive_upload_failed</code>. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
@@ -213,33 +219,33 @@
       Simulate a non-upload failure (network drop during savePlan, or an RLS rejection). The new "Show error details &rarr;" link should appear and open the new <code>UploadErrorDetailsSheet</code>.
     </p>
     <ul class="checklist">
-      <li data-num="6" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
-        <span class="num">6.</span>
-        <span class="text"><strong>Setup:</strong> open Settings &rarr; Wi-Fi, turn off both Wi-Fi and Cellular before tapping Publish (alternative: enable Airplane Mode). Tap Publish on a session that has at least one new exercise to upload. <span class="scope-tag">device</span></span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
         <span class="num">7.</span>
-        <span class="text">Progress sheet flips to "Publish failed" with one of the early phases (Preparing / Reserving credit / Uploading treatments) in coral. A <strong>"Show error details &rarr;"</strong> link appears (instead of "Show which files &rarr;" &mdash; we render exactly one tap-target). <span class="scope-tag">device</span></span>
+        <span class="text"><strong>Setup:</strong> open Settings &rarr; Wi-Fi, turn off both Wi-Fi and Cellular before tapping Publish (alternative: enable Airplane Mode). Tap Publish on a session that has at least one new exercise to upload. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
         <span class="num">8.</span>
-        <span class="text">Tap "Show error details &rarr;". A new bottom sheet opens with heading "Publish failed", subhead "Failed during &lbrace;phase.title&rbrace;." (matching the coral row), a body block with the user message ("Could not reach the server. Check your connection and retry." or similar), and a diagnostic block in monospace showing <code>type:</code>, error detail, and <code>captured:</code> ISO timestamp. <span class="scope-tag">device</span></span>
+        <span class="text">Progress sheet flips to "Publish failed" with one of the early phases (Preparing / Reserving credit / Uploading treatments) in coral. A <strong>"Show error details &rarr;"</strong> link appears (instead of "Show which files &rarr;" &mdash; we render exactly one tap-target). <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
         <span class="num">9.</span>
-        <span class="text">Tap "Copy" on the error details sheet. SnackBar confirms "Copied error details to clipboard". Paste into Notes &mdash; reads as plain text with user message at top, refund / version hints if relevant, separator <code>---</code>, and <code>type: ...</code> / <code>raw: ...</code> / detail / captured timestamp lines. <span class="scope-tag">device</span></span>
+        <span class="text">Tap "Show error details &rarr;". A new bottom sheet opens with heading "Publish failed", subhead "Failed during &lbrace;phase.title&rbrace;." (matching the coral row), a body block with the user message ("Could not reach the server. Check your connection and retry." or similar), and a diagnostic block in monospace showing <code>type:</code>, error detail, and <code>captured:</code> ISO timestamp. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
         <span class="num">10.</span>
+        <span class="text">Tap "Copy" on the error details sheet. SnackBar confirms "Copied error details to clipboard". Paste into Notes &mdash; reads as plain text with user message at top, refund / version hints if relevant, separator <code>---</code>, and <code>type: ...</code> / <code>raw: ...</code> / detail / captured timestamp lines. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&cross;</button></div>
+        <span class="num">11.</span>
         <span class="text">Tap "Close" on the error details sheet. The progress sheet (still open underneath) is visible again with the Retry button. The diagnostic sheet dismisses cleanly &mdash; no flicker, no stuck overlay. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
@@ -250,21 +256,21 @@
       Atomic publish contract: any failure after <code>consume_credit</code> must refund. Pre-credit failures (preflight, balance check) never debited.
     </p>
     <ul class="checklist">
-      <li data-num="11" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&cross;</button></div>
-        <span class="num">11.</span>
-        <span class="text">For scenario #2 (media-bucket failure): note pre-publish credit balance on Home (top-left chip). Trigger the failure. After the progress sheet shows "Publish failed", swipe down to dismiss. Tap the Home credits chip or pull-to-refresh. Balance should be unchanged from pre-publish &mdash; refund landed. <span class="scope-tag">device</span></span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="12" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&cross;</button></div>
         <span class="num">12.</span>
-        <span class="text">Same check for scenario #3 (raw-archive failure): pre-publish balance preserved after failure. <span class="scope-tag">device</span></span>
+        <span class="text">For scenario #2 (media-bucket failure): note pre-publish credit balance on Home (top-left chip). Trigger the failure. After the progress sheet shows "Publish failed", swipe down to dismiss. Tap the Home credits chip or pull-to-refresh. Balance should be unchanged from pre-publish &mdash; refund landed. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="13" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&check;</button><button class="fail" type="button" aria-label="Fail 13">&cross;</button></div>
         <span class="num">13.</span>
+        <span class="text">Same check for scenario #3 (raw-archive failure): pre-publish balance preserved after failure. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&check;</button><button class="fail" type="button" aria-label="Fail 14">&cross;</button></div>
+        <span class="num">14.</span>
         <span class="text">For scenario #4 (Airplane mode): if the failure happened BEFORE consume_credit (likely because the practice balance pre-check or the consume_credit RPC itself failed), the balance was never debited &mdash; should still be unchanged. Re-check on Home. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
@@ -275,15 +281,15 @@
       The Retry button on the progress sheet should re-fire the publish from scratch. Pre-requisite for the retry to succeed: restore whatever was broken in the original failure (put the deleted file back, re-enable Wi-Fi, etc.).
     </p>
     <ul class="checklist">
-      <li data-num="14" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&check;</button><button class="fail" type="button" aria-label="Fail 14">&cross;</button></div>
-        <span class="num">14.</span>
-        <span class="text">After scenario #2 fails: restore the deleted thumbnail file (re-open the editor for the exercise to re-generate, or re-capture). Tap "Retry publish" on the progress sheet. Sheet resets to "Preparing", rolls through phases, lands on sage "All set". Balance debits by 1 (the retry actually consumes the credit). <span class="scope-tag">device</span></span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="15" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&check;</button><button class="fail" type="button" aria-label="Fail 15">&cross;</button></div>
         <span class="num">15.</span>
+        <span class="text">After scenario #2 fails: restore the deleted thumbnail file (re-open the editor for the exercise to re-generate, or re-capture). Tap "Retry publish" on the progress sheet. Sheet resets to "Preparing", rolls through phases, lands on sage "All set". Balance debits by 1 (the retry actually consumes the credit). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&check;</button><button class="fail" type="button" aria-label="Fail 16">&cross;</button></div>
+        <span class="num">16.</span>
         <span class="text">After scenario #4 fails: turn Wi-Fi back on. Tap "Retry publish". Sheet rolls through phases successfully. No leftover "Show error details &rarr;" link on the success path. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
@@ -291,15 +297,15 @@
 
     <h2>7 &middot; Copy-to-clipboard sanity</h2>
     <ul class="checklist">
-      <li data-num="16" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&check;</button><button class="fail" type="button" aria-label="Fail 16">&cross;</button></div>
-        <span class="num">16.</span>
-        <span class="text">In the per-file diagnostic sheet (from scenario #2 or #3): tap "Copy all". SnackBar confirms "Copied N failure record(s) to clipboard". Paste into Notes &mdash; each record reads as <code>kind=...</code> / <code>exercise=... ...</code> / <code>storage_path=...</code> / <code>local_path=...</code> / <code>file_exists=true|false</code> blocks separated by blank lines. <span class="scope-tag">device</span></span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="17" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&check;</button><button class="fail" type="button" aria-label="Fail 17">&cross;</button></div>
         <span class="num">17.</span>
+        <span class="text">In the per-file diagnostic sheet (from scenario #2 or #3): tap "Copy all". SnackBar confirms "Copied N failure record(s) to clipboard". Paste into Notes &mdash; each record reads as <code>kind=...</code> / <code>exercise=... ...</code> / <code>storage_path=...</code> / <code>local_path=...</code> / <code>file_exists=true|false</code> blocks separated by blank lines. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">&check;</button><button class="fail" type="button" aria-label="Fail 18">&cross;</button></div>
+        <span class="num">18.</span>
         <span class="text">In the error details sheet (from scenario #4): tap "Copy". Paste into Notes &mdash; reads as the same user message + diagnostic shape practitioners already see in the legacy clipboard tap-target, with the additional <code>captured:</code> timestamp at the bottom. <span class="scope-tag">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
@@ -307,21 +313,21 @@
 
     <h2>8 &middot; CI checks</h2>
     <ul class="checklist">
-      <li data-num="18" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">&check;</button><button class="fail" type="button" aria-label="Fail 18">&cross;</button></div>
-        <span class="num">18.</span>
-        <span class="text">From <code>app/</code>: <code>flutter analyze</code> exits 0 with "No issues found!". <span class="scope-tag cr">CR-OK</span></span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="19" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 19">&check;</button><button class="fail" type="button" aria-label="Fail 19">&cross;</button></div>
         <span class="num">19.</span>
-        <span class="text">R-10 parity check &mdash; this change touches mobile chrome ONLY. <code>web-player/*</code> and <code>app/assets/web-player/*</code> are untouched. Bundle-drift CI step stays green. <span class="scope-tag cr">CR-OK</span></span>
+        <span class="text">From <code>app/</code>: <code>flutter analyze</code> exits 0 with "No issues found!". <span class="scope-tag cr">CR-OK</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="20" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 20">&check;</button><button class="fail" type="button" aria-label="Fail 20">&cross;</button></div>
         <span class="num">20.</span>
+        <span class="text">R-10 parity check &mdash; this change touches mobile chrome ONLY. <code>web-player/*</code> and <code>app/assets/web-player/*</code> are untouched. Bundle-drift CI step stays green. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="21" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 21">&check;</button><button class="fail" type="button" aria-label="Fail 21">&cross;</button></div>
+        <span class="num">21.</span>
         <span class="text">No new direct DB access &mdash; <code>git diff origin/staging.. -- app/lib/services/upload_service.dart</code> shows zero <code>Supabase.instance.client.*</code> calls outside the existing <code>ApiClient</code> routing. <span class="scope-tag cr">CR-OK</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
