@@ -16,6 +16,7 @@ import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'loud_swallow.dart';
 import 'sync_service.dart';
+import 'thumb_paths.dart';
 
 /// Callback invoked by [UploadService.uploadPlan] on every phase boundary
 /// and on every per-file tick within [PublishPhase.uploadingTreatments].
@@ -1300,104 +1301,52 @@ class UploadService {
               }
             }
 
-            // Backfill _thumb_line.jpg if missing in storage OR force
-            // re-upload when the exercise's thumbs were regenerated.
-            // Skip when replaceFirst was a no-op (legacy photo rows
-            // whose thumbnailPath was the raw file before Bundle 2b's
-            // variant pipeline existed) — otherwise we'd upload the
-            // raw photo mis-named as `_thumb_line.jpg`.
-            final lineThumbAbs =
-                thumbAbs.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
-            if (lineThumbAbs != thumbAbs) {
-              final lineThumbFile = File(lineThumbAbs);
-              if (await lineThumbFile.exists()) {
-                final lineStoragePath =
-                    '${session.id}/${exercise.id}_thumb_line.jpg';
-                if (!existingFiles.contains(lineStoragePath) ||
-                    exercise.thumbnailsDirty) {
-                  try {
-                    await _api.uploadMedia(
-                        path: lineStoragePath, file: lineThumbFile);
-                    uploadedPaths.add(lineStoragePath);
-                    filesUploaded += 1;
-                    if (exercise.thumbnailsDirty) {
-                      dirtyThumbUploadsByExercise[exercise.id] = true;
-                    }
-                    emit(PublishProgress.uploadTick(
-                      filesUploaded: filesUploaded,
-                      filesTotal: filesTotal,
-                    ));
-                  } catch (uploadErr) {
-                    // Fix B — record per-file failure; loop continues
-                    // so other variants get a chance to upload.
-                    mediaFailures.add(UploadFailureRecord(
-                      kind: 'media_thumb_line_upload_failed',
-                      storagePath: lineStoragePath,
-                      localPath: lineThumbAbs,
-                      fileExists: lineThumbFile.existsSync(),
-                      exerciseId: exercise.id,
-                      exerciseIndex: mediaIndexByExerciseId[exercise.id],
-                      exerciseName: mediaNameByExerciseId[exercise.id],
-                    ));
-                    debugPrint(
-                      'uploadPlan FAILED kind=media_thumb_line_upload_failed '
-                      'path=$lineStoragePath local=$lineThumbAbs '
-                      'err=$uploadErr',
-                    );
-                  }
-                }
-              }
-            }
-
-            // Photo `_thumb_bw.jpg` — bytes-baked B&W sibling
-            // (greyscale + contrast 1.05 to match the CSS filter
-            // chain). Photos only — videos already have baked
-            // greyscale bytes in `_thumb.jpg`, so the lobby's
-            // existing `thumbnail_url` fallback serves them
-            // correctly without a separate file. Same naming
-            // convention as `_thumb_line.jpg` (replaceFirst on
-            // `_thumb.jpg`), same fast-path upload pattern.
+            // Backfill `_thumb_line.jpg` (always) and `_thumb_bw.jpg`
+            // (photos only) — same per-variant upload contract via
+            // [_uploadThumbVariantToMedia]. Each helper call handles
+            // the replaceFirst no-op guard, exists()-on-disk check,
+            // existingFiles + thumbnailsDirty override, success
+            // accounting (`uploadedPaths.add`, dirty-bookkeeping for
+            // the clear-pass below), and per-file failure recording.
+            await _uploadThumbVariantToMedia(
+              exercise: exercise,
+              variant: 'line',
+              thumbAbsOrRelative: thumbAbs,
+              storagePathPrefix: session.id,
+              existingFiles: existingFiles,
+              uploadedPaths: uploadedPaths,
+              mediaFailures: mediaFailures,
+              mediaIndexByExerciseId: mediaIndexByExerciseId,
+              mediaNameByExerciseId: mediaNameByExerciseId,
+              dirtyThumbUploadsByExercise: dirtyThumbUploadsByExercise,
+              onSuccessTick: () {
+                filesUploaded += 1;
+                emit(PublishProgress.uploadTick(
+                  filesUploaded: filesUploaded,
+                  filesTotal: filesTotal,
+                ));
+              },
+            );
             if (exercise.mediaType.name == 'photo') {
-              final thumbBwAbs =
-                  thumbAbs.replaceFirst('_thumb.jpg', '_thumb_bw.jpg');
-              if (thumbBwAbs != thumbAbs) {
-                final thumbBwFile = File(thumbBwAbs);
-                if (await thumbBwFile.exists()) {
-                  final thumbBwStoragePath =
-                      '${session.id}/${exercise.id}_thumb_bw.jpg';
-                  if (!existingFiles.contains(thumbBwStoragePath) ||
-                      exercise.thumbnailsDirty) {
-                    try {
-                      await _api.uploadMedia(
-                          path: thumbBwStoragePath, file: thumbBwFile);
-                      uploadedPaths.add(thumbBwStoragePath);
-                      filesUploaded += 1;
-                      if (exercise.thumbnailsDirty) {
-                        dirtyThumbUploadsByExercise[exercise.id] = true;
-                      }
-                      emit(PublishProgress.uploadTick(
-                        filesUploaded: filesUploaded,
-                        filesTotal: filesTotal,
-                      ));
-                    } catch (uploadErr) {
-                      mediaFailures.add(UploadFailureRecord(
-                        kind: 'media_thumb_bw_upload_failed',
-                        storagePath: thumbBwStoragePath,
-                        localPath: thumbBwAbs,
-                        fileExists: thumbBwFile.existsSync(),
-                        exerciseId: exercise.id,
-                        exerciseIndex: mediaIndexByExerciseId[exercise.id],
-                        exerciseName: mediaNameByExerciseId[exercise.id],
-                      ));
-                      debugPrint(
-                        'uploadPlan FAILED kind=media_thumb_bw_upload_failed '
-                        'path=$thumbBwStoragePath local=$thumbBwAbs '
-                        'err=$uploadErr',
-                      );
-                    }
-                  }
-                }
-              }
+              await _uploadThumbVariantToMedia(
+                exercise: exercise,
+                variant: 'bw',
+                thumbAbsOrRelative: thumbAbs,
+                storagePathPrefix: session.id,
+                existingFiles: existingFiles,
+                uploadedPaths: uploadedPaths,
+                mediaFailures: mediaFailures,
+                mediaIndexByExerciseId: mediaIndexByExerciseId,
+                mediaNameByExerciseId: mediaNameByExerciseId,
+                dirtyThumbUploadsByExercise: dirtyThumbUploadsByExercise,
+                onSuccessTick: () {
+                  filesUploaded += 1;
+                  emit(PublishProgress.uploadTick(
+                    filesUploaded: filesUploaded,
+                    filesTotal: filesTotal,
+                  ));
+                },
+              );
             }
           }
         }
@@ -1509,105 +1458,50 @@ class UploadService {
               thumbUrls[exercise.id] =
                   _api.publicMediaUrl(path: thumbStoragePath);
 
-              // Wave Three-Treatment-Thumbs (2026-05-05) — also upload
-              // the LINE-DRAWING JPG (`_thumb_line.jpg`) for the web
-              // player's line treatment. Native conversion (video) /
-              // OpenCV isolate (photo, Bundle 2b) produces this
-              // alongside `_thumb.jpg` — same Hero offset, sourced from
-              // the converted line video or line-drawing photo. Public
-              // bucket; URL reconstructed by get_plan_full at fetch
-              // time.
-              //
-              // Defensive: skip when the replaceFirst was a no-op
-              // (legacy photo rows whose `thumbnailPath` was the raw
-              // file before the Bundle 2b photo-variant pipeline). The
-              // line variant doesn't exist for those rows on disk.
-              final lineThumbPath =
-                  thumbPath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
-              if (lineThumbPath != thumbPath) {
-                final lineThumbFile = File(lineThumbPath);
-                if (await lineThumbFile.exists()) {
-                  final lineStoragePath =
-                      '${session.id}/${exercise.id}_thumb_line.jpg';
-                  // 2026-05-16 hero-thumb staleness fix — override
-                  // skip when dirty.
-                  if (!existingFiles.contains(lineStoragePath) ||
-                      exercise.thumbnailsDirty) {
-                    try {
-                      await _api.uploadMedia(
-                          path: lineStoragePath, file: lineThumbFile);
-                      uploadedPaths.add(lineStoragePath);
-                      filesUploaded += 1;
-                      emit(PublishProgress.uploadTick(
-                        filesUploaded: filesUploaded,
-                        filesTotal: filesTotal,
-                      ));
-                    } catch (uploadErr) {
-                      // Fix B — record _thumb_line.jpg failure.
-                      mediaFailures.add(UploadFailureRecord(
-                        kind: 'media_thumb_line_upload_failed',
-                        storagePath: lineStoragePath,
-                        localPath: lineThumbPath,
-                        fileExists: lineThumbFile.existsSync(),
-                        exerciseId: exercise.id,
-                        exerciseIndex: mediaIndexByExerciseId[exercise.id],
-                        exerciseName: mediaNameByExerciseId[exercise.id],
-                      ));
-                      debugPrint(
-                        'uploadPlan FAILED kind=media_thumb_line_upload_failed '
-                        'path=$lineStoragePath local=$lineThumbPath '
-                        'err=$uploadErr',
-                      );
-                    }
-                  }
-                }
-              }
-
-              // Photo `_thumb_bw.jpg` — bytes-baked B&W sibling
-              // (greyscale + contrast 1.05). Photos only — videos
-              // already have baked greyscale bytes in `_thumb.jpg`.
-              // Mirror the slow-path pattern from the line variant
-              // above: check the replaceFirst was meaningful, check
-              // the local file exists, upload to the `media` bucket
-              // under `{session.id}/{exercise.id}_thumb_bw.jpg`.
+              // Wave Three-Treatment-Thumbs (2026-05-05) — upload the
+              // LINE-DRAWING JPG (`_thumb_line.jpg`, always) and the
+              // bytes-baked B&W sibling (`_thumb_bw.jpg`, photos only)
+              // via the shared [_uploadThumbVariantToMedia] helper. No
+              // `dirtyThumbUploadsByExercise` map here — the slow-path
+              // clears `thumbnailsDirty` in a single global pass after
+              // all upload loops complete.
+              await _uploadThumbVariantToMedia(
+                exercise: exercise,
+                variant: 'line',
+                thumbAbsOrRelative: thumbPath,
+                storagePathPrefix: session.id,
+                existingFiles: existingFiles,
+                uploadedPaths: uploadedPaths,
+                mediaFailures: mediaFailures,
+                mediaIndexByExerciseId: mediaIndexByExerciseId,
+                mediaNameByExerciseId: mediaNameByExerciseId,
+                onSuccessTick: () {
+                  filesUploaded += 1;
+                  emit(PublishProgress.uploadTick(
+                    filesUploaded: filesUploaded,
+                    filesTotal: filesTotal,
+                  ));
+                },
+              );
               if (exercise.mediaType.name == 'photo') {
-                final thumbBwPath =
-                    thumbPath.replaceFirst('_thumb.jpg', '_thumb_bw.jpg');
-                if (thumbBwPath != thumbPath) {
-                  final thumbBwFile = File(thumbBwPath);
-                  if (await thumbBwFile.exists()) {
-                    final thumbBwStoragePath =
-                        '${session.id}/${exercise.id}_thumb_bw.jpg';
-                    if (!existingFiles.contains(thumbBwStoragePath) ||
-                        exercise.thumbnailsDirty) {
-                      try {
-                        await _api.uploadMedia(
-                            path: thumbBwStoragePath, file: thumbBwFile);
-                        uploadedPaths.add(thumbBwStoragePath);
-                        filesUploaded += 1;
-                        emit(PublishProgress.uploadTick(
-                          filesUploaded: filesUploaded,
-                          filesTotal: filesTotal,
-                        ));
-                      } catch (uploadErr) {
-                        mediaFailures.add(UploadFailureRecord(
-                          kind: 'media_thumb_bw_upload_failed',
-                          storagePath: thumbBwStoragePath,
-                          localPath: thumbBwPath,
-                          fileExists: thumbBwFile.existsSync(),
-                          exerciseId: exercise.id,
-                          exerciseIndex: mediaIndexByExerciseId[exercise.id],
-                          exerciseName: mediaNameByExerciseId[exercise.id],
-                        ));
-                        debugPrint(
-                          'uploadPlan FAILED kind=media_thumb_bw_upload_failed '
-                          'path=$thumbBwStoragePath local=$thumbBwPath '
-                          'err=$uploadErr',
-                        );
-                      }
-                    }
-                  }
-                }
+                await _uploadThumbVariantToMedia(
+                  exercise: exercise,
+                  variant: 'bw',
+                  thumbAbsOrRelative: thumbPath,
+                  storagePathPrefix: session.id,
+                  existingFiles: existingFiles,
+                  uploadedPaths: uploadedPaths,
+                  mediaFailures: mediaFailures,
+                  mediaIndexByExerciseId: mediaIndexByExerciseId,
+                  mediaNameByExerciseId: mediaNameByExerciseId,
+                  onSuccessTick: () {
+                    filesUploaded += 1;
+                    emit(PublishProgress.uploadTick(
+                      filesUploaded: filesUploaded,
+                      filesTotal: filesTotal,
+                    ));
+                  },
+                );
               }
             }
           }
@@ -2075,6 +1969,97 @@ class UploadService {
     }
   }
 
+  /// Upload one per-exercise thumbnail variant (`_thumb_<variant>.jpg`)
+  /// to the public `media` bucket. Single source of truth for the
+  /// fast-path + slow-path media-bucket variant upload logic that was
+  /// duplicated four times before this refactor (line + bw across
+  /// fast/slow paths).
+  ///
+  /// Contract (mirrors the pre-refactor inlined blocks byte-for-byte):
+  ///
+  /// * Skip silently when [thumbVariantPath] returns the canonical path
+  ///   unchanged — happens for pre-Bundle-2b legacy photo rows whose
+  ///   `thumbnailPath` pointed at the raw capture file rather than a
+  ///   derived `_thumb.jpg`. Uploading the raw photo under the
+  ///   `_thumb_<variant>.jpg` name would corrupt the variant URL.
+  /// * Skip silently when the variant file is not on disk.
+  /// * Skip silently when [storagePath] is already in [existingFiles]
+  ///   AND [ExerciseCapture.thumbnailsDirty] is false. The dirty flag
+  ///   is the 2026-05-16 hero-thumb staleness fix override —
+  ///   regenerated thumbs MUST re-upload even when storage already has
+  ///   a (now stale) copy. `uploadMedia` uses `upsert: true` so the
+  ///   overwrite is silently idempotent.
+  /// * On success: append to [uploadedPaths], record the dirty re-upload
+  ///   in [dirtyThumbUploadsByExercise] (when non-null and the exercise
+  ///   is dirty), tick the file-counter via [onSuccessTick].
+  /// * On failure: append an [UploadFailureRecord] with kind
+  ///   `media_thumb_${variant}_upload_failed` to [mediaFailures]; emit
+  ///   the matching `uploadPlan FAILED` debugPrint line. The loop
+  ///   continues so sibling variants get a chance to upload — the
+  ///   caller throws [PublishFailedException] after all variants have
+  ///   been attempted.
+  ///
+  /// Pass [dirtyThumbUploadsByExercise] as `null` from the slow-path
+  /// (fresh-publish) — that branch clears the dirty flag in a global
+  /// pass after all upload loops complete, not per-block.
+  Future<void> _uploadThumbVariantToMedia({
+    required ExerciseCapture exercise,
+    required String variant,
+    required String thumbAbsOrRelative,
+    required String storagePathPrefix,
+    required Set<String> existingFiles,
+    required List<String> uploadedPaths,
+    required List<UploadFailureRecord> mediaFailures,
+    required Map<String, int> mediaIndexByExerciseId,
+    required Map<String, String?> mediaNameByExerciseId,
+    required void Function() onSuccessTick,
+    Map<String, bool>? dirtyThumbUploadsByExercise,
+  }) async {
+    final variantPath = thumbVariantPath(thumbAbsOrRelative, variant);
+    if (!isVariantSwapValid(thumbAbsOrRelative, variantPath)) {
+      // Defensive: skip when the replaceFirst was a no-op (legacy
+      // photo rows whose `thumbnailPath` was the raw file before the
+      // Bundle 2b photo-variant pipeline). The variant doesn't exist
+      // for those rows on disk.
+      return;
+    }
+    final variantFile = File(variantPath);
+    if (!await variantFile.exists()) return;
+    final storagePath =
+        '$storagePathPrefix/${exercise.id}_thumb_$variant.jpg';
+    // 2026-05-16 hero-thumb staleness fix — when the exercise's thumbs
+    // were regenerated (`thumbnailsDirty=true`), force re-upload even
+    // if the path already exists in storage. `uploadMedia` uses
+    // `upsert: true` so the overwrite is silently idempotent.
+    if (existingFiles.contains(storagePath) && !exercise.thumbnailsDirty) {
+      return;
+    }
+    try {
+      await _api.uploadMedia(path: storagePath, file: variantFile);
+      uploadedPaths.add(storagePath);
+      if (exercise.thumbnailsDirty && dirtyThumbUploadsByExercise != null) {
+        dirtyThumbUploadsByExercise[exercise.id] = true;
+      }
+      onSuccessTick();
+    } catch (uploadErr) {
+      // Fix B — record per-file failure; loop continues so other
+      // variants get a chance to upload.
+      mediaFailures.add(UploadFailureRecord(
+        kind: 'media_thumb_${variant}_upload_failed',
+        storagePath: storagePath,
+        localPath: variantPath,
+        fileExists: variantFile.existsSync(),
+        exerciseId: exercise.id,
+        exerciseIndex: mediaIndexByExerciseId[exercise.id],
+        exerciseName: mediaNameByExerciseId[exercise.id],
+      ));
+      debugPrint(
+        'uploadPlan FAILED kind=media_thumb_${variant}_upload_failed '
+        'path=$storagePath local=$variantPath err=$uploadErr',
+      );
+    }
+  }
+
   /// Upload the compressed 720p H.264 raw-archive copy of every video
   /// exercise in [session] to the private [ApiClient.rawArchiveBucket] under
   /// `{practiceId}/{planId}/{exerciseId}.mp4`.
@@ -2530,9 +2515,8 @@ class UploadService {
       // had `thumbnailPath = rawFilePath` (not under thumbnails/),
       // so the replaceFirst was a no-op + the existsSync skipped them.
       // Post-2b rows resolve correctly.
-      final colorThumbAbs =
-          thumbAbs.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
-      if (colorThumbAbs == thumbAbs) {
+      final colorThumbAbs = thumbVariantPath(thumbAbs, 'color');
+      if (!isVariantSwapValid(thumbAbs, colorThumbAbs)) {
         // Defensive: legacy photo rows whose thumbnailPath wasn't
         // touched by Bundle 2b (e.g. capture that pre-dated install).
         // Skip — no variant exists on disk.

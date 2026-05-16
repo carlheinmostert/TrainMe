@@ -10,6 +10,7 @@ import '../models/session.dart';
 import '../models/treatment.dart';
 import 'local_storage_service.dart';
 import 'path_resolver.dart';
+import 'thumb_paths.dart';
 
 /// True when an exercise's `convertedFilePath` is a still-image fallback
 /// (the converter dropped to a single frame because video conversion
@@ -208,16 +209,14 @@ class UnifiedPreviewSchemeBridge {
         // swapped for `_thumb_color.jpg`. Native conversion
         // (conversion_service.dart line 253) writes both lockstep.
         if (exercise.thumbnailPath != null) {
-          relative = exercise.thumbnailPath!
-              .replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+          relative = thumbVariantPath(exercise.thumbnailPath!, 'color');
         }
         break;
       case 'hero_line':
         // Wave Three-Treatment-Thumbs — line drawing JPG from the
         // converted line video, used by Line treatment.
         if (exercise.thumbnailPath != null) {
-          relative = exercise.thumbnailPath!
-              .replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+          relative = thumbVariantPath(exercise.thumbnailPath!, 'line');
         }
         break;
       case 'hero_bw':
@@ -230,8 +229,7 @@ class UnifiedPreviewSchemeBridge {
         // `_thumb.jpg` via the segmented body-focus pipeline.
         if (exercise.mediaType == MediaType.photo &&
             exercise.thumbnailPath != null) {
-          relative = exercise.thumbnailPath!
-              .replaceFirst('_thumb.jpg', '_thumb_bw.jpg');
+          relative = thumbVariantPath(exercise.thumbnailPath!, 'bw');
         }
         break;
     }
