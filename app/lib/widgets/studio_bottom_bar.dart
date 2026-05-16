@@ -23,19 +23,22 @@ enum PublishingChipTone {
 /// The bottom is a single fully-rounded workflow pill with five
 /// labelled cells:
 ///
-///   [ Capture | Adjust | Preview | Publish | Share ]   →  CAPS
+///   [ Capture  Adjust  Preview  Publish  Share ]   →  CAPS
 ///
-/// Each cell is a small dark circle holding a glyph + a 10pt
-/// uppercase label below. Slim coral arrows sit between cells on the
-/// glyph row (above the label baseline). When the plan is past its
-/// 14-day grace, the Publish slot becomes a coral lock that opens the
-/// unlock sheet.
+/// Each cell shows a glyph directly on the pill surface with a
+/// short uppercase label below; cell padding handles inter-cell
+/// spacing. When the plan is past its 14-day grace, the Publish
+/// slot becomes a coral lock that opens the unlock sheet.
 ///
 /// Wave 44 stripped the surrounding back/gear/stats chrome (it lives
 /// in the Studio AppBar + the Statistics tab on the plan-settings
-/// sheet). Wave 5 reshapes the pill itself: rename Camera → Capture
-/// + Refine → Adjust, fully-rounded geometry, per-cell labels, slim
-/// coral arrows, three-dot network share glyph.
+/// sheet). Wave 5 reshaped the pill itself: rename Camera → Capture
+/// + Refine → Adjust, fully-rounded geometry, per-cell labels,
+/// three-dot network share glyph. The 2026-05-16 cleanup wave then
+/// dropped the inter-cell coral arrows (the cells are launchers,
+/// not stages — directionality was layering "flow" on top of the
+/// existing readiness opacity) and stripped the dark round chip
+/// behind each glyph (icon sits directly on the pill surface).
 class StudioBottomBar extends StatelessWidget {
   final Session session;
   final bool isPublishing;
@@ -131,10 +134,13 @@ class StudioBottomBar extends StatelessWidget {
     final publishActive = canPublish || hasPublishError;
     final shareActive = session.isPublished;
 
-    // CAPS workflow chain: Capture → Adjust → Preview → Publish → Share
-    // inside a fully-rounded pill. Triangle dim rule preserved: an
-    // arrow FEEDING INTO a dim cell is also dim, creating a visual
-    // workflow gate.
+    // CAPS workflow chain: Capture · Adjust · Preview · Publish · Share
+    // inside a fully-rounded pill. Cells are launchers (each opens a
+    // different screen / sheet) rather than stages — there's never a
+    // "selected" step, so the prior coral arrows between cells were
+    // layering a misleading direction cue on top of the readiness
+    // opacity already encoded per cell. Cell padding now handles
+    // the inter-cell breathing room.
     final workflowChildren = <Widget>[
       _CapsCell(
         icon: Icons.photo_camera_outlined,
@@ -143,15 +149,19 @@ class StudioBottomBar extends StatelessWidget {
         onTap: onCaptureTap,
         tooltip: 'Capture (camera)',
       ),
-      _Arrow(dim: !adjustActive),
       _CapsCell(
-        icon: Icons.view_list_rounded,
+        // 2026-05-16 — Adjust glyph is now Flutter's `Icons.tune`
+        // rotated -90° so the three sliders sit vertical with
+        // horizontal handles (matches the Feather "sliders" icon).
+        // Communicates per-exercise tuning more directly than the
+        // previous list-rows glyph.
+        icon: Icons.tune,
+        rotateGlyphQuarterTurns: -1,
         label: 'ADJUST',
         active: adjustActive,
         onTap: onAdjust,
         tooltip: 'Adjust top card',
       ),
-      _Arrow(dim: !previewActive),
       _CapsCell(
         icon: Icons.slideshow_outlined,
         label: 'PREVIEW',
@@ -159,7 +169,6 @@ class StudioBottomBar extends StatelessWidget {
         onTap: previewActive ? onPreview : null,
         tooltip: 'Preview plan',
       ),
-      _Arrow(dim: !(isPlanLocked || publishActive)),
       // Wave 39.1 — when locked, the Publish slot is taken by a compact
       // Unlock cell (coral lock). Tapping opens the unlock bottom sheet.
       if (isPlanLocked)
@@ -182,7 +191,6 @@ class StudioBottomBar extends StatelessWidget {
               : null,
           onLockedTap: onPublishLockedTap,
         ),
-      _Arrow(dim: !shareActive),
       _CapsCell(
         // Material's `Icons.share` is the three-dot network glyph
         // (top-right + middle-left + bottom-right circles connected by
@@ -469,10 +477,14 @@ String _fmtRemaining(Duration d) {
 // Sub-widgets
 // ---------------------------------------------------------------------------
 
-/// One CAPS cell: a small dark circle holding the glyph, with a 10pt
-/// uppercase label below. The label dims with the glyph so the active
-/// vs disabled state reads on either layer. Mirrors the
+/// One CAPS cell: a glyph sitting directly on the pill surface with a
+/// short uppercase label below. The label dims with the glyph so the
+/// active vs disabled state reads on either layer. Mirrors the
 /// `ToolbarStrip` component on the public help page (web-portal).
+///
+/// 2026-05-16 — the dark round chip behind the glyph was removed;
+/// the icon now floats on the pill surface inside a 30×30 box at
+/// size 28 (per the toolbar cleanup mockup).
 class _CapsCell extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -482,6 +494,10 @@ class _CapsCell extends StatelessWidget {
   /// Coral tint for the locked-state Unlock cell so it reads as a
   /// payment gate rather than a generic toolbar action.
   final bool accent;
+  /// Optional quarter-turn rotation applied to the glyph only (label
+  /// and tap target are unaffected). Used by the Adjust cell to turn
+  /// `Icons.tune` into a vertical-sliders glyph.
+  final int rotateGlyphQuarterTurns;
 
   const _CapsCell({
     required this.icon,
@@ -490,6 +506,7 @@ class _CapsCell extends StatelessWidget {
     required this.onTap,
     required this.tooltip,
     this.accent = false,
+    this.rotateGlyphQuarterTurns = 0,
   });
 
   @override
@@ -504,6 +521,14 @@ class _CapsCell extends StatelessWidget {
         : active
             ? AppColors.textSecondaryOnDark
             : AppColors.textSecondaryOnDark.withValues(alpha: 0.55);
+
+    Widget glyph = Icon(icon, color: glyphColor, size: 28);
+    if (rotateGlyphQuarterTurns != 0) {
+      glyph = RotatedBox(
+        quarterTurns: rotateGlyphQuarterTurns,
+        child: glyph,
+      );
+    }
 
     return Tooltip(
       message: tooltip,
@@ -524,15 +549,10 @@ class _CapsCell extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.30),
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    child: Icon(icon, color: glyphColor, size: 20),
+                  SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: Center(child: glyph),
                   ),
                   const SizedBox(height: 4),
                   // Hotfix 2026-05-05 — CAPS labels were pinching their cells
@@ -636,19 +656,21 @@ class _PublishCapsCell extends StatelessWidget {
     Widget glyph;
     if (isPublishing) {
       glyph = const SizedBox(
-        width: 18,
-        height: 18,
+        width: 22,
+        height: 22,
         child: CircularProgressIndicator(
-          strokeWidth: 2.2,
+          strokeWidth: 2.4,
           color: AppColors.primary,
         ),
       );
     } else if (hasError) {
-      glyph = Icon(Icons.error_outline, color: glyphColor, size: 20);
+      glyph = Icon(Icons.error_outline, color: glyphColor, size: 28);
     } else {
       // Wave 41 — checkmark state retired. The publish cell always
       // shows cloud_upload_outlined; success is a SnackBar toast.
-      glyph = Icon(Icons.cloud_upload_outlined, color: glyphColor, size: 20);
+      // 2026-05-16 — bumped to size 28 to match the other CAPS
+      // cells now that the dark round chip is gone.
+      glyph = Icon(Icons.cloud_upload_outlined, color: glyphColor, size: 28);
     }
 
     String tooltip;
@@ -681,15 +703,13 @@ class _PublishCapsCell extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.30),
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    child: glyph,
+                  // 2026-05-16 — dark round chip removed; glyph floats
+                  // directly on the pill surface in a 30×30 box,
+                  // matching `_CapsCell`.
+                  SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: Center(child: glyph),
                   ),
                   const SizedBox(height: 4),
                   // Hotfix 2026-05-05 — see comment in _CapsCell for the
@@ -735,59 +755,3 @@ class _PublishCapsCell extends StatelessWidget {
   }
 }
 
-/// Slim coral arrow between CAPS cells. Sits 6×14 inside an 8-wide
-/// slot, vertically centered on the GLYPH ROW (not the full column),
-/// so labels can sit below without the arrow crashing into them.
-/// Mirrors the dim semantics of the prior `_Triangle`: an arrow
-/// FEEDING INTO a dim cell is also dim.
-class _Arrow extends StatelessWidget {
-  final bool dim;
-
-  const _Arrow({required this.dim});
-
-  @override
-  Widget build(BuildContext context) {
-    // Vertical layout — push the arrow up to sit on the 36pt glyph
-    // row's centerline. Cell's vertical layout is: 4pt top pad +
-    // 36pt circle + 4pt + label + 4pt bottom pad. The 36pt circle's
-    // centerline lives at 4 + 18 = 22pt from the cell's top.
-    return SizedBox(
-      width: 8,
-      height: 36, // matches the glyph circle, ignores the label row
-      child: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: CustomPaint(
-          painter: _ArrowPainter(dim: dim),
-        ),
-      ),
-    );
-  }
-}
-
-class _ArrowPainter extends CustomPainter {
-  final bool dim;
-
-  _ArrowPainter({required this.dim});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Slim 6×14 arrow head, vertically centered in the slot.
-    final paint = Paint()
-      ..color = AppColors.primary
-          .withValues(alpha: dim ? 0.30 : 0.85)
-      ..style = PaintingStyle.fill;
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    const halfWidth = 3.0;
-    const halfHeight = 7.0;
-    final path = Path()
-      ..moveTo(cx - halfWidth, cy - halfHeight)
-      ..lineTo(cx - halfWidth, cy + halfHeight)
-      ..lineTo(cx + halfWidth, cy)
-      ..close();
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _ArrowPainter old) => old.dim != dim;
-}
