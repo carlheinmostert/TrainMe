@@ -140,6 +140,17 @@ jobs:
               created_at timestamptz DEFAULT now()
             );
 
+            -- storage.foldername is Supabase's path-split utility, used in
+            -- RLS policies on storage.objects to extract the first path
+            -- segment (e.g. practice_id or plan_id). Bare Postgres 17
+            -- doesn't ship the storage extension, so we stub the function
+            -- with the same semantics as the real one: split on '/' and
+            -- return the resulting array.
+            CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
+            LANGUAGE sql IMMUTABLE AS $fn$
+              SELECT string_to_array(name, '/')
+            $fn$;
+
             -- Minimal vault stub.
             CREATE TABLE IF NOT EXISTS vault.secrets (
               id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

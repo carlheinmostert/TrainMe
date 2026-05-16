@@ -205,7 +205,7 @@
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
         <span class="num">7.</span>
-        <span class="text"><strong>The backfill.</strong> Open a session containing a PHOTO that was captured BEFORE this install (pre-v41). Wait for the conversion-error log to remain quiet for ~5 seconds. Re-publish. Reload the Safari lobby and switch to B&amp;W &mdash; the legacy photo now also renders via baked bytes (its <code>thumbnail_url_bw</code> populated on this publish). <span class="scope-tag load">device</span></span>
+        <span class="text"><strong>The backfill (two-publish ceremony).</strong> Open a session containing a PHOTO that was captured BEFORE this install (pre-v41). Wait ~5 seconds for <code>ConversionService.backfillMissingVariants</code> to finish the OpenCV bake (no spinner on screen &mdash; it runs in the background). Re-publish. If the lobby still renders colour after switching to B&amp;W, that's the known one-publish lag: the first publish raced the bake and silently skipped the upload (the <code>if (await thumbBwFile.exists())</code> guard at <code>upload_service.dart</code>), but <code>thumbnails_dirty</code> stays true. Publish AGAIN &mdash; the second publish picks up the now-on-disk file and uploads it. Reload Safari lobby; B&amp;W now resolves to <code>_thumb_bw.jpg</code>. <span class="scope-tag load">device</span></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
