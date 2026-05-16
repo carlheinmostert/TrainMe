@@ -154,8 +154,8 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">73 waves awaiting device QA</h3>
-      <!-- Note: count includes the new 2026-05-15 fix-circuit-attempt-9-observer-loop wave (NINTH attempt) at the top. -->
+      <h3 class="title">74 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-16 publish-diagnostic-surface wave at the top. -->
               </div>
             </div>
             <div style="text-align: right;">
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">73 waves awaiting device QA</h3>
+      <h3 class="title">74 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-16-publish-diagnostic-surface-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Publish diagnostic surface &mdash; fallback "Show error details &rarr;" + atomic media-bucket uploads</div>
+              <div class="scope"><strong>Closes the gap PR-C left between atomic raw-archive uploads and the rest of the publish flow.</strong> Two complementary fixes in one PR. <strong>Fix A:</strong> when publish fails with no per-file failure list (network drops, RLS rejections, RPC errors, credit-consume blips, savePlan errors), the progress sheet now renders a fallback <em>"Show error details &rarr;"</em> link that opens a new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">UploadErrorDetailsSheet</code> with the phase that failed, exception type, user message, technical detail, and a Copy button. Previously these failures left the button invisible because <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">p.failures</code> was empty. <strong>Fix B:</strong> every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_api.uploadMedia</code> call in the media-bucket loops (main mp4/jpg, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_thumb.jpg</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_thumb_line.jpg</code>) is wrapped in per-file try/catch. Failures collect into a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">mediaFailures</code> list; after the loop, if non-empty we throw <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PublishFailedException</code> with the records &mdash; same shape the raw-archive pass uses since PR-C. The progress sheet's existing <em>"Show which files &rarr;"</em> link now fires for media-bucket failures too. <strong>Sensitive zone:</strong> publish flow (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upload_service.dart</code>) &mdash; Carl review before merge. <strong>20 items across 8 sections; load-bearing: #1 (happy path: no diagnostic surfaces), #3 (media-bucket failure shows "Show which files &rarr;"), #4 (per-file diagnostic sheet renders the kind &amp; storage path), #5 (raw-archive regression check), #7 (non-upload failure shows "Show error details &rarr;"), #8 (new error details sheet renders), #11&ndash;#13 (credit refund landed for every failure mode), #14&ndash;#15 (retry button works after each failure type), #18 (flutter analyze clean).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./circuit-animation-attempt-10-nested-boxes.html">
           <div class="row">

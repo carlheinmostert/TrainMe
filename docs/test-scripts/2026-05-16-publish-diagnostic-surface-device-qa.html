@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-16 — Publish diagnostic surface + atomic media uploads</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.cr {
+    background: rgba(96,165,250,0.12); color: #60A5FA;
+    border-color: rgba(96,165,250,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-16 &middot; Publish diagnostic surface + atomic media uploads</div>
+    <h1>Device QA &mdash; Publish failures always surface diagnostic data</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify two complementary fixes that close the gap PR-C left between atomic raw-archive uploads and the rest of the publish flow.
+      <br><br>
+      <strong>Fix A (fallback "Show error details &rarr;" tap-target):</strong> when publish fails with no per-file failure list &mdash; network drops, RLS rejections, RPC errors, credit-consume blips, savePlan errors &mdash; the progress sheet now renders a new <strong>"Show error details &rarr;"</strong> link that opens <code>UploadErrorDetailsSheet</code> with the phase that failed, the exception type, the user message, the technical detail, and a Copy button.
+      <br><br>
+      <strong>Fix B (atomic media-bucket uploads):</strong> every <code>_api.uploadMedia</code> call in the line-drawing + thumbnail + line-variant-thumbnail upload loops is wrapped in per-file try/catch. Failures collect into a <code>mediaFailures</code> list; after the loop, if non-empty we throw <code>PublishFailedException</code> with the records &mdash; same shape the raw-archive pass uses since PR-C. The progress sheet's existing <em>"Show which files &rarr;"</em> link now fires for media-bucket failures too, opening the existing <code>UploadDiagnosticSheet</code>.
+      <br><br>
+      <strong>Stacks on:</strong> PR-C atomic publish flow (PR <code>7548b3b</code>) + PR #357 <code>useRootNavigator: true</code> on the diagnostic sheet.
+      <br><br>
+      <strong>Out of scope:</strong> web-player changes (R-10 doesn't apply &mdash; this is mobile chrome only), Supabase RPC changes, raw-archive flow (already atomic since PR-C).
+      <br><br>
+      <strong>Sensitive zone:</strong> publish flow (<code>app/lib/services/upload_service.dart</code>). Carl review before merge per <code>feedback_sensitive_code_review_before_merge.md</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>fix/publish-diagnostic-surface-and-atomic-media-uploads</code> installed on Carl's iPhone via <code>./install-device.sh</code>.</li>
+        <li>One session with at least 2 exercises (1 video + 1 photo recommended so both upload kinds get exercised).</li>
+        <li>Practice has at least 2 credits so retry attempts can be tested.</li>
+        <li>Note pre-publish credit balance on Home before each scenario.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Happy path &mdash; no diagnostic surfaces</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      A clean publish should show no tap-target. Sheet rolls through five phases, lands on sage "All set", auto-dismisses.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open the session in Studio &rarr; Publish. Progress sheet appears. Phase 3 ("Uploading treatments") shows "N of M files" + coral progress bar advancing. All 5 rows turn green. 1-second sage "All set" beat plays. Sheet auto-dismisses. NO "Show which files &rarr;" link. NO "Show error details &rarr;" link. Plan-published chip glows sage in the toolbar for ~3s. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Media-bucket upload failure &mdash; "Show which files &rarr;"</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Forces a media-bucket upload to fail by yanking the converted file off disk between Studio open and Publish tap. The atomic media-bucket upload extension (Fix B) should turn the upload phase coral, refund the credit, and surface the per-file failure list.
+    </p>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Setup:</strong> in a fresh session, capture 1 video. Wait for conversion to complete (line-drawing + raw archive both stamped). Note its converted file path from the Xcode console (look for <code>uploadPlan: trainer=... practice=...</code> nearby). Use a Files app or the iOS share sheet to delete or move the <code>_thumb.jpg</code> file inside <code>{Documents}/thumbnails/</code> before the publish runs (alternative: use the iOS share sheet to send the file out, then delete). Tap Publish. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text">Publish progress sheet flips the "Uploading treatments" row coral with a "!" glyph. Header morphs to "Publish failed". Subhead reads "Your credit was refunded. Tap retry to publish again." A coral <strong>"Show which files &rarr;"</strong> link appears above the Retry button. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Tap "Show which files &rarr;". The <code>UploadDiagnosticSheet</code> opens (layered above the progress sheet via <code>useRootNavigator: true</code>). At least one failure card renders with <code>kind=media_thumb_upload_failed</code> (or <code>media_main_upload_failed</code> / <code>media_thumb_line_upload_failed</code> depending on what was deleted). Storage path includes <code>_thumb.jpg</code> or the main mp4 path. "exists: missing" badge if the file was deleted from disk, "exists" if it was server-side only. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Raw-archive upload failure (regression check)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Verify the raw-archive failure path still works after the refactor. Same flow as #2 but force the failure on the raw-archive bucket (delete the raw mp4 file).
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Setup:</strong> fresh session with 1 video. Delete the raw archive mp4 at <code>{Documents}/archive/&lcub;exerciseId&rcub;.mp4</code> after conversion completes. Publish. The "Uploading treatments" row should still flip coral, "Show which files &rarr;" should still appear, tap should still open <code>UploadDiagnosticSheet</code> with a card carrying <code>kind=raw_archive_upload_failed</code>. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Non-upload failure &mdash; "Show error details &rarr;"</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Simulate a non-upload failure (network drop during savePlan, or an RLS rejection). The new "Show error details &rarr;" link should appear and open the new <code>UploadErrorDetailsSheet</code>.
+    </p>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Setup:</strong> open Settings &rarr; Wi-Fi, turn off both Wi-Fi and Cellular before tapping Publish (alternative: enable Airplane Mode). Tap Publish on a session that has at least one new exercise to upload. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">Progress sheet flips to "Publish failed" with one of the early phases (Preparing / Reserving credit / Uploading treatments) in coral. A <strong>"Show error details &rarr;"</strong> link appears (instead of "Show which files &rarr;" &mdash; we render exactly one tap-target). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">Tap "Show error details &rarr;". A new bottom sheet opens with heading "Publish failed", subhead "Failed during &lbrace;phase.title&rbrace;." (matching the coral row), a body block with the user message ("Could not reach the server. Check your connection and retry." or similar), and a diagnostic block in monospace showing <code>type:</code>, error detail, and <code>captured:</code> ISO timestamp. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text">Tap "Copy" on the error details sheet. SnackBar confirms "Copied error details to clipboard". Paste into Notes &mdash; reads as plain text with user message at top, refund / version hints if relevant, separator <code>---</code>, and <code>type: ...</code> / <code>raw: ...</code> / detail / captured timestamp lines. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text">Tap "Close" on the error details sheet. The progress sheet (still open underneath) is visible again with the Retry button. The diagnostic sheet dismisses cleanly &mdash; no flicker, no stuck overlay. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Credit refund verified for every failure mode</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Atomic publish contract: any failure after <code>consume_credit</code> must refund. Pre-credit failures (preflight, balance check) never debited.
+    </p>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&cross;</button></div>
+        <span class="num">11.</span>
+        <span class="text">For scenario #2 (media-bucket failure): note pre-publish credit balance on Home (top-left chip). Trigger the failure. After the progress sheet shows "Publish failed", swipe down to dismiss. Tap the Home credits chip or pull-to-refresh. Balance should be unchanged from pre-publish &mdash; refund landed. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&cross;</button></div>
+        <span class="num">12.</span>
+        <span class="text">Same check for scenario #3 (raw-archive failure): pre-publish balance preserved after failure. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&check;</button><button class="fail" type="button" aria-label="Fail 13">&cross;</button></div>
+        <span class="num">13.</span>
+        <span class="text">For scenario #4 (Airplane mode): if the failure happened BEFORE consume_credit (likely because the practice balance pre-check or the consume_credit RPC itself failed), the balance was never debited &mdash; should still be unchanged. Re-check on Home. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 &middot; Retry button after every failure type</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The Retry button on the progress sheet should re-fire the publish from scratch. Pre-requisite for the retry to succeed: restore whatever was broken in the original failure (put the deleted file back, re-enable Wi-Fi, etc.).
+    </p>
+    <ul class="checklist">
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&check;</button><button class="fail" type="button" aria-label="Fail 14">&cross;</button></div>
+        <span class="num">14.</span>
+        <span class="text">After scenario #2 fails: restore the deleted thumbnail file (re-open the editor for the exercise to re-generate, or re-capture). Tap "Retry publish" on the progress sheet. Sheet resets to "Preparing", rolls through phases, lands on sage "All set". Balance debits by 1 (the retry actually consumes the credit). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&check;</button><button class="fail" type="button" aria-label="Fail 15">&cross;</button></div>
+        <span class="num">15.</span>
+        <span class="text">After scenario #4 fails: turn Wi-Fi back on. Tap "Retry publish". Sheet rolls through phases successfully. No leftover "Show error details &rarr;" link on the success path. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 &middot; Copy-to-clipboard sanity</h2>
+    <ul class="checklist">
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&check;</button><button class="fail" type="button" aria-label="Fail 16">&cross;</button></div>
+        <span class="num">16.</span>
+        <span class="text">In the per-file diagnostic sheet (from scenario #2 or #3): tap "Copy all". SnackBar confirms "Copied N failure record(s) to clipboard". Paste into Notes &mdash; each record reads as <code>kind=...</code> / <code>exercise=... ...</code> / <code>storage_path=...</code> / <code>local_path=...</code> / <code>file_exists=true|false</code> blocks separated by blank lines. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&check;</button><button class="fail" type="button" aria-label="Fail 17">&cross;</button></div>
+        <span class="num">17.</span>
+        <span class="text">In the error details sheet (from scenario #4): tap "Copy". Paste into Notes &mdash; reads as the same user message + diagnostic shape practitioners already see in the legacy clipboard tap-target, with the additional <code>captured:</code> timestamp at the bottom. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>8 &middot; CI checks</h2>
+    <ul class="checklist">
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">&check;</button><button class="fail" type="button" aria-label="Fail 18">&cross;</button></div>
+        <span class="num">18.</span>
+        <span class="text">From <code>app/</code>: <code>flutter analyze</code> exits 0 with "No issues found!". <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">&check;</button><button class="fail" type="button" aria-label="Fail 19">&cross;</button></div>
+        <span class="num">19.</span>
+        <span class="text">R-10 parity check &mdash; this change touches mobile chrome ONLY. <code>web-player/*</code> and <code>app/assets/web-player/*</code> are untouched. Bundle-drift CI step stays green. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">&check;</button><button class="fail" type="button" aria-label="Fail 20">&cross;</button></div>
+        <span class="num">20.</span>
+        <span class="text">No new direct DB access &mdash; <code>git diff origin/staging.. -- app/lib/services/upload_service.dart</code> shows zero <code>Supabase.instance.client.*</code> calls outside the existing <code>ApiClient</code> routing. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Two fixes in one PR. Fix A: fallback "Show error details &rarr;" tap-target for non-atomic-upload failures. Fix B: atomic media-bucket uploads matching the raw-archive pattern from PR-C. Sensitive zone (publish flow) &mdash; Carl review before merge. Stacks on PR <code>7548b3b</code> (PR-C atomic publish flow) + PR #357 (root-navigator on diagnostic sheet).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-16-publish-diagnostic-surface-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: '2026-05-16-publish-diagnostic-surface', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            var status = li.getAttribute('data-status');
+            if (!status) return;
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 400);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
