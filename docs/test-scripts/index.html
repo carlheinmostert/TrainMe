@@ -177,6 +177,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-16-sw-network-first.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Service worker network-first for app shell &mdash; new deploys propagate on next reload</div>
+              <div class="scope"><strong>Production-critical fix.</strong> Carl spotted that PR #370's fix did not propagate to his iPhone Safari even after multiple reloads &mdash; the lobby kept serving an older cached build (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v70-png-modal-removed</code>). Root cause: the SW used <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">cacheFirstStrategy</code> for the entire app shell. Even with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">skipWaiting</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">clients.claim</code>, the current page kept the old JS in memory; Safari's HTTP cache compounded it through Private Browsing. <strong>Fix:</strong> three-way routing in the SW <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fetch</code> handler &mdash; Supabase API stays network-first (unchanged); media stays cache-first (immutable URLs); <strong>app shell switches to network-first with cache fallback for offline.</strong> Cost: ~50&ndash;200ms per asset on cold reload. Offline preserved. <strong>R-10 parity:</strong> both <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/sw.js</code> and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/assets/web-player/sw.js</code> byte-identical. <strong>Branch:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fix/sw-network-first-app-shell</code> off staging tip <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">b7b6584</code>. <strong>8 items in 3 sections; load-bearing: #1 (fresh SHA in footer after one-time data clear), #3 (deploy propagation on first reload &mdash; THE proof), #4 (PR #370 PDF fix finally visible), #6 (offline still works).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-16-pdf-video-row-static.html">
           <div class="row">
             <div>

@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-16 — Service worker network-first for app shell</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-16 &middot; service-worker freshness fix</div>
+    <h1>Device QA &mdash; SW network-first for app shell</h1>
+    <p class="lede">
+      <strong>Production-critical fix.</strong> The previous service worker used cache-first for the entire app shell (HTML / JS / CSS / config), which meant new deploys did not propagate to clients with an active SW &mdash; even after a hard reload or Safari Private Browsing. Carl hit this when PR #370's fix was deployed but his iPhone Safari kept serving the older <code>v70-png-modal-removed</code> bundle.
+      <br><br>
+      <strong>Root cause.</strong> A client's first visit installs the SW + pre-caches the app shell. Subsequent visits route through the SW's <code>cacheFirstStrategy</code>, which returns the cached bytes without checking the network. Even when the SW updates in the background (<code>skipWaiting</code> + <code>clients.claim</code>) and the cache name changes to a fresh SHA, the CURRENT page keeps the old JS in memory until every tab closes and reopens. Safari amplifies this by holding the old SW across Private Browsing sessions.
+      <br><br>
+      <strong>Fix.</strong> Three-way routing in the SW <code>fetch</code> handler:
+      <br>&nbsp;&nbsp;&bull; <strong>Supabase API</strong> &rarr; network-first (unchanged).
+      <br>&nbsp;&nbsp;&bull; <strong>Media files</strong> (mp4 / jpg / png at <code>/storage/v1/object/public/media/</code>) &rarr; cache-first (unchanged &mdash; URLs are content-addressable, immutable).
+      <br>&nbsp;&nbsp;&bull; <strong>Everything else</strong> (app shell, lobby.js, future assets) &rarr; <strong>network-first with cache fallback for offline</strong>. New deploys propagate on next reload; offline still works via the cached copies.
+      <br><br>
+      <strong>Trade-off.</strong> ~50&ndash;200ms added per asset on cold reload when online (the network roundtrip previously skipped via cache). Acceptable vs. the alternative of clients stuck on stale code.
+      <br><br>
+      <strong>R-10 parity.</strong> <code>web-player/sw.js</code> and <code>app/assets/web-player/sw.js</code> byte-identical post-edit.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Branch <code>fix/sw-network-first-app-shell</code> deployed to <code>staging.session.homefit.studio</code> (Vercel auto-deploy) AND a fresh Flutter install on Carl's iPhone via <code>./install-device.sh staging</code>.</li>
+        <li><strong>Clear Safari website data first</strong> &mdash; Settings &rarr; Safari &rarr; Advanced &rarr; Website Data &rarr; search "homefit" &rarr; swipe-delete. This is a ONE-TIME flush to break the existing stuck SW. After this fix lands, future deploys propagate without manual intervention.</li>
+        <li>One published plan with at least one video exercise (so the PDF export check has signal).</li>
+      </ul>
+    </div>
+
+    <h2>Freshness &middot; deploy propagation on reload</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">After the one-time Safari data clear, open <code>https://staging.session.homefit.studio/p/&lt;planId&gt;</code>. The footer build-marker (35% opacity, bottom of page) reads the fresh git SHA &mdash; matching <code>git -C ~/dev/TrainMe rev-parse --short origin/staging</code>. <strong>NOT</strong> <code>v70-png-modal-removed</code> or any older branch name. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">Hard-reload (pull-down refresh in iOS Safari). The lobby reloads. Build marker stays current. No regression on visible content. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>THE fix proof.</strong> Carl ships a follow-up deploy (any visible change &mdash; rename a label, change a colour). Wait for Vercel auto-deploy to complete. Pull-down refresh in Safari. The change appears on the FIRST reload, without clearing cache, without closing the tab. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>PDF export &middot; PR #370 fix actually works now</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Open a plan with a video exercise. Scroll so the video row becomes active (you'll see it play). Tap share &rarr; PDF preview. Active video row's hero renders as a <strong>static image</strong> &mdash; NO grey block. (PR #370's fix, finally visible because the SW no longer serves stale lobby.js.) <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">Same flow in the Flutter app's <strong>Studio &rarr; Preview</strong> embedded WebView. PDF export shows the active video row's hero correctly. (R-10 parity proof &mdash; the bundled <code>sw.js</code> in <code>app/assets/web-player/</code> also got the network-first switch.) <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Offline regression sweep</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">After loading the lobby once (so the SW has cached the app shell), enable <strong>Airplane Mode</strong> on the iPhone. Pull-down refresh Safari. The lobby still renders from cache &mdash; offline support preserved. Network indicator shows offline, but the UI works. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">Disable Airplane Mode, pull-down refresh. Lobby reloads with the latest deploy. (Network path resumes correctly after offline fallback.) <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">Initial page-load time is not painfully slow. Acceptable &mdash; first paint within ~1 second on Wi-Fi, ~2 seconds on 4G. (Network-first adds a per-asset roundtrip but the SW still pre-caches the app shell on install, so subsequent loads are mostly cached. Server-revalidated 304 responses are cheap.) <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Two files touched, byte-identical (R-10): <code>web-player/sw.js</code> and <code>app/assets/web-player/sw.js</code>. New <code>networkFirstAppShellStrategy</code> function (~25 lines) plus a routing change in the <code>fetch</code> handler. No HTML / Dart / CSS touched. SW cache name still bumps per deploy via build.sh's <code>__BUILD_SHA__</code> rewrite. Follow-up consideration (not in this PR): an "update available &mdash; reload" banner that surfaces when the SW detects a new version mid-session, for users on long-lived tabs.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-16-sw-network-first.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() {})
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: '2026-05-16-sw-network-first', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() {});
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (!noteInput) return;
+          noteInput.placeholder = status === 'fail' ? 'What broke? (optional)' : 'Note (optional)';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status');
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          if (next) {
+            state[num] = { status: next, note: noteInput ? noteInput.value : '' };
+            setPlaceholder('pass');
+            if (noteInput) setTimeout(function() { noteInput.focus(); }, 30);
+          } else { delete state[num]; }
+          save();
+        });
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status');
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          if (next) {
+            state[num] = { status: next, note: noteInput ? noteInput.value : '' };
+            setPlaceholder('fail');
+            if (noteInput) setTimeout(function() { noteInput.focus(); }, 30);
+          } else { delete state[num]; }
+          save();
+        });
+        if (noteInput) {
+          noteInput.addEventListener('input', function() {
+            var status = li.getAttribute('data-status');
+            if (!status) return;
+            state[num] = { status: status, note: noteInput.value };
+            save();
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
