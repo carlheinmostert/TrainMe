@@ -154,8 +154,8 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">73 waves awaiting device QA</h3>
-      <!-- Note: count includes the new 2026-05-15 fix-circuit-attempt-9-observer-loop wave (NINTH attempt) at the top. -->
+      <h3 class="title">74 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-16 hero-crop-resolver-device-qa wave (web-only PDF object-fit fix) at the top. -->
               </div>
             </div>
             <div style="text-align: right;">
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">73 waves awaiting device QA</h3>
+      <h3 class="title">74 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-16-hero-crop-resolver-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Hero crop resolver (web) + PDF object-fit bug fix</div>
+              <div class="scope"><strong>Pure refactor + bug fix.</strong> The web player's per-row hero is now cropped to 1:1 by a single new module (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/hero_resolver.js</code>) instead of CSS <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">object-fit: cover</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">object-position</code>. Each <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;img src&gt;</code> on the lobby is now a square data URL with the crop BAKED INTO the bitmap. <strong>Why:</strong> html2canvas ignores CSS object-fit, so the previous portrait-hero crop semantics broke on PDF export &mdash; portraits came out squashed into 1:1 squares instead of using the practitioner's chosen offset. The refactor fixes both surfaces with one path. <strong>R-10:</strong> the new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">hero_resolver.js</code> is synced to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/assets/web-player/</code> so the embedded preview WebView gets the fix too. <strong>Out of scope:</strong> Flutter Studio / filmstrip / camera peek crop math &mdash; deferred to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">docs/BACKLOG.md</code>. <strong>22 items in 7 sections; load-bearing: #1&ndash;#3 (live lobby crop matches Studio across portrait/landscape/photo sources), #8&ndash;#10 (PDF export NO LONGER SQUASHES portrait heroes &mdash; THE bug fix), #15 (cache works &mdash; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">HomefitHeroResolver.inspect()</code> in console), #17 (embedded WebView PDF export parity), #18&ndash;#19 (no regression on swap-to-video).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./circuit-animation-attempt-10-nested-boxes.html">
           <div class="row">

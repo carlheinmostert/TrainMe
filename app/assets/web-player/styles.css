@@ -2964,6 +2964,23 @@ body.is-fullscreen .playpause-toggle {
 }
 
 /* Hero ------------------------------------------------------------------- */
+/* Layout reservation lives on the parent — `aspect-ratio: 1/1` keeps the
+   row sized BEFORE the image decodes, and `overflow: hidden` clips the
+   brief un-cropped flash before `hydrateHeroCrops` (lobby.js) swaps the
+   `<img src>` for a square data URL.
+   Hero-crop resolver refactor (2026-05-16): see web-player/hero_resolver.js.
+   The `<img>` no longer needs `object-fit: cover` because its data URL's
+   intrinsic dimensions are ALREADY 1:1 — the crop is baked into the
+   bitmap. `object-position` is gone for the same reason. html2canvas
+   (the PDF rasteriser) ignores both CSS properties, so this refactor
+   is what makes the PDF export honour the practitioner's chosen crop
+   offset.
+   The `<video>` element (swap-to-video on the active row) still needs
+   `object-fit: cover` because its frames stream natively at the source
+   aspect ratio (portrait / landscape mp4 → 1:1 slot). The video poster
+   is the cropped data URL, so the poster frame is already square; only
+   the playing frames need cover semantics. Scoped to `video.lobby-hero-
+   media` below. */
 .lobby-hero {
   flex: 0 0 40%;
   aspect-ratio: 1 / 1;
@@ -2982,15 +2999,14 @@ body.is-fullscreen .playpause-toggle {
 }
 
 .lobby-hero-media {
-  object-fit: cover;
   display: block;
-  /* Explicit aspect-ratio on the image element (in addition to the 1/1
-     on its parent .lobby-hero) so the row reserves vertical space BEFORE
-     the image decodes. Originally added as the EIGHTH-attempt SVG-tracer
-     fix; the nested-box chrome (attempt #10) doesn't measure DOM so this
-     constraint is no longer load-bearing for the circuit chrome, but
-     it's still useful for clean layout reservation. */
-  aspect-ratio: 1 / 1;
+}
+
+/* Video frames stream natively at the source aspect ratio. Keep
+   `object-fit: cover` for `<video>` so the playing frames crop to the
+   1:1 slot instead of stretching to fill it. */
+video.lobby-hero-media {
+  object-fit: cover;
 }
 
 .lobby-hero-media.is-grayscale {

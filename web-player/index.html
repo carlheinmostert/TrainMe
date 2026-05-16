@@ -543,6 +543,13 @@
        hero/poster (treatment + body-focus + photo-vs-video + fallbacks).
        See docs/audits/photo-video-treatment-audit-2026-05-13.md. -->
   <script src="/exercise_hero.js"></script>
+  <!-- Hero crop resolver — MUST load before lobby.js. Owns the
+       portrait/landscape source → 1:1 square data URL transformation.
+       Replaces CSS object-fit/object-position on lobby-hero-media so
+       the PDF export rasteriser (html2canvas) honours the practitioner's
+       chosen crop offset. Memoised per (exerciseId, treatment, offset,
+       targetSize) so treatment switches and re-renders hit cache. -->
+  <script src="/hero_resolver.js"></script>
   <!-- jsPDF UMD bundle — vendored at /jspdf.umd.min.js so the lobby
        export pipeline can generate multi-page PDFs same-origin under
        `script-src 'self'`. Loads BEFORE lobby.js so the global
