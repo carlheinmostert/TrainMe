@@ -89,16 +89,19 @@
   // treatment.
   //
   // Wire shape:
-  //   - Public (`get_plan_full`): ONE thumbnail field — `thumbnail_url`.
-  //     For videos that's the B&W `_thumb.jpg` variant; for photos it's
-  //     the raw colour JPG. Photo three-treatment parity (Wave 22) writes
-  //     the line-drawing JPG path to `thumbnail_url` for photos, so the
-  //     same field holds DIFFERENT semantic content for the two media
-  //     types — see audit F21 for the divergence.
+  //   - Public (`get_plan_full`): up to FOUR thumbnail fields —
+  //     `thumbnail_url`, `thumbnail_url_line`, `thumbnail_url_color`,
+  //     `thumbnail_url_bw` (photos only, post-2026-05-16). For videos
+  //     `thumbnail_url` is the B&W `_thumb.jpg` extract; for photos it
+  //     is the raw colour JPG. Photo three-treatment parity (Wave 22)
+  //     writes the line-drawing JPG path to `thumbnail_url` for photos
+  //     too, so the same field holds DIFFERENT semantic content for the
+  //     two media types — see audit F21 for the divergence.
   //
-  //   - Embedded (scheme bridge): THREE fields — `thumbnail_url`,
-  //     `thumbnail_url_line`, `thumbnail_url_color`. The native handler
-  //     picks the right `_thumb*.jpg` on disk.
+  //   - Embedded (scheme bridge): FOUR fields — `thumbnail_url`,
+  //     `thumbnail_url_line`, `thumbnail_url_color`, `thumbnail_url_bw`
+  //     (photos only). The native handler picks the right `_thumb*.jpg`
+  //     on disk.
   //
   // Strict rules:
   //   - Line: `thumbnail_url_line` ONLY. If absent, null.
@@ -108,15 +111,19 @@
   //     fall through to `thumbnail_url` — that's not a treatment
   //     fallback, it's the same logical field under a different name.
   //   - B&W: For videos, `thumbnail_url` (the B&W variant). For photos,
-  //     `thumbnail_url_color` (raw colour JPG; CSS filter does grayscale).
-  //     If absent, null.
+  //     prefer `thumbnail_url_bw` (bytes-baked greyscale + contrast 1.05
+  //     sibling, 2026-05-16) so PDF export + embedded preview render
+  //     the B&W look without depending on a CSS filter. Fall back to
+  //     `thumbnail_url_color` (CSS filter does the grayscale at render
+  //     time) and finally `thumbnail_url` for legacy plans. If absent,
+  //     null.
   //   - Original: `thumbnail_url_color` ONLY. If absent, null.
   //
   // LEGACY PLAN SOFT FALLBACK (2026-05-15):
   //   Plans captured before PR #319 (2026-05-13 photo variant pipeline)
   //   have only `thumbnail_url` on disk — neither `_thumb_color.jpg` nor
   //   `_thumb_line.jpg` was generated. The iOS scheme bridge emits all
-  //   three URLs unconditionally; WKWebView resolving the missing variants
+  //   four URLs unconditionally; WKWebView resolving the missing variants
   //   returns `URLError.fileDoesNotExist` and renders an empty grey square.
   //   PR #348's default-treatment swap (NULL → B&W) made this visible on
   //   every legacy plan opened in embedded preview.
@@ -141,11 +148,26 @@
     }
 
     if (treatment === 'bw') {
+      // 2026-05-16 — photos now have a baked B&W sibling `_thumb_bw.jpg`
+      // with greyscale + contrast 1.05 already applied to the bytes.
+      // Prefer it so render paths that can't apply CSS filters (PDF
+      // export via html2canvas, the iOS WKWebView scheme bridge) get a
+      // pre-baked B&W bitmap. The lobby's `.is-grayscale` CSS class
+      // becomes a no-op visual overlay on these bytes (idempotent —
+      // re-applying grayscale to already-grey pixels doesn't change
+      // anything). The `filterCss` arm below detects this case and
+      // omits the filter to avoid the contrast double-apply.
+      if (isPhoto && exercise.thumbnail_url_bw) return exercise.thumbnail_url_bw;
       // Videos: the canonical `_thumb.jpg` IS the B&W extract from raw.
       // No CSS filter needed — the bytes are already greyscale.
       if (!isPhoto && exercise.thumbnail_url) return exercise.thumbnail_url;
-      // Photos: B&W is realised by applying CSS grayscale on top of the
-      // raw colour JPG. So we need a colour source.
+      // Photos legacy soft fallback: pre-2026-05-16 plans (no
+      // `_thumb_bw.jpg` on disk). Use `thumbnail_url_color` + CSS
+      // filter for B&W — same path the lobby used before the bake
+      // shipped. Backfill (`ConversionService.backfillMissingVariants`
+      // on app launch + `thumbnails_dirty` re-upload on next publish)
+      // promotes legacy plans to the baked path within one publish
+      // cycle of the practitioner installing this update.
       if (isPhoto && exercise.thumbnail_url_color) return exercise.thumbnail_url_color;
       // Legacy soft fallback: for photos with no _thumb_color.jpg on disk,
       // fall back to the canonical thumbnail. CSS filter still applies.
@@ -163,6 +185,24 @@
       return null;
     }
     return null;
+  }
+
+  // Whether the poster URL selected for the given exercise + treatment
+  // is ALREADY baked-grey on disk. When true, callers should skip the
+  // CSS `grayscale(1) contrast(1.05)` filter so already-grey bitmaps
+  // don't get the contrast curve applied a second time (visible as
+  // crushed mid-tones).
+  //
+  // Cases that count as "already baked grey":
+  //   * Videos in B&W: `thumbnail_url` is the `_thumb.jpg` extract from
+  //     the segmented body-focus pipeline, which writes greyscale bytes.
+  //   * Photos in B&W when `thumbnail_url_bw` is populated: the
+  //     2026-05-16 baked sibling already applied greyscale + contrast.
+  function posterIsBakedGrey(exercise, treatment) {
+    if (!exercise || treatment !== 'bw') return false;
+    var isPhoto = exercise.media_type === 'photo' || exercise.media_type === 'image';
+    if (isPhoto) return !!exercise.thumbnail_url_bw;
+    return !!exercise.thumbnail_url;
   }
 
   // ==========================================================================
@@ -265,7 +305,7 @@
    *     - line_drawing_url, media_url
    *     - grayscale_url, grayscale_segmented_url
    *     - original_url, original_segmented_url
-   *     - thumbnail_url, thumbnail_url_line, thumbnail_url_color
+   *     - thumbnail_url, thumbnail_url_line, thumbnail_url_color, thumbnail_url_bw
    *
    * @param {object} opts
    * @param {'lobby'|'deck'|'prep'|'snapshot'} opts.surface
@@ -403,8 +443,19 @@
     // `is-grayscale` for the `<video>` element so the playing colour mp4
     // is rendered B&W. For photos the source is always raw colour, so
     // the filter is the only thing converting the pixels.
+    //
+    // 2026-05-16 — when the poster URL is `thumbnail_url_bw` (photos)
+    // OR the canonical `_thumb.jpg` for videos, the bytes are already
+    // baked grey-plus-contrast. Suppress the filter so we don't push
+    // the contrast curve a second time. The CSS class still applies to
+    // the <video> element when present (videos play colour mp4s under
+    // the bw treatment when `body_focus` is off and no segmented file
+    // exists), but on `<img>` the bake handles it.
+    var bakedGreyPoster = posterIsBakedGrey(exercise, treatment);
     var domClass = treatment === 'bw' ? 'is-grayscale' : '';
-    var filterCss = treatment === 'bw' ? 'grayscale(1) contrast(1.05)' : null;
+    var filterCss = treatment === 'bw' && !bakedGreyPoster
+        ? 'grayscale(1) contrast(1.05)'
+        : null;
 
     if (isPhoto) {
       // Photos always render as <img>. The treatment URL IS a JPG.

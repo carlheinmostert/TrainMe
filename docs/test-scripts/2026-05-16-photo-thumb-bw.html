@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-16 — Photo _thumb_bw.jpg baked bytes</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.load {
+    background: rgba(255,107,53,0.12); color: var(--coral);
+    border-color: rgba(255,107,53,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-16 &middot; fix/photo-thumb-bw-baked-bytes &middot; staging</div>
+    <h1>Device QA &mdash; Photo <code>_thumb_bw.jpg</code> baked bytes</h1>
+    <p class="lede">
+      <strong>Bug.</strong> Photos in B&amp;W treatment rendered colour in the embedded preview's PDF export. Root cause: photos used the colour JPG <code>_thumb_color.jpg</code> as the B&amp;W poster and relied on a CSS <code>filter: grayscale(1) contrast(1.05)</code> composited at render time. Videos use baked greyscale bytes in <code>_thumb.jpg</code> via the segmented body-focus pipeline, so the same logical treatment ended up with two different render mechanisms. PR #368 patched the canvas-resolver edge case; this PR fixes the upstream bytes.
+      <br><br>
+      <strong>Fix.</strong> Bake a sibling <code>_thumb_bw.jpg</code> at photo conversion time. The OpenCV isolate now applies <code>BGR2GRAY</code> followed by <code>convertScaleAbs(alpha=1.05, beta=-6.375)</code> &mdash; visually equivalent to the CSS filter the lobby would otherwise composite. The Supabase <code>get_plan_full</code> RPC surfaces the new variant as <code>thumbnail_url_bw</code> via an existence check against the public <code>media</code> bucket; <code>web-player/exercise_hero.js</code> prefers it for B&amp;W when present and suppresses the CSS filter so already-grey bitmaps don't take the contrast curve twice. <code>get_plan_full</code> was sourced via <code>pg_get_functiondef</code> &mdash; every existing field is preserved verbatim.
+      <br><br>
+      <strong>Legacy backfill.</strong> SQLite v40 &rarr; v41 stamps <code>thumbnails_dirty = 1</code> on every existing photo row. <code>ConversionService.backfillMissingVariants</code> (already wired to fire on Studio mode session-open) re-runs the OpenCV isolate when <code>_thumb_bw.jpg</code> is missing on disk; the next publish then re-uploads the freshly-baked file via the existing <code>thumbnailsDirty</code> override path. So legacy plans pick up the bake within one publish cycle of the practitioner installing this update.
+      <br><br>
+      <strong>R-10 parity.</strong> Both player surfaces touched: the web player (<code>web-player/exercise_hero.js</code>) and the Flutter-bundled mirror (<code>app/assets/web-player/exercise_hero.js</code>) ship byte-identical. <code>diff -q</code> verified.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Branch <code>fix/photo-thumb-bw-baked-bytes</code> built + installed on Carl's iPhone via <code>./install-device.sh staging</code>.</li>
+        <li>QA staging account signed in (refresh token cached) with &ge;1 credit. Runbook: <code>docs/AGENT_QA_AUTH.md</code>.</li>
+        <li>A client with grayscale consent granted (the lobby only resolves the BW variant when consent permits). Original consent is fine but not required for this script.</li>
+      </ul>
+    </div>
+
+    <h2>Fresh photo &rarr; lobby B&amp;W matches Original visually</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>The fix.</strong> Open a session for a client with grayscale consent. Capture a fresh photo (long-press OFF; tap shutter once). Wait for the line-drawing conversion chip to flip from spinner to thumb. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">Publish the session. Wait for the &laquo;Published &check;&raquo; toast. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Load-bearing.</strong> Open the lobby URL in Safari. Tap the B&amp;W treatment pill. The photo card renders as pure greyscale (no colour bleed). <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">In the same Safari tab, open DevTools (or long-press the photo and Inspect via the connected Mac). The <code>&lt;img&gt;</code>'s <code>src</code> resolves to a URL ending in <code>_thumb_bw.jpg</code> (not <code>_thumb_color.jpg</code>). The image is NOT relying on a CSS filter to render greyscale. <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>PDF export of the photo lobby renders B&amp;W</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>The original bug.</strong> With B&amp;W selected as the lobby treatment, tap the PDF download icon. Save the resulting PDF and open it. The photo's lobby tile is greyscale &mdash; not the colour bug we shipped before this PR. <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Embedded preview renders B&amp;W via baked bytes</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">Back in Studio, tap the workflow pill from <em>Camera</em> to <em>Preview</em>. The embedded preview opens. Tap the B&amp;W treatment pill. The photo renders greyscale &mdash; previously the embedded preview rendered it colour because the scheme bridge can't apply CSS filters. <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Legacy photo backfill</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>The backfill.</strong> Open a session containing a PHOTO that was captured BEFORE this install (pre-v41). Wait for the conversion-error log to remain quiet for ~5 seconds. Re-publish. Reload the Safari lobby and switch to B&amp;W &mdash; the legacy photo now also renders via baked bytes (its <code>thumbnail_url_bw</code> populated on this publish). <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Regression sweep</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">Switch the lobby to <em>Line</em> &mdash; the photo renders the line-drawing JPG as before. Switch to <em>Original</em> &mdash; renders the raw colour JPG as before. Only the B&amp;W path has changed. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text">Captured a fresh VIDEO too. Switch to B&amp;W in the lobby &mdash; renders correctly as before. <code>thumbnail_url</code> still serves video B&amp;W via the segmented-body-focus baked bytes; the new code path is photos-only. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text">SQLite migration ran cleanly &mdash; no <code>DatabaseException</code> on first launch after install. Sessions list opens; existing clients are visible. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&cross;</button></div>
+        <span class="num">11.</span>
+        <span class="text">Build was clean prior to install: <code>flutter analyze</code> finished with zero issues. <span class="scope-tag">pre-device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Files touched: <code>app/lib/services/conversion_service.dart</code> (isolate writes <code>_thumb_bw.jpg</code> via greyscale + contrast 1.05; backfill recognises missing variant), <code>app/lib/services/local_storage_service.dart</code> (DB v40 &rarr; v41 + photo <code>thumbnails_dirty</code> stamp), <code>app/lib/services/upload_service.dart</code> (uploads <code>_thumb_bw.jpg</code> to <code>media</code> bucket; honours <code>thumbnailsDirty</code> override), <code>app/lib/services/unified_preview_scheme_bridge.dart</code> (<code>hero_bw</code> scheme route + <code>thumbnail_url_bw</code> in payload), <code>app/ios/Runner/UnifiedPlayerSchemeHandler.swift</code> (allowlist <code>hero_bw</code>), <code>web-player/exercise_hero.js</code> (resolver prefers <code>thumbnail_url_bw</code> + suppresses filter for baked bytes), <code>app/assets/web-player/exercise_hero.js</code> (R-10 mirror), <code>supabase/migrations/20260516144710_photo_thumb_bw.sql</code> (<code>get_plan_full</code> returns <code>thumbnail_url_bw</code>), <code>app/test/idempotent_migration_test.dart</code> (expected user_version 40 &rarr; 41).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-16-photo-thumb-bw.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() {})
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: '2026-05-16-photo-thumb-bw', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() {});
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (!noteInput) return;
+          noteInput.placeholder = status === 'fail' ? 'What broke? (optional)' : 'Note (optional)';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status');
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          if (next) {
+            state[num] = { status: next, note: noteInput ? noteInput.value : '' };
+            setPlaceholder('pass');
+            if (noteInput) setTimeout(function() { noteInput.focus(); }, 30);
+          } else { delete state[num]; }
+          save();
+        });
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status');
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          if (next) {
+            state[num] = { status: next, note: noteInput ? noteInput.value : '' };
+            setPlaceholder('fail');
+            if (noteInput) setTimeout(function() { noteInput.focus(); }, 30);
+          } else { delete state[num]; }
+          save();
+        });
+        if (noteInput) {
+          noteInput.addEventListener('input', function() {
+            var status = li.getAttribute('data-status');
+            if (!status) return;
+            state[num] = { status: status, note: noteInput.value };
+            save();
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

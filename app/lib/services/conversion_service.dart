@@ -433,6 +433,17 @@ class ConversionService extends ChangeNotifier {
                 p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
             final linePath =
                 p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
+            // Photo `_thumb_bw.jpg` — bytes-baked greyscale-plus-contrast
+            // sibling for the lobby's B&W treatment. See the isolate
+            // comment + `web-player/exercise_hero.js` for why this is
+            // SIBLING rather than overwriting `_thumb.jpg`: the
+            // canonical `_thumb.jpg` keeps its current bytes (so legacy
+            // practitioner surfaces don't change), and `_thumb_bw.jpg`
+            // is the explicit, presentation-only B&W bitmap consumed
+            // by surfaces that can't apply CSS filters (PDF export,
+            // html2canvas snapshot).
+            final thumbBwPath =
+                p.join(thumbDir, '${exercise.id}_thumb_bw.jpg');
 
             final rawAbs = exercise.absoluteRawFilePath;
             final convertedAbs = done.absoluteConvertedFilePath;
@@ -443,6 +454,7 @@ class ConversionService extends ChangeNotifier {
               bwOutPath: bwPath,
               colorOutPath: colorPath,
               lineOutPath: linePath,
+              thumbBwOutPath: thumbBwPath,
             ));
 
             if (await File(bwPath).exists()) {
@@ -1755,25 +1767,36 @@ class ConversionService extends ChangeNotifier {
       final bwPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
       final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
       final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
+      final thumbBwPath = p.join(thumbDir, '${exercise.id}_thumb_bw.jpg');
 
       final bwMissing = !await File(bwPath).exists();
       final colorMissing = !await File(colorPath).exists();
       final lineMissing = !await File(linePath).exists();
+      // Photos-only: the bytes-baked B&W sibling. Videos don't produce
+      // one — for videos the canonical `_thumb.jpg` already IS baked
+      // greyscale bytes (segmentation pipeline), so `thumbnail_url`
+      // still serves the B&W treatment cleanly. Only photos need this
+      // extra sibling because their `_thumb_color.jpg` is the colour
+      // bytes and the lobby otherwise relies on a CSS filter to fake
+      // grayscale at render time.
+      final isPhoto = exercise.mediaType == MediaType.photo;
+      final thumbBwMissing = isPhoto && !await File(thumbBwPath).exists();
 
-      if (!bwMissing && !colorMissing && !lineMissing) {
+      if (!bwMissing && !colorMissing && !lineMissing && !thumbBwMissing) {
         continue;
       }
 
       if (exercise.mediaType == MediaType.photo) {
         // Photos: variants are produced atomically by the OpenCV
         // isolate in _extractPhotoThumbnailVariants. Re-run the whole
-        // pass if ANY of the three is missing — the isolate is
+        // pass if ANY of the four is missing — the isolate is
         // idempotent + handles missing converted JPG gracefully.
         await _logBackfillEvent(
           exerciseId: exercise.id,
           event: 'start',
           variant: 'photo_all',
-          detail: 'bwMissing=$bwMissing colorMissing=$colorMissing lineMissing=$lineMissing',
+          detail:
+              'bwMissing=$bwMissing colorMissing=$colorMissing lineMissing=$lineMissing thumbBwMissing=$thumbBwMissing',
         );
         try {
           final rawAbs = exercise.absoluteRawFilePath;
@@ -1792,18 +1815,25 @@ class ConversionService extends ChangeNotifier {
             bwOutPath: bwPath,
             colorOutPath: colorPath,
             lineOutPath: linePath,
+            thumbBwOutPath: thumbBwPath,
           ));
           // Re-stamp thumbnailPath if it isn't pointing at the bw
           // variant already (legacy rows may still have
-          // thumbnailPath = rawFilePath).
-          if (await File(bwPath).exists()) {
-            final next = exercise.copyWith(
-              thumbnailPath: PathResolver.toRelative(bwPath),
-            );
-            await _storage.saveExercise(next);
-            if (!_updateController.isClosed) {
-              _updateController.add(next);
-            }
+          // thumbnailPath = rawFilePath). Also flip thumbnailsDirty
+          // so the next publish re-uploads the freshly-baked
+          // `_thumb_bw.jpg` alongside the other variants — without
+          // this stamp the fast-path skip ALL uploads on a
+          // pre-uploaded raw archive and the cloud poster stays
+          // stale.
+          final next = exercise.copyWith(
+            thumbnailPath: await File(bwPath).exists()
+                ? PathResolver.toRelative(bwPath)
+                : exercise.thumbnailPath,
+            thumbnailsDirty: thumbBwMissing ? true : exercise.thumbnailsDirty,
+          );
+          await _storage.saveExercise(next);
+          if (!_updateController.isClosed) {
+            _updateController.add(next);
           }
           await _logBackfillEvent(
             exerciseId: exercise.id,
@@ -2131,14 +2161,16 @@ cv.Mat _frameToLineDrawingSync(
 ///
 /// Plain-data only — all file paths are absolute. The isolate has no
 /// access to the parent's storage / path-resolver state, so `bwOutPath`,
-/// `colorOutPath`, `lineOutPath` MUST be resolved upstream (e.g. via
-/// `path_provider` + `path.join`) before the [compute] call.
+/// `colorOutPath`, `lineOutPath`, `thumbBwOutPath` MUST be resolved
+/// upstream (e.g. via `path_provider` + `path.join`) before the [compute]
+/// call.
 class _PhotoThumbArgs {
   final String rawPath;
   final String? convertedPath;
   final String bwOutPath;
   final String colorOutPath;
   final String lineOutPath;
+  final String thumbBwOutPath;
 
   const _PhotoThumbArgs({
     required this.rawPath,
@@ -2146,10 +2178,11 @@ class _PhotoThumbArgs {
     required this.bwOutPath,
     required this.colorOutPath,
     required this.lineOutPath,
+    required this.thumbBwOutPath,
   });
 }
 
-/// Top-level isolate entry that produces the three treatment thumbnail
+/// Top-level isolate entry that produces the four treatment thumbnail
 /// variants for a captured photo, symmetric to the video pipeline's
 /// `extractFrame` trio:
 ///
@@ -2159,6 +2192,16 @@ class _PhotoThumbArgs {
 ///                                with the video pipeline; same source,
 ///                                JPEG quality 95).
 ///   * `{id}_thumb_line.jpg`   — line-drawing copy of the converted JPG.
+///   * `{id}_thumb_bw.jpg`     — bytes-baked B&W with contrast 1.05
+///                                applied, visually matching the CSS
+///                                `filter: grayscale(1) contrast(1.05)`
+///                                that the lobby previously composited
+///                                at render time. Used by surfaces that
+///                                cannot apply CSS filters (PDF export,
+///                                html2canvas snapshot) — so the same
+///                                B&W look survives a snapshot
+///                                round-trip without depending on
+///                                downstream filter support.
 ///
 /// Photos don't need motion-peak / person-crop (the raw IS the Hero
 /// frame; per `mini_preview.dart:351-353`). They DO benefit from a
@@ -2201,6 +2244,25 @@ void _extractPhotoThumbnailVariants(_PhotoThumbArgs args) {
     final gray = cv.cvtColor(resizedColor, cv.COLOR_BGR2GRAY);
     cv.imwrite(args.bwOutPath, gray,
         params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
+
+    // _thumb_bw.jpg — same greyscale but with contrast 1.05 applied to
+    // match the CSS `filter: grayscale(1) contrast(1.05)` baseline the
+    // web-player lobby otherwise composites at render time. CSS contrast
+    // is defined (per spec) as `new = (old - 0.5) * c + 0.5` on
+    // normalised 0..1 channels. In 0..255 byte space that becomes
+    // `new = c*old + (1 - c)*127.5`, i.e. `convertScaleAbs(alpha=c,
+    // beta=(1-c)*127.5)`. For c = 1.05 → alpha = 1.05, beta = -6.375.
+    // Surfaces that can't apply CSS filters (PDF export, html2canvas
+    // snapshot) consume this file directly so the B&W treatment looks
+    // the same across every render path. Lives as a SIBLING of
+    // `_thumb.jpg` — `_thumb.jpg` is preserved as the canonical
+    // practitioner-facing thumb so existing surfaces keep their
+    // current bytes; `_thumb_bw.jpg` is purely a presentation artifact
+    // for the web player + scheme bridge.
+    final thumbBw = cv.convertScaleAbs(gray, alpha: 1.05, beta: -6.375);
+    cv.imwrite(args.thumbBwOutPath, thumbBw,
+        params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 92]));
+    thumbBw.dispose();
     gray.dispose();
 
     resizedColor.dispose();
