@@ -584,6 +584,13 @@
     // position of its owning lobby row. setActiveRow uses these to fill
     // pills as the user scrolls forward, drain them on scroll-back.
     stampPillRowOrdinals();
+    // Hero-crop resolver refactor (2026-05-16) — replace each freshly-
+    // rendered `<img src>` with a square 1:1 data URL produced from
+    // the source JPG + `hero_crop_offset`. The brief un-cropped flash
+    // is clipped by the parent's `overflow: hidden` so the row layout
+    // never reflows. Re-runs (treatment switch, re-render) hit the
+    // resolver's cache.
+    hydrateHeroCrops();
   }
 
   // ==========================================================================
@@ -676,16 +683,19 @@
 
     const dose = buildDoseLine(slide);
     const notes = (slide.notes || '').trim();
-    const heroOffset = pickHeroOffset(slide);
-    const isLandscape = ((Number(slide.aspect_ratio) || 1) >= 1);
-    const objPos = isLandscape
-      ? `${heroOffset * 100}% center`
-      : `center ${heroOffset * 100}%`;
 
     // Hero element — picked per active treatment. For Line + B&W/Colour
     // videos we render <video> (Line uses line_drawing_url, B&W/Colour
     // use grayscale_url / original_url). Photos always render as <img>.
-    const heroHTML = renderHeroHTML(slide, objPos);
+    //
+    // 2026-05-16 hero-crop-resolver refactor: the `<img>` is rendered
+    // with NO `object-position` style. The crop (vertical centre by
+    // `slide.hero_crop_offset` for portrait sources; horizontal centre
+    // for landscape) is baked into a 1:1 data URL by the resolver after
+    // the row mounts — see hydrateHeroCrops below. html2canvas honours
+    // the resulting square <img src> directly, so the PDF export path
+    // gets the same crop as the live lobby with no extra work.
+    const heroHTML = renderHeroHTML(slide);
 
     // `last` flag is supplied by `circuitGroupHTML` for the final in-
     // circuit row so the rail piece can clamp at 50% to form an L corner.
@@ -961,8 +971,18 @@
    * available the resolver returns `mediaTag: 'unavailable'` and
    * the row renders a coral-tinted placeholder — NEVER a different
    * treatment's content.
+   *
+   * Hero-crop resolver refactor (2026-05-16): the `<img>` no longer
+   * carries `style="object-position: ..."`. The per-hero crop metadata
+   * (source URL, exercise id, treatment, hero_crop_offset) is stamped
+   * onto `data-*` attributes; `hydrateHeroCrops` walks each freshly-
+   * rendered hero and, via `window.HomefitHeroResolver`, replaces
+   * `<img src>` with a 1:1 data URL whose intrinsic dimensions ARE the
+   * square crop. The live lobby still honours the practitioner's chosen
+   * offset; html2canvas + the PDF export inherit the fix because by
+   * export time the live `<img src>` IS the square crop.
    */
-  function renderHeroHTML(slide, objPos) {
+  function renderHeroHTML(slide) {
     const escape = api.escapeHTML;
     if (!slide) return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
     if (!window.HomefitHero || !window.HomefitHero.resolve) {
@@ -993,6 +1013,18 @@
     const isPhoto = slide.media_type === 'photo' || slide.media_type === 'image';
     const grayscale = hero.domClass ? ' ' + hero.domClass : '';
 
+    // Crop metadata for the post-render hydrate pass. The resolver
+    // reads `data-hero-source` (the per-treatment thumbnail JPG URL)
+    // and `data-hero-offset` (clamped 0..1, default 0.5) to produce
+    // the cropped 1:1 data URL. The initial `<img src>` is the raw
+    // source URL — the parent `.lobby-hero { aspect-ratio: 1/1;
+    // overflow: hidden; }` reserves the slot, and the brief un-cropped
+    // flash before hydration is clipped to the square viewport.
+    // Typical hydrate time is < 50ms on a 540×540 target so the flash
+    // is negligible.
+    const heroOffset = pickHeroOffset(slide);
+    const heroId = escape(String(slide.id || ''));
+
     if (isPhoto) {
       // Photos are always static <img>. CSS .is-grayscale handles B&W.
       // loading="eager" (not "lazy") — kept from a prior attempt at
@@ -1006,9 +1038,11 @@
         <img class="lobby-hero-media${grayscale}"
              src="${escape(src)}"
              alt="${escape(slide.name || 'Exercise')}"
-             style="object-position: ${escape(objPos)};"
              loading="eager"
-             data-treatment="${escape(hero.treatment)}">
+             data-treatment="${escape(hero.treatment)}"
+             data-hero-id="${heroId}"
+             data-hero-offset="${heroOffset}"
+             data-hero-source="${escape(src)}">
       `;
     }
 
@@ -1020,20 +1054,107 @@
     // synchronous image decode to measure circuit-frame bounds. The tracer
     // is gone (attempt #10 went to nested DOM boxes) but the eager loading
     // is still load-bearing for poster-to-video swap timing.
+    //
+    // `data-poster-src` mirrors `<img src>` for the swap-to-video path.
+    // hydrateHeroCrops keeps the two in sync after the data URL swap so
+    // `swapToVideoOnActiveRow` reads the cropped poster into the
+    // `<video poster>` attribute.
     const videoSrc = hero.videoSrc || '';
     const posterSrc = hero.posterSrc || '';
     return `
       <img class="lobby-hero-media${grayscale}"
            src="${escape(posterSrc)}"
            alt="${escape(slide.name || 'Exercise')}"
-           style="object-position: ${escape(objPos)};"
            loading="eager"
            data-treatment="${escape(hero.treatment)}"
            data-video-src="${escape(videoSrc)}"
            data-poster-src="${escape(posterSrc)}"
+           data-hero-id="${heroId}"
+           data-hero-offset="${heroOffset}"
+           data-hero-source="${escape(posterSrc)}"
            data-trim-start="${Number(slide.start_offset_ms) || 0}"
            data-trim-end="${Number(slide.end_offset_ms) || 0}">
     `;
+  }
+
+  /**
+   * Walk the just-rendered hero imgs and replace each `<img src>` with
+   * a square (1:1) JPEG data URL produced by HomefitHeroResolver. Runs
+   * after $lobbyList.innerHTML = ... but BEFORE the user typically
+   * sees the row settle (the parent `.lobby-hero { aspect-ratio: 1/1;
+   * overflow: hidden; }` reserves the slot, and the un-cropped flash
+   * before swap is clipped to the square viewport).
+   *
+   * Treatment-switch / re-render hits the resolver's cache — same
+   * (exerciseId, treatment, offset, targetSize) tuple returns the
+   * memoised data URL on subsequent calls.
+   *
+   * PDF export inheritance: the live `<img src>` is the data URL by
+   * the time triggerLobbyShare's cloneNode runs, so the export path
+   * sees the same crop with no extra work. html2canvas just rasterises
+   * the already-square bitmap.
+   *
+   * Failure mode: the resolver propagates real image-load errors via
+   * Promise rejection; we let those bubble (no try/catch — per
+   * `feedback_no_exception_control_flow.md`). The existing capture-
+   * phase `error` listener on the lobby root (signed-URL expiry
+   * recovery) handles legitimate 403 / network failures by re-fetching
+   * the plan and swapping data-src. A rejected resolver promise
+   * leaves the un-cropped src in place — degraded but not broken.
+   */
+  function hydrateHeroCrops() {
+    if (!$lobbyList) return;
+    if (!window.HomefitHeroResolver || !window.HomefitHeroResolver.getHeroSquareImage) {
+      // Defensive — hero_resolver.js failed to load. The live lobby
+      // would still render un-cropped images (acceptable degraded
+      // state — no offset honouring, but the parent's `overflow:
+      // hidden` keeps the layout intact).
+      return;
+    }
+    const heros = $lobbyList.querySelectorAll(
+      'img.lobby-hero-media[data-hero-source]'
+    );
+    heros.forEach((img) => {
+      const source = img.dataset.heroSource || '';
+      if (!source) return;
+      // Already a data URL → resolved by a previous hydrate pass.
+      // Idempotent on re-runs (treatment switch, re-render) — short-
+      // circuit avoids redoing the resolver cache lookup.
+      if (source.startsWith('data:')) return;
+      const id = img.dataset.heroId || '';
+      const treatment = img.dataset.treatment || '';
+      const offset = Number(img.dataset.heroOffset);
+      // Target size: lobby thumbnails render at ~40% of viewport
+      // width (the `.lobby-hero { flex: 0 0 40%; }` rule), capped by
+      // the row's natural slot. 540px on the long edge gives a crisp
+      // retina-grade square (canvas backing store is 540 * dpr) and
+      // keeps the data URL around ~80KB per hero — fine for the PDF
+      // export's per-page budget. The PDF rasteriser operates at
+      // scale=2 against the already-square bitmap, so the rendered
+      // pixels are plenty for A4 print fidelity.
+      const targetSize = 540;
+      window.HomefitHeroResolver.getHeroSquareImage({
+        exerciseId: id,
+        treatment: treatment,
+        sourceUrl: source,
+        heroCropOffset: Number.isFinite(offset) ? offset : 0.5,
+        targetSize: targetSize,
+      }).then((dataUrl) => {
+        if (!dataUrl) return;
+        // Re-check the element is still in the DOM — a treatment
+        // switch between dispatch and resolution would have replaced
+        // it via innerHTML. The new row's hydrate pass starts fresh
+        // against the same source URL (cache hit, no re-crop).
+        if (!img.isConnected) return;
+        img.src = dataUrl;
+        img.dataset.heroSource = dataUrl;
+        // Keep data-poster-src in sync so the swap-to-video path
+        // picks the cropped poster up when this row becomes active.
+        if (img.dataset.posterSrc) {
+          img.dataset.posterSrc = dataUrl;
+        }
+      });
+    });
   }
 
   // ==========================================================================
