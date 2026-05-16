@@ -9,6 +9,11 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+# Agent QA credentials (staging-only test account; see docs/AGENT_QA_AUTH.md).
+# Never commit — generated locally by the keep-auth setup. Covered by the
+# upstream `.env.*.local` pattern too, but called out explicitly so the
+# intent is obvious.
+.env.test
 
 # IDE
 .vscode/
