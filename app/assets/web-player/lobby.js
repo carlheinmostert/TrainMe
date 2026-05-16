@@ -340,21 +340,23 @@
       $lobbyMetaStamp.textContent = last ? formatStamp(last) : '';
     }
 
-    // Build marker: "plan v{N} · web-player {PLAYER_VERSION} · cache {active cache}".
+    // Build marker: "plan v{N} · {gitSha} · {gitBranch} · cache {active cache}".
     // The plan segment surfaces `plans.version` (incremented on every
     // Publish) so a freshly-republished plan is distinguishable from a
-    // stale tab on the same URL. PLAYER_VERSION is the bundle's
-    // compile-time string (mirrors sw.js cache name by convention). The
-    // cache name is read live from the SW so a stale browser shell shows
-    // up as a divergence between the bundle and cache values. Legacy
-    // plans whose `plans.version` is null drop the plan segment entirely.
+    // stale tab on the same URL. The git SHA + branch + active cache
+    // are the source of truth for "what code is this client running";
+    // a divergence between gitSha and cache name on the chip means
+    // the SW hasn't refreshed yet. The legacy `web-player PLAYER_VERSION`
+    // segment was dropped 2026-05-16 — the hand-coded constant was
+    // never bumped in lockstep with deploys and ended up reading
+    // `v70-png-modal-removed` weeks after the PNG modal was removed,
+    // misleading QA into thinking the player was stale when gitSha
+    // already showed the latest commit.
     populateVersionChip();
   }
 
   function populateVersionChip() {
     if (!$lobbyMetaVersion) return;
-    const playerVersion =
-      typeof PLAYER_VERSION === 'string' ? PLAYER_VERSION : '?';
     const planVersion =
       plan && plan.version != null ? `plan v${plan.version}` : null;
     // Git SHA + branch from window.HOMEFIT_CONFIG (populated by
@@ -367,7 +369,6 @@
     const gitBranch = (typeof _cfg.gitBranch === 'string' && _cfg.gitBranch) || 'local';
     const compose = (cacheLabel) => [
       planVersion,
-      `web-player ${playerVersion}`,
       `${gitSha} · ${gitBranch}`,
       `cache ${cacheLabel}`,
     ].filter(Boolean).join(' · ');
