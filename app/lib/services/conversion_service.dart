@@ -253,9 +253,20 @@ class ConversionService extends ChangeNotifier {
                 'grayscale': true,
               }).timeout(const Duration(seconds: 30));
               pickedMs = (bwResp?['timeMs'] as int?) ?? priorOffset ?? 0;
+              // Wave Lobby — adopt the native segmentation centroid
+              // as the default hero crop offset. Lands on every fresh
+              // capture so the lobby + every thumbnail frames the
+              // practitioner instead of whatever the centre vertical
+              // band happens to be (a TV in Carl's QA case). Null
+              // when segmentation bailed / source was square — leave
+              // the existing value alone so a prior manual drag
+              // isn't wiped by a no-op.
+              final autoOffset =
+                  (bwResp?['autoHeroCropOffset'] as num?)?.toDouble();
               done = done.copyWith(
                 thumbnailPath: PathResolver.toRelative(thumbPath),
                 focusFrameOffsetMs: pickedMs,
+                heroCropOffset: autoOffset ?? done.heroCropOffset,
               );
               bwOk = true;
             } catch (e, st) {
@@ -585,8 +596,17 @@ class ConversionService extends ChangeNotifier {
       // B&W (grayscale + body-focus crop) — the canonical practitioner-
       // facing thumbnail. autoPick:false so the caller-supplied
       // [offsetMs] is honoured verbatim.
+      //
+      // Wave Lobby — even though autoPick is false, the native side
+      // still runs segmentation (the B&W treatment uses the body-
+      // focus pass), so the soft-mask centroid is still available.
+      // We adopt it as the new hero crop offset — a re-scrub
+      // intentionally replaces a prior manual drag because the user
+      // just picked a new frame and the auto-pick is the right
+      // default for that frame. They can re-drag if they disagree.
+      // Per Phase B in the brief.
       try {
-        await _thumbChannel
+        final bwResp = await _thumbChannel
             .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
           'inputPath': sourcePath,
           'outputPath': thumbPath,
@@ -594,7 +614,12 @@ class ConversionService extends ChangeNotifier {
           'autoPick': false,
           'grayscale': true,
         }).timeout(const Duration(seconds: 30));
-        next = next.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
+        final autoOffset =
+            (bwResp?['autoHeroCropOffset'] as num?)?.toDouble();
+        next = next.copyWith(
+          thumbnailPath: PathResolver.toRelative(thumbPath),
+          heroCropOffset: autoOffset ?? next.heroCropOffset,
+        );
       } catch (e, st) {
         await _logVariantFailure(
           exerciseId: exercise.id,
