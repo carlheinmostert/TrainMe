@@ -1146,8 +1146,21 @@ class UploadService {
 
       final nonRestExercises =
           session.exercises.where((e) => !e.isRest).toList();
+      // Fast-path eligibility: every non-rest exercise must have its raw
+      // archive already uploaded AND no pending thumb-regeneration.
+      // `thumbnailsDirty` is set by `ConversionService.regenerateHeroThumbnails`
+      // when the practitioner moves the Hero star or drags the hero crop;
+      // honouring it here forces the normal upload loop to run so the
+      // re-generated `_thumb.jpg` / `_thumb_color.jpg` / `_thumb_line.jpg`
+      // variants get re-uploaded (the existing-file check is overridden
+      // for dirty exercises in the per-thumb upload blocks below).
+      //
+      // The 2026-05-16 hero-thumb staleness fix — without this, dragging
+      // the Hero star regenerated thumbs locally but the publish skipped
+      // the upload because the raw archive was already in cloud.
       final allPreviouslyUploaded = nonRestExercises.isNotEmpty &&
-          nonRestExercises.every((e) => e.rawArchiveUploadedAt != null);
+          nonRestExercises
+              .every((e) => e.rawArchiveUploadedAt != null && !e.thumbnailsDirty);
       // Snapshot the exercise order ONCE so every failure record reports
       // a stable 0-based slot even if `session.exercises` is mutated
       // elsewhere mid-publish. Mirrors the same map inside
@@ -1217,6 +1230,13 @@ class UploadService {
           }
         } catch (_) {}
 
+        // Per-exercise records of which thumb variants this fast-path
+        // re-uploaded for a dirty exercise. After the media-bucket pass
+        // completes (and only THEN, so a mid-loop failure doesn't claim
+        // a clean upload), the matching dirty-clear write happens in a
+        // second pass below.
+        final dirtyThumbUploadsByExercise = <String, bool>{};
+
         for (final exercise in nonRestExercises) {
           final ext = p.extension(
             exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath,
@@ -1228,11 +1248,55 @@ class UploadService {
             thumbUrls[exercise.id] = _api.publicMediaUrl(
                 path: '${session.id}/${exercise.id}_thumb.jpg');
 
-            // Backfill _thumb_line.jpg if missing in storage. Skip when
-            // replaceFirst was a no-op (legacy photo rows whose
-            // thumbnailPath was the raw file before Bundle 2b's variant
-            // pipeline existed) — otherwise we'd upload the raw photo
-            // mis-named as `_thumb_line.jpg`.
+            // 2026-05-16 hero-thumb staleness fix — when this exercise's
+            // thumbs were regenerated (`thumbnailsDirty=true`), re-upload
+            // `_thumb.jpg` here in the fast-path too. Belt-and-braces:
+            // the Phase D step-1 fast-path eligibility check already
+            // disables the fast-path for any dirty exercise, so this
+            // block typically never runs while the fix is intact. Kept
+            // so a future regression of the eligibility check doesn't
+            // silently re-introduce the stale-thumb bug. uploadMedia
+            // uses `upsert: true` so re-upload is a silent overwrite.
+            if (exercise.thumbnailsDirty) {
+              final thumbFile = File(thumbAbs);
+              if (await thumbFile.exists()) {
+                final thumbStoragePath =
+                    '${session.id}/${exercise.id}_thumb.jpg';
+                try {
+                  await _api.uploadMedia(
+                      path: thumbStoragePath, file: thumbFile);
+                  uploadedPaths.add(thumbStoragePath);
+                  filesUploaded += 1;
+                  dirtyThumbUploadsByExercise[exercise.id] = true;
+                  emit(PublishProgress.uploadTick(
+                    filesUploaded: filesUploaded,
+                    filesTotal: filesTotal,
+                  ));
+                } catch (uploadErr) {
+                  mediaFailures.add(UploadFailureRecord(
+                    kind: 'media_thumb_upload_failed',
+                    storagePath: thumbStoragePath,
+                    localPath: thumbAbs,
+                    fileExists: thumbFile.existsSync(),
+                    exerciseId: exercise.id,
+                    exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                    exerciseName: mediaNameByExerciseId[exercise.id],
+                  ));
+                  debugPrint(
+                    'uploadPlan FAILED kind=media_thumb_upload_failed '
+                    '(fast-path dirty) path=$thumbStoragePath '
+                    'local=$thumbAbs err=$uploadErr',
+                  );
+                }
+              }
+            }
+
+            // Backfill _thumb_line.jpg if missing in storage OR force
+            // re-upload when the exercise's thumbs were regenerated.
+            // Skip when replaceFirst was a no-op (legacy photo rows
+            // whose thumbnailPath was the raw file before Bundle 2b's
+            // variant pipeline existed) — otherwise we'd upload the
+            // raw photo mis-named as `_thumb_line.jpg`.
             final lineThumbAbs =
                 thumbAbs.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
             if (lineThumbAbs != thumbAbs) {
@@ -1240,12 +1304,16 @@ class UploadService {
               if (await lineThumbFile.exists()) {
                 final lineStoragePath =
                     '${session.id}/${exercise.id}_thumb_line.jpg';
-                if (!existingFiles.contains(lineStoragePath)) {
+                if (!existingFiles.contains(lineStoragePath) ||
+                    exercise.thumbnailsDirty) {
                   try {
                     await _api.uploadMedia(
                         path: lineStoragePath, file: lineThumbFile);
                     uploadedPaths.add(lineStoragePath);
                     filesUploaded += 1;
+                    if (exercise.thumbnailsDirty) {
+                      dirtyThumbUploadsByExercise[exercise.id] = true;
+                    }
                     emit(PublishProgress.uploadTick(
                       filesUploaded: filesUploaded,
                       filesTotal: filesTotal,
@@ -1272,6 +1340,28 @@ class UploadService {
               }
             }
           }
+        }
+
+        // 2026-05-16 hero-thumb staleness fix — clear `thumbnailsDirty`
+        // for every dirty exercise whose media-bucket thumbs were
+        // successfully re-uploaded in this fast-path. The raw-archive
+        // `_thumb_color.jpg` is handled separately in `_uploadRawArchives`
+        // (which doesn't clear the flag, so the next publish would
+        // re-upload all three thumbs if the clear here didn't fire);
+        // accept that asymmetry — re-uploading three small JPGs once
+        // more on the next publish is cheap insurance.
+        for (final entry in dirtyThumbUploadsByExercise.entries) {
+          final exercise =
+              session.exercises.firstWhere((e) => e.id == entry.key);
+          await loudSwallow(
+            () => _storage.saveExercise(
+              exercise.copyWith(thumbnailsDirty: false),
+            ),
+            kind: 'thumbnails_dirty_clear_failed',
+            source: 'UploadService.uploadPlan.fastPath',
+            severity: 'info',
+            swallow: true,
+          );
         }
       } else {
         // Some exercises are new — list + upload as needed.
@@ -1323,7 +1413,13 @@ class UploadService {
             final thumbFile = File(thumbPath);
             if (await thumbFile.exists()) {
               final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
-              if (!existingFiles.contains(thumbStoragePath)) {
+              // 2026-05-16 hero-thumb staleness fix — when
+              // `thumbnailsDirty` is true (Hero star moved or crop
+              // dragged), force re-upload even if the path already
+              // exists in storage. `uploadMedia` uses `upsert: true`
+              // so overwrite is a silent idempotent operation.
+              if (!existingFiles.contains(thumbStoragePath) ||
+                  exercise.thumbnailsDirty) {
                 try {
                   await _api.uploadMedia(
                       path: thumbStoragePath, file: thumbFile);
@@ -1373,7 +1469,10 @@ class UploadService {
                 if (await lineThumbFile.exists()) {
                   final lineStoragePath =
                       '${session.id}/${exercise.id}_thumb_line.jpg';
-                  if (!existingFiles.contains(lineStoragePath)) {
+                  // 2026-05-16 hero-thumb staleness fix — override
+                  // skip when dirty.
+                  if (!existingFiles.contains(lineStoragePath) ||
+                      exercise.thumbnailsDirty) {
                     try {
                       await _api.uploadMedia(
                           path: lineStoragePath, file: lineThumbFile);
@@ -1659,6 +1758,26 @@ class UploadService {
       );
       await _storage.saveSession(updated);
       await _recordSuccess(session.id);
+
+      // 2026-05-16 hero-thumb staleness fix — every non-rest exercise's
+      // thumbs were re-uploaded in the loops above when dirty (or were
+      // never dirty in the first place). Clear the flag now so the next
+      // publish can use the fast-path again. Done here in the success
+      // path so a failure between the upload and this point leaves the
+      // flag set; the next publish retry will re-upload.
+      for (final exercise in session.exercises) {
+        if (exercise.isRest) continue;
+        if (!exercise.thumbnailsDirty) continue;
+        await loudSwallow(
+          () => _storage.saveExercise(
+            exercise.copyWith(thumbnailsDirty: false),
+          ),
+          kind: 'thumbnails_dirty_clear_failed',
+          source: 'UploadService.uploadPlan.success',
+          severity: 'info',
+          swallow: true,
+        );
+      }
 
       // Wave 29 — broadcast the post-consume balance so the Home
       // credits chip ticks down without waiting for the next pullAll.
@@ -2322,7 +2441,13 @@ class UploadService {
       }
       final colorStoragePath =
           '$practiceId/${session.id}/${exercise.id}_thumb_color.jpg';
-      if (existingRaw.contains(colorStoragePath)) {
+      // 2026-05-16 hero-thumb staleness fix — when the exercise's
+      // thumbs were regenerated (`thumbnailsDirty=true`), force
+      // re-upload even if `_thumb_color.jpg` already exists in
+      // storage. `uploadRawArchive` uses `upsert: true` (per PR #369),
+      // so re-upload is a silent overwrite.
+      if (existingRaw.contains(colorStoragePath) &&
+          !exercise.thumbnailsDirty) {
         debugPrint('_uploadRawArchives: skip $colorStoragePath (exists)');
         continue;
       }

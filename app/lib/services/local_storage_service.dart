@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 39;
+  static const _dbVersion = 40;
 
   Database? _db;
 
@@ -131,6 +131,7 @@ class LocalStorageService {
         body_focus INTEGER,
         focus_frame_offset_ms INTEGER,
         hero_crop_offset REAL,
+        thumbnails_dirty INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -1124,6 +1125,30 @@ class LocalStorageService {
         'cached_clients',
         'consent_explicitly_set_at',
         'INTEGER',
+      );
+    }
+    if (oldVersion < 40) {
+      // 2026-05-16 — thumbnails_dirty (regenerated-thumb cloud staleness fix).
+      //
+      // ConversionService.regenerateHeroThumbnails rewrites the three
+      // per-treatment thumbs locally (`_thumb.jpg`, `_thumb_color.jpg`,
+      // `_thumb_line.jpg`) when the practitioner moves the Hero star or
+      // drags the hero crop viewport. But the publish fast-path keys on
+      // `raw_archive_uploaded_at` being non-null and skips ALL uploads —
+      // including thumbs — when the raw archive was uploaded in a prior
+      // publish. Cloud stayed on the stale autoPick=true motion-peak
+      // thumb regardless of subsequent hero offset changes.
+      //
+      // This column is a local-only Dart-side hint, NOT mirrored to
+      // Supabase. Set true on regenerate; honoured by the publish flow
+      // to force the thumb-upload blocks; cleared after successful
+      // per-exercise upload. INTEGER 0/1, default 0 so existing rows
+      // round-trip unchanged.
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'thumbnails_dirty',
+        'INTEGER NOT NULL DEFAULT 0',
       );
     }
   }
