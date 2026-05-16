@@ -2867,12 +2867,40 @@
       // styles.css also covers this defensively, but doing it on the
       // clone is the cleanest path.
       clone.classList.remove('is-active', 'is-active-pill');
-      // Strip any inline play/pause UI from videos that the live row
-      // mounts during scroll-coupling — we want a static poster only.
+      // Active-row <video> elements (swapped in by swapToVideoOnActiveRow)
+      // are unreliable in html2canvas — the rasteriser can't read the
+      // current frame from an iOS WKWebView <video>, especially mid-play
+      // or in an auto-paused state, and falls back to a solid grey block
+      // in the PDF. The fix is to swap each <video> back to an <img>
+      // using its cropped data-URL poster BEFORE rasterising; html2canvas
+      // renders <img> perfectly. The poster src is already a 1:1 cropped
+      // data URL (hydrateHeroCrops mirrors the resolver's output onto
+      // both data-hero-source AND data-poster-src), so this swap costs
+      // zero extra work — just structural conversion.
       clone.querySelectorAll('video').forEach((v) => {
         try { v.pause(); } catch (_) {}
-        v.removeAttribute('autoplay');
-        v.removeAttribute('loop');
+        const posterSrc = v.dataset.posterSrc
+          || v.getAttribute('poster')
+          || '';
+        if (posterSrc) {
+          const img = document.createElement('img');
+          img.className = v.className;
+          img.setAttribute('alt', v.getAttribute('alt') || '');
+          img.style.cssText = v.style.cssText;
+          img.src = posterSrc;
+          // Carry data-* across so any downstream code that walks the
+          // clone for diagnostics still sees the same metadata shape.
+          Object.keys(v.dataset).forEach((k) => {
+            img.dataset[k] = v.dataset[k];
+          });
+          v.parentNode.replaceChild(img, v);
+        } else {
+          // No poster available — keep the <video> but stripped. Better
+          // than nothing; html2canvas may still grey-block but at least
+          // no autoplay or loop bleeds into the export.
+          v.removeAttribute('autoplay');
+          v.removeAttribute('loop');
+        }
       });
       ul.appendChild(clone);
     }
