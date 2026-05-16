@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../models/publish_progress.dart';
 import '../theme.dart';
 import 'upload_diagnostic_sheet.dart';
+import 'upload_error_details_sheet.dart';
 
 /// Bottom-sheet UI for the new atomic-publish flow (PR-C of the
 /// 2026-05-15 publish-flow refactor).
@@ -30,6 +31,23 @@ import 'upload_diagnostic_sheet.dart';
 /// The host catches the dismissal, flips on a "publishing chip" in the
 /// workflow toolbar, and the publish continues in the background. Spec:
 /// docs/design/mockups/publish-progress-sheet.html.
+///
+/// DIAGNOSTIC VIEW SHAPE — the failure tap-targets ("Show which files →"
+/// / "Show error details →") no longer open separate modal sheets. They
+/// flip an internal [_view] state and the sheet's body swaps between
+/// three layouts inside the same modal route. PR #357 added
+/// `useRootNavigator: true` on the child sheets; PR #362 dropped it.
+/// Both attempts failed because the parent + child sheets ended up on
+/// different navigator stacks (Studio's local navigator vs the root
+/// navigator routed through `rootScaffoldMessengerKey.currentContext`).
+/// Inlining the views kills the modal-stacking class altogether — only
+/// the body swaps, the modal route stays put.
+enum _PublishProgressView {
+  progress,
+  failureDetail,
+  errorDetail,
+}
+
 class PublishProgressSheet extends StatefulWidget {
   /// The progress notifier driven by the publish flow. The sheet
   /// rebuilds on every tick.
@@ -43,19 +61,6 @@ class PublishProgressSheet extends StatefulWidget {
   /// "All set" beat). Host fires the "Plan published" toast + lights
   /// up the Share affordance.
   final VoidCallback onSuccessDismiss;
-
-  /// Called when the practitioner taps "Show which files →" on the
-  /// failure state. Host hands the failure list to
-  /// [UploadDiagnosticSheet.show].
-  final ValueChanged<List<UploadFailureRecord>>? onShowFailureDetails;
-
-  /// Called when the practitioner taps "Show error details →" on the
-  /// failure state — the fallback tap-target rendered when there is no
-  /// per-file failure list to show (network errors, RLS rejections,
-  /// RPC errors, credit-consume blips, savePlan failures). Host hands
-  /// the [PublishErrorDetails] payload to
-  /// [UploadErrorDetailsSheet.show].
-  final ValueChanged<PublishErrorDetails>? onShowErrorDetails;
 
   /// Fallback failure list for the re-open-after-dismiss path. The
   /// PR-C reactive-failures fix routes failures through the
@@ -76,8 +81,6 @@ class PublishProgressSheet extends StatefulWidget {
     required this.progress,
     required this.onRetry,
     required this.onSuccessDismiss,
-    this.onShowFailureDetails,
-    this.onShowErrorDetails,
     this.failures = const [],
     this.errorDetails,
   });
@@ -92,8 +95,6 @@ class PublishProgressSheet extends StatefulWidget {
     required VoidCallback onRetry,
     required VoidCallback onSuccessDismiss,
     required VoidCallback onDismissed,
-    ValueChanged<List<UploadFailureRecord>>? onShowFailureDetails,
-    ValueChanged<PublishErrorDetails>? onShowErrorDetails,
     List<UploadFailureRecord> failures = const [],
     PublishErrorDetails? errorDetails,
   }) async {
@@ -113,8 +114,6 @@ class PublishProgressSheet extends StatefulWidget {
         progress: progress,
         onRetry: onRetry,
         onSuccessDismiss: onSuccessDismiss,
-        onShowFailureDetails: onShowFailureDetails,
-        onShowErrorDetails: onShowErrorDetails,
         failures: failures,
         errorDetails: errorDetails,
       ),
@@ -130,6 +129,10 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseController;
   bool _successDismissed = false;
+
+  /// Which body view is currently rendered inside the modal route.
+  /// Transitions happen via [setState] only — no navigator pushes.
+  _PublishProgressView _view = _PublishProgressView.progress;
 
   @override
   void initState() {
@@ -163,9 +166,32 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
     if (mounted) setState(() {});
   }
 
+  /// Resolve the failure list to render — prefer the live stream
+  /// snapshot, fall through to the host prop on the re-open path.
+  List<UploadFailureRecord> get _failureList {
+    final p = widget.progress.value;
+    return p.failures.isNotEmpty ? p.failures : widget.failures;
+  }
+
+  /// Resolve the error-details payload to render — same selection
+  /// rule as [_failureList].
+  PublishErrorDetails? get _errorPayload {
+    final p = widget.progress.value;
+    return p.errorDetails ?? widget.errorDetails;
+  }
+
+  /// When both `failures` and `errorDetails` are non-empty on a single
+  /// publish event, the failure list wins precedence: per-file rows
+  /// give the practitioner the most actionable signal (which file +
+  /// where on disk + does it exist), and the error payload's user
+  /// message would typically just paraphrase that.
+  bool get _hasFailureDetails => _failureList.isNotEmpty;
+
+  bool get _hasErrorDetails =>
+      !_hasFailureDetails && _errorPayload != null;
+
   @override
   Widget build(BuildContext context) {
-    final p = widget.progress.value;
     final mediaInsets = MediaQuery.of(context).viewInsets;
     return Padding(
       padding: EdgeInsets.only(bottom: mediaInsets.bottom),
@@ -173,33 +199,61 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(p),
-            const SizedBox(height: 8),
-            // Phase rows
-            for (final phase in PublishPhase.values)
-              _PhaseRow(
-                phase: phase,
-                status: p.statusOf(phase),
-                pulse: _pulseController,
-                subtitle: phase == PublishPhase.uploadingTreatments
-                    ? p.filesSubtitle
-                    : '',
-                progressFraction:
-                    phase == PublishPhase.uploadingTreatments &&
-                            p.statusOf(phase) == PublishPhaseStatus.active
-                        ? p.filesFraction
-                        : null,
-              ),
-            const SizedBox(height: 16),
-            _buildFooter(p),
-            const SizedBox(height: 16),
-          ],
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: KeyedSubtree(
+            key: ValueKey<_PublishProgressView>(_view),
+            child: _buildActiveView(),
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildActiveView() {
+    switch (_view) {
+      case _PublishProgressView.progress:
+        return _buildProgressBody();
+      case _PublishProgressView.failureDetail:
+        return _buildFailureDetailBody();
+      case _PublishProgressView.errorDetail:
+        return _buildErrorDetailBody();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW 1 — progress / failure with tap-targets
+  // ---------------------------------------------------------------------------
+
+  Widget _buildProgressBody() {
+    final p = widget.progress.value;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildHeader(p),
+        const SizedBox(height: 8),
+        // Phase rows
+        for (final phase in PublishPhase.values)
+          _PhaseRow(
+            phase: phase,
+            status: p.statusOf(phase),
+            pulse: _pulseController,
+            subtitle: phase == PublishPhase.uploadingTreatments
+                ? p.filesSubtitle
+                : '',
+            progressFraction:
+                phase == PublishPhase.uploadingTreatments &&
+                        p.statusOf(phase) == PublishPhaseStatus.active
+                    ? p.filesFraction
+                    : null,
+          ),
+        const SizedBox(height: 16),
+        _buildFooter(p),
+        const SizedBox(height: 16),
+      ],
     );
   }
 
@@ -285,39 +339,20 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
       );
     }
     if (p.failed) {
-      // PR-C reactive-failures fix — prefer the failures carried by
-      // the failure event (always populated by upload_service when
-      // the failure is an atomic-upload one). Fall back to the prop
-      // only on the re-open path where the host may have rebuilt the
-      // sheet against a notifier that still holds an older event.
-      final failureList =
-          p.failures.isNotEmpty ? p.failures : widget.failures;
-      final hasFailureDetails =
-          failureList.isNotEmpty && widget.onShowFailureDetails != null;
-
-      // Fix A (publish-diagnostic-surface, 2026-05-16) — fallback
-      // tap-target for non-atomic-upload failures where there's no
-      // per-file list to show. Same selection rule: prefer the live
-      // stream snapshot; fall through to the host prop only on the
-      // re-open path. The two tap-targets are mutually exclusive —
-      // we render exactly one based on which payload landed.
-      final errorPayload = p.errorDetails ?? widget.errorDetails;
-      final hasErrorDetails = !hasFailureDetails &&
-          errorPayload != null &&
-          widget.onShowErrorDetails != null;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (hasFailureDetails)
+            if (_hasFailureDetails)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    widget.onShowFailureDetails!(failureList);
+                    setState(() =>
+                        _view = _PublishProgressView.failureDetail);
                   },
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -341,14 +376,15 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
                   ),
                 ),
               ),
-            if (hasErrorDetails)
+            if (_hasErrorDetails)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    widget.onShowErrorDetails!(errorPayload);
+                    setState(() =>
+                        _view = _PublishProgressView.errorDetail);
                   },
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -412,6 +448,40 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
           height: 1.45,
         ),
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW 2 — per-file failure detail (was UploadDiagnosticSheet)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildFailureDetailBody() {
+    return UploadDiagnosticBody(
+      failures: _failureList,
+      onBack: () {
+        HapticFeedback.selectionClick();
+        setState(() => _view = _PublishProgressView.progress);
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW 3 — single error-payload detail (was UploadErrorDetailsSheet)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildErrorDetailBody() {
+    final payload = _errorPayload;
+    if (payload == null) {
+      // Defensive — should never happen because the tap-target only
+      // renders when [_hasErrorDetails] is true. Fall back to progress.
+      return _buildProgressBody();
+    }
+    return UploadErrorDetailsBody(
+      details: payload,
+      onBack: () {
+        HapticFeedback.selectionClick();
+        setState(() => _view = _PublishProgressView.progress);
+      },
     );
   }
 }
