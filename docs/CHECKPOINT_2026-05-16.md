@@ -1,14 +1,12 @@
-# Checkpoint — 2026-05-16 — Circuit attempt #10 ships, hero resolver lands, 9 skills installed
+# Checkpoint — 2026-05-16 — Publish unblocked, diagnostic surfaces work, SW network-first, hero crop two-part fix
 
-**The day the circuit-animation saga ended (attempt #10, variant 1 outward ripple, pure CSS — landed and verified on iPhone), the publish flow grew a fallback diagnostic surface plus atomic media-bucket uploads, a centralised hero-crop resolver killed the PDF object-fit bug as a side effect, three layers of enforcement got wired so the resolver can't re-fragment, and nine `homefit-*` skills landed for recurring workflows.** 5 PRs merged, 2 direct-to-main docs, 3 new memory entries, 9 skills. Carl's iPhone ends the day on staging tip `5e107f8` (PR #362 squash-merge).
+**A full-day session that started with the circuit-animation saga ending (attempt #10 verified on iPhone), grew a diagnostic surface that became the keystone for everything after, hit a 24-hour staging-publish outage at 11:00 UTC traced to a Supabase storage RLS regression introduced by yesterday's `upsert: true` flip, got unblocked via a new SELECT-policy migration, then propagated through an architectural fix to the diagnostic tap-dead bug, two PDF rendering fixes (greyscale bake + active-row `<video>` swap), a service-worker network-first switch to fix the production cache-update story, the long-press regression fix with the Replace pill, the hero-crop auto-pick from segmentation + manual drag, and finally the thumb-republish-on-regen fix that unsticks already-published exercises whose hero offsets the practitioner has since adjusted.** 14 PRs merged today, 1 (PR #376) open and ready to merge, 1 new gotcha memory rule, 1 lingering bug surfaced for the next session (photo `_thumb_bw.jpg` baked-bytes proper fix per the "no fallback" rule).
 
 ## Table of Contents
 
 - [Status at session end](#status-at-session-end)
 - [The day's big decisions](#the-days-big-decisions)
 - [PR sequence](#pr-sequence)
-- [Direct-to-main commits](#direct-to-main-commits)
-- [Skills installed today](#skills-installed-today)
 - [Memory rules added today](#memory-rules-added-today)
 - [Open follow-ups for next session](#open-follow-ups-for-next-session)
 - [Lessons / gotchas](#lessons--gotchas)
@@ -16,97 +14,90 @@
 
 ## Status at session end
 
-- **Main tip:** `59115ef` — `docs: HERO_RESOLVER.md — single-source-of-truth rule for hero image rendering`.
-- **Staging tip:** `5e107f8` — `fix(publish): diagnostic surface for non-atomic upload failures + atomic media-bucket uploads (#362)`. Staging contains PRs #362, #363, #364, #365 plus the test-scripts/index.html conflict resolve commit `b5b0a14`.
-- **iPhone CHM:** build SHA `5e107f8` installed at 11:00 UTC via `./install-device.sh staging`. Bundle `studio.homefit.app.dev`, ENV=staging. The mid-day build at `52ba60d` (PR #362's pre-squash tip) was also installed earlier for the tap-dead verification; the latest install supersedes it.
-- **Vercel staging surfaces:** `staging.session.homefit.studio` auto-deployed PR #364 (hero crop resolver) — the PDF object-fit bug should now be gone live. `staging.manage.homefit.studio` unchanged today.
-- **Blocked on Carl (unchanged):** Hostinger 301 redirects · `support@homefit.studio` mailbox · ZA lawyer red-pen of privacy/terms · PayFast production merchant account.
+- **Main tip:** `db2a27e` — `docs: add studio toolbar cleanup mockup + device QA test script (PR #371)`. Today's morning-checkpoint commit (the first version of this file, capturing only the morning's work) was rolled forward into this comprehensive end-of-day version.
+- **Staging tip:** `b6d8aed` — `chore(web-player): drop stale PLAYER_VERSION constant — gitSha is source of truth (#373)`. Staging contains 14 merges today: #362, #363, #364, #365, #366, #367, #368, #369, #370, #371, #372, #373, #374, #375.
+- **iPhone CHM:** still on the morning's `tmp/three-fixes-for-device` combined-branch build (~12:00 UTC install). That binary has PRs #366, #367, #368 baked in; the afternoon's #370, #372, #375 are NOT in the iPhone build yet. The next install (`./install-device.sh staging`) will land everything plus the in-flight PR #376 once merged.
+- **PR #376 (thumb-republish):** open, ready to merge after Carl reviews. THE fix for "Hero drag in Demo tab doesn't actually update the lobby thumbnail" — the publish fast-path was skipping thumb re-uploads when `rawArchiveUploadedAt` was already stamped. Adds a local `thumbnailsDirty` flag (SQLite v40) set by `regenerateHeroThumbnails`, honoured by publish, cleared on success.
+- **PR #289 (admin password-reset):** still open 6 days, untouched today, retargeted to staging earlier.
+- **Vercel staging surfaces:** `staging.session.homefit.studio` auto-deployed every web-touching PR. Latest serves `gitSha: b6d8aed`. `staging.manage.homefit.studio` unchanged today.
+- **Blocked on Carl (unchanged):** Hostinger 301 redirects (`homefit.studio/privacy|terms` → `manage.homefit.studio/...`); `support@homefit.studio` mailbox; ZA lawyer red-pen of privacy/terms scaffold; PayFast production merchant account.
 
 ## The day's big decisions
 
-Three load-bearing decisions, all reflected in code or docs on main / staging.
+Five load-bearing decisions today.
 
-1. **The hero crop is shared logic; it lives in ONE resolver, never inline.** Five surfaces (Flutter Studio card, filmstrip, camera peek, web lobby live, web lobby PDF) used to each do the crop math themselves. The PDF squashed portraits to 1:1 because html2canvas ignores `object-fit: cover` — the symptom that proved the duplication problem. PR #364 centralised the web side into `web-player/hero_resolver.js`. The Flutter migration is in BACKLOG. Three enforcement layers landed: `docs/HERO_RESOLVER.md` (spec), a memory entry, and a CI grep rule that fails the build if anyone reintroduces inline crop math.
+1. **The hero crop is shared logic; it lives in ONE resolver, never inline.** (Morning carry-over from PR #364.) Five surfaces used to each do crop math themselves; the PDF squashed portraits because html2canvas ignores `object-fit: cover`. PR #364 centralised the web side; three enforcement layers landed alongside (spec doc, memory rule, CI grep rule). Flutter consumers tracked in BACKLOG.
 
-2. **Long-press on a Studio card means reorder, not replace-media.** Carl spotted the regression — hidden gestures had captured what should be a labelled control. The fix shape is final but not yet shipped: drop the `onLongPress: onReplaceMedia` from the card InkWell + add a "Replace" pill on the Demo surface above the existing Rotate pill, same coral-bordered visual pattern. Agent was killed mid-implementation — the working tree on the feature branch carries the partial changes uncommitted.
+2. **Diagnostic surfaces are the keystone, but they cannot themselves be tap-dead.** (PR #366.) The diagnostic surface PR #362 added in the morning was supposed to let Carl read the publish-failure file list. By 12:00 UTC he discovered the "Show which files →" tap fired the haptic but never opened the sheet — third occurrence of the same modal-stacking bug class (PRs #357 + #362 had already tried to patch it via `useRootNavigator` flips). PR #366 took the architectural exit per `superpowers:systematic-debugging`'s "fix #3 = question the architecture" rule: no second modal at all. `PublishProgressSheet` owns an internal view-state (`progress` / `failureDetail` / `errorDetail`) and swaps its body. One modal route, no navigator-scope guesswork, the bug class is gone.
 
-3. **Skills are a first-class tool for recurring workflows.** Nine `homefit-*` skills landed in user-invocable form: ship-to-phone, write-checkpoint, where-are-we, cleanup-worktrees, resolve-test-script-index, promote-staging-to-main, add-memory, agent-brief, vercel-spend. They encode the memory rules so the workflows happen the same way every time — for both Claude and human contributors.
+3. **Raw-archive RLS needs an owner-scoped SELECT policy when uploads use `upsert: true`.** (PR #369.) This was the major blocker of the day. Yesterday's PR #358 flipped raw-archive uploads to `upsert: true` to eliminate 409 Duplicate exceptions on re-publish — per the no-exception-control-flow rule. Side effect surfaced today: Supabase Storage's upsert path needs the row to be SELECT-readable so it can decide INSERT vs UPDATE before WITH CHECK fires. The raw-archive bucket previously blocked SELECT entirely (privacy model: signed URLs only). Result: zero raw-archive uploads landed on staging from 2026-05-15 14:50 UTC onwards; 155 succeeded in the 3 days before. We diagnosed the symptom via the now-working inline diagnostic surface (PR #366) → storage logs gave us PG 42501 from `ExecWithCheckOptions` → policy gap confirmed via `pg_policies`. PR #369 adds `Raw-archive owner select` policy scoped to `owner = auth.uid()`. Privacy model preserved: anon still no SELECT, authenticated SELECT own only, service_role unchanged. New gotcha memory entry captures this whole class of bug for the next time.
+
+4. **Service worker app shell must be network-first, not cache-first, for production cache-update behaviour.** (PR #372.) Carl hit this the hard way after PR #370 deployed: his iPhone Safari kept serving an older `v70-png-modal-removed` bundle through multiple reloads + Private Browsing. Root cause: the SW routed the entire app shell through `cacheFirstStrategy`. Even with `skipWaiting` + `clients.claim` correctly wired, the current page held old JS in memory; Safari's HTTP cache amplified it. PR #372 splits the routing: Supabase API stays network-first, media (immutable URLs) stays cache-first, but app shell (HTML / JS / CSS / config) switches to network-first with cache fallback for offline. Cost: ~50–200ms per asset on cold reload. Future deploys propagate on a single reload. Each browser still needs ONE manual cache-clear hop to break out of the old cache-first SW; after that, automatic forever.
+
+5. **Hero crop has two valid sources of truth: segmentation-centroid auto-pick + manual drag override.** (PR #375.) The default crop offset (0.5 — geometric centre vertical band of a portrait video frame) routinely catches whatever's in the middle (a TV in the background, in Carl's test case). Two-part fix. (a) Native Swift computes the person mask's vertical centroid during the existing segmentation pass and seeds `hero_crop_offset` automatically. (b) The manual drag override (`HeroCropViewport`) was discovered to be already shipped in code — verified end-to-end via DB write inspection. Manual drag overrides auto-pick; re-scrubbing the temporal hero frame re-runs auto-pick on the new frame (destructive — simpler than tracking auto-vs-manual separately).
 
 ## PR sequence
 
-In merge order:
+In merge order across the day:
 
 | # | PR | Title | Why |
 |---|---|---|---|
-| 1 | [#361](https://github.com/carlheinmostert/TrainMe/pull/361) | `fix(player): circuit animation attempt 10 — nested CSS boxes` | The 10th-and-final attempt at the recurring circuit-animation bug. Variant 1 outward ripple, pure CSS keyframes on N nested div rings, no SVG, no JS, no observers. Merged 2026-05-15 16:12 UTC (carry-over from previous session, included for completeness). |
-| 2 | [#363](https://github.com/carlheinmostert/TrainMe/pull/363) | `chore(schema): add practice_id column to local sessions table (DB v39)` | SQLite mirror schema bump so sessions can be queried by practice context. Direct-to-main (no staging hop). |
-| 3 | [#364](https://github.com/carlheinmostert/TrainMe/pull/364) | `refactor(player): centralise hero-crop resolution + fix PDF object-fit bug` | New `web-player/hero_resolver.js` module. Lobby + PDF both consume cropped data URLs. CSS `object-fit: cover` dropped on `.lobby-hero-media`. PDF portrait-squash bug fixed as a side effect. BACKLOG entry filed for the Flutter consumer migration. |
-| 4 | [#365](https://github.com/carlheinmostert/TrainMe/pull/365) | `chore(ci): enforce hero-resolver single-source-of-truth rule` | New `scripts/ci/check-hero-resolver.sh` wired into the existing custom-rules job. Three forbidden patterns: stray `object-fit: cover` on `.lobby-hero-media` (video variant exempted), `heroCropOffset` reads outside the 10-file allow-list, static `<img>` with `_thumb*.jpg` srcs in lobby code that bypass hydration. Build-time fail with clear file:line + resolver alternative. |
-| 5 | [#362](https://github.com/carlheinmostert/TrainMe/pull/362) | `fix(publish): diagnostic surface for non-atomic upload failures + atomic media-bucket uploads` | Two fixes in one. Fix A: fallback "Show error details →" tap-target for non-file failures (network, RLS, RPC) opens a new `UploadErrorDetailsSheet`. Fix B: media-bucket uploads now atomic with per-file failure records — "Show which files →" fires for them too. Tap-dead bug from Carl's QA round (modal pushed onto unreachable navigator scope) fixed by dropping `useRootNavigator: true` on both diagnostic sheets. Sensitive zone (publish flow); merged after Carl's explicit go-ahead. |
-
-## Direct-to-main commits
-
-| SHA | Subject | Why |
-|---|---|---|
-| `2386e5d` | `docs(design): amplify circuit nested-boxes mockup animations` | The 6-variant circuit mockup's keyframes were too subtle to perceive (3px shadow at 45% opacity coral over 2px full-opacity coral border). Carl reported "no movement across any of the six versions." Amplified to 25% baseline border + 100% peak with 24px outer glow. Plus a `prefers-reduced-motion` override that keeps the static rings visible. |
-| `59115ef` | `docs: HERO_RESOLVER.md — single-source-of-truth rule for hero image rendering` | Layer 1 of the hero-resolver enforcement. Codifies the rule, the why (5-surface duplication + PDF symptom), the resolver API (web today + Flutter future), the forbidden-patterns table with correct alternatives, the allow-list. TOC at top. |
-
-## Skills installed today
-
-Nine `homefit-*` workflow skills, all user-invocable via the Skill tool. Discovery came from a research agent scanning recent session transcripts for recurring multi-step rituals.
-
-| Skill | What it does |
-|---|---|
-| `homefit-ship-to-phone` | Build + install staging Flutter app to iPhone CHM, author a device-QA test script, emit a numbered test list. Encodes 4 memory rules. |
-| `homefit-write-checkpoint` | Author the daily `docs/CHECKPOINT_<date>.md`, commit direct-to-main via ephemeral worktree, pull back into Carl's worktree. This skill authored this checkpoint. |
-| `homefit-where-are-we` | Fresh-session context briefing. Reads latest checkpoint, lists open PRs, shows iPhone build SHA, surfaces what's blocked on Carl. |
-| `homefit-cleanup-worktrees` | Prune merged, stale, or orphaned agent worktrees under `.claude/worktrees/agent-*`. ~120 alive at the time of scanning. |
-| `homefit-resolve-test-script-index` | Auto-fix merge-conflict cascades in `docs/test-scripts/index.html` — the multi-region kind that has shipped to main twice. |
-| `homefit-promote-staging-to-main` | Draft the release-promotion PR from staging to main. Stops before merge; Carl explicitly promotes. |
-| `homefit-add-memory` | Capture a session learning as a typed memory file + append to MEMORY.md index. |
-| `homefit-agent-brief` | Compose a clean sub-agent brief with the standard conventions baked in (repo-relative paths, R-10 parity, no direct DB, target staging, branch naming, no emojis). |
-| `homefit-vercel-spend` | Pull MTD Vercel spend for the homefit projects, compare against last snapshot, flag spikes. |
+| 1 | [#362](https://github.com/carlheinmostert/TrainMe/pull/362) | `fix(publish): diagnostic surface for non-atomic upload failures + atomic media-bucket uploads` | Morning carry-over. The diagnostic surface that EVERY subsequent debug today relied on. |
+| 2 | [#363](https://github.com/carlheinmostert/TrainMe/pull/363) | `chore(schema): add practice_id column to local sessions table (DB v39)` | SQLite mirror bump, direct-to-main. |
+| 3 | [#364](https://github.com/carlheinmostert/TrainMe/pull/364) | `refactor(player): centralise hero-crop resolution + fix PDF object-fit bug` | New `web-player/hero_resolver.js` + PDF portrait-squash fix as side effect. |
+| 4 | [#365](https://github.com/carlheinmostert/TrainMe/pull/365) | `chore(ci): enforce hero-resolver single-source-of-truth rule` | Forbids inline crop math via grep rule in custom-rules CI job. |
+| 5 | [#366](https://github.com/carlheinmostert/TrainMe/pull/366) | `fix(publish): inline diagnostic views — kill modal-stacking tap-dead` | Architectural fix at attempt #3 — no second modal, body swap inside the parent sheet. |
+| 6 | [#367](https://github.com/carlheinmostert/TrainMe/pull/367) | `fix(studio): restore long-press drag-to-reorder + Replace pill on Demo surface` | Carl's regression from yesterday. Long-press drops back to reorder; Replace becomes a labelled coral pill. |
+| 7 | [#368](https://github.com/carlheinmostert/TrainMe/pull/368) | `fix(player): bake bw treatment into resolver bitmap so PDF export honours it` | Canvas `ctx.filter = grayscale(1) contrast(1.05)` baked into the cropped data URL. Discovered to have a WKWebView edge case for photos in B&W (see follow-ups). |
+| 8 | [#369](https://github.com/carlheinmostert/TrainMe/pull/369) | `fix(supabase): owner-scoped SELECT on raw-archive so upsert: true works` | THE big unblocker. Applied to staging Supabase directly, PR for the durable record + prod promotion. |
+| 9 | [#370](https://github.com/carlheinmostert/TrainMe/pull/370) | `fix(lobby): swap <video> to <img> in PDF export so active row isn't grey-blocked` | html2canvas can't reliably rasterise a `<video>` element; export builder swaps to `<img>` using the cropped data-URL poster. |
+| 10 | [#371](https://github.com/carlheinmostert/TrainMe/pull/371) | `feat: clean up studio toolbar — drop separators, strip glyph chip, refresh adjust icon` | Carl-authored toolbar polish wave; landed in parallel with the bug-fix chain. |
+| 11 | [#372](https://github.com/carlheinmostert/TrainMe/pull/372) | `fix(sw): network-first for app shell so new deploys propagate on reload` | Production-grade cache-update story. App shell → network-first; media → cache-first (unchanged). |
+| 12 | [#373](https://github.com/carlheinmostert/TrainMe/pull/373) | `chore(web-player): drop stale PLAYER_VERSION constant — gitSha is source of truth` | The `v70-png-modal-removed` hand-coded constant misled QA for 30+ min today; the chip now reads `{sha} · {branch} · cache {sha}` cleanly. |
+| 13 | [#374](https://github.com/carlheinmostert/TrainMe/pull/374) | `chore: set up agent-friendly simulator auth (test account + keep-auth script)` | QA tooling so agents can act on the simulator without a manual sign-in. |
+| 14 | [#375](https://github.com/carlheinmostert/TrainMe/pull/375) | `feat(hero): auto-pick crop offset from segmentation + Demo-tab drag override` | Swift centroid math + Dart wiring. Manual drag UI confirmed already shipped. |
+| ☐  | [#376](https://github.com/carlheinmostert/TrainMe/pull/376) | `fix(publish): re-upload regenerated thumbnails so hero drag lands` | **OPEN — ready for Carl's review.** Local-only `thumbnailsDirty` flag (SQLite v40) closes the stale-cloud-thumb loop after a regeneration. |
 
 ## Memory rules added today
 
-- [iOS Reduce Motion kills CSS animations in WKWebView](../../../../Users/chm/.claude/projects/-Users-chm-dev-TrainMe/memory/gotcha_ios_reduce_motion_kills_animation.md) — When animation works on desktop but not iPhone, FIRST check iOS Settings → Accessibility → Motion → Reduce Motion before any CSS / DOM debugging. Saved 9 attempts of pain on the 10th-attempt circuit fix.
-- [Stale per-treatment thumbnail — scrub Hero offset to regenerate](../../../../Users/chm/.claude/projects/-Users-chm-dev-TrainMe/memory/gotcha_stale_thumbnail_scrub_hero_to_regen.md) — When ONE specific video exercise's B&W Hero looks blurred but Colour is sharp, suspect a stale `_thumb.jpg` from an earlier converter pass. Fix is to scrub the Hero offset by one frame; the 250ms debounce triggers `regenerateHeroThumbnails`. Confirmed today.
-- [Hero resolver is the single source of truth for hero-image rendering](../../../../Users/chm/.claude/projects/-Users-chm-dev-TrainMe/memory/feedback_hero_resolver_single_source.md) — All hero rendering on every surface goes through the resolver. No inline crop math anywhere. Linked spec at `docs/HERO_RESOLVER.md`. CI grep rule enforces.
+- [Supabase Storage `upsert: true` needs SELECT visibility](../../../../Users/chm/.claude/projects/-Users-chm-dev-TrainMe/memory/gotcha_supabase_storage_upsert_needs_select.md) — A SELECT-blocked private bucket + `upsert: true` = every upload fails RLS WITH CHECK with PG 42501. Add owner-scoped SELECT policy (`owner = auth.uid()`) so the storage service can do its internal existence check. Cost: 24h of broken staging (PR #358 → PR #369). Index entry stamps the relationship to the no-exception-control-flow rule that motivated `upsert: true`.
 
 ## Open follow-ups for next session
 
-1. **Replace pill PR (P0 — regression unfixed).** The agent that was building the fix for `fix/studio-replace-pill-restore-reorder` was killed mid-edit while modifying `_buildBottomLeftChromeCluster`. The working tree on that branch (the origin repo's current branch — Carl's worktree was deleted, the origin repo is now checked out here) carries two modified files uncommitted: `app/lib/widgets/studio_exercise_card.dart` and `app/lib/screens/studio_mode_screen.dart`. Decide whether to resume the work-in-progress or restart fresh in next session.
+1. **Merge PR #376 + install + close out today's QA.** Once merged, run `./install-device.sh staging` on Carl's iPhone. Re-drag the hero on the existing stuck video exercise → re-publish → lobby should reflect the new crop within seconds. That closes the diagnostic loop on today's blocking bug.
 
-2. **iPhone QA — sweep the 5 merged PRs.** Carl has staging tip `5e107f8` installed but didn't get to walk a full test pass before the session ended. Run the test scripts at top of `docs/test-scripts/index.html`: publish diagnostic surface (PR #362) + hero crop resolver (PR #364) + circuit attempt #10 (PR #361, may already be verified). PDF export on a portrait video should now show a properly-cropped 1:1 hero instead of a squashed portrait.
+2. **Photo `_thumb_bw.jpg` baked-bytes proper fix (per the no-fallback rule).** Surfaced late in the session: the embedded preview's PDF renders the photo's B&W treatment as colour. Architectural diagnosis: videos in B&W use baked-greyscale bytes (`_thumb.jpg` from the iOS converter's segmentation pipeline) while photos in B&W use a colour JPG + CSS / canvas filter. Different mechanisms for the same logical treatment violates the "one treatment, one artifact" rule. The proper fix is to generate `_thumb_bw.jpg` at photo capture time (greyscale bytes baked in), matching the video pattern. Spans iOS photo handler, SQLite migration, upload service, Supabase schema, `get_plan_full` RPC, `pickPosterSrc` in `exercise_hero.js`, embedded scheme bridge, plus a backfill path for existing photos. Half-day agent work — should be the first task in the next session.
 
-3. **Flutter hero-resolver migration.** Logged in `docs/BACKLOG.md` by PR #364's agent. The 5 Flutter consumers (Studio card, filmstrip cell, camera peek, editor sheet, plan preview) currently do their own `Alignment` math against `exercise.heroCropOffset`. Migration extends `app/lib/services/exercise_hero_resolver.dart` to carry crop semantics + adds a `CroppedHero` builder that consumers invoke instead of computing alignment themselves. The CI grep rule (PR #365) already covers the Flutter file list with an allow-list, so the rule will catch new offenders before merge.
+3. **Two BACKLOG observations from the thumb-republish agent's read-through.** (a) The segmented `.segmented.mp4` / `.segmented.jpg` and mask `.mask.mp4` variants have no `rawArchiveUploadedAt`-equivalent tracking column; if regenerated post-conversion they'd be skipped by the listing existence check. Same class as PR #376 but lower impact (variants rarely change). (b) `_isUserContentDelta` ignores `focusFrameOffsetMs` and `heroCropOffset` — hero-tuning edits don't extend the structural-edit lock window. Likely intentional but worth confirming.
 
-4. **Worktree cleanup.** ~120 agent worktrees alive at the start of the day. The `homefit-cleanup-worktrees` skill exists for this. Worth a sweep before the next big wave.
+4. **Flutter hero-resolver migration.** Still in BACKLOG (carry-over from PR #364). The 5 Flutter consumers (Studio card, filmstrip cell, camera peek, editor sheet, plan preview) do their own `Alignment` math against `exercise.heroCropOffset` instead of routing through the centralised resolver. Out of scope today.
+
+5. **Worktree cleanup.** 120+ agent worktrees alive at session start; today's session added ~7 more before cleanup. The `homefit-cleanup-worktrees` skill exists for this. Worth a sweep before the next big wave.
 
 ## Lessons / gotchas
 
-- **iOS Reduce Motion is silent.** Spent 9 attempts on the circuit animation before realising Carl had Reduce Motion enabled. The `@media (prefers-reduced-motion: reduce)` block in our CSS correctly kills the animation, but the system setting toggle has no UI hint — animation just disappears with no error, no log, nothing. Always check the system setting first when "works on desktop but not iPhone."
+- **The diagnostic surface is the keystone — without it, debugging publish failures is blind.** PR #362 enabled today's diagnosis of PR #369 (the storage policy gap). Every subsequent fix today traces back to "we could finally see the actual error."
 
-- **html2canvas ignores `object-fit` and `object-position`.** That's why the PDF squashed portraits. The fix shape — pre-crop the IMG to a square data URL via canvas before rendering — makes the entire `object-fit` workaround unnecessary and structurally prevents the bug class from recurring.
+- **Architectural fixes win at attempt #3.** Two patch attempts (PR #357, PR #362) on the diagnostic tap-dead bug both papered over the navigator-scope mismatch without resolving it. PR #366 dropped the second-modal pattern entirely — bug class gone, not patched. The `superpowers:systematic-debugging` Phase 4.5 rule about "question the architecture at fix #3" is load-bearing.
 
-- **Modal-stacking gotcha: `useRootNavigator: true` on a child sheet whose parent uses the local navigator pushes the child onto an unreachable navigator scope.** Tap fires haptic + callback fires, but no visible modal. Match the parent sheet's nav scope. PR #357 had set the flag intending to layer over the progress sheet; the bug was that the progress sheet itself uses the local navigator, so the child should too.
+- **Supabase Storage `upsert: true` needs SELECT visibility.** Captured as a gotcha memory. The non-obvious bit: the SDK call has been the same for weeks; the schema policies have been the same since PR #354 recovered them. The bug only surfaced because `upsert: true` triggers an `INSERT ... ON CONFLICT DO UPDATE RETURNING *` SQL path that the storage service has to introspect — and the introspection needs SELECT. Without it, the WITH CHECK denies before the row even tries to land.
 
-- **Test-scripts index.html cascade conflict on every parallel PR.** Both PR #362 and PR #364 added a top-of-list entry; the second to merge picked up the conflict. The `homefit-resolve-test-script-index` skill exists specifically for this. The load-bearing rule (per `gotcha_test_scripts_index_cascade.md`): re-grep for conflict markers AFTER `git add` — git accepts commits by index state, not file content, so markers can silently ship if you skip the re-grep.
+- **Service worker cache-first for app shell is production-broken.** Even with correct `skipWaiting` + `clients.claim`, the current page holds old JS in memory; Safari's HTTP cache amplifies it. Production needs network-first for the app shell — accept the 50-200ms cold-reload penalty in exchange for guaranteed deploy propagation.
 
-- **Hero crop is an OVERLAY, not a saved file.** The `heroCropOffset` field is just a 0..1 number. The underlying JPG stays at the source frame's native aspect ratio (portrait / landscape / square). Every consuming surface applies the crop at render time. That's why a centralised resolver is the right shape — each surface needs the same answer.
+- **PLAYER_VERSION static constants drift; git SHA is the single source of truth.** The hand-coded `v70-png-modal-removed` label misled QA today for ~30 min. Git SHA + branch + active SW cache name are the durable signals.
+
+- **Embedded WebView ≠ Safari for canvas features.** `ctx.filter` behaved differently in the in-app preview WebView vs Safari proper. The "no fallback" rule says don't depend on runtime filters that may vary by surface; bake the desired bytes at conversion time. This is the architectural argument for the photo `_thumb_bw.jpg` follow-up.
+
+- **The stale-cloud-thumb loop is not about caching at all — it's about the publish fast-path skipping re-uploads.** Carl re-published 6 times today; the cloud thumb mtime stayed at the morning's first publish. Diagnosed by curl'ing the file directly (15054 bytes / 171×192 px = autoPick=true tight crop, NOT the user-selected hero frame). PR #376 adds a `thumbnailsDirty` local-only flag so the fast-path is broken correctly when local thumbs have regenerated.
 
 ## Fresh-session handoff
 
-**READ FIRST:** this file (`docs/CHECKPOINT_2026-05-16.md`). It captures all five PRs merged today, the hero-resolver architecture decision and its enforcement, the skills wave, the memory entries added, and the open follow-ups.
+**READ FIRST:** this file (`docs/CHECKPOINT_2026-05-16.md`). It supersedes the morning's version of the same filename (which captured only PRs #361–#365 + skills + memory; today's afternoon added 9 more merges + a sixth memory entry + a major lingering follow-up).
 
-**Carl's iPhone is on staging `5e107f8`** — install confirmed at 11:00 UTC. App is `studio.homefit.app.dev`, ENV=staging. Open the homefit.studio icon to test PR #362 (publish diagnostic surface) and PR #361 (circuit attempt #10, may already be verified).
+**Carl's iPhone is still on the morning's `tmp/three-fixes-for-device` build** (with PRs #366 + #367 + #368 baked in but NOT PR #370 / #372 / #375). The first task in the next session should be: merge PR #376, then `./install-device.sh staging` to bring the iPhone up to current staging tip.
 
-**Working tree state when next session opens:** the origin repo at `/Users/chm/dev/TrainMe` is on branch `fix/studio-replace-pill-restore-reorder` with two uncommitted modified files (`app/lib/widgets/studio_exercise_card.dart` + `app/lib/screens/studio_mode_screen.dart`). These are partial Replace-pill changes from the killed agent. Either restore them and ship the pill, or `git restore` and start over. Branch base is `5e107f8` (today's staging tip).
+**The big lingering bug is the photo `_thumb_bw.jpg` baked-bytes proper fix.** Diagnosed but not implemented today — too risky to tack on at end-of-day given the file overlap with the in-flight thumb-republish agent. Brief is in follow-up #2 above. The "tactical per-pixel ImageData filter" workaround was offered and declined in favour of the proper fix.
 
-**If Carl asks "what about that long-press regression"** — point at follow-up item #1 above. The fix shape is locked (drop the InkWell long-press + add a Replace pill above Rotate, same coral-pill pattern). Just needs a fresh agent run or a manual completion of the uncommitted work.
+**Staging is at `b6d8aed`** which carries all of today's merges. Vercel staging surfaces are auto-deployed and serving fresh. Carl's Safari + Chrome were caught in the v70-cache-first SW trap earlier today; after the one-time Settings → Privacy → Manage Website Data clear (Safari) or `chrome://serviceworker-internals/` unregister (Chrome) hop, the new SW (PR #372) takes over with network-first behaviour for all future deploys.
 
-**If Carl asks about the PDF squashing portraits** — the fix shipped via PR #364 today. `staging.session.homefit.studio` auto-deployed. PDF exports should now show correctly-cropped 1:1 heroes that honour the practitioner's chosen crop offset.
-
-**If Carl asks about Vercel spend** — the new `homefit-vercel-spend` skill exists for this. PR #364 + #365 both touched web-player and triggered staging redeploys; PR #363 was main (no web). MTD snapshot not run today.
-
-**If Carl asks where the new skills came from** — a research agent scanned the last two weeks of session transcripts looking for recurring multi-step rituals (build + install + test, write checkpoint, direct-to-main commit, etc.). 9 strong candidates emerged; all 9 were built and installed in parallel today. The skills encode 15+ memory rules between them.
+**The diagnostic surface (PR #362 + PR #366) is the keystone tool.** If anything publish-related breaks in the next session, the first move is: tap "Show which files →" or "Show error details →" on the failure sheet — that body-swap view inside the progress sheet exposes the actual exception path. From there, every Phase 1 debug question reduces to "which file kind failed and what HTTP / PG code did the server send."
