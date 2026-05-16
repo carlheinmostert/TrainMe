@@ -1117,12 +1117,17 @@ class LocalStorageService {
       // devices stay NULL — publish + unlock flows retain their
       // AuthService-verified override in upload_service.dart.
       await _addColumnIfMissing(db, 'sessions', 'practice_id', 'TEXT');
-      final practices = await db.query('cached_practices', columns: ['id']);
-      if (practices.length == 1) {
-        await db.execute(
-          'UPDATE sessions SET practice_id = ? WHERE practice_id IS NULL',
-          [practices.first['id']],
-        );
+      try {
+        final practices = await db.query('cached_practices', columns: ['id']);
+        if (practices.length == 1) {
+          await db.execute(
+            'UPDATE sessions SET practice_id = ? WHERE practice_id IS NULL',
+            [practices.first['id']],
+          );
+        }
+      } catch (_) {
+        // cached_practices may not exist on a partial/test upgrade path;
+        // backfill is best-effort — sessions are stamped on next write.
       }
     }
   }
