@@ -1175,17 +1175,26 @@ class UploadService {
 
       // Count the files this publish might upload (used for the sheet's
       // "N of M files" subtitle). Order:
-      //   * media bucket: main mp4/jpg per exercise + _thumb.jpg + _thumb_line.jpg
+      //   * media bucket: main mp4/jpg per exercise + _thumb.jpg + _thumb_line.jpg + _thumb_bw.jpg (photos)
       //   * raw-archive bucket: raw mp4 / raw jpg + segmented + _thumb_color + mask
-      // Fast-path metadata-only republishes only refresh _thumb_line if
-      // missing, so we count one possible variant per exercise there.
+      // Fast-path metadata-only republishes only refresh _thumb_line +
+      // _thumb_bw if missing, so we count one possible variant per
+      // exercise there (plus one extra for photos).
       if (allPreviouslyUploaded) {
-        // Just the line-thumb backfill candidate per exercise.
+        // Just the line-thumb backfill candidate per exercise. Photos
+        // also potentially carry a `_thumb_bw.jpg` to backfill, so
+        // count that on top.
         filesTotal = nonRestExercises.length;
+        for (final ex in nonRestExercises) {
+          if (ex.mediaType.name == 'photo') filesTotal += 1;
+        }
       } else {
         for (final ex in nonRestExercises) {
           filesTotal += 1; // main media
-          if (ex.absoluteThumbnailPath != null) filesTotal += 2; // _thumb + _thumb_line
+          if (ex.absoluteThumbnailPath != null) {
+            filesTotal += 2; // _thumb + _thumb_line
+            if (ex.mediaType.name == 'photo') filesTotal += 1; // _thumb_bw
+          }
         }
       }
       // Raw-archive variants — every variant is now required (PR-A).
@@ -1335,6 +1344,57 @@ class UploadService {
                       'path=$lineStoragePath local=$lineThumbAbs '
                       'err=$uploadErr',
                     );
+                  }
+                }
+              }
+            }
+
+            // Photo `_thumb_bw.jpg` — bytes-baked B&W sibling
+            // (greyscale + contrast 1.05 to match the CSS filter
+            // chain). Photos only — videos already have baked
+            // greyscale bytes in `_thumb.jpg`, so the lobby's
+            // existing `thumbnail_url` fallback serves them
+            // correctly without a separate file. Same naming
+            // convention as `_thumb_line.jpg` (replaceFirst on
+            // `_thumb.jpg`), same fast-path upload pattern.
+            if (exercise.mediaType.name == 'photo') {
+              final thumbBwAbs =
+                  thumbAbs.replaceFirst('_thumb.jpg', '_thumb_bw.jpg');
+              if (thumbBwAbs != thumbAbs) {
+                final thumbBwFile = File(thumbBwAbs);
+                if (await thumbBwFile.exists()) {
+                  final thumbBwStoragePath =
+                      '${session.id}/${exercise.id}_thumb_bw.jpg';
+                  if (!existingFiles.contains(thumbBwStoragePath) ||
+                      exercise.thumbnailsDirty) {
+                    try {
+                      await _api.uploadMedia(
+                          path: thumbBwStoragePath, file: thumbBwFile);
+                      uploadedPaths.add(thumbBwStoragePath);
+                      filesUploaded += 1;
+                      if (exercise.thumbnailsDirty) {
+                        dirtyThumbUploadsByExercise[exercise.id] = true;
+                      }
+                      emit(PublishProgress.uploadTick(
+                        filesUploaded: filesUploaded,
+                        filesTotal: filesTotal,
+                      ));
+                    } catch (uploadErr) {
+                      mediaFailures.add(UploadFailureRecord(
+                        kind: 'media_thumb_bw_upload_failed',
+                        storagePath: thumbBwStoragePath,
+                        localPath: thumbBwAbs,
+                        fileExists: thumbBwFile.existsSync(),
+                        exerciseId: exercise.id,
+                        exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                        exerciseName: mediaNameByExerciseId[exercise.id],
+                      ));
+                      debugPrint(
+                        'uploadPlan FAILED kind=media_thumb_bw_upload_failed '
+                        'path=$thumbBwStoragePath local=$thumbBwAbs '
+                        'err=$uploadErr',
+                      );
+                    }
                   }
                 }
               }
@@ -1498,6 +1558,53 @@ class UploadService {
                         'path=$lineStoragePath local=$lineThumbPath '
                         'err=$uploadErr',
                       );
+                    }
+                  }
+                }
+              }
+
+              // Photo `_thumb_bw.jpg` — bytes-baked B&W sibling
+              // (greyscale + contrast 1.05). Photos only — videos
+              // already have baked greyscale bytes in `_thumb.jpg`.
+              // Mirror the slow-path pattern from the line variant
+              // above: check the replaceFirst was meaningful, check
+              // the local file exists, upload to the `media` bucket
+              // under `{session.id}/{exercise.id}_thumb_bw.jpg`.
+              if (exercise.mediaType.name == 'photo') {
+                final thumbBwPath =
+                    thumbPath.replaceFirst('_thumb.jpg', '_thumb_bw.jpg');
+                if (thumbBwPath != thumbPath) {
+                  final thumbBwFile = File(thumbBwPath);
+                  if (await thumbBwFile.exists()) {
+                    final thumbBwStoragePath =
+                        '${session.id}/${exercise.id}_thumb_bw.jpg';
+                    if (!existingFiles.contains(thumbBwStoragePath) ||
+                        exercise.thumbnailsDirty) {
+                      try {
+                        await _api.uploadMedia(
+                            path: thumbBwStoragePath, file: thumbBwFile);
+                        uploadedPaths.add(thumbBwStoragePath);
+                        filesUploaded += 1;
+                        emit(PublishProgress.uploadTick(
+                          filesUploaded: filesUploaded,
+                          filesTotal: filesTotal,
+                        ));
+                      } catch (uploadErr) {
+                        mediaFailures.add(UploadFailureRecord(
+                          kind: 'media_thumb_bw_upload_failed',
+                          storagePath: thumbBwStoragePath,
+                          localPath: thumbBwPath,
+                          fileExists: thumbBwFile.existsSync(),
+                          exerciseId: exercise.id,
+                          exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                          exerciseName: mediaNameByExerciseId[exercise.id],
+                        ));
+                        debugPrint(
+                          'uploadPlan FAILED kind=media_thumb_bw_upload_failed '
+                          'path=$thumbBwStoragePath local=$thumbBwPath '
+                          'err=$uploadErr',
+                        );
+                      }
                     }
                   }
                 }

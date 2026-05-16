@@ -147,7 +147,8 @@ class UnifiedPreviewSchemeBridge {
         kind != 'segmented' &&
         kind != 'hero' &&
         kind != 'hero_color' &&
-        kind != 'hero_line') {
+        kind != 'hero_line' &&
+        kind != 'hero_bw') {
       throw PlatformException(code: 'BAD_ARGS', message: 'unknown kind $kind');
     }
 
@@ -217,6 +218,20 @@ class UnifiedPreviewSchemeBridge {
         if (exercise.thumbnailPath != null) {
           relative = exercise.thumbnailPath!
               .replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+        }
+        break;
+      case 'hero_bw':
+        // 2026-05-16 photo `_thumb_bw.jpg` baked-bytes — bytes-baked
+        // greyscale + contrast 1.05 sibling for photos. The web-player
+        // resolver prefers this over `thumbnail_url_color` + CSS
+        // filter so PDF export + html2canvas snapshot render the
+        // photo B&W treatment without depending on a CSS filter.
+        // Photos only; videos already carry baked greyscale bytes in
+        // `_thumb.jpg` via the segmented body-focus pipeline.
+        if (exercise.mediaType == MediaType.photo &&
+            exercise.thumbnailPath != null) {
+          relative = exercise.thumbnailPath!
+              .replaceFirst('_thumb.jpg', '_thumb_bw.jpg');
         }
         break;
     }
@@ -331,6 +346,24 @@ class UnifiedPreviewSchemeBridge {
           (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
               ? '/local/${e.id}/hero_color'
               : null,
+      // 2026-05-16 — bytes-baked B&W sibling for photos
+      // (`_thumb_bw.jpg`). Photos only; videos already have
+      // baked greyscale bytes in `_thumb.jpg` via the segmented
+      // body-focus pipeline, so the resolver's existing
+      // `thumbnail_url` fallback chain serves video B&W
+      // without a dedicated file. The native scheme bridge
+      // resolves this back to `_thumb_bw.jpg` on disk via the
+      // `hero_bw` kind; the embedded web player then uses the
+      // baked bytes instead of compositing CSS
+      // `filter: grayscale(1) contrast(1.05)` at render time —
+      // matching the public-surface contract from
+      // `get_plan_full` (which emits `thumbnail_url_bw` via an
+      // existence check against the `media` bucket).
+      'thumbnail_url_bw': (e.mediaType == MediaType.photo &&
+              e.thumbnailPath != null &&
+              e.thumbnailPath!.isNotEmpty)
+          ? '/local/${e.id}/hero_bw'
+          : null,
       'media_type': e.mediaType.name,
       'sets': setsJson,
       'notes': e.notes,

@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 40;
+  static const _dbVersion = 41;
 
   Database? _db;
 
@@ -1149,6 +1149,51 @@ class LocalStorageService {
         'exercises',
         'thumbnails_dirty',
         'INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 41) {
+      // 2026-05-16 — photo `_thumb_bw.jpg` baked-bytes pipeline.
+      //
+      // Photo B&W treatment historically rendered colour bytes + a CSS
+      // `filter: grayscale(1) contrast(1.05)` at render time. That
+      // worked on the live lobby but broke the PDF export + embedded
+      // preview (CSS filters get dropped during html2canvas snapshot
+      // and the WKWebView scheme bridge doesn't reach the canvas
+      // resolver). The fix bakes a sibling `_thumb_bw.jpg` at photo
+      // capture time so every render path consumes bytes-baked
+      // greyscale-with-contrast.
+      //
+      // Schema-side this migration adds NO new column — the BW file
+      // path is computed by suffix-replacement off `thumbnail_path`
+      // (`_thumb.jpg` → `_thumb_bw.jpg`), matching the existing
+      // convention for `_thumb_color.jpg` / `_thumb_line.jpg`. The
+      // v41 bump exists to:
+      //
+      //   1. Stamp `thumbnails_dirty = 1` on every PHOTO exercise so
+      //      the next publish re-uploads its variant set, including
+      //      the freshly-baked `_thumb_bw.jpg` once
+      //      `ConversionService.backfillMissingVariants` has run on
+      //      app launch. Pre-existing legacy photos thus pick up the
+      //      cloud-side BW thumb automatically.
+      //   2. Surface a recognisable upgrade point so the next time
+      //      we touch the photo thumb pipeline we don't have to
+      //      re-derive what bumped the version.
+      //
+      // Videos are unaffected: their canonical `_thumb.jpg` already
+      // IS baked greyscale bytes (segmented-body-focus pipeline), so
+      // the lobby's `thumbnail_url` fallback chain already serves the
+      // right bytes for video B&W. Filtering by media_type below
+      // keeps the stamp scoped to the rows that actually need it.
+      //
+      // `media_type` is stored as an INTEGER (enum index from
+      // [MediaType]); photo == 0 (see MediaType enum order:
+      // photo=0, video=1, rest=2).
+      await db.execute(
+        '''
+        UPDATE exercises
+           SET thumbnails_dirty = 1
+         WHERE media_type = 0
+        ''',
       );
     }
   }
