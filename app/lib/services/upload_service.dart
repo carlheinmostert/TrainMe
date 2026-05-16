@@ -974,6 +974,26 @@ class UploadService {
               'and retry.';
         }
         await _recordFailure(session, userMessage);
+        // Fix A (publish-diagnostic-surface, 2026-05-16) — surface the
+        // client-linkage failure through the progress sheet so the
+        // practitioner can read the diagnostic. The sheet's "Show error
+        // details" tap-target opens [UploadErrorDetailsSheet] with the
+        // clipboard payload below.
+        final detail =
+            e is PostgrestException ? 'PostgREST ${e.code}: ${e.message}' : null;
+        final errorDetails = PublishErrorDetails(
+          phase: PublishPhase.reservingCredit,
+          exceptionType: e.runtimeType.toString(),
+          userMessage: userMessage,
+          detail: detail,
+          clipboardText: '$userMessage\n---\n'
+              'type: ${e.runtimeType}\n'
+              '${detail ?? e.toString()}',
+        );
+        emit(PublishProgress.failure(
+          phase: PublishPhase.reservingCredit,
+          errorDetails: errorDetails,
+        ));
         return PublishResult.networkFailed(
           error: PublishFailureMessage(userMessage),
         );
@@ -1085,6 +1105,17 @@ class UploadService {
       // publish and nothing was re-captured. Skip ALL upload loops —
       // zero list calls, zero uploads, zero network for files. Just
       // build the URL map from the known path pattern.
+      //
+      // Atomic-media-bucket extension (Fix B, 2026-05-16) — each
+      // `_api.uploadMedia` call is wrapped in per-file try/catch. On
+      // failure we build an [UploadFailureRecord] and add it to
+      // [mediaFailures]; the loop continues so a single broken file
+      // doesn't mask others. After both branches complete, if any
+      // record is set we throw [PublishFailedException] with the same
+      // shape the raw-archive pass uses — the outer catch refunds the
+      // credit, cleans up the partially-uploaded paths, and the
+      // progress sheet's "Show which files →" tap-target reads the
+      // failure list from the throw.
       // ----------------------------------------------------------------
       // PR-C — start uploading-treatments phase. Per-file ticks emit
       // via `emit(PublishProgress.uploadTick(...))` after each
@@ -1104,10 +1135,30 @@ class UploadService {
       final mediaUrls = <String, String>{}; // exerciseId -> media URL
       final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
 
+      // Fix B (publish-diagnostic-surface, 2026-05-16) — per-file
+      // failure records for the media bucket. Same shape as the
+      // raw-archive collector inside `_uploadRawArchives`. After the
+      // upload branches below complete, if non-empty we throw
+      // [PublishFailedException] so the outer catch refunds the
+      // credit and the progress sheet's "Show which files →" link
+      // reads the records via the throw.
+      final mediaFailures = <UploadFailureRecord>[];
+
       final nonRestExercises =
           session.exercises.where((e) => !e.isRest).toList();
       final allPreviouslyUploaded = nonRestExercises.isNotEmpty &&
           nonRestExercises.every((e) => e.rawArchiveUploadedAt != null);
+      // Snapshot the exercise order ONCE so every failure record reports
+      // a stable 0-based slot even if `session.exercises` is mutated
+      // elsewhere mid-publish. Mirrors the same map inside
+      // [_uploadRawArchives].
+      final mediaIndexByExerciseId = <String, int>{
+        for (var i = 0; i < session.exercises.length; i++)
+          session.exercises[i].id: i,
+      };
+      final mediaNameByExerciseId = <String, String?>{
+        for (final ex in session.exercises) ex.id: ex.name,
+      };
 
       // Count the files this publish might upload (used for the sheet's
       // "N of M files" subtitle). Order:
@@ -1190,14 +1241,33 @@ class UploadService {
                 final lineStoragePath =
                     '${session.id}/${exercise.id}_thumb_line.jpg';
                 if (!existingFiles.contains(lineStoragePath)) {
-                  await _api.uploadMedia(
-                      path: lineStoragePath, file: lineThumbFile);
-                  uploadedPaths.add(lineStoragePath);
-                  filesUploaded += 1;
-                  emit(PublishProgress.uploadTick(
-                    filesUploaded: filesUploaded,
-                    filesTotal: filesTotal,
-                  ));
+                  try {
+                    await _api.uploadMedia(
+                        path: lineStoragePath, file: lineThumbFile);
+                    uploadedPaths.add(lineStoragePath);
+                    filesUploaded += 1;
+                    emit(PublishProgress.uploadTick(
+                      filesUploaded: filesUploaded,
+                      filesTotal: filesTotal,
+                    ));
+                  } catch (uploadErr) {
+                    // Fix B — record per-file failure; loop continues
+                    // so other variants get a chance to upload.
+                    mediaFailures.add(UploadFailureRecord(
+                      kind: 'media_thumb_line_upload_failed',
+                      storagePath: lineStoragePath,
+                      localPath: lineThumbAbs,
+                      fileExists: lineThumbFile.existsSync(),
+                      exerciseId: exercise.id,
+                      exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                      exerciseName: mediaNameByExerciseId[exercise.id],
+                    ));
+                    debugPrint(
+                      'uploadPlan FAILED kind=media_thumb_line_upload_failed '
+                      'path=$lineStoragePath local=$lineThumbAbs '
+                      'err=$uploadErr',
+                    );
+                  }
                 }
               }
             }
@@ -1220,13 +1290,31 @@ class UploadService {
           final ext = p.extension(filePath);
           final storagePath = '${session.id}/${exercise.id}$ext';
           if (!existingFiles.contains(storagePath)) {
-            await _api.uploadMedia(path: storagePath, file: file);
-            uploadedPaths.add(storagePath);
-            filesUploaded += 1;
-            emit(PublishProgress.uploadTick(
-              filesUploaded: filesUploaded,
-              filesTotal: filesTotal,
-            ));
+            try {
+              await _api.uploadMedia(path: storagePath, file: file);
+              uploadedPaths.add(storagePath);
+              filesUploaded += 1;
+              emit(PublishProgress.uploadTick(
+                filesUploaded: filesUploaded,
+                filesTotal: filesTotal,
+              ));
+            } catch (uploadErr) {
+              // Fix B — record per-file failure; loop continues so
+              // siblings get a chance to upload. Main mp4/jpg variant.
+              mediaFailures.add(UploadFailureRecord(
+                kind: 'media_main_upload_failed',
+                storagePath: storagePath,
+                localPath: filePath,
+                fileExists: file.existsSync(),
+                exerciseId: exercise.id,
+                exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                exerciseName: mediaNameByExerciseId[exercise.id],
+              ));
+              debugPrint(
+                'uploadPlan FAILED kind=media_main_upload_failed '
+                'path=$storagePath local=$filePath err=$uploadErr',
+              );
+            }
           }
           mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
 
@@ -1236,14 +1324,31 @@ class UploadService {
             if (await thumbFile.exists()) {
               final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
               if (!existingFiles.contains(thumbStoragePath)) {
-                await _api.uploadMedia(
-                    path: thumbStoragePath, file: thumbFile);
-                uploadedPaths.add(thumbStoragePath);
-                filesUploaded += 1;
-                emit(PublishProgress.uploadTick(
-                  filesUploaded: filesUploaded,
-                  filesTotal: filesTotal,
-                ));
+                try {
+                  await _api.uploadMedia(
+                      path: thumbStoragePath, file: thumbFile);
+                  uploadedPaths.add(thumbStoragePath);
+                  filesUploaded += 1;
+                  emit(PublishProgress.uploadTick(
+                    filesUploaded: filesUploaded,
+                    filesTotal: filesTotal,
+                  ));
+                } catch (uploadErr) {
+                  // Fix B — record _thumb.jpg failure.
+                  mediaFailures.add(UploadFailureRecord(
+                    kind: 'media_thumb_upload_failed',
+                    storagePath: thumbStoragePath,
+                    localPath: thumbPath,
+                    fileExists: thumbFile.existsSync(),
+                    exerciseId: exercise.id,
+                    exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                    exerciseName: mediaNameByExerciseId[exercise.id],
+                  ));
+                  debugPrint(
+                    'uploadPlan FAILED kind=media_thumb_upload_failed '
+                    'path=$thumbStoragePath local=$thumbPath err=$uploadErr',
+                  );
+                }
               }
               thumbUrls[exercise.id] =
                   _api.publicMediaUrl(path: thumbStoragePath);
@@ -1269,20 +1374,53 @@ class UploadService {
                   final lineStoragePath =
                       '${session.id}/${exercise.id}_thumb_line.jpg';
                   if (!existingFiles.contains(lineStoragePath)) {
-                    await _api.uploadMedia(
-                        path: lineStoragePath, file: lineThumbFile);
-                    uploadedPaths.add(lineStoragePath);
-                    filesUploaded += 1;
-                    emit(PublishProgress.uploadTick(
-                      filesUploaded: filesUploaded,
-                      filesTotal: filesTotal,
-                    ));
+                    try {
+                      await _api.uploadMedia(
+                          path: lineStoragePath, file: lineThumbFile);
+                      uploadedPaths.add(lineStoragePath);
+                      filesUploaded += 1;
+                      emit(PublishProgress.uploadTick(
+                        filesUploaded: filesUploaded,
+                        filesTotal: filesTotal,
+                      ));
+                    } catch (uploadErr) {
+                      // Fix B — record _thumb_line.jpg failure.
+                      mediaFailures.add(UploadFailureRecord(
+                        kind: 'media_thumb_line_upload_failed',
+                        storagePath: lineStoragePath,
+                        localPath: lineThumbPath,
+                        fileExists: lineThumbFile.existsSync(),
+                        exerciseId: exercise.id,
+                        exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                        exerciseName: mediaNameByExerciseId[exercise.id],
+                      ));
+                      debugPrint(
+                        'uploadPlan FAILED kind=media_thumb_line_upload_failed '
+                        'path=$lineStoragePath local=$lineThumbPath '
+                        'err=$uploadErr',
+                      );
+                    }
                   }
                 }
               }
             }
           }
         }
+      }
+
+      // Fix B (publish-diagnostic-surface, 2026-05-16) — atomic media
+      // bucket. If any per-file upload failed above, throw the same
+      // exception shape the raw-archive pass uses. The outer catch
+      // refunds the credit, cleans up the partially-uploaded paths,
+      // and the progress sheet's "Show which files →" link reads the
+      // records via the throw.
+      if (mediaFailures.isNotEmpty) {
+        throw PublishFailedException(
+          phase: PublishPhase.uploadingTreatments,
+          failures: mediaFailures,
+          filesUploaded: filesUploaded,
+          filesTotal: filesTotal,
+        );
       }
 
       // ----------------------------------------------------------------
@@ -1677,7 +1815,6 @@ class UploadService {
           : (creditConsumed
               ? PublishPhase.savingPlan
               : PublishPhase.reservingCredit);
-      emit(PublishProgress.failure(phase: inferredFailedPhase));
 
       final payload = PublishFailurePayload.fromPublishCatch(
         caught: e,
@@ -1688,6 +1825,25 @@ class UploadService {
         remoteVersionMayHaveAdvanced: planVersionBumped,
         remoteVersionCandidate: planVersionBumped ? newVersion : null,
       );
+
+      // Fix A (publish-diagnostic-surface, 2026-05-16) — carry the
+      // diagnostic payload on the same failure event so the sheet's
+      // "Show error details →" fallback tap-target appears
+      // synchronously with the coral failure row. Same flow shape as
+      // the per-file failure list above; the sheet decides which
+      // tap-target to render based on which field is populated.
+      final errorDetails = PublishErrorDetails(
+        phase: inferredFailedPhase,
+        exceptionType: payload.leafExceptionType ?? e.runtimeType.toString(),
+        userMessage: payload.userMessage,
+        detail: payload.detail,
+        clipboardText: payload.toClipboardText(),
+      );
+      emit(PublishProgress.failure(
+        phase: inferredFailedPhase,
+        errorDetails: errorDetails,
+      ));
+
       await _recordFailure(session, payload.toClipboardText());
       return PublishResult.networkFailed(error: payload);
     }

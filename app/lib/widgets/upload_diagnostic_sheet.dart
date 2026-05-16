@@ -33,6 +33,17 @@ class UploadDiagnosticSheet extends StatelessWidget {
   /// Open the sheet over the current navigator. No-op when the list is
   /// empty — the toast wouldn't have offered a Details action in that
   /// case anyway, but defending against an accidental open is cheap.
+  ///
+  /// NAV-SCOPE RULE — do NOT add `useRootNavigator: true` here. The
+  /// parent [PublishProgressSheet.show] pushes onto the local navigator
+  /// (no `useRootNavigator` flag, see `publish_progress_sheet.dart`
+  /// around line 100). When this sheet's `show()` used
+  /// `useRootNavigator: true` (added in PR #357 with the intent of
+  /// layering over the open progress sheet), the modal pushed onto an
+  /// unreachable navigator — taps fired the haptic + callback but no
+  /// modal appeared (PR #362 follow-up, 2026-05-16). Modal stacking on
+  /// the same navigator handles z-order automatically; the parent and
+  /// child must always agree on nav scope.
   static Future<void> show(
     BuildContext context,
     List<UploadFailureRecord> failures,
@@ -40,7 +51,6 @@ class UploadDiagnosticSheet extends StatelessWidget {
     if (failures.isEmpty) return Future<void>.value();
     return showModalBottomSheet<void>(
       context: context,
-      useRootNavigator: true, // layer over the publish progress sheet
       backgroundColor: AppColors.surfaceRaised,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(

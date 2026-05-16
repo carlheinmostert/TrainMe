@@ -107,6 +107,64 @@ class UploadFailureRecord {
   }
 }
 
+/// Diagnostic payload carried by [PublishProgress.failure] events for
+/// non-atomic-upload failure modes (network, RLS, RPC error, credit
+/// consume, savePlan).
+///
+/// Mirrors the shape [PublishFailurePayload] exposes to
+/// [PublishResult.networkFailed], but kept as a structurally-decoupled
+/// type in the model layer so the progress sheet can render error
+/// details without `widgets/upload_error_details_sheet.dart` having to
+/// import `services/upload_service.dart`. The upload service constructs
+/// one of these alongside its `PublishFailurePayload` and emits it on
+/// the same failure event the sheet rebuilds against.
+///
+/// `phase` answers "which row turned coral?", `exceptionType` is the
+/// `runtimeType` of the caught throwable for the diagnostic block,
+/// `message` is the practitioner-facing user message, and `detail` is
+/// the optional technical hint (PostgREST code, socket errno, truncated
+/// inner toString) appended below the user message in the copy block.
+/// `clipboardText` is the pre-formatted text the "Copy" button writes
+/// to the pasteboard — built upstream so the sheet doesn't duplicate
+/// `PublishFailurePayload.toClipboardText`'s formatting.
+class PublishErrorDetails {
+  /// The phase that failed. Drives the sheet's subhead — "Failed during
+  /// {phase.title}." Always set; mirrors [PublishProgress.failedPhase].
+  final PublishPhase phase;
+
+  /// `runtimeType` of the originally-caught exception. Surfaces in the
+  /// diagnostic block (`type: PostgrestException`). Useful for support
+  /// to grep for known error families without parsing the message text.
+  final String exceptionType;
+
+  /// Practitioner-facing one-liner. Same string surfaced via
+  /// [PublishResult.toErrorString] / the legacy snackbar.
+  final String userMessage;
+
+  /// Optional technical hint (PostgREST code, hostname, truncated inner
+  /// toString). Renders in monospace under the user message.
+  final String? detail;
+
+  /// Pre-formatted clipboard payload. Already includes user message,
+  /// refund / version-drift hints, exception type, and detail. The
+  /// "Copy" button writes this verbatim to the clipboard so support
+  /// pastes see the same shape as the legacy clipboard tap-target.
+  final String clipboardText;
+
+  /// Capture timestamp (ISO 8601, UTC). Renders at the bottom of the
+  /// sheet so support pastes carry a wall-clock anchor.
+  final DateTime capturedAt;
+
+  PublishErrorDetails({
+    required this.phase,
+    required this.exceptionType,
+    required this.userMessage,
+    required this.clipboardText,
+    this.detail,
+    DateTime? capturedAt,
+  }) : capturedAt = capturedAt ?? DateTime.now().toUtc();
+}
+
 /// Per-phase status driving the row's visual treatment in the sheet.
 enum PublishPhaseStatus {
   /// Not yet started — grey circle.
@@ -188,6 +246,21 @@ class PublishProgress {
   /// lands.
   final List<UploadFailureRecord> failures;
 
+  /// Optional error details for non-atomic-upload failure modes.
+  /// Populated on terminal failure events where [failures] is empty —
+  /// network errors, RLS rejections, RPC errors, credit-consume blips,
+  /// savePlan failures. Drives the sheet's "Show error details →"
+  /// fallback tap-target so the practitioner gets diagnostic data even
+  /// when there's no per-file list to show.
+  ///
+  /// Null on every non-terminal event, on success, and on
+  /// atomic-upload failures (which use [failures] instead). The
+  /// progress sheet renders "Show which files →" when [failures] is
+  /// non-empty, and falls back to "Show error details →" when
+  /// [errorDetails] is non-null. Exactly one of the two is set on any
+  /// failure event.
+  final PublishErrorDetails? errorDetails;
+
   const PublishProgress({
     required this.statuses,
     required this.currentPhase,
@@ -196,6 +269,7 @@ class PublishProgress {
     required this.filesTotal,
     required this.allDone,
     this.failures = const [],
+    this.errorDetails,
   });
 
   /// Convenience: the upload-phase subtitle "N of M files". Empty when
@@ -291,12 +365,15 @@ class PublishProgress {
   /// that flips [failed] to true, the progress sheet reads this list to
   /// decide whether to render the "Show which files →" tap-target.
   /// Defaults to empty for non-atomic-upload failure modes where no
-  /// per-file detail is available.
+  /// per-file detail is available — in that case the caller passes
+  /// [errorDetails] so the sheet renders the "Show error details →"
+  /// fallback tap-target instead.
   factory PublishProgress.failure({
     required PublishPhase phase,
     int filesUploaded = 0,
     int filesTotal = 0,
     List<UploadFailureRecord> failures = const [],
+    PublishErrorDetails? errorDetails,
   }) {
     final statuses = <PublishPhase, PublishPhaseStatus>{};
     for (final p in PublishPhase.values) {
@@ -316,6 +393,7 @@ class PublishProgress {
       filesTotal: filesTotal,
       allDone: false,
       failures: List.unmodifiable(failures),
+      errorDetails: errorDetails,
     );
   }
 }

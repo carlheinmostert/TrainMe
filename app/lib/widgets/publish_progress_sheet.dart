@@ -49,6 +49,14 @@ class PublishProgressSheet extends StatefulWidget {
   /// [UploadDiagnosticSheet.show].
   final ValueChanged<List<UploadFailureRecord>>? onShowFailureDetails;
 
+  /// Called when the practitioner taps "Show error details →" on the
+  /// failure state — the fallback tap-target rendered when there is no
+  /// per-file failure list to show (network errors, RLS rejections,
+  /// RPC errors, credit-consume blips, savePlan failures). Host hands
+  /// the [PublishErrorDetails] payload to
+  /// [UploadErrorDetailsSheet.show].
+  final ValueChanged<PublishErrorDetails>? onShowErrorDetails;
+
   /// Fallback failure list for the re-open-after-dismiss path. The
   /// PR-C reactive-failures fix routes failures through the
   /// [PublishProgress.failure] stream event so the sheet reads
@@ -58,13 +66,20 @@ class PublishProgressSheet extends StatefulWidget {
   /// notifier still carries an older event).
   final List<UploadFailureRecord> failures;
 
+  /// Fallback error-details payload for the re-open-after-dismiss
+  /// path. Same rationale as [failures]: the stream snapshot wins; this
+  /// prop is consulted only when the snapshot's [errorDetails] is null.
+  final PublishErrorDetails? errorDetails;
+
   const PublishProgressSheet({
     super.key,
     required this.progress,
     required this.onRetry,
     required this.onSuccessDismiss,
     this.onShowFailureDetails,
+    this.onShowErrorDetails,
     this.failures = const [],
+    this.errorDetails,
   });
 
   /// Open the sheet over the given navigator. Returns the future the
@@ -78,7 +93,9 @@ class PublishProgressSheet extends StatefulWidget {
     required VoidCallback onSuccessDismiss,
     required VoidCallback onDismissed,
     ValueChanged<List<UploadFailureRecord>>? onShowFailureDetails,
+    ValueChanged<PublishErrorDetails>? onShowErrorDetails,
     List<UploadFailureRecord> failures = const [],
+    PublishErrorDetails? errorDetails,
   }) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -97,7 +114,9 @@ class PublishProgressSheet extends StatefulWidget {
         onRetry: onRetry,
         onSuccessDismiss: onSuccessDismiss,
         onShowFailureDetails: onShowFailureDetails,
+        onShowErrorDetails: onShowErrorDetails,
         failures: failures,
+        errorDetails: errorDetails,
       ),
     );
     onDismissed();
@@ -275,6 +294,17 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
           p.failures.isNotEmpty ? p.failures : widget.failures;
       final hasFailureDetails =
           failureList.isNotEmpty && widget.onShowFailureDetails != null;
+
+      // Fix A (publish-diagnostic-surface, 2026-05-16) — fallback
+      // tap-target for non-atomic-upload failures where there's no
+      // per-file list to show. Same selection rule: prefer the live
+      // stream snapshot; fall through to the host prop only on the
+      // re-open path. The two tap-targets are mutually exclusive —
+      // we render exactly one based on which payload landed.
+      final errorPayload = p.errorDetails ?? widget.errorDetails;
+      final hasErrorDetails = !hasFailureDetails &&
+          errorPayload != null &&
+          widget.onShowErrorDetails != null;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
@@ -294,6 +324,37 @@ class _PublishProgressSheetState extends State<PublishProgressSheet>
                     children: [
                       Text(
                         'Show which files',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                          decoration: TextDecoration.underline,
+                          decorationColor:
+                              AppColors.primary.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_forward_rounded,
+                          size: 14, color: AppColors.primary),
+                    ],
+                  ),
+                ),
+              ),
+            if (hasErrorDetails)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onShowErrorDetails!(errorPayload);
+                  },
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Show error details',
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 13,

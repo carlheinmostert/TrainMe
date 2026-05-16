@@ -30,6 +30,7 @@ import '../utils/session_title.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
 import '../widgets/upload_diagnostic_sheet.dart';
+import '../widgets/upload_error_details_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/exercise_editor_sheet.dart';
@@ -148,6 +149,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// lands. Cleared at the start of each fresh publish so a retry
   /// starts clean.
   List<UploadFailureRecord> _publishFailures = const [];
+
+  /// Fix A (publish-diagnostic-surface, 2026-05-16) — last non-atomic
+  /// failure payload so a chip re-open after swipe-dismiss still
+  /// renders the "Show error details →" tap-target. The progress
+  /// notifier's snapshot is authoritative while the sheet is live;
+  /// this field is the fallback consulted by the sheet only when the
+  /// snapshot's [PublishProgress.errorDetails] is null. Cleared at the
+  /// start of each fresh publish.
+  PublishErrorDetails? _publishErrorDetails;
 
   /// True for ~3s after a successful publish so the workflow toolbar
   /// chip morphs into the "Plan published" sage variant before
@@ -2694,6 +2704,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             rootScaffoldMessengerKey.currentContext ?? context;
         UploadDiagnosticSheet.show(rootContext, failures);
       },
+      onShowErrorDetails: (details) {
+        final rootContext =
+            rootScaffoldMessengerKey.currentContext ?? context;
+        UploadErrorDetailsSheet.show(rootContext, details);
+      },
       onDismissed: () {
         if (!mounted) {
           _publishSheetVisible = false;
@@ -2702,6 +2717,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         setState(() => _publishSheetVisible = false);
       },
       failures: _publishFailures,
+      errorDetails: _publishErrorDetails,
     );
   }
 
@@ -2743,6 +2759,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       _isPublishing = true;
       _publishError = null;
       _publishFailures = const [];
+      _publishErrorDetails = null;
       _publishJustSucceeded = false;
     });
     _publishJustSucceededTimer?.cancel();
@@ -2760,6 +2777,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             rootScaffoldMessengerKey.currentContext ?? context;
         UploadDiagnosticSheet.show(rootContext, failures);
       },
+      onShowErrorDetails: (details) {
+        final rootContext =
+            rootScaffoldMessengerKey.currentContext ?? context;
+        UploadErrorDetailsSheet.show(rootContext, details);
+      },
       onDismissed: () {
         if (!mounted) {
           _publishSheetVisible = false;
@@ -2768,6 +2790,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         setState(() => _publishSheetVisible = false);
       },
       failures: const [],
+      errorDetails: null,
     );
 
     PublishResult? result;
@@ -2789,19 +2812,32 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           loadedSession?.practiceId ??
           '';
       final trainerId = ApiClient.instance.currentUserId ?? '';
-      result = PublishResult.networkFailed(
-        error: PublishFailurePayload.fromPublishCatch(
-          caught: e,
-          practiceId: practiceId,
-          trainerId: trainerId,
-          refundLikelyAttempted: false,
-          refundOutcomeUnknown: false,
-          remoteVersionMayHaveAdvanced: false,
-        ),
+      final payload = PublishFailurePayload.fromPublishCatch(
+        caught: e,
+        practiceId: practiceId,
+        trainerId: trainerId,
+        refundLikelyAttempted: false,
+        refundOutcomeUnknown: false,
+        remoteVersionMayHaveAdvanced: false,
       );
+      result = PublishResult.networkFailed(error: payload);
       if (mounted) {
-        _publishProgress.value =
-            PublishProgress.failure(phase: PublishPhase.preparing);
+        // Fix A (publish-diagnostic-surface, 2026-05-16) — surface the
+        // host-side catch through the sheet so the "Show error
+        // details" tap-target appears for failures that originated
+        // outside `uploadPlan`'s catch (rare; usually getSession
+        // throws or an isolate boundary).
+        final details = PublishErrorDetails(
+          phase: PublishPhase.preparing,
+          exceptionType: payload.leafExceptionType ?? e.runtimeType.toString(),
+          userMessage: payload.userMessage,
+          detail: payload.detail,
+          clipboardText: payload.toClipboardText(),
+        );
+        _publishProgress.value = PublishProgress.failure(
+          phase: PublishPhase.preparing,
+          errorDetails: details,
+        );
       }
     } finally {
       if (mounted) {
@@ -2818,6 +2854,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final failureList = result.optionalArtifactFailures;
     if (failureList.isNotEmpty) {
       setState(() => _publishFailures = failureList);
+    }
+    // Fix A (publish-diagnostic-surface, 2026-05-16) \u2014 snapshot the
+    // error-details payload off the progress notifier so a chip
+    // re-open after swipe-dismiss still renders the "Show error
+    // details" tap-target. The notifier's value is the terminal
+    // failure event emitted by upload_service.
+    final emittedErrorDetails = _publishProgress.value.errorDetails;
+    if (emittedErrorDetails != null) {
+      setState(() => _publishErrorDetails = emittedErrorDetails);
     }
     if (result.success) {
       final consentCheckSkipped = result.consentPreflightSkippedReason;
