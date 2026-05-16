@@ -679,6 +679,18 @@ class ConversionService extends ChangeNotifier {
       }
     }
 
+    // Flag the exercise's thumbs as dirty so the next publish re-uploads
+    // every variant — overriding the fast-path skip that keys on
+    // `rawArchiveUploadedAt` alone. Set even when one or more variants
+    // failed above: any new local variant means cloud is stale. The
+    // post-conversion path (first capture → convert) never sets this
+    // because `rawArchiveUploadedAt` is still null there, so the normal
+    // upload loop already runs and writes every variant.
+    //
+    // See `exercise_capture.dart` thumbnailsDirty doc-comment + the
+    // 2026-05-16 fix commit for the publish-side honouring.
+    next = next.copyWith(thumbnailsDirty: true);
+
     await _storage.saveExercise(next);
     if (!_updateController.isClosed) {
       _updateController.add(next);
