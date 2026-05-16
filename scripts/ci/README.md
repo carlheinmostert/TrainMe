@@ -20,6 +20,7 @@ These scripts are designed to be:
 |------|---------|-------------|
 | `check-no-direct-db-access.sh` | Forbids `.from(` / `.rpc(` / `.storage` / `/rest/v1/` / `Supabase.instance.client` outside the per-surface access layer. | Hard fail |
 | `check-migration-column-preservation.sh` | Surfaces every `CREATE OR REPLACE FUNCTION ... RETURNS TABLE` in changed migration files, asks the reviewer to verify the prior column list is preserved. | Soft (warnings only) |
+| `check-hero-resolver.sh` | Forbids `object-fit: cover` on `.lobby-hero-media` (the `<img>` selector), `heroCropOffset` reads outside the resolver / model / editor allow-list, and static `_thumb*.jpg` `<img>` tags in lobby code. Scans `web-player/` and `app/assets/web-player/` (R-10 mirror). See `docs/HERO_RESOLVER.md`. | Hard fail |
 | `db-access-exceptions.txt` | Grandfathered carve-outs for the direct-DB-access check. One repo-relative path per line. Goal: empty file. | Data |
 
 ## Running locally
@@ -35,6 +36,9 @@ scripts/ci/check-migration-column-preservation.sh
 
 # Migration check — scan every migration file
 scripts/ci/check-migration-column-preservation.sh --all
+
+# Hero resolver single-source-of-truth
+scripts/ci/check-hero-resolver.sh
 ```
 
 Both scripts use `set -euo pipefail`. They print `OK: ...` on success or
