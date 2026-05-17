@@ -155,6 +155,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Thumbnail variants (`_thumb.jpg`, `_thumb_line.jpg`,
+  // `_thumb_color.jpg`, `_thumb_bw.jpg`) are NOT immutable — they get
+  // re-uploaded on every Hero-star drag / hero-crop drag / republish
+  // via PR #376's `thumbnailsDirty` flag. Cache-first would serve the
+  // first-publish bytes indefinitely, masking every subsequent hero
+  // change. Network-first ensures the freshest bytes show after each
+  // republish; the cache fallback keeps the lobby readable offline.
+  if (isMutableThumbRequest(request)) {
+    event.respondWith(networkFirstAppShellStrategy(request));
+    return;
+  }
+
   // Media assets — cache-first (immutable content-addressable URLs).
   if (isMediaRequest(request)) {
     event.respondWith(cacheFirstStrategy(request));
@@ -268,4 +280,22 @@ function isMediaRequest(request) {
   const url = new URL(request.url);
   const ext = url.pathname.split('.').pop().toLowerCase();
   return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm'].includes(ext);
+}
+
+// Per-exercise thumbnail variants get re-uploaded whenever the
+// practitioner moves the Hero star, drags the hero crop offset, or
+// otherwise triggers `ConversionService.regenerateHeroThumbnails`
+// (PR #376 `thumbnailsDirty` flow). The URL stays the same so a
+// cache-first strategy would pin the lobby on the first-publish
+// bytes forever — Carl hit this on 2026-05-17 device QA, the cloud
+// `_thumb.jpg` updated correctly but Safari kept serving the
+// pre-Hero-move frame.
+//
+// File names are stable: `{id}_thumb.jpg`, `{id}_thumb_line.jpg`,
+// `{id}_thumb_color.jpg`, `{id}_thumb_bw.jpg`. Match any path ending
+// in `_thumb.jpg`, `_thumb_<variant>.jpg`. Underscored prefix prevents
+// false-matches on legitimately-immutable JPGs.
+function isMutableThumbRequest(request) {
+  const url = new URL(request.url);
+  return /_thumb(_[a-z]+)?\.jpg$/i.test(url.pathname);
 }
