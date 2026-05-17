@@ -160,10 +160,14 @@ self.addEventListener('fetch', (event) => {
   // re-uploaded on every Hero-star drag / hero-crop drag / republish
   // via PR #376's `thumbnailsDirty` flag. Cache-first would serve the
   // first-publish bytes indefinitely, masking every subsequent hero
-  // change. Network-first ensures the freshest bytes show after each
-  // republish; the cache fallback keeps the lobby readable offline.
+  // change. Network-first + `cache: 'reload'` bypasses both the SW
+  // cache AND the browser HTTP cache (Supabase Storage sends
+  // `cache-control: public, max-age=3600` so a plain network-first
+  // fetch would still serve a stale browser-cached copy for an hour
+  // after a Hero change). Cache fallback keeps the lobby readable
+  // offline.
   if (isMutableThumbRequest(request)) {
-    event.respondWith(networkFirstAppShellStrategy(request));
+    event.respondWith(networkRevalidateStrategy(request));
     return;
   }
 
@@ -233,6 +237,38 @@ async function networkFirstAppShellStrategy(request) {
       const fallback = await cache.match('/index.html');
       if (fallback) return fallback;
     }
+    throw err;
+  }
+}
+
+// Like `networkFirstAppShellStrategy`, but forces `cache: 'reload'` on
+// the network fetch so the browser's HTTP cache (which honours
+// Supabase Storage's `cache-control: public, max-age=3600` for an
+// hour) is bypassed. Used for mutable thumb URLs whose path stays the
+// same across regenerations — see PR #383's discovery that a plain
+// network-first still served stale browser-cached bytes for an hour
+// after a Hero-star drag + republish.
+async function networkRevalidateStrategy(request) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    // Build a new Request with `cache: 'reload'` because Request
+    // objects' cache mode is read-only once constructed. Carry the
+    // URL + headers; method is GET (filtered upstream).
+    const reloadRequest = new Request(request.url, {
+      method: 'GET',
+      headers: request.headers,
+      cache: 'reload',
+      credentials: request.credentials,
+      redirect: request.redirect,
+    });
+    const response = await fetch(reloadRequest);
+    if (response.ok) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (err) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
     throw err;
   }
 }
