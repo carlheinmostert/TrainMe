@@ -1854,6 +1854,19 @@
         v.dataset.posterSrc = hero.dataset.posterSrc || '';
         v.dataset.trimStart = hero.dataset.trimStart || '0';
         v.dataset.trimEnd = hero.dataset.trimEnd || '0';
+        // 2026-05-17 — carry hydrateHeroCrops metadata across the swap.
+        // Without this, the swap-back below recreates an <img> with no
+        // data-hero-* attributes, so hydrateHeroCrops skips it and the
+        // raw (non-1:1) poster stretches into the 1:1 container under
+        // the default object-fit:fill (PR #364 deliberately removed
+        // object-fit:cover from `img.lobby-hero-media`, relying on the
+        // hydrate path to produce a 1:1 data URL). The race surfaces
+        // when the user scrolls fast — hydrate hasn't yet rewritten
+        // data-poster-src to a data URL before the active-row toggle
+        // swaps in the <video>, so the swap-back later inherits the
+        // raw URL.
+        v.dataset.heroId = hero.dataset.heroId || '';
+        v.dataset.heroOffset = hero.dataset.heroOffset || '0.5';
         // Poster shows the static Hero frame while the video buffers; no
         // black flash during the decoder warm-up.
         if (v.dataset.posterSrc) v.setAttribute('poster', v.dataset.posterSrc);
@@ -1906,10 +1919,23 @@
         img.dataset.posterSrc = posterSrc;
         img.dataset.trimStart = hero.dataset.trimStart || '0';
         img.dataset.trimEnd = hero.dataset.trimEnd || '0';
+        // 2026-05-17 — attach hydrateHeroCrops metadata so the resolver
+        // re-crops the raw poster into a 1:1 data URL after swap-back.
+        // Without these data-hero-* attrs the new <img> is invisible to
+        // hydrateHeroCrops, leaving the raw (non-1:1) poster stretched
+        // in the 1:1 container under the default object-fit:fill. See
+        // the swap-to-video branch above for the matching carry-across.
+        img.dataset.heroId = hero.dataset.heroId || '';
+        img.dataset.heroOffset = hero.dataset.heroOffset || '0.5';
+        img.dataset.heroSource = posterSrc;
         img.setAttribute('src', posterSrc);
         hero.parentNode.replaceChild(img, hero);
       }
     });
+    // 2026-05-17 — re-hydrate any freshly-swapped <img> so its src
+    // crops to 1:1. Idempotent: hydrateHeroCrops short-circuits on
+    // data: URLs already in flight via the resolver cache.
+    hydrateHeroCrops();
   }
 
   function prefersReducedMotion() {
