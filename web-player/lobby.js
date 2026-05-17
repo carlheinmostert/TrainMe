@@ -1458,6 +1458,19 @@
   // JS positioning is ever skipped.
   function repositionLobbySettingsPopover() {
     if (!$lobbySettingsPopover || !$lobbyGearBtn) return;
+    // 2026-05-17 — escape the containing block trap. `#lobby-cta-bar`
+    // has `backdrop-filter: blur(14px)`, and per CSS spec any element
+    // with `backdrop-filter !== none` establishes a new containing
+    // block for `position: fixed` descendants — so the popover's
+    // viewport-relative `top: 379px` was actually rendered relative
+    // to the bar (whose top sits at viewport y=619), pushing the
+    // panel ~620px below where it should be (off-screen on a phone-
+    // sized viewport). Move the popover to `document.body` at open
+    // time so its containing block is the real viewport again.
+    // Idempotent — only moves when not already a direct body child.
+    if ($lobbySettingsPopover.parentElement !== document.body) {
+      document.body.appendChild($lobbySettingsPopover);
+    }
     var gearRect = $lobbyGearBtn.getBoundingClientRect();
     if (!gearRect) return;
     // Render once invisibly to measure the popover's intrinsic size.
