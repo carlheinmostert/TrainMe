@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Studio toolbar — readiness separator options (v2)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --raised-2: #242733;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --coral-soft: rgba(255,107,53,0.22);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: #060708; color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 32px 80px; }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: 0.2px; margin: 44px 0 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); max-width: 840px; }
+  .lede strong { color: var(--text); }
+  .lede code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .pill-summary { color: var(--text-mute); font-size: 13px; margin: -2px 0 16px; }
+  .pill-summary strong { color: var(--text); font-weight: 600; }
+  .pill-summary code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--coral); }
+
+  /* Lifecycle stage selector — drives every toolbar on the page. */
+  .stage-selector {
+    margin: 18px 0 26px;
+    padding: 14px 18px;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  }
+  .stage-selector .hint { color: var(--text-mute); font-size: 12px; margin-right: 8px; }
+  .stage-selector button {
+    padding: 7px 14px;
+    font-family: inherit;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: transparent; color: var(--text-mute);
+    border: 1px solid var(--border-strong); border-radius: 999px;
+    cursor: pointer;
+  }
+  .stage-selector button:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .stage-selector button.is-on {
+    background: var(--coral); color: #0F1117; border-color: var(--coral);
+  }
+
+  /* Stage card — frames each toolbar variant. */
+  .stage {
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 18px;
+    padding: 28px 24px 22px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    margin-bottom: 18px;
+  }
+
+  /* === Real toolbar geometry === */
+  .toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px 8px 10px;
+    background: var(--raised);
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    position: relative;
+  }
+  .toolbar .right-cluster {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .util {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text); opacity: 0.85;
+  }
+  .util svg { width: 22px; height: 22px; }
+
+  /* Workflow pill */
+  .workflow {
+    display: flex; align-items: center;
+    padding: 4px 6px;
+    background: var(--raised-2);
+    border-radius: 999px;
+    gap: 2px;
+    position: relative;
+  }
+  .step {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 6px 8px 4px;
+    border-radius: 999px;
+    color: var(--text);
+    transition: opacity 200ms ease, color 200ms ease;
+  }
+  .step .glyph {
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    /* Bare glyph — no chip background, no border. */
+  }
+  .step .glyph svg { width: 28px; height: 28px; }
+  .step .lbl {
+    margin-top: 3px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+  }
+  /* Readiness states (mirror existing _CapsCell logic) */
+  .step.is-ready .glyph { color: var(--text); opacity: 1; }
+  .step.is-ready .lbl { color: var(--text); }
+  .step.is-dim .glyph { color: var(--text); opacity: 0.40; }
+  .step.is-dim .lbl { color: var(--text-dim); }
+  .step.is-done .glyph { color: var(--text); opacity: 1; }
+  .step.is-done .lbl { color: var(--text); }
+
+  /* ===== Separator variants ===== */
+  .sep {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim);
+    font-size: 12px;
+    width: 14px; height: 36px;
+    user-select: none;
+  }
+
+  /* Reference: current one-way triangle */
+  .sep--triangle { color: var(--coral); opacity: 0.55; }
+  .sep--triangle.is-dim { opacity: 0.18; }
+
+  /* Variant 1 — no separator (just spacing) */
+  .workflow--bare .step { padding-left: 12px; padding-right: 12px; }
+
+  /* Variant 2 — underline progress bar */
+  .workflow--bar { padding-bottom: 6px; }
+  .workflow--bar .step { padding-bottom: 5px; }
+  .workflow--bar .underline {
+    position: absolute;
+    left: 12px; right: 12px; bottom: 4px;
+    height: 2px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .workflow--bar .underline .fill {
+    position: absolute; inset: 0;
+    width: var(--fill, 0%);
+    background: var(--coral);
+    border-radius: 999px;
+    transition: width 320ms ease;
+  }
+
+  /* Variant 3 — vertical state-dot stacks */
+  .sep--dotstate {
+    flex-direction: column; gap: 3px; width: 16px;
+  }
+  .sep--dotstate .dt {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--text-dim);
+    transition: background 220ms ease, border-color 220ms ease, opacity 220ms ease;
+  }
+  .sep--dotstate .dt.is-filled {
+    background: var(--coral); border-color: var(--coral);
+  }
+  .sep--dotstate .dt.is-half {
+    background: var(--coral); border-color: var(--coral);
+    opacity: 0.45;
+  }
+
+  /* Variant 4 — filling connector line */
+  .sep--line {
+    width: 16px; height: 36px;
+    position: relative;
+  }
+  .sep--line::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    transform: translateY(-50%);
+    height: 1.5px;
+    background: rgba(255,255,255,0.10);
+    border-radius: 999px;
+  }
+  .sep--line::after {
+    content: "";
+    position: absolute;
+    left: 0; top: 50%;
+    transform: translateY(-50%);
+    height: 1.5px;
+    width: 0;
+    background: var(--coral);
+    border-radius: 999px;
+    transition: width 320ms ease;
+  }
+  .sep--line.is-fill::after { width: 100%; }
+  .sep--line.is-half::after { width: 50%; }
+
+  .annotation {
+    margin: 14px 0 0; padding: 14px 18px;
+    background: var(--raised); border-radius: 10px; border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 13px;
+  }
+  .annotation strong { color: var(--text); }
+  .annotation .pro { color: #86EFAC; }
+  .annotation .con { color: #F87171; }
+  .annotation ul { margin: 6px 0 0 0; padding-left: 22px; }
+  .annotation li { margin: 3px 0; }
+
+  .stage-row {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .stage-row .label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-dim);
+    width: 60px;
+  }
+
+  .reco {
+    margin-top: 36px; padding: 20px 22px;
+    background: linear-gradient(180deg, rgba(255,107,53,0.08), rgba(255,107,53,0.03));
+    border: 1px solid rgba(255,107,53,0.30);
+    border-radius: 14px;
+    color: var(--text);
+  }
+  .reco strong { color: var(--coral); }
+
+  .footer-note {
+    margin-top: 30px; color: var(--text-dim); font-size: 12px;
+  }
+  .footer-note code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--coral); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kicker">Studio · Toolbar wave — v2 reframe</div>
+  <h1>Workflow toolbar — readiness, not direction</h1>
+  <p class="lede">
+    Earlier I proposed a segmented-pill that highlights the "current step". <strong>That was wrong</strong> — tapping any of these cells navigates away from Studio (or fires a modal), so none of them is ever "currently selected". They're five action launchers: <code>Capture · Adjust · Preview · Publish · Share</code>, each with its own <em>readiness</em> state (already encoded in the existing code via cell opacity: <code>onAdjust != null</code>, <code>hasExercises</code>, <code>canPublish</code>, <code>session.isPublished</code>).
+    <br/><br/>
+    The triangle was layering "direction" on top of "readiness" and the two didn't need each other. Below: four ways to drop the directional cue without losing the readiness signal.
+  </p>
+
+  <div class="stage-selector">
+    <span class="hint">Lifecycle:</span>
+    <button data-life="empty" class="is-on">New session</button>
+    <button data-life="captured">Captured + adjusted</button>
+    <button data-life="previewed">Ready to publish</button>
+    <button data-life="published">Published</button>
+  </div>
+
+  <!-- === Reference: current state === -->
+  <h2>Now — directional triangle</h2>
+  <p class="pill-summary">For reference. The coral triangle pushes the eye left-to-right, implying a one-way march.</p>
+  <div class="stage" data-variant="current">
+    <div class="stage-row">
+      <span class="label">Now</span>
+      <div class="toolbar">
+        <div class="workflow" data-row>
+          <!-- placeholders; populated by JS based on lifecycle -->
+        </div>
+        <div class="right-cluster">
+          <div class="util" title="Download all to camera roll">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === 1: Bare — no separator === -->
+  <h2>Option 1 — No separator (recommended)</h2>
+  <p class="pill-summary"><strong>Drop the chrome.</strong> Cell-opacity readiness signal carries the whole message; the row is five tappable action chips inside a shared pill.</p>
+  <div class="stage" data-variant="bare">
+    <div class="stage-row">
+      <span class="label">1</span>
+      <div class="toolbar">
+        <div class="workflow workflow--bare" data-row></div>
+        <div class="right-cluster">
+          <div class="util" title="Download all to camera roll">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation">
+      <strong>Reads as:</strong> a quiet row of action chips. No flow, no chrome, no redundancy.
+      <ul>
+        <li><span class="pro">+</span> Smallest possible visual surface — the triangle was redundant on top of the cell-opacity readiness signal.</li>
+        <li><span class="pro">+</span> Easiest to ship — pure delete in <code>studio_bottom_bar.dart</code> (`_Arrow` widget + `_ArrowPainter` go away).</li>
+        <li><span class="pro">+</span> Honest framing: these are 5 launchers, not 5 stages of a tunnel.</li>
+        <li><span class="con">−</span> Loses any session-progress at-a-glance cue. If you want that signal, layer Option 2 on top.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- === 2: Underline progress bar === -->
+  <h2>Option 2 — Hairline progress bar under the pill</h2>
+  <p class="pill-summary"><strong>One continuous, non-directional cue.</strong> A 2px coral track underneath the pill fills as the session matures. Replaces four separators with one piece of chrome.</p>
+  <div class="stage" data-variant="bar">
+    <div class="stage-row">
+      <span class="label">2</span>
+      <div class="toolbar">
+        <div class="workflow workflow--bar" data-row>
+          <div class="underline"><div class="fill" data-fill></div></div>
+        </div>
+        <div class="right-cluster">
+          <div class="util" title="Download all to camera roll">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation">
+      <strong>Reads as:</strong> "how far along is this session". A glance tells you whether to publish or keep iterating.
+      <ul>
+        <li><span class="pro">+</span> Adds genuine information (session maturity) instead of redundant chrome.</li>
+        <li><span class="pro">+</span> Direction-neutral — the bar fills, but the user isn't told which way to walk the steps.</li>
+        <li><span class="con">−</span> Slight extra pill height (~6px) to host the bar. May fight the bottom card boundary.</li>
+        <li><span class="con">−</span> Animation can feel "loading-bar-y" if it crosses the boundary on Publish.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- === 3: Vertical state-dot stacks === -->
+  <h2>Option 3 — Vertical state-dot stacks between cells</h2>
+  <p class="pill-summary"><strong>Discrete progress per gap.</strong> Each separator is a tiny vertical stack of dots that fills as the session moves past that point.</p>
+  <div class="stage" data-variant="dotstate">
+    <div class="stage-row">
+      <span class="label">3</span>
+      <div class="toolbar">
+        <div class="workflow" data-row></div>
+        <div class="right-cluster">
+          <div class="util" title="Download all to camera roll">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation">
+      <strong>Reads as:</strong> "what's been touched, what's pending". Decomposes session maturity into four discrete checkpoints.
+      <ul>
+        <li><span class="pro">+</span> Highest information density of the four — encodes per-gap progress.</li>
+        <li><span class="pro">+</span> No direction — the dots are vertical stacks, not horizontal arrows.</li>
+        <li><span class="con">−</span> Novel pattern; needs a moment to learn (or a tooltip on first install).</li>
+        <li><span class="con">−</span> Custom painter or 16 small DOM nodes. Heavier to maintain than #1 / #2.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- === 4: Filling connector line === -->
+  <h2>Option 4 — Filling connector line between cells</h2>
+  <p class="pill-summary"><strong>Linear cousin of #3.</strong> Each gap is a thin horizontal line that fills coral as the session passes through that step. Lighter weight than the dot stacks.</p>
+  <div class="stage" data-variant="line">
+    <div class="stage-row">
+      <span class="label">4</span>
+      <div class="toolbar">
+        <div class="workflow" data-row></div>
+        <div class="right-cluster">
+          <div class="util" title="Download all to camera roll">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation">
+      <strong>Reads as:</strong> a quiet, continuous track that fills behind you as the session matures.
+      <ul>
+        <li><span class="pro">+</span> Same per-gap info as #3, lower visual weight.</li>
+        <li><span class="pro">+</span> Echoes the existing coral track motif on the player's progress pill matrix — visually familiar.</li>
+        <li><span class="con">−</span> Horizontal hairlines might still read as one-way to some users (eye habit). The lack of an arrowhead is the only difference.</li>
+        <li><span class="con">−</span> Awkward at the ends — first cell has no leading line, last has no trailing line, so the pill looks slightly lopsided.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="reco">
+    <strong>Recommendation:</strong> ship <em>Option 1 (no separator)</em>. The cell-opacity readiness signal is already doing the work; deleting the arrow drops genuinely redundant chrome and the pill becomes more honest about what it is — five launchers, not five stages. Keep <em>Option 2 (hairline bar)</em> as a pocket upgrade if a later wave wants session-maturity at a glance.
+  </div>
+
+  <p class="footer-note">
+    Implementation: replace <code>_Arrow</code> + <code>_ArrowPainter</code> in <code>app/lib/widgets/studio_bottom_bar.dart:138–221</code> with a plain <code>SizedBox(width: 4)</code> spacer (or zero if cell padding handles it). Mobile-only change — the workflow pill doesn't appear on the web player.
+  </p>
+
+</div>
+
+<script>
+  // Five cells with their readiness logic per lifecycle stage.
+  // Mirrors _CapsCell active rules from studio_bottom_bar.dart.
+  const CELLS = [
+    { key: 'capture', lbl: 'Capture', svg: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>' },
+    { key: 'adjust',  lbl: 'Adjust',  svg: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>' },
+    { key: 'preview', lbl: 'Preview', svg: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>' },
+    { key: 'publish', lbl: 'Publish', svg: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>' },
+    { key: 'share',   lbl: 'Share',   svg: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>' },
+  ];
+
+  // Readiness per lifecycle stage. 'r' = ready, 'd' = dim, 'D' = done.
+  const LIFE = {
+    empty:     { capture:'r', adjust:'d', preview:'d', publish:'d', share:'d', progressFraction: 0 },
+    captured:  { capture:'D', adjust:'r', preview:'r', publish:'d', share:'d', progressFraction: 0.40 },
+    previewed: { capture:'D', adjust:'D', preview:'D', publish:'r', share:'d', progressFraction: 0.70 },
+    published: { capture:'D', adjust:'D', preview:'D', publish:'D', share:'r', progressFraction: 1.0 },
+  };
+
+  function classFor(state) {
+    return state === 'r' ? 'is-ready' : state === 'D' ? 'is-done' : 'is-dim';
+  }
+
+  function svg(d) {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  }
+
+  function renderCell(cell, state) {
+    return `<div class="step ${classFor(state)}">
+      <div class="glyph">${svg(cell.svg)}</div>
+      <div class="lbl">${cell.lbl}</div>
+    </div>`;
+  }
+
+  function renderCurrent(life) {
+    // Triangle separator: bright if both adjacent cells are non-dim, dim otherwise.
+    let html = '';
+    CELLS.forEach((cell, i) => {
+      const state = life[cell.key];
+      html += renderCell(cell, state);
+      if (i < CELLS.length - 1) {
+        const next = life[CELLS[i + 1].key];
+        const dim = (state === 'd' || next === 'd');
+        html += `<div class="sep sep--triangle ${dim ? 'is-dim' : ''}">▸</div>`;
+      }
+    });
+    return html;
+  }
+
+  function renderBare(life) {
+    return CELLS.map(c => renderCell(c, life[c.key])).join('');
+  }
+
+  function renderBar(life) {
+    let html = CELLS.map(c => renderCell(c, life[c.key])).join('');
+    html += `<div class="underline"><div class="fill" style="width:${Math.round(life.progressFraction * 100)}%"></div></div>`;
+    return html;
+  }
+
+  function renderDotState(life) {
+    // 4 dots per separator. Number filled grows with progress.
+    // Reuse progressFraction to derive dots-filled: ceil(4 * f) across 4 separators (16 dots total).
+    const totalDots = 16;
+    const filledTotal = Math.round(totalDots * life.progressFraction);
+    let html = '';
+    let placed = 0;
+    CELLS.forEach((cell, i) => {
+      html += renderCell(cell, life[cell.key]);
+      if (i < CELLS.length - 1) {
+        let stack = '';
+        for (let d = 0; d < 4; d++) {
+          const isFilled = (placed + d) < filledTotal;
+          stack += `<span class="dt ${isFilled ? 'is-filled' : ''}"></span>`;
+        }
+        placed += 4;
+        html += `<div class="sep sep--dotstate">${stack}</div>`;
+      }
+    });
+    return html;
+  }
+
+  function renderLine(life) {
+    // 4 gaps. Each gap fills based on how far past it we are.
+    const gaps = 4;
+    const f = life.progressFraction;
+    let html = '';
+    CELLS.forEach((cell, i) => {
+      html += renderCell(cell, life[cell.key]);
+      if (i < CELLS.length - 1) {
+        const gapStart = i / gaps;
+        const gapEnd = (i + 1) / gaps;
+        let fillCls = '';
+        if (f >= gapEnd) fillCls = 'is-fill';
+        else if (f > gapStart) fillCls = 'is-half';
+        html += `<div class="sep sep--line ${fillCls}"></div>`;
+      }
+    });
+    return html;
+  }
+
+  const RENDERERS = {
+    current: renderCurrent,
+    bare: renderBare,
+    bar: renderBar,
+    dotstate: renderDotState,
+    line: renderLine,
+  };
+
+  function applyLife(key) {
+    document.querySelectorAll('.stage').forEach(stage => {
+      const variant = stage.dataset.variant;
+      const row = stage.querySelector('[data-row]');
+      if (!row) return;
+      row.innerHTML = RENDERERS[variant](LIFE[key]);
+    });
+  }
+
+  document.querySelectorAll('.stage-selector button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.stage-selector button').forEach(b => b.classList.remove('is-on'));
+      btn.classList.add('is-on');
+      applyLife(btn.dataset.life);
+    });
+  });
+
+  // Initial render.
+  applyLife('empty');
+</script>
+
+</body>
+</html>

@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 41;
+  static const _dbVersion = 42;
 
   Database? _db;
 
@@ -91,6 +91,7 @@ class LocalStorageService {
         publish_attempt_count INTEGER NOT NULL DEFAULT 0,
         created_by_user_id TEXT,
         client_id TEXT,
+        practice_id TEXT,
         crossfade_lead_ms INTEGER,
         crossfade_fade_ms INTEGER,
         unlock_credit_prepaid_at INTEGER,
@@ -1195,6 +1196,33 @@ class LocalStorageService {
          WHERE media_type = 0
         ''',
       );
+    }
+    if (oldVersion < 42) {
+      // 2026-05-16 (PR #363, originally landed direct-to-main as v39;
+      // renumbered to v42 in the staging→main promotion to avoid a
+      // version collision with the staging-side v39 migration above).
+      //
+      // Persist practice_id on the local sessions table so multi-practice
+      // users always have the correct tenant context without falling back
+      // to AuthService.currentPracticeId.
+      //
+      // Best-effort backfill: if this device has exactly one cached
+      // practice, stamp every existing row with it. Multi-practice
+      // devices stay NULL — publish + unlock flows retain their
+      // AuthService-verified override in upload_service.dart.
+      await _addColumnIfMissing(db, 'sessions', 'practice_id', 'TEXT');
+      try {
+        final practices = await db.query('cached_practices', columns: ['id']);
+        if (practices.length == 1) {
+          await db.execute(
+            'UPDATE sessions SET practice_id = ? WHERE practice_id IS NULL',
+            [practices.first['id']],
+          );
+        }
+      } catch (_) {
+        // cached_practices may not exist on a partial/test upgrade path;
+        // backfill is best-effort — sessions are stamped on next write.
+      }
     }
   }
 

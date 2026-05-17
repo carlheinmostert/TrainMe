@@ -1,4 +1,4 @@
-# Free Lobby Export — Spec (Draft)
+# Free Lobby Export — Spec (Draft, partially superseded)
 
 A freemium artefact derived from the lobby content. Practitioners give it
 to clients without spending a credit; the artefact gateways back into the
@@ -6,6 +6,20 @@ paid interactive product via an upgrade hook. Strategic goal: lower the
 adoption barrier so the next plan a practitioner publishes is paid.
 
 Status: **draft, pre-implementation**. Author: Carl + Claude, 2026-05-04.
+
+## Post-implementation update (2026-05-15)
+
+**This spec is partially superseded.** The shipped format is **multi-page A4 PDF**, not PNG. The "Format decision" matrix in section 2 below is **reference-only** — the trade-off was re-run during implementation (2026-05-13 → 2026-05-14) and PDF won on multi-exercise layout and print fidelity. PNG is no longer supported on any surface — both mobile (via iOS `share_file` bridge) and desktop (PDF download from the JS-injected modal) use the PDF pipeline. The dead PNG-modal markup, CSS, and `shareImage` bridge were removed 2026-05-15 (PR #339).
+
+Other shipped reality the rest of this spec doesn't reflect:
+
+- **Pre-publish AND post-publish.** Open question #2 ("Pre-publish or post-publish?") resolved as **both**. The mobile Preview step embeds the lobby locally (via `unified_preview_screen.dart` scheme handler) and surfaces the Share button before a single credit is consumed. The post-publish path also works (same code, hosted on `session.homefit.studio`).
+- **Triggered from the lobby's Share button**, not a Studio toolbar trigger. The export-only footer is hidden in the live lobby and only rendered into the export pipeline.
+- **Always free, no metering.** Open question #1 resolved as **fully free, unlimited**.
+
+Canonical practitioner-facing name: **PDF handout** (see [CONTEXT.md](../CONTEXT.md)). Internal/technical name: **Lobby export**.
+
+The sections below remain useful for the original strategic framing, edge-case enumeration, and phasing rationale — but do NOT take format/availability decisions from them without cross-checking against shipped code.
 
 ---
 

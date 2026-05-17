@@ -177,6 +177,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-16-studio-toolbar-cleanup.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Studio toolbar cleanup (PR #371) &mdash; drop triangles, strip glyph chips, refresh Adjust icon</div>
+              <div class="scope"><strong>Cosmetic.</strong> Studio bottom workflow pill loses the coral triangle separators and the dark round chip behind each glyph; icons grow to 28pt; Adjust glyph swaps to rotated <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Icons.tune</code> (vertical sliders with horizontal handles). Reframe: five launchers, not five stages &mdash; none is ever "selected", so the directional triangle was misleading and the dark chip duplicated info the cell-opacity readiness signal already carried. Readiness opacity rules and tap behaviour unchanged. Mobile-only; web player untouched. Visual spec: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">docs/design/mockups/studio-toolbar-flow-direction.html</code>. <strong>9 items in 7 sections; load-bearing items are #1 (no separators), #2 (no chip behind glyphs), #4 (Adjust = vertical sliders), #6 (readiness opacity preserved as session matures).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-17-refactor-smoke-device-qa.html">
           <div class="row">
             <div>

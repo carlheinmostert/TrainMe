@@ -12,13 +12,13 @@
 // reads `PRAGMA table_info` and only issues the ADD when the column
 // isn't already there. The migration result is identical for healthy
 // DBs; the half-state case now no-ops the redundant ADD and lets the
-// version bump to 38 land cleanly.
+// version bump land cleanly.
 //
 // This test simulates the half-state by:
 //   1. Opening the DB at v37 (older schema, no `hero_crop_offset`).
 //   2. Manually `ALTER TABLE exercises ADD COLUMN hero_crop_offset REAL`
 //      to mirror what the broken on-disk DB looked like.
-//   3. Closing + reopening at v38 so onUpgrade fires.
+//   3. Closing + reopening at the current _dbVersion so onUpgrade fires.
 // The reopen MUST succeed (used to throw "duplicate column name").
 
 import 'package:flutter_test/flutter_test.dart';
@@ -33,9 +33,9 @@ void main() {
 
   group('LocalStorageService — idempotent ADD COLUMN', () {
     test(
-      'reopen at v38 survives a pre-existing hero_crop_offset column',
+      'reopen at current version survives a pre-existing hero_crop_offset column',
       () async {
-        // Need a stable named in-memory DB so the v37 → v38 reopen
+        // Need a stable named in-memory DB so the v37 → current reopen
         // actually triggers the migration. The `:memory:` URI in
         // sqflite_ffi maps to a per-handle DB, so we can't share it
         // across open/close cycles — use SQLite's shared-cache idiom.
@@ -45,8 +45,7 @@ void main() {
 
         // Step 1 — create the DB at v37 with an `exercises` table that
         // does NOT yet have `hero_crop_offset`. We only need the table
-        // shape to be plausible; subsequent migrations from v37 → v38
-        // touch the v38 branch alone, which only ALTERs the
+        // shape to be plausible; the v38 branch ALTERs the
         // `hero_crop_offset` column on `exercises`. Other tables /
         // columns are immaterial.
         var db = await factory.openDatabase(
@@ -77,10 +76,10 @@ void main() {
         await db.close();
 
         // Step 3 — reopen via the production service at the current
-        // _dbVersion (v38). Without the idempotent helper this throws
+        // _dbVersion. Without the idempotent helper this throws
         // `DatabaseException: duplicate column name: hero_crop_offset`.
         // With the helper, the v38 branch sees the column already
-        // present and no-ops the ADD; user_version stamps to 38.
+        // present and no-ops the ADD; user_version stamps to current.
         final svc = await LocalStorageService.openForTest(
           path: dbPath,
           factory: factory,
@@ -100,7 +99,7 @@ void main() {
 
         // Sanity: user_version landed at the current schema version.
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 41);
+        expect(version.first['user_version'], 42);
 
         await svc.close();
       },
@@ -109,15 +108,15 @@ void main() {
     test(
       'fresh open at current version succeeds (no half-state regression)',
       () async {
-        // Smoke: a clean open via the production factory at v38 still
-        // works. Guards against an accidental break of the helper that
-        // would only surface on upgraded installs.
+        // Smoke: a clean open via the production factory at the current
+        // version still works. Guards against an accidental break of the
+        // helper that would only surface on upgraded installs.
         final svc = await LocalStorageService.openForTest(
           path: inMemoryDatabasePath,
           factory: databaseFactoryFfi,
         );
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 41);
+        expect(version.first['user_version'], 42);
 
         // Spot-check a few of the columns the v3+ migration branches
         // touch — they must all be present after _createTables.
