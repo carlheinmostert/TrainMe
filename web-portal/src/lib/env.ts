@@ -38,14 +38,26 @@ function isBuildPhase(): boolean {
 }
 
 /**
- * Read a required env var. Throws if unset (or empty) at request
+ * Validate a pre-read env var. Throws if unset (or empty) at request
  * runtime; returns the placeholder during `next build` only.
  *
- * Use for env vars whose absence at runtime should be a hard error
- * (Supabase URL, anon key, app URL, etc.).
+ * IMPORTANT: callers MUST pass `value` as a LITERAL `process.env.X` read
+ * (not `process.env[name]`). Webpack only inlines `NEXT_PUBLIC_*` env
+ * vars into client bundles when the access is a static property
+ * (`process.env.NEXT_PUBLIC_FOO`); dynamic access via bracket notation
+ * (`process.env[varName]`) is NEVER inlined and resolves to `undefined`
+ * at runtime in the browser, regardless of whether the env var is set
+ * on Vercel. The earlier version of this module did the dynamic read
+ * inside `requireEnv` itself, which silently crashed every client
+ * component that imported `supabase-browser.ts` (and any other
+ * NEXT_PUBLIC_* consumer) at module load. This shape forces each
+ * caller to do the literal read at the call site so Webpack can inline.
  */
-export function requireEnv(name: string, buildPhasePlaceholder?: string): string {
-  const value = process.env[name];
+export function requireEnv(
+  name: string,
+  value: string | undefined,
+  buildPhasePlaceholder?: string,
+): string {
   if (value && value.length > 0) {
     return value;
   }
@@ -76,6 +88,7 @@ export function supabaseUrl(): string {
   // wiring crashes with a meaningful error.
   return requireEnv(
     'NEXT_PUBLIC_SUPABASE_URL',
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
     'https://missing-NEXT_PUBLIC_SUPABASE_URL.invalid',
   );
 }
@@ -87,6 +100,7 @@ export function supabaseUrl(): string {
 export function supabaseAnonKey(): string {
   return requireEnv(
     'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     'missing-NEXT_PUBLIC_SUPABASE_ANON_KEY',
   );
 }
@@ -99,6 +113,7 @@ export function supabaseAnonKey(): string {
 export function appUrl(): string {
   return requireEnv(
     'NEXT_PUBLIC_APP_URL',
+    process.env.NEXT_PUBLIC_APP_URL,
     'https://missing-NEXT_PUBLIC_APP_URL.invalid',
   );
 }
@@ -111,6 +126,7 @@ export function appUrl(): string {
 export function webPlayerBaseUrl(): string {
   return requireEnv(
     'NEXT_PUBLIC_WEB_PLAYER_BASE_URL',
+    process.env.NEXT_PUBLIC_WEB_PLAYER_BASE_URL,
     'https://missing-NEXT_PUBLIC_WEB_PLAYER_BASE_URL.invalid',
   );
 }
