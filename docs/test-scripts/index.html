@@ -177,6 +177,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-17-prod-promotion-smoke-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Prod promotion smoke &mdash; 95 PRs from v2026-05-11.1 &rarr; v2026-05-17.1 (main tip <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">eeaa7ea</code>)</div>
+              <div class="scope"><strong>Prod ENV smoke layer on top of yesterday's verified staging build.</strong> Today's staging&rarr;main promotion (PR #387) shipped 95 PRs spanning checkpoints 2026-05-15 / 16 / 17 + 7 schema migrations + an in-place v41&rarr;v42 SQLite migration (PR #363's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">practice_id</code> renumbered to avoid a v39 collision with staging-side migrations). The mobile code itself is identical to yesterday's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">tmp/three-fixes-for-device</code> tip &mdash; the new variable is the <strong>ENV swap from staging&rarr;prod</strong> plus the migrations now landed on the prod DB. <strong>10 items in 4 sections; load-bearing items are #1 (v42 SQLite migration succeeds), #3 (sign-in against prod auth), #4 (prod clients + credits load), #5 (publish round-trip on prod creates <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">session.homefit.studio/p/&hellip;</code>), #9 (prod portal audit log shows the publish).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-16-studio-toolbar-cleanup.html">
           <div class="row">
             <div>

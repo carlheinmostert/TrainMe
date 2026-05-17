@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-17 — Prod promotion smoke (95 PRs from v2026-05-11.1 → v2026-05-17.1)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+  }
+  .checklist li[data-status="pass"] .num,
+  .checklist li[data-status="fail"] .num { color: var(--text-dim); }
+  .checklist li .text { display: block; padding-right: 8px; }
+  .checklist li .text code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .scope-tag {
+    display: inline-block; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.4px; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 3px; margin-left: 6px;
+    background: rgba(156,163,175,0.12); color: var(--text-mute);
+    vertical-align: middle;
+  }
+  .scope-tag.load { background: var(--coral-bg); color: var(--coral); }
+  .note-row { margin-top: 6px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .note {
+    width: 100%; padding: 6px 10px;
+    background: var(--raised); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .oos { margin-top: 36px; padding: 16px 20px; background: var(--raised);
+    border-radius: 10px; border: 1px solid var(--border); }
+  .oos h3 { margin: 0 0 8px; font-size: 13px; font-family: Montserrat, sans-serif;
+    font-weight: 600; color: var(--text); }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-17 &middot; release/2026-05-17 (squash &mdash; main tip eeaa7ea) &middot; tag v2026-05-17.1 &middot; ENV=prod</div>
+    <h1>Device QA &mdash; Prod promotion smoke (95 PRs)</h1>
+    <p class="lede">
+      <strong>What changed.</strong> Today's staging&rarr;main promotion shipped 95 PRs spanning checkpoints 2026-05-15 / 2026-05-16 / 2026-05-17. Mobile-side: the publish-flow refactor (PR-A/B/C), three-treatment photo pipeline, hero-resolver consolidation, studio toolbar cleanup, editor-sheet Demo tab. Web-side: the four-PR cache stack (network-first SW + cache:reload + <code>?v=&lt;plan.version&gt;</code> URL versioning), popover containing-block fix, lobby PDF baked-greyscale.
+      <br><br>
+      <strong>Why this script.</strong> Yesterday's iPhone build (<code>tmp/three-fixes-for-device</code>) already passed items 1-5 of the 2026-05-17 web wave on staging. This script is the <strong>prod smoke layer</strong> &mdash; the new variable is the ENV swap from staging&rarr;prod, plus the 7 schema migrations that just applied to the prod DB, plus the local SQLite migration from v41 to v42 (which renumbered PR #363's <code>practice_id</code> on sessions to avoid a version-number collision with staging's three migrations).
+      <br><br>
+      <strong>What did NOT change since yesterday's iPhone install.</strong> The mobile code itself is the same as <code>tmp/three-fixes-for-device</code> tip. Today's 7 PRs (#380 through #386, plus #289 admin script) were all web-side or docs. Mobile delta is just the v42 migration on first launch.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build SHA <code>eeaa7ea</code> installed on iPhone CHM via <code>./install-device.sh prod</code> (pulls main, builds, installs).</li>
+        <li>Sign in with your <strong>real</strong> account (this build talks to prod, not staging). Credit consumption uses your actual prod balance.</li>
+        <li>Safari on iPhone for the web-lobby checks &mdash; the SW cache stack lands the first time a prod plan is opened.</li>
+        <li>Browser-side: <code>manage.homefit.studio</code> + <code>session.homefit.studio</code> (NOT the staging.&hellip; subdomains).</li>
+      </ul>
+    </div>
+
+    <h2>App boot + local v42 migration</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>App launches without crash.</strong> Cold-launch homefit.studio after install. The SQLite migration from v41 (yesterday's tip) to v42 must succeed &mdash; this is the renumbered <code>practice_id ADD COLUMN</code> on the local <code>sessions</code> table from PR #363. If the app crashes past splash, suspect a v41&rarr;v42 migration regression. <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Settings &rarr; About shows build SHA <code>eeaa7ea</code> + ENV=prod.</strong> Confirms the install completed and the dart-define injection worked. (If it shows <code>dev</code> or an old SHA, the cache didn't bust &mdash; rerun with <code>./install-device.sh prod --clean</code>.) <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Prod ENV round-trip</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Sign-in against prod auth.</strong> Magic-link or password &mdash; either path works. The email arrives, opens via <code>studio.homefit.app://</code> deep link, and lands you on the clients list. If Safari opens <code>manage.homefit.studio</code> instead, the prod redirect allowlist regressed. <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Prod clients + credits load.</strong> The clients list shows your REAL prod clients (not the staging test set). The Home credit chip shows your REAL credit balance. Different numbers from yesterday's staging install &mdash; this proves the ENV swap took. <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Capture &rarr; convert &rarr; publish round-trip on prod.</strong> Open any client &rarr; New Session &rarr; capture one short video (3 reps default). Wait for conversion. Publish. Shared URL must start with <code>https://session.homefit.studio/p/&hellip;</code> (NOT <code>staging.session.&hellip;</code>). Credit balance drops by 1. <span class="scope-tag load">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Web lobby (prod) &mdash; today's cache-stack fixes</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Open the published plan URL in iPhone Safari.</strong> The lobby renders cleanly; the build chip at top-right is the latest deploy SHA (NOT a stale one). Tap the gear icon &mdash; the popover opens fully visible on screen (PR #386 containing-block fix). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>URL versioning is live on prod.</strong> View page source (or Safari Web Inspector via Mac) and grep for <code>_thumb</code>. Every <code>_thumb*.jpg</code> URL must have a <code>?v=&lt;number&gt;</code> query string appended (PR #385). If any thumb URL is bare (no <code>?v</code>), the version-bust deploy missed prod. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Treatment switching works on prod.</strong> Switch through Line / B&amp;W / Original on the just-published plan. All three render. The B&amp;W view shows bytes-baked greyscale (no CSS filter shimmer when switching). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Portal (prod) audit + credit sanity</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Audit log on <code>manage.homefit.studio</code> (prod).</strong> Hard-refresh (Cmd+Shift+R) so the new build loads. Sign in. Audit page shows a fresh <code>plan.published</code> entry for the publish in step 5, with the right plan name, your email, and a browser-local timestamp. No <code>media_thumb_*_upload_failed</code> kinds in the detail. <span class="scope-tag load">browser</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Credit balance on the portal matches the app.</strong> Same prod DB, two surfaces. Whatever number the Home chip shows on the phone matches the Credits page on the portal. Off-by-one or off-by-many here means the <code>consume_credit</code> RPC didn't run atomically or the read-side cache is stale. <span class="scope-tag">browser</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Files touched (mobile, since yesterday's <code>tmp/three-fixes-for-device</code>): <code>app/lib/services/local_storage_service.dart</code> (v41 &rarr; v42 with renumbered <code>practice_id</code> migration), <code>app/test/idempotent_migration_test.dart</code> (assertion bumped to 42). No other mobile changes vs yesterday's iPhone build. The full 95-PR set is documented in the release PR <a href="https://github.com/carlheinmostert/TrainMe/pull/387" style="color: var(--coral);">#387</a> and tag <code>v2026-05-17.1</code>.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-17-prod-promotion-smoke-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() {})
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var n = li.dataset.num;
+          var entry = state[n] || {};
+          if (entry.status) {
+            li.dataset.status = entry.status;
+            var note = li.querySelector('.note');
+            if (note && entry.note) note.value = entry.note;
+          }
+        });
+      }
+
+      function save() {
+        try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {}
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() {});
+      }
+
+      document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.vote button');
+        if (!btn) return;
+        var li = btn.closest('li[data-num]');
+        if (!li) return;
+        var n = li.dataset.num;
+        var status = btn.classList.contains('pass') ? 'pass' : 'fail';
+        if (li.dataset.status === status) {
+          li.dataset.status = '';
+          delete state[n];
+        } else {
+          li.dataset.status = status;
+          state[n] = Object.assign(state[n] || {}, {status: status});
+        }
+        save();
+      });
+
+      document.addEventListener('input', function(e) {
+        var note = e.target.closest('.note');
+        if (!note) return;
+        var li = note.closest('li[data-num]');
+        if (!li) return;
+        var n = li.dataset.num;
+        state[n] = Object.assign(state[n] || {}, {note: note.value});
+        save();
+      });
+    })();
+  </script>
+</body>
+</html>
