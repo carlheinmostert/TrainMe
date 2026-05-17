@@ -225,6 +225,25 @@
   function pickPrimarySrc(exercise, treatment, bodyFocus) {
     if (!exercise) return null;
     if (treatment === 'bw') {
+      // 2026-05-17 — photos prefer the bytes-baked `_thumb_bw.jpg`
+      // sibling as the PRIMARY src so the `<img src>` itself is
+      // greyscale-on-disk, not a raw colour photo relying on a CSS
+      // `.is-grayscale` filter (which html2canvas drops during PDF
+      // export, surfacing the underlying colour bytes). The poster
+      // resolver (`pickPosterSrc`) already preferred this; the primary
+      // resolver did not, leaving the lobby's `<img>` element pointing
+      // at the raw colour photo while the CSS class faked greyscale
+      // visually. Bringing primary in line closes the PDF-export gap
+      // and lets the `.is-grayscale` class become a pure no-op for
+      // photos with the bake on disk.
+      //
+      // Photos with no bake on disk (legacy plans pre-2026-05-16) fall
+      // through to the old `grayscale_url` path. The CSS filter still
+      // takes care of those on the live lobby; their PDF export will
+      // still render colour until `backfillMissingVariants` promotes
+      // them. Same fallback ladder as `pickPosterSrc`.
+      var isPhoto = exercise.media_type === 'photo' || exercise.media_type === 'image';
+      if (isPhoto && exercise.thumbnail_url_bw) return exercise.thumbnail_url_bw;
       if (bodyFocus) {
         // Segmented variant for body-focus ON. When body-focus is ON the
         // segmented variant IS the right rendering of grayscale — falling
