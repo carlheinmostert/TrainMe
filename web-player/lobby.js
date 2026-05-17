@@ -220,6 +220,39 @@
     api = args.helpers;
     plan = args.plan;
     slides = args.slides || [];
+
+    // 2026-05-17 — append `?v=<plan.version>` to per-exercise thumb URLs
+    // so each republish forces a fresh fetch through every cache layer
+    // (resolver in-memory cache, SW cache, browser HTTP cache that
+    // honours Supabase Storage's `cache-control: public, max-age=3600`).
+    // The thumb file PATH is reused across regenerations under PR #376's
+    // `thumbnailsDirty` flow, so without a URL-level buster the lobby
+    // pins on first-publish bytes until cache expires. PR #383's SW
+    // network-first + PR #384's `cache: 'reload'` raced the page-load
+    // hydrate: the SW wasn't reliably intercepting before
+    // `hydrateHeroCrops` had already fetched + rasterised the stale URL.
+    // Version-busting is invariant across all three layers AND survives
+    // races. `plan.version` increments on every publish (see
+    // `plans.version` column).
+    if (plan && plan.version != null) {
+      const v = String(plan.version);
+      const thumbKeys = [
+        'thumbnail_url',
+        'thumbnail_url_line',
+        'thumbnail_url_color',
+        'thumbnail_url_bw',
+      ];
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i];
+        if (!slide) continue;
+        for (let j = 0; j < thumbKeys.length; j++) {
+          const k = thumbKeys[j];
+          const u = slide[k];
+          if (typeof u !== 'string' || !u || u.indexOf('?v=') !== -1) continue;
+          slide[k] = u + (u.indexOf('?') === -1 ? '?v=' : '&v=') + v;
+        }
+      }
+    }
     // The lobby treatment-pill picker still surfaces ONE selected
     // treatment ("which one is highlighted"). Seed it from the first
     // non-rest slide's effective treatment so the picker matches what
