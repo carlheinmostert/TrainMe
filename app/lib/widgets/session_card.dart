@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -9,48 +8,50 @@ import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/api_client.dart' show PlanAnalyticsSummary;
 import '../services/conversion_service.dart';
+import '../services/exercise_hero_resolver.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../utils/hero_crop_alignment.dart';
 import 'conversion_error_log_sheet.dart';
-
-/// Greyscale colour matrix — zeroes saturation while preserving luminance.
-/// Mirrors the existing `_kGrayscaleFilter` in `capture_thumbnail.dart` and
-/// `mini_preview.dart` so the filmstrip B&W treatment matches the rest of
-/// the practitioner-facing surfaces (and, by lineage, the web player's
-/// `filter: grayscale(1) contrast(1.05)`).
-const ColorFilter _kFilmstripGrayscale = ColorFilter.matrix(<double>[
-  0.2126, 0.7152, 0.0722, 0, 0, //
-  0.2126, 0.7152, 0.0722, 0, 0, //
-  0.2126, 0.7152, 0.0722, 0, 0, //
-  0, 0, 0, 1, 0, //
-]);
 
 /// Maximum number of filmstrip cells. Carl signed off N=4 — beyond that
 /// each cell shrinks below ~80px on iPhone widths and the heroes become
 /// unreadable noise.
 const int _kFilmstripMaxCells = 4;
 
-/// Hero pick rule per Option B: take the first N video exercises in
-/// session order; if zero videos, fall back to the first photo; if zero
-/// photos either, return empty (caller paints the coral-tinted dark
-/// surface that's the card's existing default).
+/// Hero pick rule (audit F17, 2026-05-13): take the first N video
+/// exercises in session order; if zero videos, take up to N photos
+/// (was: first photo only, which was the F17 bug). If zero photos
+/// either, return empty (caller paints the coral-tinted dark surface
+/// that's the card's existing default).
+///
+/// Mixing — videos take precedence whole; photos only fill cells
+/// when there are NO videos in the session (documented mixed-treatment
+/// aesthetic: B&W videos OR line photos, never side-by-side).
 List<ExerciseCapture> _pickFilmstripHeroes(Session session) {
-  final videos = <ExerciseCapture>[];
+  // 2026-05-14 — Carl QA: videos-win-drop-photos was producing
+  // single-cell filmstrips on mixed sessions (e.g. 1 video + 1 photo
+  // showed only the video). New rule: walk videos in session order
+  // first (up to N), then top up with photos until N or out of media.
+  // Mixed-media filmstrips are now expected; the docstring's
+  // "B&W videos OR line photos, never side-by-side" aesthetic is
+  // retired.
+  final picks = <ExerciseCapture>[];
   for (final ex in session.exercises) {
     if (ex.isRest) continue;
     if (ex.mediaType == MediaType.video) {
-      videos.add(ex);
-      if (videos.length >= _kFilmstripMaxCells) break;
+      picks.add(ex);
+      if (picks.length >= _kFilmstripMaxCells) return picks;
     }
   }
-  if (videos.isNotEmpty) return videos;
-  // No videos — fall back to the first photo (single cell).
   for (final ex in session.exercises) {
     if (ex.isRest) continue;
-    if (ex.mediaType == MediaType.photo) return [ex];
+    if (ex.mediaType == MediaType.photo) {
+      picks.add(ex);
+      if (picks.length >= _kFilmstripMaxCells) return picks;
+    }
   }
-  return const [];
+  return picks;
 }
 
 /// Visual session card — one row in a client's session list.
@@ -868,19 +869,23 @@ class _DashedUnderlinePainter extends CustomPainter {
 /// a single Hero frame in B&W (matches existing card thumbnails — Carl
 /// signed off Option B as POPIA-friendly). Cells flex equally, so 1
 /// video → 1 cell at 100%, 2 videos → 2 at 50%, 3 → 3 at 33%, 4 → 4 at
-/// 25%. If the session has zero videos but at least one photo, a single
-/// cell is rendered using the first photo's line-drawing thumbnail.
-/// Rest-only sessions (zero videos AND zero photos) render the default
-/// coral-tinted dark surface (mock spec: fall back to current chrome).
+/// 25%. If the session has zero videos but at least one photo, up to
+/// [_kFilmstripMaxCells] photo cells render the line-drawing thumbnails
+/// (audit F17 fix — pre-2026-05-13 the photo path clamped to a single
+/// cell). Rest-only sessions (zero videos AND zero photos) render the
+/// default coral-tinted dark surface (mock spec: fall back to current
+/// chrome).
 ///
 /// Static — no carousel / crossfade. Animation question (#3) was
 /// closed at "static" because filmstrip rotation in a list view fights
 /// scroll perception and burns CPU on long client lists.
 ///
 /// Performance:
-///   - Each cell uses [Image.file] with `cacheWidth: 240` so retina
-///     decode size stays bounded — small enough for ~120px-tall cards
-///     yet sharp on 3x displays.
+///   - Each cell uses [Image.file] with `cacheWidth` scaled to the
+///     cell's rendered width (240 → 720 px depending on cell count).
+///     The original flat 240 px ceiling was sized for a 4-cell strip
+///     and read soft on single-photo / single-video sessions where the
+///     cell stretches across the whole card. 2026-05-13 round 2 fix.
 ///   - The card itself lives inside a `ListView.builder`; Flutter's
 ///     lazy build keeps off-screen filmstrips out of memory.
 ///   - Cloud-only state (raw mp4 not yet on disk after a fresh
@@ -901,11 +906,39 @@ class _SessionFilmstripBackground extends StatelessWidget {
       // overlay continues to read against `surfaceBase` underneath.
       return const SizedBox.shrink();
     }
+    // Decode width scales with cell count — the original `cacheWidth:
+    // 240` was sized for a 4-cell strip (~97px wide on iPhone-class
+    // widths). On a 1-cell or 2-cell layout the cell stretches across
+    // the full card, and a 240px-wide decode reads soft (4.8× upscale
+    // on a 375px iPhone for a single photo).
+    //
+    // 2026-05-13 round 2 — fix the soft single-photo filmstrip case
+    // surfaced by Carl's QA. Math:
+    //   1 cell  → 720px decode (covers retina 3x on 375px width plus a
+    //             little headroom for iPad / wide iPhone displays)
+    //   2 cells → 480px decode
+    //   3 cells → 320px decode
+    //   4 cells → 240px decode (legacy baseline)
+    // Memory is still bounded — long client lists scroll lazily and
+    // off-screen cards drop their image cache.
+    final cells = heroes.length;
+    final cacheWidthPerCell = cells <= 1
+        ? 720
+        : cells == 2
+            ? 480
+            : cells == 3
+                ? 320
+                : 240;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < heroes.length; i++) ...[
-          Expanded(child: _FilmstripCell(exercise: heroes[i])),
+          Expanded(
+            child: _FilmstripCell(
+              exercise: heroes[i],
+              cacheWidth: cacheWidthPerCell,
+            ),
+          ),
           // Hairline 1px black separator between adjacent cells (per
           // mockup CSS). Skipped after the last cell.
           if (i < heroes.length - 1)
@@ -920,16 +953,35 @@ class _SessionFilmstripBackground extends StatelessWidget {
 }
 
 /// A single filmstrip cell — one video Hero frame (B&W) or one photo
-/// line drawing (the photo path stays line because the file at
-/// `displayFilePath` is the converted line-drawing JPG; B&W requires the
-/// raw, which not every device has cached on a fresh re-install).
+/// line drawing.
+///
+/// Resolution routes through [resolveExerciseHero] with
+/// [HeroSurface.filmstrip]:
+///   - Videos render the cached B&W thumbnail (already greyscale on
+///     disk) and the resolver returns [kHeroGrayscaleFilter] so the
+///     filmstrip always reads as B&W regardless of the exercise's
+///     `preferredTreatment`. Documented mixed-treatment aesthetic.
+///   - Photos render the line-drawing JPG (the converted file is
+///     already greyscale-friendly line art, and a raw photo path
+///     isn't guaranteed to be on disk after a cloud-only sync). The
+///     resolver does not apply a filter for the photo line path.
 class _FilmstripCell extends StatelessWidget {
   final ExerciseCapture exercise;
-  const _FilmstripCell({required this.exercise});
+  final int cacheWidth;
+  const _FilmstripCell({required this.exercise, required this.cacheWidth});
 
   @override
   Widget build(BuildContext context) {
-    final file = _resolveFile(exercise);
+    // Filmstrip always asks for the LINE treatment so the photo path
+    // resolves to the line-drawing JPG (which is always on disk after
+    // capture). The resolver enforces the B&W ColorFilter on videos
+    // regardless of treatment for the filmstrip surface, so videos
+    // still read as B&W — see resolver `HeroSurface.filmstrip` rules.
+    final hero = resolveExerciseHero(
+      exercise: exercise,
+      surface: HeroSurface.filmstrip,
+    );
+    final file = hero.posterFile;
     if (file == null) {
       return const SizedBox.expand(
         child: ColoredBox(color: AppColors.surfaceBase),
@@ -946,50 +998,22 @@ class _FilmstripCell extends StatelessWidget {
       file,
       fit: BoxFit.cover,
       alignment: align,
-      // 240 = practical max retina decode for a ~120px-tall card cell.
-      // Bigger doesn't read; smaller goes mushy on 3x.
-      cacheWidth: 240,
+      // Decode width scales with the actual cell width — see parent
+      // (_SessionFilmstripBackground.build) for the per-cell-count math.
+      // Single-cell strips upgrade to 720px so a full-width photo on a
+      // 375px iPhone (3x → 1125px logical, but Flutter's image cache
+      // works in DIPs so 720 px is the right knob) doesn't decode-soft.
+      cacheWidth: cacheWidth,
       gaplessPlayback: true,
       errorBuilder: (context, error, stackTrace) => const ColoredBox(
         color: AppColors.surfaceBase,
       ),
     );
-    // B&W treatment for videos. Photos stay as their line drawing — the
-    // converted file is already greyscale-friendly line art, and a raw
-    // photo path isn't guaranteed to be on disk after a cloud-only sync.
-    if (exercise.mediaType == MediaType.video) {
-      image = ColorFiltered(
-        colorFilter: _kFilmstripGrayscale,
-        child: image,
-      );
+    final filter = hero.filter;
+    if (filter != null) {
+      image = ColorFiltered(colorFilter: filter, child: image);
     }
     return SizedBox.expand(child: image);
-  }
-
-  /// Resolve the file to render for this cell.
-  ///
-  /// Videos: prefer the cached thumbnail (exists for every successfully
-  /// converted video — populated at conversion time + by PR #218 to
-  /// reflect Hero picks). The thumbnail is already a still frame so it
-  /// renders as a static hero with no video controller cost. If no
-  /// thumbnail (still converting / failed): null → fallback fill.
-  ///
-  /// Photos: use the converted line-drawing JPG (always on disk for
-  /// any photo that's been added to the session — same path the rest
-  /// of the practitioner-facing surfaces use).
-  static File? _resolveFile(ExerciseCapture ex) {
-    if (ex.isRest) return null;
-    if (ex.mediaType == MediaType.video) {
-      final thumb = ex.absoluteThumbnailPath;
-      if (thumb == null) return null;
-      final f = File(thumb);
-      if (!f.existsSync()) return null;
-      return f;
-    }
-    // Photo — display path is the converted line drawing.
-    final f = File(ex.displayFilePath);
-    if (!f.existsSync()) return null;
-    return f;
   }
 }
 

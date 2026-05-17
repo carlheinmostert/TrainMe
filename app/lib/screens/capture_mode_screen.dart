@@ -1060,6 +1060,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           exercise = StickyDefaults.prefillCapture(exercise, effective);
         }
       }
+      // Global capture-time defaults: any field still null after sticky
+      // pre-fill (incl. the no-sticky-yet brand-new-client path) falls
+      // back to B&W treatment + body-focus off (2026-05-12).
+      exercise = StickyDefaults.applyGlobalCaptureDefaults(exercise);
 
       await widget.storage.saveExercise(exercise);
       ConversionService.instance.queueConversion(exercise);

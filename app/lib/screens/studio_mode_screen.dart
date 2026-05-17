@@ -12,8 +12,10 @@ import 'package:video_player/video_player.dart';
 import '../config.dart';
 import '../models/client.dart';
 import '../models/exercise_capture.dart';
+import '../models/publish_progress.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
+import '../services/exercise_hero_resolver.dart';
 import '../services/local_storage_service.dart';
 import '../services/media_prefetch_service.dart';
 import '../services/path_resolver.dart';
@@ -35,6 +37,7 @@ import '../widgets/hero_crop_viewport.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
 import '../widgets/preset_chip_row.dart';
+import '../widgets/publish_progress_sheet.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_bottom_bar.dart';
@@ -121,6 +124,44 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   bool _isPublishing = false;
   String? _publishError;
   late UploadService _uploadService;
+
+  /// PR-C — publish-progress UI state.
+  ///
+  /// [_publishProgress] is a ValueNotifier the publish flow pushes
+  /// [PublishProgress] events into; the sheet subscribes to it. The
+  /// notifier survives the sheet's dismissal so a swipe-down doesn't
+  /// disconnect the flow — the workflow-toolbar chip reads the same
+  /// notifier value.
+  final ValueNotifier<PublishProgress> _publishProgress =
+      ValueNotifier<PublishProgress>(PublishProgress.markActive(
+    PublishPhase.preparing,
+  ));
+
+  /// True while the bottom sheet is on screen. Flipped false on
+  /// `onDismissed`; the chip appears whenever this is false AND
+  /// `_isPublishing` is true (mid-flight dismissal) OR there's a
+  /// terminal state worth surfacing (success toast / failure retry).
+  bool _publishSheetVisible = false;
+
+  /// Per-publish failure list — populated when [PublishFailedException]
+  /// lands. Cleared at the start of each fresh publish so a retry
+  /// starts clean.
+  List<UploadFailureRecord> _publishFailures = const [];
+
+  /// Fix A (publish-diagnostic-surface, 2026-05-16) — last non-atomic
+  /// failure payload so a chip re-open after swipe-dismiss still
+  /// renders the "Show error details →" tap-target. The progress
+  /// notifier's snapshot is authoritative while the sheet is live;
+  /// this field is the fallback consulted by the sheet only when the
+  /// snapshot's [PublishProgress.errorDetails] is null. Cleared at the
+  /// start of each fresh publish.
+  PublishErrorDetails? _publishErrorDetails;
+
+  /// True for ~3s after a successful publish so the workflow toolbar
+  /// chip morphs into the "Plan published" sage variant before
+  /// disappearing. Cleared on timer expiry.
+  bool _publishJustSucceeded = false;
+  Timer? _publishJustSucceededTimer;
 
   /// Wave 44 — Studio AppBar inline-rename of the session title.
   /// Mirrors the SessionCard rename pattern so the Studio header reads
@@ -230,6 +271,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           unawaited(_refreshSession());
         },
       ),
+    );
+    // Eager backfill for missing thumbnail variants (2026-05-14
+    // hardening). Walks every `done` exercise on this session and
+    // re-runs extractFrame for any of `_thumb.jpg` / `_thumb_color.jpg`
+    // / `_thumb_line.jpg` that's missing on disk. Each variant lands
+    // independently; failures are logged to the conversion-error log
+    // with a `[VARIANT ...]` / `[BACKFILL ...]` prefix surfaced via
+    // the failed-pill long-press sheet. Variant arrivals stream
+    // through `ConversionService.onConversionUpdate` so the existing
+    // listener (`_listenToConversions`) refreshes cards as files land.
+    unawaited(
+      _conversionService.backfillMissingVariants(_session.exercises),
     );
     // Poll plan analytics while the screen is mounted so the
     // practitioner sees fresh open / completion stats without leaving
@@ -358,6 +411,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _conversionSub?.cancel();
     _lockTimer?.cancel();
     _analyticsPollTimer?.cancel();
+    _publishJustSucceededTimer?.cancel();
+    _publishProgress.dispose();
     _pulseController.dispose();
     // Wave 39 (Item 5) — unwire reachability hooks before super.
     WidgetsBinding.instance.removeObserver(this);
@@ -776,6 +831,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         exercise = StickyDefaults.prefillCapture(exercise, effective);
       }
     }
+    // Global capture-time defaults: any field still null after sticky
+    // pre-fill (incl. the no-sticky-yet brand-new-client path) falls
+    // back to B&W treatment + body-focus off (2026-05-12).
+    exercise = StickyDefaults.applyGlobalCaptureDefaults(exercise);
     exercises.insert(position, exercise);
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
@@ -1609,6 +1668,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                         _showPublishErrorSnackBar(err, clipboardDetail: null);
                       }
                     },
+                    // PR-C — workflow-toolbar chip surfaces when the
+                    // progress sheet has been swipe-dismissed mid-flight,
+                    // OR for ~3s after a terminal success, OR when a
+                    // dismissed publish has failed and the practitioner
+                    // can re-open the retry sheet.
+                    publishingChipLabel: _resolveChipLabel(),
+                    publishingChipTone: _resolveChipTone(),
+                    publishingChipProgress: _resolveChipProgress(),
+                    onPublishingChipTap: _resolveChipTap(),
                   ),
                 ],
               ),
@@ -2050,7 +2118,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           _updateExercise(sheetIndex, u);
         },
         onThumbnailTap: () => _openMediaViewer(exercise),
-        onReplaceMedia: () => _replaceMedia(dataIndex),
+        // 2026-05-16 — viewer hands us the focused exercise (which may
+        // differ from this card's `exercise` if the practitioner has
+        // navigated to a sibling inside the editor sheet via chevrons /
+        // dot row). Map id → dataIndex so Replace targets the on-screen
+        // exercise, not the card that opened the sheet.
+        onReplaceMedia: (focused) {
+          final idx = _session.exercises.indexWhere((e) => e.id == focused.id);
+          if (idx >= 0) {
+            _replaceMedia(idx);
+          }
+        },
         onDelete: () => _deleteExercise(dataIndex),
         // Video-only: pipe the thumbnail peek's "Download original"
         // row into the Save / Share bottom sheet. Rest + photo rows
@@ -2559,6 +2637,93 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return hasExercises && !hasConversionsRunning && !_isPublishing;
   }
 
+  // ---------------------------------------------------------------------------
+  // PR-C — workflow-toolbar chip resolution
+  // ---------------------------------------------------------------------------
+
+  /// Show the chip only when the sheet is NOT visible AND there's
+  /// something worth surfacing (mid-flight publish, sage success beat,
+  /// or terminal failure waiting for retry).
+  bool get _shouldShowPublishingChip {
+    if (_publishSheetVisible) return false;
+    if (_isPublishing) return true;
+    if (_publishJustSucceeded) return true;
+    if (_publishError != null && _publishFailures.isNotEmpty) return true;
+    return false;
+  }
+
+  String? _resolveChipLabel() {
+    if (!_shouldShowPublishingChip) return null;
+    if (_publishJustSucceeded) return 'Plan published';
+    if (_publishError != null && _publishFailures.isNotEmpty) {
+      return 'Tap to retry';
+    }
+    final p = _publishProgress.value;
+    if (p.filesTotal > 0 &&
+        p.currentPhase == PublishPhase.uploadingTreatments) {
+      return 'Publishing ${p.filesUploaded} of ${p.filesTotal} files';
+    }
+    return 'Publishing plan';
+  }
+
+  PublishingChipTone _resolveChipTone() {
+    if (_publishJustSucceeded) return PublishingChipTone.success;
+    if (_publishError != null && _publishFailures.isNotEmpty) {
+      return PublishingChipTone.failure;
+    }
+    return PublishingChipTone.inFlight;
+  }
+
+  double? _resolveChipProgress() {
+    if (_publishJustSucceeded) return null;
+    if (_publishError != null) return null;
+    final p = _publishProgress.value;
+    if (p.filesTotal > 0 &&
+        p.currentPhase == PublishPhase.uploadingTreatments) {
+      return p.filesFraction;
+    }
+    return null;
+  }
+
+  VoidCallback? _resolveChipTap() {
+    if (_publishJustSucceeded) return null;
+    if (_publishError != null && _publishFailures.isNotEmpty) {
+      return _publishFromToolbar;
+    }
+    if (_isPublishing) {
+      return _reopenPublishSheet;
+    }
+    return null;
+  }
+
+  /// Re-open the progress sheet against the same notifier so a
+  /// swipe-dismissed publish can be inspected mid-flight.
+  void _reopenPublishSheet() {
+    if (_publishSheetVisible) return;
+    _publishSheetVisible = true;
+    setState(() {});
+    // Diagnostic views are now inline inside the progress sheet — no
+    // child modals routed through `rootScaffoldMessengerKey` (the
+    // navigator-scope mismatch that PR #357 + PR #362 both failed to
+    // patch). The sheet swaps its body via setState; only the modal
+    // route itself stays put.
+    PublishProgressSheet.show(
+      context,
+      progress: _publishProgress,
+      onRetry: _publishFromToolbar,
+      onSuccessDismiss: () {},
+      onDismissed: () {
+        if (!mounted) {
+          _publishSheetVisible = false;
+          return;
+        }
+        setState(() => _publishSheetVisible = false);
+      },
+      failures: _publishFailures,
+      errorDetails: _publishErrorDetails,
+    );
+  }
+
   Future<void> _publishFromToolbar() async {
     // Extra guard — archive compression can trail the line-drawing
     // conversion; publishing before the raw-archive lands would
@@ -2596,29 +2761,77 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     setState(() {
       _isPublishing = true;
       _publishError = null;
+      _publishFailures = const [];
+      _publishErrorDetails = null;
+      _publishJustSucceeded = false;
     });
+    _publishJustSucceededTimer?.cancel();
+    // PR-C — seed notifier with "Preparing" so the sheet opens on a
+    // meaningful frame before the service emits.
+    _publishProgress.value = PublishProgress.markActive(PublishPhase.preparing);
+    _publishSheetVisible = true;
+    final sheetFuture = PublishProgressSheet.show(
+      context,
+      progress: _publishProgress,
+      onRetry: _publishFromToolbar,
+      onSuccessDismiss: () {},
+      onDismissed: () {
+        if (!mounted) {
+          _publishSheetVisible = false;
+          return;
+        }
+        setState(() => _publishSheetVisible = false);
+      },
+      failures: const [],
+      errorDetails: null,
+    );
+
     PublishResult? result;
     Session? loadedSession;
     try {
       loadedSession = await widget.storage.getSession(_session.id);
       if (loadedSession == null) return;
-      result = await _uploadService.uploadPlan(loadedSession);
+      result = await _uploadService.uploadPlan(
+        loadedSession,
+        onProgress: (p) {
+          if (!mounted) return;
+          _publishProgress.value = p;
+          if (!_publishSheetVisible) setState(() {});
+        },
+      );
     } catch (e) {
       final practiceId =
           AuthService.instance.currentPracticeId.value ??
           loadedSession?.practiceId ??
           '';
       final trainerId = ApiClient.instance.currentUserId ?? '';
-      result = PublishResult.networkFailed(
-        error: PublishFailurePayload.fromPublishCatch(
-          caught: e,
-          practiceId: practiceId,
-          trainerId: trainerId,
-          refundLikelyAttempted: false,
-          refundOutcomeUnknown: false,
-          remoteVersionMayHaveAdvanced: false,
-        ),
+      final payload = PublishFailurePayload.fromPublishCatch(
+        caught: e,
+        practiceId: practiceId,
+        trainerId: trainerId,
+        refundLikelyAttempted: false,
+        refundOutcomeUnknown: false,
+        remoteVersionMayHaveAdvanced: false,
       );
+      result = PublishResult.networkFailed(error: payload);
+      if (mounted) {
+        // Fix A (publish-diagnostic-surface, 2026-05-16) — surface the
+        // host-side catch through the sheet so the "Show error
+        // details" tap-target appears for failures that originated
+        // outside `uploadPlan`'s catch (rare; usually getSession
+        // throws or an isolate boundary).
+        final details = PublishErrorDetails(
+          phase: PublishPhase.preparing,
+          exceptionType: payload.leafExceptionType ?? e.runtimeType.toString(),
+          userMessage: payload.userMessage,
+          detail: payload.detail,
+          clipboardText: payload.toClipboardText(),
+        );
+        _publishProgress.value = PublishProgress.failure(
+          phase: PublishPhase.preparing,
+          errorDetails: details,
+        );
+      }
     } finally {
       if (mounted) {
         // Refresh local state — `uploadPlan` rewrites the session row.
@@ -2627,23 +2840,34 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       }
     }
 
+    unawaited(sheetFuture);
+
     if (!mounted) return;
+    // PR-C \u2014 capture failures for the chip's retry tap-through.
+    final failureList = result.optionalArtifactFailures;
+    if (failureList.isNotEmpty) {
+      setState(() => _publishFailures = failureList);
+    }
+    // Fix A (publish-diagnostic-surface, 2026-05-16) \u2014 snapshot the
+    // error-details payload off the progress notifier so a chip
+    // re-open after swipe-dismiss still renders the "Show error
+    // details" tap-target. The notifier's value is the terminal
+    // failure event emitted by upload_service.
+    final emittedErrorDetails = _publishProgress.value.errorDetails;
+    if (emittedErrorDetails != null) {
+      setState(() => _publishErrorDetails = emittedErrorDetails);
+    }
     if (result.success) {
       final consentCheckSkipped = result.consentPreflightSkippedReason;
-      final optionalArtifactFailure = result.optionalArtifactFailureReason;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Published \u2713'),
-          duration: const Duration(days: 1),
-          action: SnackBarAction(
-            label: 'OK',
-            textColor: AppColors.primary,
-            onPressed: () {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            },
-          ),
-        ),
-      );
+      // PR-C \u2014 sheet auto-dismissed on success; light the toolbar
+      // chip in sage for ~3s so a swipe-dismissed publisher still
+      // sees the success confirmation. No legacy snackbar.
+      setState(() => _publishJustSucceeded = true);
+      _publishJustSucceededTimer?.cancel();
+      _publishJustSucceededTimer = Timer(const Duration(seconds: 3), () {
+        if (!mounted) return;
+        setState(() => _publishJustSucceeded = false);
+      });
       // Per-set PLAN wave \u2014 surface a follow-up SnackBar when the
       // server fell back to default sets for one or more exercises
       // (publish payload missing / empty `sets[]`). The practitioner
@@ -2669,42 +2893,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         );
       }
       if (consentCheckSkipped != null && consentCheckSkipped.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Published, but treatment-consent pre-check was skipped ($consentCheckSkipped). '
-              'Server guard still enforced consent.',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                color: Colors.white,
-                fontSize: 13,
-              ),
-            ),
-            backgroundColor: AppColors.surfaceRaised,
-            duration: const Duration(seconds: 7),
-            behavior: SnackBarBehavior.floating,
-          ),
+        // After PR-A's decouple-consent-from-upload, the preflight is
+        // informational only — the server-side consume_credit RPC enforces
+        // consent as the authoritative backstop. When the preflight fails
+        // transiently (network blip, auth edge case), the publish still
+        // succeeds and no user action is required. Silence the SnackBar;
+        // keep the debugPrint for diagnostic visibility.
+        debugPrint(
+          'Consent preflight skipped: $consentCheckSkipped — server guard still enforced',
         );
       }
-      if (optionalArtifactFailure != null &&
-          optionalArtifactFailure.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Published, but some optional treatment files are still processing ($optionalArtifactFailure). '
-              'Line treatment is live now; retry publish later to backfill.',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                color: Colors.white,
-                fontSize: 13,
-              ),
-            ),
-            backgroundColor: AppColors.surfaceRaised,
-            duration: const Duration(seconds: 8),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      // PR-C — the legacy "partial success" toast is gone. Publish is
+      // now atomic; any raw-archive upload failure would have thrown
+      // PublishFailedException + landed on the failure path below.
     } else if (result.isUnconsentedTreatments) {
       await _handleUnconsentedTreatments(result.unconsented!);
     } else if (result.isNeedsConsentConfirmation) {
@@ -2719,11 +2920,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final versionDriftWarning = result.networkFailureVersionDriftReason;
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
-      _showPublishErrorSnackBar(
-        errStr,
-        clipboardDetail: result.networkFailureClipboardDetail,
-      );
-      if (refundUnconfirmed) {
+      // PR-C — the bottom sheet is the primary failure surface. Only
+      // fall back to a legacy snackbar when the practitioner swiped
+      // it away mid-flight (sheet no longer visible).
+      if (!_publishSheetVisible) {
+        _showPublishErrorSnackBar(
+          errStr,
+          clipboardDetail: result.networkFailureClipboardDetail,
+        );
+      }
+      if (refundUnconfirmed && !_publishSheetVisible) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -2735,7 +2941,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         );
       }
-      if (versionDriftWarning != null && versionDriftWarning.isNotEmpty) {
+      if (versionDriftWarning != null &&
+          versionDriftWarning.isNotEmpty &&
+          !_publishSheetVisible) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -3361,6 +3569,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         _clearFocusOnInteraction();
         _updateExercise(sheetIndex, updated);
       },
+      // 2026-05-16 — Replace pill on the Demo embed routes through the
+      // same `_replaceMedia(dataIndex)` flow the card's long-press used
+      // to fire. The sheet hands us the focused exercise so we can map
+      // id → dataIndex.
+      onReplaceMedia: (current) {
+        final dataIndex = _session.exercises.indexWhere(
+          (e) => e.id == current.id,
+        );
+        if (dataIndex >= 0) {
+          _replaceMedia(dataIndex);
+        }
+      },
     );
   }
 
@@ -3405,6 +3625,20 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // survives a viewer close before refresh.
           onSessionUpdate: (next) {
             _touchAndPush(next);
+          },
+          // 2026-05-16 — Replace pill on the bottom-left chrome cluster
+          // routes through the same `_replaceMedia(dataIndex)` flow the
+          // card's long-press used to fire pre-#XXX. The viewer hands us
+          // the currently-focused exercise so we can map id → dataIndex
+          // (the viewer's `_currentIndex` is into the non-rest media
+          // list, not into `session.exercises`).
+          onReplaceMedia: (current) {
+            final dataIndex = _session.exercises.indexWhere(
+              (e) => e.id == current.id,
+            );
+            if (dataIndex >= 0) {
+              _replaceMedia(dataIndex);
+            }
           },
         ),
       ),
@@ -3681,6 +3915,21 @@ class MediaViewerBody extends StatefulWidget {
   /// Defaults to false so the legacy full-screen route push is unchanged.
   final bool embeddedInSheet;
 
+  /// Fired when the practitioner taps the Replace pill on the bottom-
+  /// left chrome cluster. The host runs the image-picker swap (same
+  /// flow the Studio card's long-press used to fire pre-2026-05-16,
+  /// before the long-press was reclaimed for drag-to-reorder).
+  ///
+  /// The viewer hands the currently-focused [ExerciseCapture] back to
+  /// the host so the host can look up the matching data-index by id
+  /// without the viewer leaking its internal `_currentIndex` (the
+  /// viewer's index is into the non-rest media list it was opened with,
+  /// not into `session.exercises`).
+  ///
+  /// The pill is hidden when this callback is null, so legacy callsites
+  /// that don't wire it stay free of a dead pill.
+  final ValueChanged<ExerciseCapture>? onReplaceMedia;
+
   const MediaViewerBody({
     super.key,
     required this.exercises,
@@ -3689,6 +3938,7 @@ class MediaViewerBody extends StatefulWidget {
     this.session,
     this.onSessionUpdate,
     this.embeddedInSheet = false,
+    this.onReplaceMedia,
   });
 
   @override
@@ -3709,10 +3959,10 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   late List<ExerciseCapture> _exercises;
 
   /// Active treatment for the current page. Seeded from the exercise's
-  /// stored `preferredTreatment` (null → Line). Every new page load
-  /// re-reads from ITS OWN exercise, so moving to a neighbour does NOT
-  /// carry the previous selection forward.
-  Treatment _treatment = Treatment.line;
+  /// stored `preferredTreatment` (null → B&W per 2026-05-15 publish-flow
+  /// refactor). Every new page load re-reads from ITS OWN exercise, so
+  /// moving to a neighbour does NOT carry the previous selection forward.
+  Treatment _treatment = Treatment.grayscale;
 
   /// Wave 27 — dual-video crossfade. Two VideoPlayerControllers point
   /// at the SAME source file; whichever is in the active slot is fully
@@ -3860,30 +4110,17 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// on a fresh capture; "no archive" only happens for legacy photo
   /// rows whose raw file got pruned). Same binary contract as before:
   /// when this is false, the segmented control locks B&W + Original.
+  ///
+  /// Derived from [resolveExerciseHero] caps — when the resolver
+  /// reports `availableTreatments` containing grayscale/original,
+  /// the local raw source exists. Single source of truth shared with
+  /// the bundled web player + Studio cards + filmstrip.
   bool _hasArchive(ExerciseCapture e) {
-    if (_isVideo(e)) {
-      final path = e.absoluteArchiveFilePath;
-      if (path == null) return false;
-      return File(path).existsSync();
-    }
-    // Photo path — Wave 34 unlocks treatment switching for photos.
-    // The raw colour JPG is the source for both "Original" and "B&W"
-    // treatments (B&W applies a `ColorFiltered` grayscale on top, no
-    // separate file). Defensive `existsSync` so a pruned-on-disk
-    // photo still falls back to line drawing rather than crashing.
-    // Also defensive against the exotic "video converted to a still"
-    // case where rawFilePath points at a .mov — those rows have no
-    // colour photo to swap to, so leave the segments locked.
-    final raw = e.absoluteRawFilePath;
-    if (raw.isEmpty) return false;
-    final ext = raw.toLowerCase();
-    final rawIsImage =
-        ext.endsWith('.jpg') ||
-        ext.endsWith('.jpeg') ||
-        ext.endsWith('.png') ||
-        ext.endsWith('.heic');
-    if (!rawIsImage) return false;
-    return File(raw).existsSync();
+    final hero = resolveExerciseHero(
+      exercise: e,
+      surface: HeroSurface.mediaViewer,
+    );
+    return hero.caps.availableTreatments.contains(Treatment.grayscale);
   }
 
   bool _isTreatmentAvailable(Treatment t) {
@@ -3938,11 +4175,18 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   bool get _enhancedBackground => _current.bodyFocus ?? true;
 
   /// Whether the Body Focus pill is meaningful for the current
-  /// exercise + treatment. Line drawings have no background to dim,
-  /// so the pill greys out + ignores taps when [_treatment] is
-  /// [Treatment.line]. Photos / rest rows hide the pill entirely (the
-  /// build() guard piggy-backs on `_isVideo`).
-  bool get _enhancedBackgroundEnabled => _treatment != Treatment.line;
+  /// exercise + treatment. Three disable cases:
+  ///   * media_type != 'video'   → Body focus is a video-only effect.
+  ///                               Photos route through the Wave 22
+  ///                               raw-JPG + CSS-grayscale pipeline,
+  ///                               which has no body-pop variant on
+  ///                               the playback path. 2026-05-13:
+  ///                               surface disabled with explanatory
+  ///                               tooltip per Carl's option C2.
+  ///   * _treatment == 'line'    → Line drawings have no background
+  ///                               to dim.
+  bool get _enhancedBackgroundEnabled =>
+      _isVideo(_current) && _treatment != Treatment.line;
 
   /// Wave 42 — toggle the per-exercise Body Focus default. Writes to
   /// the local `ExerciseCapture.bodyFocus` field, persists through
@@ -3984,17 +4228,25 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
 
   /// Resolve the treatment to render for [e]: stored preference if set
   /// AND available (archive present for B&W / Original), otherwise
-  /// [Treatment.line].
+  /// [Treatment.grayscale] (B&W) per the 2026-05-15 publish-flow refactor.
   ///
   /// If the stored preference is no longer available (e.g. the archive
   /// was purged after 90 days), we silently fall back to Line rather
-  /// than showing a broken black frame.
+  /// than showing a broken black frame. Derived from
+  /// [resolveExerciseHero] caps so the fallback rule is shared with
+  /// every other practitioner-facing surface.
   Treatment _effectiveTreatmentFor(ExerciseCapture e) {
-    final pref = e.preferredTreatment;
-    if (pref == null) return Treatment.line;
+    final pref = e.preferredTreatment ?? Treatment.grayscale;
     if (pref == Treatment.line) return Treatment.line;
-    // B&W / Original require a local archive.
-    return _hasArchive(e) ? pref : Treatment.line;
+    final hero = resolveExerciseHero(
+      exercise: e,
+      surface: HeroSurface.mediaViewer,
+    );
+    // Resolver reports treatmentLockedTo when the requested treatment
+    // isn't available locally — same effect as the prior _hasArchive
+    // gate.
+    if (hero.caps.treatmentLockedTo == Treatment.line) return Treatment.line;
+    return pref;
   }
 
   /// Source file the active treatment should play.
@@ -4014,18 +4266,16 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// false or when the segmented file is missing (legacy captures
   /// pre-v22, conversion failed), fall through to the untouched
   /// archive so practitioner playback never goes black.
+  ///
+  /// Delegates to [resolveExerciseHero] (HeroSurface.mediaViewer) so
+  /// the playback fallback chain is shared with MiniPreview + the
+  /// bundled web player.
   String? _sourcePathForTreatment(ExerciseCapture e, Treatment t) {
-    switch (t) {
-      case Treatment.line:
-        return e.displayFilePath;
-      case Treatment.grayscale:
-      case Treatment.original:
-        if (_enhancedBackground) {
-          final seg = e.absoluteSegmentedRawFilePath;
-          if (seg != null && File(seg).existsSync()) return seg;
-        }
-        return e.absoluteArchiveFilePath;
-    }
+    final hero = resolveExerciseHero(
+      exercise: e,
+      surface: HeroSurface.mediaViewer,
+    );
+    return hero.videoFile?.path;
   }
 
   /// Wave 27 — bring up BOTH crossfade slots from the same source path.
@@ -4844,59 +5094,64 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                           ),
 
                   // Exercise-name pill — top-centered in both orientations.
-                  Positioned(
-                    top: MediaQuery.of(context).padding.top + 12,
-                    left: 0,
-                    right: 0,
-                    child: IgnorePointer(
-                      child: Center(
-                        child: Container(
-                          constraints: BoxConstraints(
-                            maxWidth: MediaQuery.of(context).size.width - 96,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _headerLabel(_current, _currentIndex),
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
+                  // Hidden when embedded in the editor sheet: the sheet's
+                  // bottom rail already shows the exercise name + position,
+                  // so an overlay pill on the video is redundant chrome that
+                  // eats canvas the practitioner is trying to see.
+                  if (!widget.embeddedInSheet)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 12,
+                      left: 0,
+                      right: 0,
+                      child: IgnorePointer(
+                        child: Center(
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: MediaQuery.of(context).size.width - 96,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _headerLabel(_current, _currentIndex),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: 0.3,
-                                  color: AppColors.textSecondaryOnDark,
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 0.3,
+                                    color: AppColors.textSecondaryOnDark,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
 
                   // Bottom-right play/pause overlay. Lifted by trim-panel
                   // height (compact in landscape).
@@ -5127,6 +5382,13 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       active: _isMuted,
       onTap: _toggleMute,
     );
+    // Disabled-state tooltip varies by reason:
+    //   photo  → "available for video exercises only"
+    //   line   → "applies to colour playback only"
+    // (2026-05-13 round 2 — photos disable per Carl's option C2 spec.)
+    final bodyFocusDisabledTooltip = !isVideo
+        ? 'Body focus is available for video exercises only.'
+        : 'Body focus applies to colour playback only.';
     final bodyFocus = _TogglePill(
       iconWhenActive: Icons.blur_on_rounded,
       iconWhenInactive: Icons.blur_off_rounded,
@@ -5138,20 +5400,52 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       tooltipWhenActive: 'Body focus ON — background dimmed for clarity.',
       tooltipWhenInactive:
           'Body focus OFF — playing the untouched colour file.',
-      tooltipWhenDisabled: 'Body focus applies to colour playback only.',
+      tooltipWhenDisabled: bodyFocusDisabledTooltip,
     );
     final rotate = _RotatePill(
       onTap: _onRotateTap,
       onLongPress: _onRotateReset,
     );
+    // Replace pill — only rendered when the host wires the callback.
+    // Studio's full-screen viewer + the editor sheet's Demo embed both
+    // wire it; legacy callers (none today) stay free of a dead pill.
+    final replaceCb = widget.onReplaceMedia;
+    final Widget? replace = replaceCb != null
+        ? _ReplacePill(onTap: () => replaceCb(_current))
+        : null;
 
     if (!isVideo) {
-      // Photo path — body focus only.
-      return bodyFocus;
+      // Photo path — body focus shown as DISABLED with explanatory
+      // tooltip ("available for video exercises only"). Replace pill
+      // stacks above body focus so the affordance is still reachable
+      // on photo exercises (the card's long-press used to fire on both
+      // media types).
+      if (replace == null) return bodyFocus;
+      if (isLandscape) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            bodyFocus,
+            const SizedBox(width: 8),
+            replace,
+          ],
+        );
+      }
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          replace,
+          const SizedBox(height: 8),
+          bodyFocus,
+        ],
+      );
     }
 
     if (isLandscape) {
-      // Single row, oldest-to-newest left-to-right.
+      // Single row, oldest-to-newest left-to-right. Replace appended at
+      // the end of the row so the rebuilt cluster is mute → bodyFocus
+      // → rotate → replace.
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -5160,16 +5454,25 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
           bodyFocus,
           const SizedBox(width: 8),
           rotate,
+          if (replace != null) ...[
+            const SizedBox(width: 8),
+            replace,
+          ],
         ],
       );
     }
     // Portrait stays the historical bottom-up stack: mute (base),
-    // body focus, rotate (top). Reversed Column children so the base
-    // pill sits at the bottom of the cluster's bounding box.
+    // body focus, rotate, replace (top). Children read top-to-bottom
+    // so the base pill sits at the bottom of the cluster's bounding
+    // box; replace lands at the top of the stack.
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (replace != null) ...[
+          replace,
+          const SizedBox(height: 8),
+        ],
         rotate,
         const SizedBox(height: 8),
         bodyFocus,
@@ -5758,6 +6061,66 @@ class _TogglePill extends StatelessWidget {
           )
         : pill;
     return enabled ? wrapped : Opacity(opacity: 0.4, child: wrapped);
+  }
+}
+
+/// Compact coral pill that fires the image-picker swap for the active
+/// exercise. Lives in the bottom-left chrome cluster next to mute /
+/// body-focus / rotate on the Demo surface (Studio's full-screen
+/// viewer + the editor sheet's Demo tab). Replaces the Studio card's
+/// pre-2026-05-16 long-press affordance — that gesture was reclaimed
+/// for drag-to-reorder. Visible for both photos and videos; rest rows
+/// never reach the viewer, so no guard is needed here.
+///
+/// Visual pattern matches [_RotatePill] (coral 1.5 px border, transparent
+/// fill, 16-radius capsule, Inter 12pt w600 label, 16-px icon). Tooltip
+/// fires on long-press so it doesn't fight with the pill's own tap.
+class _ReplacePill extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ReplacePill({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Replace media',
+      triggerMode: TooltipTriggerMode.longPress,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.primary, width: 1.5),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.swap_horiz_rounded,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'Replace',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -2,16 +2,16 @@
 
 import { createBrowserClient } from '@supabase/ssr';
 import type { Database } from './supabase/database.types';
+import { supabaseAnonKey, supabaseUrl } from './env';
 
-// Fallbacks prevent `next build` from crashing when env vars aren't present
-// (e.g. during Vercel's first-time project creation, before env is set).
-// At runtime, real env vars must be configured or auth will fail.
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ??
-  'https://yrwcofhovrcydootivjx.supabase.co';
-
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key';
+// A5 + C7 (HARDCODED-AUDIT-2026-05-12) — strict-fail. The previous
+// `?? 'https://yrwcofhovrcydootivjx.supabase.co'` /
+// `?? 'placeholder-anon-key'` fallbacks silently routed misconfigured
+// staging deploys to prod. `requireEnv` returns a build-phase placeholder
+// during `next build` so first-time Vercel project creation still
+// succeeds; runtime evaluation throws if either var is missing.
+const SUPABASE_URL = supabaseUrl();
+const SUPABASE_ANON_KEY = supabaseAnonKey();
 
 // Typing the client with `Database` means `supabase.from('plans')` returns a
 // typed row shape and `supabase.rpc('consume_credit', { ... })` rejects

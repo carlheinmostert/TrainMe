@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-15 — Publish toast: in-app diagnostic sheet (BUG 13)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.cr {
+    background: rgba(96,165,250,0.12); color: #60A5FA;
+    border-color: rgba(96,165,250,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 · BUG 13 follow-up · in-app upload diagnostic surface</div>
+    <h1>Device QA &mdash; Publish toast: in-app diagnostic sheet</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the new in-app diagnostic surface that fires when the post-publish toast reports <em>&ldquo;Some optional treatment files are still processing&rdquo;</em>. Builds on PR #335's <code>debugPrint</code> logging &mdash; instead of needing Xcode device console access, tapping <strong>Details</strong> on the toast now opens a bottom sheet listing each failed file (kind, exercise, exists-on-disk, bucket path), plus a <strong>Copy all</strong> action that puts a paste-ready diagnostic on the clipboard.
+      <br><br>
+      <strong>Scope:</strong> diagnostic-only patch. No behavioural change to the upload retry path. The bottom sheet is read-only; it doesn't trigger a retry &mdash; the next publish does that automatically.
+      <br><br>
+      <strong>Out of scope:</strong> the root-cause fix for BUG 13 itself. This PR exists so Carl can capture WHICH file(s) are failing on subsequent publishes and feed that back without needing a Mac.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>fix/publish-toast-diagnostic-sheet</code> installed on Carl's iPhone via <code>./install-device.sh</code>.</li>
+        <li>A session that has previously been published and reproduces the <em>&ldquo;optional treatment files still processing&rdquo;</em> toast on re-publish (Carl's staging build has been reliably hitting this).</li>
+        <li>If no failing session is handy: capture a fresh photo + video session, publish, then re-publish &mdash; the toast almost always fires at least once in the test environment.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Toast still appears, now with a Details action</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Publish a session that triggers the partial-upload path. The existing <em>&ldquo;Published. Some optional treatment files are still processing&hellip;&rdquo;</em> SnackBar still appears (floating, dark, white text). Copy is unchanged from before this PR. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">A coral <strong>Details</strong> action sits at the right end of the SnackBar (next to the message body). Duration of the toast is long enough to actually tap the action (~12s, was 8s) &mdash; if it dismisses before you can tap, that's a regression. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Diagnostic sheet opens</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text">Tapping <strong>Details</strong> opens a bottom sheet titled <em>&ldquo;Upload diagnostic &mdash; last publish&rdquo;</em>. The sheet is dark (<code>surfaceRaised</code>), has a drag handle, and lists one card per failed file. The subtitle row reads <em>&ldquo;N optional file(s) failed to upload. Main plan published OK; retry publish to backfill.&rdquo;</em>. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Each failure card shows: a coral chip with the <code>kind</code> (e.g. <code>raw_archive_color_thumb_failed</code>, <code>raw_archive_segmented_upload_failed</code>); a sage/red <em>exists</em>/<em>missing</em> indicator with icon, reflecting whether the local source file was present at the time of failure; the exercise label as <em>&ldquo;Exercise: #N {name or id}&rdquo;</em>; the bucket storage path; and the local-path (relativised to <code>Documents/&hellip;</code> &mdash; no sandbox UUID leak). The bucket + local paths are selectable text so you can pinch-zoom and copy-fragment if needed. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Copy all + dismiss</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">Tap <strong>Copy all</strong> at the bottom of the sheet. A confirmation SnackBar appears: <em>&ldquo;Copied N failure record(s) to clipboard&rdquo;</em>. Paste into Notes or iMessage &mdash; the clipboard contents should be a plain-text block per record (kind / exercise / storage_path / local_path / file_exists), separated by blank lines, human-readable, no markdown. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">Tap <strong>Close</strong> (the grey outlined button next to Copy all) &mdash; the sheet dismisses cleanly. Swipe-down on the drag handle also dismisses. Returning to Studio shows the normal post-publish state &mdash; no leftover overlays / scrim. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Happy path regression</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">Publish a session where everything uploads cleanly (no partial-upload toast). The <em>&ldquo;Published &check;&rdquo;</em> toast appears alone. No <em>still processing</em> toast, no Details action, no diagnostic sheet leftover. Behaviour for the happy path is unchanged from before this PR. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Send the diagnostic back</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">From a session that did trigger the partial-upload toast, copy the diagnostic via the sheet and paste it into the Claude conversation. The paste should be readable &mdash; Claude can identify the failing variant kind(s) and the exercise(s) without further round-trips. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 &middot; CI checks</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text">From <code>app/</code>: <code>flutter analyze</code> exits 0 with <em>&ldquo;No issues found!&rdquo;</em>. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text">R-10 parity check &mdash; this change touches Studio chrome ONLY. <code>web-player/*</code> and <code>app/assets/web-player/*</code> are untouched. <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Stacks on PR #335 (publish-failure debugPrint). The structured failure list now flows through <code>PublishResult.optionalArtifactFailures</code> &mdash; one <code>UploadFailureRecord</code> per file the best-effort raw-archive pass couldn't push. Unblocks BUG 13 diagnosis without Mac access.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'fix-publish-toast-diagnostic-sheet.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'fix-publish-toast-diagnostic-sheet', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            var status = li.getAttribute('data-status');
+            if (status) {
+              state[num] = {status: status, note: noteInput.value || ''};
+              save();
+            }
+          }, 250);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

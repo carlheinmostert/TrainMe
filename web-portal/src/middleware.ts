@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { ACTIVE_PRACTICE_COOKIE, UUID_RE } from '@/lib/active-practice';
+import { supabaseAnonKey, supabaseUrl } from '@/lib/env';
 
 /**
  * Edge middleware — Wave 29.
@@ -36,12 +37,11 @@ import { ACTIVE_PRACTICE_COOKIE, UUID_RE } from '@/lib/active-practice';
  * upstream Links, so they don't need their own fallback.
  */
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ??
-  'https://yrwcofhovrcydootivjx.supabase.co';
-
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key';
+// A5 + C7 (HARDCODED-AUDIT-2026-05-12) — strict-fail on missing env vars.
+// Previously fell back to the prod URL + 'placeholder-anon-key', silently
+// routing a misconfigured staging deploy to prod with no error in logs.
+const SUPABASE_URL = supabaseUrl();
+const SUPABASE_ANON_KEY = supabaseAnonKey();
 
 export async function middleware(request: NextRequest) {
   const url = request.nextUrl;

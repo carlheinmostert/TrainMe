@@ -7,6 +7,7 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { NetworkEarningsCard } from '@/components/NetworkEarningsCard';
 import { ShareKit } from '@/components/ShareKit/ShareKit';
 import { referralUrl } from '@/lib/referral-share';
+import { appUrl } from '@/lib/env';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 import type { ShareKitSlots } from '@/lib/share-kit/templates';
 
@@ -98,9 +99,12 @@ export default async function NetworkPage({
 
   // Build the share URL via the same helper used by the legacy card,
   // so Phase 2 intent links keep a single source of truth.
+  // A9 (HARDCODED-AUDIT-2026-05-12) — env-aware loading placeholder so
+  // a staging build's pre-resolution state doesn't briefly flash a prod
+  // URL. Strict-fail propagates from `appUrl()` if the env var is unset.
   const referralLink = referralCode
     ? referralUrl(referralCode)
-    : 'https://manage.homefit.studio/r/loading';
+    : `${appUrl()}/r/loading`;
 
   const shareKitSlots: ShareKitSlots = {
     firstName,

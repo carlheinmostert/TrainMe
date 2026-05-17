@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-13 — Hero Resolver Flutter Bundle (audit PR 4 + PR 5)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; margin-left: 6px; vertical-align: middle;
+  }
+  .tag-device { background: rgba(255,107,53,0.12); color: var(--coral); }
+  .tag-cr { background: rgba(134,239,172,0.12); color: var(--sage); }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-13 · Hero Resolver — Flutter Bundle 2a</div>
+    <h1>Device QA — Exercise Hero Resolver Flutter adoption (Bundle 2a: PR 4 + PR 5)</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> Bundle 2a of the photo-vs-video treatment audit migration. Adds <code>app/lib/services/exercise_hero_resolver.dart</code> — Flutter mirror of <code>web-player/exercise_hero.js</code> (Bundle 1). Single stateless function decides how each mobile surface (Studio card · ClientSessions filmstrip · MediaViewerBody Preview tab · camera peek) picks treatment-correct file + ColorFilter + body-focus caps + fallback chains.
+      <br><br>
+      <strong>Audit fixes in this PR:</strong>
+      <br>· <strong>PR 4 — Flutter resolver adoption.</strong> Migrates <code>MiniPreview</code> (<code>_treatmentFor</code>, <code>_videoPathFor</code>, <code>_PhotoFrame</code>, <code>_HeroFrameImage</code>, <code>_VideoFrame</code>), <code>CaptureThumbnail</code> (<code>_resolveSource</code>, <code>_buildImage</code>), <code>_FilmstripCell</code>, and <code>MediaViewerBody</code> helpers (<code>_hasArchive</code>, <code>_effectiveTreatmentFor</code>, <code>_sourcePathForTreatment</code>) to call the shared resolver. Deletes 3 duplicate ColorFilter constants in favor of one canonical <code>kHeroGrayscaleFilter</code> (Rec.709 weights, matches web).
+      <br>· <strong>PR 5 — F17 filmstrip rule change.</strong> <code>_pickFilmstripHeroes</code> changes from "videos first up to N; zero videos → first photo only (single cell)" to "videos first up to N; if zero videos, photos up to N". A photo-only session with 3 photos now renders 3 filmstrip cells instead of clamping to 1.
+      <br><br>
+      <strong>Stacked for Bundle 2b (parallel agent, do NOT regress on these but they don't need to be FIXED here):</strong>
+      <br>· F21 (photo thumbnail variant pipeline — adds <code>_thumb.jpg</code> / <code>_thumb_color.jpg</code> / <code>_thumb_line.jpg</code> for photos to match the video pipeline). The resolver degrades gracefully when these files don't exist — photos still render via the current files-only chain (line → converted JPG, B&amp;W/Original → raw JPG + ColorFilter).
+      <br>· Cloud upload of photo thumbnail variants — backlog after F21.
+      <br><br>
+      <strong>R-10 parity:</strong> The Flutter resolver contract mirrors the JS resolver shape from Bundle 1. Field semantics align: <code>caps.hasBodyFocus</code> (videos only), <code>caps.availableTreatments</code> (line baseline + grayscale/original when raw exists), <code>caps.treatmentLockedTo</code> (null or Treatment.line when fallback applies). Surfaces: <code>HeroSurface.studioCard</code>, <code>filmstrip</code>, <code>mediaViewer</code>, <code>peek</code>.
+      <br><br>
+      <strong>In scope:</strong> Flutter app only. Resolver + 4 widgets (mini_preview, capture_thumbnail, session_card, studio_mode_screen) + filmstrip picker rule.
+      <br><br>
+      <strong>Out of scope:</strong> <code>web-player/</code> bundle (shipped in Bundle 1 already; do NOT touch). <code>conversion_service.dart</code> / <code>upload_service.dart</code> / Swift native code / <code>unified_preview_scheme_bridge.dart</code> / SQLite schema (Bundle 2b territory — parallel agent running now).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Install the staging build to Carl's iPhone via <code>./install-device.sh</code>. Build SHA should match the PR's head SHA.</li>
+        <li>For PR 4: a session with at least one video AND one photo, with the practitioner having set various <code>preferredTreatment</code> values (Line, B&amp;W, Original) on the videos. Photos default to Line for now.</li>
+        <li>For PR 5: a session with <strong>three or more photos</strong> (no videos). Needed to verify the rule change visually.</li>
+        <li>Carl is REMOTE for this round — items marked <span class="tag tag-cr">CR-OK</span> can be verified by code review alone; items marked <span class="tag tag-device">device</span> need device QA on next install.</li>
+      </ul>
+    </div>
+
+    <h2>Task 1 · Studio card hero — videos render correct treatment-aware thumbnail (PR 4)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open Studio for a session with video exercises spanning all three treatments. Each card's static-hero thumbnail should match the exercise's <code>preferredTreatment</code> — resolver picks <code>{id}_thumb_line.jpg</code> / <code>{id}_thumb_color.jpg</code> / <code>{id}_thumb.jpg</code> accordingly.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open Studio on a session with video exercises in <strong>Line</strong> treatment — card hero shows the line-drawing thumbnail (white outline on dark bg). Switch one video card to <strong>B&amp;W</strong> via the segmented control on the card — the thumbnail flips to the B&amp;W frame from raw. Switch to <strong>Original</strong> — thumbnail flips to the colour frame from raw. Each segmented-control change repaints the hero with the right variant. No flicker between states.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text"><span class="tag tag-device">device</span> When the local raw archive is missing (cloud-only state after fresh re-install), B&amp;W and Original segments are LOCKED in the Studio card's segmented control. The card itself still renders the Line treatment hero with no broken-image glyph. (Resolver's <code>caps.treatmentLockedTo</code> falls back to Line; segmented control consumes <code>caps.availableTreatments</code>.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 2 · Studio card hero — photos render treatment-aware (PR 4)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Same path for photo exercises. The resolver's <code>_pickPhotoPosterFile</code> handles the file selection with the existing fallback chain (treatment file → thumbnail → raw → converted).
+    </p>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open Studio on a session with at least one photo exercise. The photo card renders the line drawing JPG by default (<code>preferredTreatment == Treatment.line</code> or null). Switch to <strong>B&amp;W</strong> via the segmented control — the photo flips to the raw colour JPG with a B&amp;W <code>ColorFilter.matrix</code> applied on top (matches the web player's CSS <code>filter: grayscale(1)</code>). Switch to <strong>Original</strong> — raw colour, no filter.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text"><span class="tag tag-cr">CR-OK</span> Photo fallback chain regression check: a legacy photo with no converted file falls back through the thumbnail → raw → converted chain. Verify by code review of <code>_pickPhotoPosterFile</code> in <code>exercise_hero_resolver.dart</code>. Falls through deterministically and never crashes the painter (errorBuilder is still wired in the widget for the final empty case).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 3 · Filmstrip — 3 photos session renders all 3 cells (PR 5)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The headline F17 fix. Pre-2026-05-13 the picker clamped photo-only sessions to a single cell — now it returns up to <code>_kFilmstripMaxCells</code> (N=4).
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open ClientSessions for a client with at least one session containing exactly <strong>3 photos and no videos</strong>. The session card's filmstrip background renders <strong>3 cells</strong> — each cell shows the photo's line-drawing JPG. Cells flex equally (33% width each, with 1px hairline separators between them). Cell content is the line drawing (no B&amp;W filter — photos route through the resolver with Line treatment, no filter for filmstrip surface on photos).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text"><span class="tag tag-device">device</span> Create / open a session with <strong>5+ photos (no videos)</strong>. Filmstrip clamps at 4 cells (N=4 max). The 5th and subsequent photos don't render in the strip. Documented behaviour — same N cap as the video path.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text"><span class="tag tag-device">device</span> Edge case — a session with exactly <strong>1 photo (no videos)</strong>. Filmstrip renders 1 cell at 100% width, sharp (decode upgraded to <code>cacheWidth: 720</code> per the existing single-cell logic, untouched by this PR).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 4 · Filmstrip — videos-first regression check (PR 5)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The video path is unchanged. Re-verify nothing regressed.
+    </p>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open a session with <strong>4 videos</strong> (no photos). Filmstrip renders 4 video cells, all in B&amp;W (resolver applies <code>kHeroGrayscaleFilter</code> for the filmstrip surface on videos regardless of <code>preferredTreatment</code>). Cell content matches the video's existing Hero thumbnail (the <code>_thumb.jpg</code> variant).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open a session with <strong>5+ videos</strong>. Filmstrip caps at 4 cells (regression check — was 4 before too).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text"><span class="tag tag-device">device</span> Mixed session — <strong>2 videos + 2 photos</strong>. Filmstrip shows the 2 videos (videos take precedence whole). NO photo cells appear (documented mixed-treatment aesthetic: photos only render when there are zero videos). Cells are B&amp;W (videos get the ColorFilter for filmstrip).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 5 · MediaViewerBody Preview tab — body-focus toggle still works (PR 4)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The editor sheet's Preview tab routes its video playback through <code>resolveExerciseHero(HeroSurface.mediaViewer)</code>. Body-focus toggle (segmented variant when ON, untouched raw when OFF) should round-trip correctly.
+    </p>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open the editor sheet's Preview tab on a video exercise with <strong>B&amp;W</strong> preferred treatment. The video plays. Tap the <strong>Body focus</strong> pill — the video reloads with the segmented variant (body pristine, background dimmed). Tap again — reloads with the untouched raw 720p H.264 archive. Both states play smoothly. No black frame.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text"><span class="tag tag-device">device</span> Same exercise, switch treatment to <strong>Line</strong>. Body focus pill becomes DISABLED (<code>caps.hasBodyFocus &amp;&amp; treatment != Treatment.line</code> — line is line, no background to dim). Tooltip on tap: "Body focus applies to colour playback only." Switch back to B&amp;W — pill re-enables.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text"><span class="tag tag-device">device</span> Treatment fallback: open the editor sheet on a video where the local archive doesn't exist (eg. fresh re-install before raw prefetch). The segmented control locks B&amp;W + Original. Player falls back to Line. Confirm <code>_hasArchive</code> still returns false correctly (the resolver-derived version should match the prior binary).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 6 · MediaViewerBody — photo body-focus pill stays disabled (PR 4 regression check)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Round 2 (staging-qa-2026-05-13-round2) added the photo body-focus disable. Verify the resolver migration didn't regress it.
+    </p>
+    <ul class="checklist">
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open the editor sheet's Preview tab on a <strong>photo</strong> exercise. The Body focus pill is rendered but DISABLED (greyed). Tap it — tooltip reads "Body focus is available for video exercises only." Resolver's <code>caps.hasBodyFocus</code> is false for all photo exercises (the resolver formalises the prior <code>_enhancedBackgroundEnabled = _isVideo(_current) &amp;&amp; ...</code> rule into a capability).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 7 · Capture peek — last-captured thumbnail (PR 4)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The viewfinder-bottom-left peek box (showing the last captured exercise + count) routes through <code>CaptureThumbnail</code> which now uses <code>HeroSurface.peek</code>. Same fallback chain as before.
+    </p>
+    <ul class="checklist">
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text"><span class="tag tag-device">device</span> In Camera mode, capture a photo. The peek box renders the converted line-drawing JPG (existing default behaviour — <code>treatment</code> argument to <code>CaptureThumbnail</code> is null on this surface, so resolver returns Line). Switch to video, capture a video. Peek box renders the video's B&amp;W <code>_thumb.jpg</code> Hero. Both render sharp at the box's pixel size (decode capped at <code>size * dpr</code>).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text"><span class="tag tag-device">device</span> Open Studio for the session. The thumbnail list at the bottom of the Studio (which also uses <code>CaptureThumbnail</code> per-row) renders each exercise's thumbnail correctly. Photos render line drawings; videos render the B&amp;W frame. Long-press peek (Wave 19.4 240px preview) renders the same content scaled up without flashing chrome.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 8 · End-to-end regression: capture → convert → preview → publish (PR 4)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Confirm the resolver introduction didn't regress the core publish flow. None of the touched code paths are on the publish hot path, but better safe than sorry.
+    </p>
+    <ul class="checklist">
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text"><span class="tag tag-device">device</span> Capture a fresh video → conversion completes → preview shows the line drawing → publish succeeds. The new resolver doesn't touch <code>conversion_service.dart</code>, <code>upload_service.dart</code>, or any native code. Publish version-bumps + credit consumes as expected.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text"><span class="tag tag-device">device</span> After publish, open the published plan via the share link on Carl's iPhone Safari at <code>session.homefit.studio/p/&lt;planId&gt;</code>. Lobby renders. Workout starts. Each exercise plays correctly. (Web player surface — orthogonal to Bundle 2a but a quick smoke check that the data round-trip is unaffected.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Task 9 · Code review — single source of truth verification</h2>
+    <ul class="checklist">
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
+        <span class="num">19.</span>
+        <span class="text"><span class="tag tag-cr">CR-OK</span> On the dev machine, run <code>grep -rn "ColorFilter.matrix" app/lib</code>. The only match is <code>kHeroGrayscaleFilter</code> in <code>app/lib/services/exercise_hero_resolver.dart</code>. The three duplicate matrices (<code>_kGrayscaleFilter</code> in <code>mini_preview.dart</code>, <code>_kGrayscaleFilter</code> in <code>capture_thumbnail.dart</code>, <code>_kFilmstripGrayscale</code> in <code>session_card.dart</code>) are deleted.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">✓</button><button class="fail" type="button" aria-label="Fail 20">✗</button></div>
+        <span class="num">20.</span>
+        <span class="text"><span class="tag tag-cr">CR-OK</span> Run <code>cd app &amp;&amp; flutter analyze</code> — no issues found. Run <code>cd app &amp;&amp; flutter test</code> — all existing tests pass (no new tests added in this bundle).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="21" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 21">✓</button><button class="fail" type="button" aria-label="Fail 21">✗</button></div>
+        <span class="num">21.</span>
+        <span class="text"><span class="tag tag-cr">CR-OK</span> R-10 parity verification: <code>diff &lt;(grep -A2 "@returns" web-player/exercise_hero.js)</code> against the resolver's Dart contract docstrings shows the same field semantics — <code>caps.hasBodyFocus</code>, <code>caps.availableTreatments</code>, <code>caps.treatmentLockedTo</code>. Surfaces enum maps cleanly (web: <code>lobby/deck/prep/snapshot</code>; Dart: <code>studioCard/filmstrip/mediaViewer/peek</code>).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bundle 2a of 6 from <code>docs/audits/photo-video-treatment-audit-2026-05-13.md</code>. Bundle 1 = web resolver (already shipped). Bundle 2b = photo thumbnail variant pipeline (parallel agent, ongoing). PRs map to audit migration plan: PR 4 = Flutter resolver adoption; PR 5 = F17 filmstrip rule change. Carl is REMOTE — items tagged <span class="tag tag-cr">CR-OK</span> can be confirmed via code review; items tagged <span class="tag tag-device">device</span> are deferred until next install on iPhone CHM.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'hero-resolver-flutter-bundle.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'hero-resolver-flutter-bundle', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

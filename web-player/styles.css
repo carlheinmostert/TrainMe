@@ -2964,6 +2964,23 @@ body.is-fullscreen .playpause-toggle {
 }
 
 /* Hero ------------------------------------------------------------------- */
+/* Layout reservation lives on the parent — `aspect-ratio: 1/1` keeps the
+   row sized BEFORE the image decodes, and `overflow: hidden` clips the
+   brief un-cropped flash before `hydrateHeroCrops` (lobby.js) swaps the
+   `<img src>` for a square data URL.
+   Hero-crop resolver refactor (2026-05-16): see web-player/hero_resolver.js.
+   The `<img>` no longer needs `object-fit: cover` because its data URL's
+   intrinsic dimensions are ALREADY 1:1 — the crop is baked into the
+   bitmap. `object-position` is gone for the same reason. html2canvas
+   (the PDF rasteriser) ignores both CSS properties, so this refactor
+   is what makes the PDF export honour the practitioner's chosen crop
+   offset.
+   The `<video>` element (swap-to-video on the active row) still needs
+   `object-fit: cover` because its frames stream natively at the source
+   aspect ratio (portrait / landscape mp4 → 1:1 slot). The video poster
+   is the cropped data URL, so the poster frame is already square; only
+   the playing frames need cover semantics. Scoped to `video.lobby-hero-
+   media` below. */
 .lobby-hero {
   flex: 0 0 40%;
   aspect-ratio: 1 / 1;
@@ -2982,8 +2999,14 @@ body.is-fullscreen .playpause-toggle {
 }
 
 .lobby-hero-media {
-  object-fit: cover;
   display: block;
+}
+
+/* Video frames stream natively at the source aspect ratio. Keep
+   `object-fit: cover` for `<video>` so the playing frames crop to the
+   1:1 slot instead of stretching to fill it. */
+video.lobby-hero-media {
+  object-fit: cover;
 }
 
 .lobby-hero-media.is-grayscale {
@@ -3008,6 +3031,78 @@ body.is-fullscreen .playpause-toggle {
 
 @media (prefers-reduced-motion: reduce) {
   .lobby-hero-skeleton { animation: none; }
+}
+
+/* ----------------------------------------------------------------------- */
+/* Hero-resolver no-fallback placeholder                                   */
+/* ----------------------------------------------------------------------- */
+/*
+ * Shown when the practitioner's chosen treatment for an exercise isn't
+ * available locally (consent absent, raw file missing). The resolver
+ * NEVER silently substitutes a different treatment — see
+ * `web-player/exercise_hero.js`. Coral-tinted dark surface so the gap
+ * reads as intentional rather than as a broken image.
+ */
+.hero-not-available {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  box-sizing: border-box;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 107, 53, 0.18) 0%,
+    rgba(255, 107, 53, 0.06) 100%
+  );
+  color: var(--c-text-on-dark);
+  border: 1px solid rgba(255, 107, 53, 0.28);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.hero-not-available::before {
+  /* Material-style "image not supported" glyph, white-on-coral-glow. */
+  content: '';
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  background-color: rgba(255, 107, 53, 0.9);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M21.9 21.9 2.1 2.1.69 3.51 3 5.83V19c0 1.1.9 2 2 2h13.17l2.32 2.32 1.41-1.42zM5 19V7.83l7.07 7.07-.61.61L9 12l-3 4h8.17l2 2H5zM21 17.17V5c0-1.1-.9-2-2-2H6.83l2 2H19v10.17l2 2z'/></svg>") no-repeat center / 100%;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M21.9 21.9 2.1 2.1.69 3.51 3 5.83V19c0 1.1.9 2 2 2h13.17l2.32 2.32 1.41-1.42zM5 19V7.83l7.07 7.07-.61.61L9 12l-3 4h8.17l2 2H5zM21 17.17V5c0-1.1-.9-2-2-2H6.83l2 2H19v10.17l2 2z'/></svg>") no-repeat center / 100%;
+}
+
+.hero-not-available-name {
+  font-family: 'Montserrat', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-not-available-sub {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 107, 53, 0.95);
+  text-transform: uppercase;
+}
+
+/* Deck-surface variant fills the larger card-media slot. */
+.hero-not-available-deck {
+  position: relative;
+  inset: auto;
+  min-height: 240px;
 }
 
 /* Info column ----------------------------------------------------------- */
@@ -3097,75 +3192,93 @@ body.is-fullscreen .playpause-toggle {
    - Carl: "I want the visual to more reflect an actual circuit to make
      people understand easier that there is repetition here." The
      closed loop is a literal circuit. */
-/* Lanes wave (v54) — circuit rendered as a single <li class="lobby-circuit">
-   hosting an SVG lanes overlay + a .lobby-circuit-frame containing the
-   header (surface-2, isolated) + the body (coral-tinted, where the
-   in-circuit rows live as <div>s). N coral rounded-rectangle outlines
-   are drawn into the SVG by lobby.js's renderCircuitLanes() — one per
-   round — plus an animated tracer that spirals from the innermost lane
-   outward. Geometry mocked up at docs/design/mockups/lobby-circuit-lanes.html.
+/* Nested-box wave (attempt #10, 2026-05-15) — circuit rendered as a single
+   <li class="lobby-circuit"> hosting a header strip + N visually-nested
+   <div class="lobby-circuit-box"> rings. The innermost box wraps a
+   .lobby-circuit-body that hosts the in-circuit rows as <div>s.
 
-   Why one container instead of fragmented borders across sibling LIs:
-   PRs #257/#258 split the frame across <li>s but the browser auto-
-   closed the outer <li> when it encountered the nested <li> rows,
-   ejecting them from the container in the parsed DOM. v54 fixes both
-   issues — single LI with the rows as <div>s inside its body. */
+   N visible rings = circuit-cycle count, capped at 5 (CIRCUIT_BOX_CAP in
+   lobby.js). ×1 → 1 ring (just the inner). ×3 → 3 rings. ×6+ → 5 rings.
+   The cycles chip in the header still reads the truthful count.
+
+   Why nested DOM rings instead of an SVG-tracer overlay:
+   Attempts #1–#9 all patched layers of an SVG architecture that depended
+   on runtime DOM measurement, ResizeObservers, MutationObservers,
+   getTotalLength polling, and WAAPI-vs-CSS-cascade priority on
+   position:fixed ancestors. Every fix introduced new failure modes.
+   N real DOM rings + pure CSS keyframes can't race — there is no
+   measurement step, no observer, no rAF chain. The chrome cannot
+   regress without explicitly removing the CSS.
+
+   Geometry mocked up at docs/design/mockups/circuit-nested-boxes.html
+   (variant 1, outward ripple).
+
+   Why one outer container instead of fragmented borders across sibling
+   <li>s: PRs #257/#258 split the frame across <li>s but the browser
+   auto-closed the outer <li> when it encountered the nested <li> rows,
+   ejecting them from the parsed DOM. The single-LI shell with rows-as-
+   <div>s pattern is preserved here. */
 .lobby-circuit {
   position: relative;
   list-style: none;
   margin: 8px 0;
-  /* padding is set per-instance by JS to lanePad (= 5 * cycles), so the
-     SVG (inset:0) extends outward from the frame by lanePad on each side. */
   padding: 0;
 }
 
-.lobby-circuit-lanes {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  overflow: visible;
-  z-index: 0;
+/* Nested-box rings.
+   - Every ring carries a coral border + animated pulse.
+   - --box-index 0 is innermost, --box-index N-1 is outermost.
+   - Each successive ring gets +4px outer padding and +4px radius via
+     `lobby-circuit-box-depth-N` rules below.
+   - The animation staggers by 0.4s per depth so the pulse ripples
+     outward from the innermost ring (variant 1). */
+.lobby-circuit-box {
+  border: 2px solid rgba(255, 107, 53, 0.25);
+  border-radius: 10px;
+  padding: 4px;
+  animation: lobby-circuit-pulse 2.4s ease-in-out infinite;
+  animation-delay: calc(var(--box-index) * 0.4s);
 }
 
-.lobby-circuit-lanes .lane-static {
-  fill: none;
-  stroke: rgba(255, 107, 53, 0.60);
-  stroke-width: 2;
-  stroke-linejoin: round;
+/* Per-depth radius + padding tuning. Innermost (depth-0) carries the
+   tighter radius; each outer ring expands by 4px to match the eye's
+   expectation that nested rings keep a consistent gap.
+   Depth-0 padding is set on .lobby-circuit-box-inner below so the body
+   gets a small interior margin against the innermost ring. */
+.lobby-circuit-box-depth-1 { border-radius: 14px; padding: 4px; }
+.lobby-circuit-box-depth-2 { border-radius: 18px; padding: 4px; }
+.lobby-circuit-box-depth-3 { border-radius: 22px; padding: 4px; }
+.lobby-circuit-box-depth-4 { border-radius: 26px; padding: 4px; }
+
+/* Innermost ring (depth-0) is the only one with a solid surface so the
+   rows sit on a flat panel instead of floating over the page bg through
+   transparent outer rings. */
+.lobby-circuit-box-inner {
+  padding: 6px;
+  background: var(--c-surface-bg);
 }
 
-.lobby-circuit-lanes .lane-tracer {
-  fill: none;
-  stroke: rgba(255, 107, 53, 0.95);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  filter: drop-shadow(0 0 4px rgba(255, 107, 53, 0.5));
-  animation: lobby-circuit-tracer var(--dur, 27s) linear infinite;
-}
-
-@keyframes lobby-circuit-tracer {
-  /* 0–90% of the timeline: tracer draws from start to end of the spiral. */
-  0%   { stroke-dashoffset: var(--path-len); }
-  90%  { stroke-dashoffset: 0; }
-  /* 90–100%: hold at the end → brief settle before looping back. */
-  100% { stroke-dashoffset: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lobby-circuit-lanes .lane-tracer {
-    animation: none;
-    stroke-dashoffset: 0;
+/* Variant 1 — outward ripple. Pulse from inner → outer with a staggered
+   animation-delay. Each ring brightens its border + flares a coral glow
+   then settles back to the dim coral border. */
+@keyframes lobby-circuit-pulse {
+  0%, 100% {
+    border-color: rgba(255, 107, 53, 0.25);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25% {
+    border-color: rgba(255, 107, 53, 1);
+    box-shadow: 0 0 24px 4px rgba(255, 107, 53, 0.65),
+                0 0 0 2px rgba(255, 107, 53, 0.45);
+  }
+  55%, 99% {
+    border-color: rgba(255, 107, 53, 0.25);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
-.lobby-circuit-frame {
-  position: relative;
-  z-index: 1;
-  border-radius: 18px;
-  overflow: hidden;
+@media (prefers-reduced-motion: reduce) {
+  .lobby-circuit-box { animation: none !important; }
 }
 
 .lobby-circuit-header {
@@ -3174,8 +3287,9 @@ body.is-fullscreen .playpause-toggle {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 16px;
+  margin-bottom: 8px;
   background: var(--c-surface-base);
-  border-bottom: 1px solid rgba(255, 107, 53, 0.30);
+  border-radius: 10px;
 }
 
 .lobby-circuit-header-label {
@@ -3207,9 +3321,11 @@ body.is-fullscreen .playpause-toggle {
   color: var(--c-brand);
 }
 
+/* Body lives inside the innermost ring (lobby-circuit-box-inner) which
+   already provides a solid background + a small padding. Drop the
+   per-body background + inset padding here so the coral tint of the
+   former frame doesn't fight with the inner ring's surface fill. */
 .lobby-circuit-body {
-  background: rgba(255, 107, 53, 0.04);
-  padding: 8px 16px 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3235,8 +3351,10 @@ body.is-fullscreen .playpause-toggle {
 /*
  * Round 4 (2026-05-04) — treatment selector moved behind the gear.
  * Bar is now Start + gear in a single row. The treatment row lives
- * inside `#lobby-settings-popover` which is `position: absolute`
- * inside `.lobby-cta-bar` and opens UPWARD from above the gear.
+ * inside `#lobby-settings-popover` which is JS-positioned
+ * (`position: fixed` + viewport-aware top/left from
+ * `repositionLobbySettingsPopover()` in lobby.js) and opens UPWARD
+ * from above the gear.
  */
 .lobby-cta-bar {
   position: fixed;
@@ -3309,6 +3427,37 @@ body.is-fullscreen .playpause-toggle {
   display: none;
 }
 
+/* Lobby-settings-unify (2026-05-14): the lobby gear popover now hosts
+   the same `.treatment-pills` markup as the deck gear panel. Apply
+   the consent-locked affordance to that markup too — the lock glyph
+   is appended by lobby.js's renderTreatmentRow() onto pills that
+   `isLockedTreatment()` returns true for, and the data-locked attr
+   surfaces the muted colour. */
+.lobby-settings-popover .treatment-pills > button[data-locked="true"] {
+  color: var(--c-ink-muted);
+}
+
+.lobby-settings-popover .treatment-pills > button[data-locked="true"] .lobby-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.lobby-settings-popover .treatment-pills > button:not([data-locked="true"]) .lobby-lock {
+  display: none;
+}
+
+.lobby-settings-popover .treatment-pills > button .lobby-lock svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
 .lobby-start-btn {
   flex: 1 1 auto;
   height: 50px;
@@ -3378,9 +3527,10 @@ body.is-fullscreen .playpause-toggle {
   stroke: currentColor;
 }
 
-/* Lobby share button — sits next to the gear, triggers the lobby PNG
-   export + iOS share sheet (Wave Free Lobby Export, 2026-05-05). Mirrors
-   .lobby-gear-btn shape so the two buttons read as one cluster. */
+/* Lobby share button — sits next to the gear, triggers the lobby PDF
+   export + iOS share sheet (Wave Free Lobby Export, 2026-05-05; PDF
+   pivot 2026-05-14). Mirrors .lobby-gear-btn shape so the two buttons
+   read as one cluster. */
 .lobby-share-btn {
   flex: 0 0 48px;
   width: 48px;
@@ -3419,21 +3569,196 @@ body.is-fullscreen .playpause-toggle {
   stroke: currentColor;
 }
 
-/* Hide page chrome that shouldn't appear in the exported PNG. The
-   .is-exporting class is toggled on <html> during snapshot capture. */
+/* Hide page chrome that shouldn't appear in the exported PDF. The
+   .is-exporting class is toggled on <html> during snapshot capture.
+   Snapshot pages are rasterised offscreen via the .lobby-export-page
+   container (see below); these legacy rules are kept so that any
+   accidental capture of the live #lobby root also drops the chrome.
+   The .is-exporting class also strips the active-row coral highlight
+   + circuit chrome overflow so each paginated page chunk rasterises
+   cleanly. */
 html.is-exporting .lobby-cta-bar,
 html.is-exporting .lobby-meta-version,
 html.is-exporting #lobby-settings-popover {
   display: none !important;
 }
-html.is-exporting .lobby-circuit-lanes .lane-tracer {
-  /* Snapshot a quiet "settled" frame — pause the spiral animation
-     mid-render via animation: none. */
+/* Nested-box pulse (attempt #10) — suppress the keyframe during export so
+   the rasterised page captures a quiet "settled" frame. We snap to the
+   25%-into-keyframe state (bright coral border + small glow) so the
+   PDF still reads as "this is a circuit" instead of a flat dim ring. */
+html.is-exporting .lobby-circuit-box,
+.lobby-export-page .lobby-circuit-box {
   animation: none !important;
-  stroke-dashoffset: 0 !important;
+  border-color: rgba(255, 107, 53, 0.95) !important;
+  box-shadow: none !important;
 }
 html.is-exporting .lobby-export-footer {
   display: flex !important;
+}
+
+/* PDF-pagination polish — 2026-05-14 #10.1, #10.3, #10.4. Active-row
+   coral highlight kept the page visually consistent for the live UI
+   but bled into the rendered PDF as an arbitrary single-row glow.
+   Strip it during export. The body-level + html-level both used so
+   the suppression sticks regardless of where html2canvas grafts its
+   cloned subtree. */
+html.is-exporting .lobby-row.is-active-pill > .lobby-row-content,
+html.is-exporting .lobby-row.is-active > .lobby-row-content,
+.lobby-export-page .lobby-row.is-active-pill > .lobby-row-content,
+.lobby-export-page .lobby-row.is-active > .lobby-row-content {
+  border-color: var(--c-surface-border) !important;
+  box-shadow: none !important;
+}
+html.is-exporting .lobby-row.is-active-pill,
+html.is-exporting .lobby-row.is-active,
+.lobby-export-page .lobby-row.is-active-pill,
+.lobby-export-page .lobby-row.is-active {
+  background: transparent !important;
+}
+
+/* Nested-box circuit chrome — every ring needs to render its border on
+   the exported page. html2canvas is conservative with `overflow:hidden`
+   parents and can clip a child's border-shadow when the parent isn't
+   explicitly visible. Force overflow:visible at every level the chrome
+   nests inside so the outermost ring's border is never clipped on the
+   right edge of the page. */
+.lobby-export-page,
+.lobby-export-page .lobby-circuit,
+.lobby-export-page .lobby-circuit-box {
+  overflow: visible !important;
+}
+
+/* Round 6 fix: the header label was set `overflow:hidden; text-overflow:
+   ellipsis; white-space:nowrap` for the bar context, which truncates the
+   right edge when html2canvas measures it. Let it wrap during export so
+   long circuit names stay inside the header strip. */
+.lobby-export-page .lobby-circuit-header {
+  flex-wrap: wrap;
+  padding-right: 18px;
+}
+.lobby-export-page .lobby-circuit-header-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* Pagination layout — the per-page snapshot root. Pinned offscreen
+   while html2canvas reads it; restored once the canvas is captured.
+   Fixed width matches A4 portrait pixel-target (794px at 96dpi) so
+   each chunk rasterises at consistent scale. */
+.lobby-export-page {
+  position: fixed;
+  top: -100000px;
+  left: 0;
+  width: 794px;
+  box-sizing: border-box;
+  background: #0F1117;
+  color: var(--c-ink-primary);
+  font-family: 'Inter', -apple-system, sans-serif;
+  z-index: -1;
+  display: flex;
+  flex-direction: column;
+}
+/* BUG 6d (2026-05-15): match the live lobby content width so rows lay out
+   identically in the rasterised PDF page. The live lobby renders inside
+   .lobby-inner { max-width: 720px } minus 16px padding each side = 688px
+   content. The export outer is 794px (A4 portrait at 96dpi). Without an
+   explicit max-width on this inner, content would fill 794px - 56px = 738px,
+   which is 1.073x wider than the live 688px box — visible as "horizontal
+   stretch" when viewing the PDF beside the live lobby. Clamping to 688px
+   here and centring with margin: 0 auto lets the extra horizontal space
+   inside the 794px page become real PDF margin (which A4 needs anyway). */
+.lobby-export-page-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 28px 28px 22px;
+  max-width: 688px;
+  margin: 0 auto;
+}
+
+/* Full header (page 1). Plan title, summary line. The summary line is
+   composed by JS to mirror the live lobby meta strip. */
+.lobby-export-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-surface-border);
+}
+.lobby-export-page-title {
+  margin: 0;
+  font-family: 'Montserrat', -apple-system, sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.3px;
+  color: var(--c-ink-primary);
+}
+.lobby-export-page-summary {
+  margin: 0;
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--c-ink-secondary);
+}
+
+/* Compact running header (pages 2+). Plan title + page indicator only;
+   no summary. */
+.lobby-export-page-running {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--c-surface-border);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 12px;
+  color: var(--c-ink-secondary);
+}
+.lobby-export-page-running .lobby-export-running-title {
+  font-family: 'Montserrat', -apple-system, sans-serif;
+  font-weight: 600;
+  color: var(--c-ink-primary);
+}
+
+/* Page body — flex column hosting the row chunk. The list container
+   resets ul margins so the rows align with the page chrome. */
+.lobby-export-page-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.lobby-export-page-body .lobby-list,
+.lobby-export-page-body ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Footer — page count left, brand line right. Matches the live
+   .lobby-export-footer styling but lives inside each page. */
+.lobby-export-page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-surface-border);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 11px;
+  color: var(--c-ink-secondary);
+}
+.lobby-export-page-footer .lobby-export-page-count {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.lobby-export-page-footer .lobby-export-page-brand {
+  text-align: right;
 }
 .lobby-export-footer {
   display: none;
@@ -3468,120 +3793,16 @@ html.is-exporting .lobby-export-footer {
   text-align: right;
 }
 
-/* Desktop export modal (Wave Free Lobby Export hardening, 2026-05-05).
-   Shown after the snapshot completes when navigator.share isn't available
-   (macOS Safari/Chrome desktop). User clicks Download anchor → fresh
-   user-activation → browser honours the download. */
-.lobby-export-modal[hidden] { display: none; }
-.lobby-export-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.lobby-export-modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(15, 17, 23, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-.lobby-export-modal-card {
-  position: relative;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: 16px;
-  padding: 20px;
-  max-width: min(520px, 100%);
-  max-height: calc(100vh - 48px);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
-}
-.lobby-export-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.lobby-export-modal-title {
-  margin: 0;
-  font-family: 'Montserrat', -apple-system, sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-ink-primary);
-}
-.lobby-export-modal-close {
-  background: transparent;
-  border: 0;
-  color: var(--c-ink-secondary);
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-.lobby-export-modal-close:hover {
-  color: var(--c-ink-primary);
-  background: rgba(255, 255, 255, 0.05);
-}
-.lobby-export-modal-img {
-  width: 100%;
-  height: auto;
-  max-height: calc(100vh - 220px);
-  object-fit: contain;
-  border-radius: 8px;
-  background: #0F1117;
-}
-.lobby-export-modal-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-}
-.lobby-export-modal-download {
-  display: inline-block;
-  text-align: center;
-  background: var(--c-accent);
-  color: #0F1117;
-  font-family: 'Montserrat', -apple-system, sans-serif;
-  font-weight: 600;
-  font-size: 14px;
-  padding: 12px 16px;
-  border-radius: 999px;
-  text-decoration: none;
-  cursor: pointer;
-}
-.lobby-export-modal-download:hover {
-  filter: brightness(1.05);
-}
-.lobby-export-modal-hint {
-  margin: 0;
-  text-align: center;
-  color: var(--c-ink-secondary);
-  font-family: 'Inter', -apple-system, sans-serif;
-  font-size: 12px;
-}
-
-/* Lobby settings popover — anchored to the viewport-bottom and opens
-   UPWARD from the gear. `position: absolute` inside `.lobby-cta-bar`
-   so it reads "stuck to the bar" rather than free-floating. The bar
-   has `z-index: 60`; this lives inside it, no conflict.
-
-   Anchored to the right edge of the bar's inner container (where the
-   gear sits). Width grows to a comfortable popover size on phone +
-   tablet; max-width clamps it on desktop. */
+/* Lobby settings popover — positioned by JS via `repositionLobbySettingsPopover()`
+   in `lobby.js`. JS computes viewport-aware `top` / `left` coords from the
+   gear button's clientRect and sets `position: fixed` so the popover anchors
+   to the viewport (not the fixed CTA bar's containing block). Without this
+   CSS deferring to JS, the prior `position: absolute; bottom: calc(100% + 8px)`
+   rule won the cascade and pushed the popover offscreen in landscape on iOS
+   (PR #338 follow-up). Keep `position: fixed` here so there's no FOUC
+   between hidden-flip and JS reposition. */
 .lobby-settings-popover {
-  position: absolute;
-  /* Float above the bar — bar's top padding is 12px; we sit just above
-     it with an 8px gap. `bottom: 100%` aligns the popover's bottom
-     edge to the bar's top edge; `+8px` lift comes from translateY. */
-  bottom: calc(100% + 8px);
-  right: 16px;
+  position: fixed;
   z-index: 70;
   min-width: 240px;
   max-width: calc(100vw - 32px);
@@ -3627,6 +3848,26 @@ html.is-exporting .lobby-export-footer {
    here we can afford 40. */
 .lobby-settings-popover .lobby-treatment-row {
   height: 40px;
+}
+
+/* Lobby-settings-unify (2026-05-14): the lobby popover hosts the
+   unified gear panel — same width footprint as the deck popover so
+   the two read as one component. min-width matches the deck. Anchor
+   positioning is JS-driven (`repositionLobbySettingsPopover()` in
+   lobby.js); the base `.lobby-settings-popover` rule above uses
+   `position: fixed` with no static `top`/`bottom`/`left`/`right`,
+   so the JS-set coords are the only positional rules in play.
+   2026-05-15: selector moved from `.lobby-settings-popover.settings-popover`
+   to `.lobby-settings-popover--variant` companion class because the
+   shared `.settings-popover` class was dropped (it was inheriting
+   the deck's `position: absolute; top: 134px; right: 8px` from the
+   landscape media query at line 2401 via cascade whenever JS cleared
+   inline styles — putting this popover below the gear and offscreen
+   in landscape). The `settings-popover--lobby` modifier on the element
+   carries width-only intent now; positioning is exclusively JS-driven
+   via setProperty('important'). */
+.settings-popover--lobby {
+  min-width: 264px;
 }
 
 /* Self-grant modal ----------------------------------------------------- */
@@ -3747,3 +3988,127 @@ html.is-exporting .lobby-export-footer {
   .lobby-start-btn,
   .lobby-self-grant-btn { transition: none; }
 }
+
+/* ===================================================================== */
+/*  Import-to-app CTA + sheet + toast                                    */
+/*  TestFlight v2 stub. Tap CTA → sheet → "Send" fires a no-op coming-  */
+/*  soon toast. Wired in lobby.js. Backend lands in a follow-up PR.     */
+/* ===================================================================== */
+
+/* "Get the app" teaser — static "Coming soon" card. The PR #315 stub
+   shipped a tappable CTA that opened an email form; Carl flagged that
+   as misleading (the form was a no-op). This is now a passive,
+   non-tappable card that advertises the future feature without
+   collecting anything. The matrix-only homefit logo is injected by
+   lobby.js into .lobby-import-glyph at init time. */
+.lobby-import-card {
+  margin: 18px 16px 0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  border-radius: 12px;
+  color: inherit;
+  font-family: inherit;
+}
+
+.lobby-import-glyph {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #0f1117;
+  border: 1px solid var(--surface-border, #2e3140);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 4px;
+  box-sizing: border-box;
+}
+
+.lobby-import-glyph .homefit-logo {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.lobby-import-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lobby-import-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lobby-import-title {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-primary, #f0f0f5);
+  line-height: 1.25;
+}
+
+.lobby-import-soon {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--brand-default, #ff6b35);
+  color: #ffffff;
+  border-radius: 100px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.lobby-import-sub {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-secondary, #9ca3af);
+  line-height: 1.45;
+}
+
+/* Hidden during snapshot export so the card doesn't bleed into the
+   shareable lobby image. */
+html.is-exporting .lobby-import-card { display: none; }
+
+/* ---------- Tiny self-dismissing toast ---------- */
+
+.lobby-toast {
+  position: fixed;
+  z-index: 95;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 16px);
+  background: var(--surface-raised, #242733);
+  color: var(--ink-primary, #f0f0f5);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--surface-border, #2e3140);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 200ms ease, transform 200ms ease;
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+
+.lobby-toast[data-state="visible"] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.lobby-toast[hidden] { display: none; }

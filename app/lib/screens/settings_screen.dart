@@ -438,14 +438,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openPrivacy() async {
     HapticFeedback.selectionClick();
     await _openLegalUrl(
-      Uri.parse('https://manage.homefit.studio/privacy'),
+      Uri.parse('${AppConfig.portalOrigin}/privacy'),
     );
   }
 
   Future<void> _openTerms() async {
     HapticFeedback.selectionClick();
     await _openLegalUrl(
-      Uri.parse('https://manage.homefit.studio/terms'),
+      Uri.parse('${AppConfig.portalOrigin}/terms'),
     );
   }
 
@@ -1231,9 +1231,12 @@ class _NetworkSectionState extends State<_NetworkSection> {
   /// find it useful too" framing so the recipient reads it as a
   /// colleague recommendation, not a sales pitch. Interpolates the
   /// practice's short code at the end of the manage-portal /r/ path.
-  static const _shareTemplate =
+  /// Pre-composed peer-to-peer share text. Built at tap time so the
+  /// `manage.homefit.studio` origin flips to `staging.manage.homefit.studio`
+  /// in a staging build (env-aware via [AppConfig.portalOrigin]).
+  static String _shareText(String code) =>
       "I use homefit.studio to share exercise plans with my clients — "
-      "you might find it useful too: https://manage.homefit.studio/r/{code}";
+      "you might find it useful too: ${AppConfig.portalOrigin}/r/$code";
 
   /// Portal path for the "View full network on the portal" link. The
   /// full URL is built at tap time via [portalLink] so the active
@@ -1451,7 +1454,7 @@ class _NetworkSectionState extends State<_NetworkSection> {
     final code = await _resolveCodeOrNull();
     if (code == null || !mounted) return;
     HapticFeedback.selectionClick();
-    final text = _shareTemplate.replaceAll('{code}', code);
+    final text = _shareText(code);
     final box = context.findRenderObject() as RenderBox?;
     final origin = box == null
         ? Rect.zero

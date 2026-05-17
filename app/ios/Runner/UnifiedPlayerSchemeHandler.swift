@@ -10,13 +10,25 @@ import WebKit
 /// Host:   `plan`
 /// Routes:
 ///   `homefit-local://plan/`                       → index.html (Flutter asset)
-///   `homefit-local://plan/app.js`                 → app.js     (Flutter asset)
-///   `homefit-local://plan/api.js`                 → api.js     (Flutter asset)
-///   `homefit-local://plan/lobby.js`               → lobby.js   (Flutter asset)
-///   `homefit-local://plan/styles.css`             → styles.css (Flutter asset)
+///   `homefit-local://plan/<filename>`             → any file under
+///                                                   `app/assets/web-player/`
+///                                                   served as a static asset
+///                                                   (content-type derived
+///                                                   from extension)
+///   `homefit-local://plan/config.js`              → inert env-var stub
+///                                                   (special-cased; the
+///                                                   embedded surface never
+///                                                   needs deploy-time env
+///                                                   vars — see route below)
 ///   `homefit-local://plan/api/plan/<planId>`      → plan JSON  (Dart method channel)
 ///   `homefit-local://plan/local/<exerciseId>/line`    → converted / raw file
 ///   `homefit-local://plan/local/<exerciseId>/archive` → raw-archive mp4
+///
+/// The static-asset route is data-driven: any file under
+/// `app/assets/web-player/` (as written by
+/// `app/tool/sync_web_player_bundle.dart`) is automatically routable.
+/// New files in the bundle do NOT require a Swift change. PR #330
+/// was the last manual switchboard hot-fix — see history below.
 ///
 /// Why a custom scheme over loopback?
 ///   * No port allocation — the Phase 1 shelf asks the OS for an ephemeral
@@ -93,57 +105,49 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     let rawPath = url.path
     let path = rawPath.hasPrefix("/") ? String(rawPath.dropFirst()) : rawPath
 
-    // 1. Static bundle assets — resolve synchronously off main.
-    if path.isEmpty || path == "index.html" {
-      respondWithAsset(urlSchemeTask, assetName: "index.html", contentType: "text/html; charset=utf-8")
-      return
-    }
-    if path == "app.js" {
-      respondWithAsset(urlSchemeTask, assetName: "app.js", contentType: "application/javascript; charset=utf-8")
-      return
-    }
-    if path == "api.js" {
-      respondWithAsset(urlSchemeTask, assetName: "api.js", contentType: "application/javascript; charset=utf-8")
-      return
-    }
-    if path == "lobby.js" {
-      respondWithAsset(urlSchemeTask, assetName: "lobby.js", contentType: "application/javascript; charset=utf-8")
-      return
-    }
-    if path == "styles.css" {
-      respondWithAsset(urlSchemeTask, assetName: "styles.css", contentType: "text/css; charset=utf-8")
-      return
-    }
-    if path == "html2canvas.min.js" {
-      // Wave Free Lobby Export (2026-05-05) — vendored html2canvas
-      // (~200 KB) lazy-loaded by lobby.js when the share button is
-      // tapped. Same-origin via the homefit-local:// scheme; CSP
-      // `script-src 'self'` rule on the public surface requires this.
-      respondWithAsset(urlSchemeTask, assetName: "html2canvas.min.js", contentType: "application/javascript; charset=utf-8")
-      return
-    }
+    // 1. config.js — special-cased inert stub.
+    //
+    // feat/web-player-env-vars — the public surface generates this at
+    // deploy time from Vercel env vars (see web-player/build.sh) so
+    // each deployment hits the right Supabase branch DB. The embedded
+    // surface never reaches Supabase (api.js's `isLocalSurface()`
+    // short-circuits every network call), so the values are inert
+    // here. Serve an empty config object so api.js falls through to
+    // its inline fallback constants without a 404 showing up in the
+    // WebView console. Kept ahead of the generic asset resolver so
+    // that even if a `config.js` file ever lands in the bundle
+    // (it's in the sync script's exclude list today), we still serve
+    // the inert stub from the embedded surface.
     if path == "config.js" {
-      // feat/web-player-env-vars — the public surface generates this
-      // at deploy time from Vercel env vars (see web-player/build.sh)
-      // so each deployment hits the right Supabase branch DB. The
-      // embedded surface never reaches Supabase (api.js's
-      // `isLocalSurface()` short-circuits every network call), so the
-      // values are inert here. Serve an empty config object so api.js
-      // falls through to its inline fallback constants without a 404
-      // showing up in the WebView console.
       respondWithInlineJavaScript(urlSchemeTask, body: "window.HOMEFIT_CONFIG = Object.freeze({});")
       return
     }
 
-    // 2. Plan JSON.
+    // 2. Dynamic routes — Plan JSON + local media. Matched BEFORE the
+    // asset resolver so the `api/` / `local/` prefixes can never be
+    // shadowed by a same-named file in the bundle.
     if let planId = match(path: path, pattern: "api/plan/") {
       respondWithPlanJson(urlSchemeTask, planId: planId)
       return
     }
-
-    // 3. Local media — line / archive. Parse `local/<id>/<kind>`.
     if let (exerciseId, kind) = parseLocalMediaPath(path) {
       respondWithLocalMedia(urlSchemeTask, exerciseId: exerciseId, kind: kind)
+      return
+    }
+
+    // 3. Static bundle assets — data-driven resolver.
+    //
+    // Any file in `app/assets/web-player/` (as written by
+    // `app/tool/sync_web_player_bundle.dart`) is served with a
+    // content-type derived from its extension. Empty path maps to
+    // `index.html`. Pre PR #330 every file had its own hardcoded
+    // `if path == "..."` branch, which meant new files (e.g.
+    // exercise_hero.js, jspdf.umd.min.js) hung silently in the
+    // WebView until a Swift-side hot-fix added them. The resolver
+    // closes that brittleness — the sync script's exclude list is
+    // now the single source of truth for what ships in the bundle.
+    let assetName = path.isEmpty ? "index.html" : path
+    if tryRespondWithBundleAsset(urlSchemeTask, assetName: assetName) {
       return
     }
 
@@ -232,27 +236,50 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
 
   // MARK: - Static asset handler
 
-  private func respondWithAsset(
+  /// Try to serve `assets/web-player/<assetName>` out of the Flutter
+  /// asset bundle. Returns `true` if the asset existed (and we either
+  /// finished or failed the task with a definitive response). Returns
+  /// `false` if the asset is NOT in the bundle, so the caller can fall
+  /// through to its 404 path.
+  ///
+  /// Path safety: the bundle is flat by design (see
+  /// `app/tool/sync_web_player_bundle.dart`'s top-of-file comment),
+  /// so we reject any path containing a slash or a `..` segment up
+  /// front. That keeps the resolver from accidentally serving files
+  /// outside `assets/web-player/` even if `FlutterDartProject.lookupKey`
+  /// were to follow a relative path.
+  @discardableResult
+  private func tryRespondWithBundleAsset(
     _ task: WKURLSchemeTask,
-    assetName: String,
-    contentType: String
-  ) {
+    assetName: String
+  ) -> Bool {
+    // Reject path-traversal + nested-asset attempts. The bundle is
+    // flat: every file lives directly under `assets/web-player/`.
+    if assetName.isEmpty { return false }
+    if assetName.contains("/") { return false }
+    if assetName == "." || assetName == ".." { return false }
+
     // Flutter bundles declared pubspec assets under Runner.app at
     // `Frameworks/App.framework/flutter_assets/assets/web-player/<name>`.
     // `FlutterDartProject.lookupKey(forAsset:)` maps the asset name to
-    // the bundle key the plugin system uses at runtime.
+    // the bundle key the plugin system uses at runtime. The lookup
+    // ALWAYS returns a key string (it's pure path computation); the
+    // canonical existence check is `Bundle.main.path(forResource:)`
+    // returning non-nil.
     let assetPath = "assets/web-player/\(assetName)"
     let key = FlutterDartProject.lookupKey(forAsset: assetPath)
     guard let resource = Bundle.main.path(forResource: key, ofType: nil) else {
-      safeDidFail(task, Self.error(.fileDoesNotExist, "asset missing: \(assetPath)"))
-      return
+      // Not in the bundle — caller decides whether to 404 or try
+      // another route.
+      return false
     }
     let fileURL = URL(fileURLWithPath: resource)
+    let contentType = Self.contentTypeForAsset(assetName)
     do {
       let data = try Data(contentsOf: fileURL)
       guard let requestURL = task.request.url else {
         safeDidFail(task, Self.error(.badURL, "missing request URL mid-response"))
-        return
+        return true
       }
       let response = makeResponse(
         url: requestURL,
@@ -269,9 +296,38 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
       safeDidReceive(task, response)
       safeDidReceive(task, data)
       safeDidFinish(task)
+      return true
     } catch {
       safeDidFail(task, Self.error(.cannotOpenFile, "read failed: \(error.localizedDescription)"))
+      return true
     }
+  }
+
+  /// Derive a Content-Type header from a bundle-asset filename's
+  /// extension. The Flutter asset bundle is flat (see the sync
+  /// script) and ASCII-named, so a simple suffix match is enough.
+  /// Unknown extensions fall through to `application/octet-stream`
+  /// — WKWebView will refuse to parse those as scripts / stylesheets,
+  /// which is the correct failure mode (a missing entry here should
+  /// be added rather than silently mis-served).
+  private static func contentTypeForAsset(_ name: String) -> String {
+    let lower = name.lowercased()
+    if lower.hasSuffix(".html") || lower.hasSuffix(".htm") { return "text/html; charset=utf-8" }
+    if lower.hasSuffix(".js") || lower.hasSuffix(".mjs") { return "application/javascript; charset=utf-8" }
+    if lower.hasSuffix(".css") { return "text/css; charset=utf-8" }
+    if lower.hasSuffix(".json") { return "application/json; charset=utf-8" }
+    if lower.hasSuffix(".svg") { return "image/svg+xml" }
+    if lower.hasSuffix(".png") { return "image/png" }
+    if lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg") { return "image/jpeg" }
+    if lower.hasSuffix(".webp") { return "image/webp" }
+    if lower.hasSuffix(".woff2") { return "font/woff2" }
+    if lower.hasSuffix(".woff") { return "font/woff" }
+    if lower.hasSuffix(".ttf") { return "font/ttf" }
+    if lower.hasSuffix(".otf") { return "font/otf" }
+    if lower.hasSuffix(".ico") { return "image/x-icon" }
+    if lower.hasSuffix(".map") { return "application/json; charset=utf-8" }
+    if lower.hasSuffix(".txt") { return "text/plain; charset=utf-8" }
+    return "application/octet-stream"
   }
 
   // MARK: - Plan JSON handler (delegates to Dart)
@@ -524,7 +580,8 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     let kind = String(parts[1])
     if exerciseId.isEmpty { return nil }
     guard kind == "line" || kind == "archive" || kind == "segmented"
-            || kind == "hero" || kind == "hero_color" || kind == "hero_line" else {
+            || kind == "hero" || kind == "hero_color" || kind == "hero_line"
+            || kind == "hero_bw" else {
       NSLog("[UnifiedPreview] rejected unknown kind '\(kind)' for exercise \(exerciseId)")
       return nil
     }

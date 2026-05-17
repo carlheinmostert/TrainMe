@@ -5,18 +5,10 @@ import 'package:video_player/video_player.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
+import '../services/exercise_hero_resolver.dart';
 import '../theme.dart';
 import '../utils/hero_crop_alignment.dart';
 import 'hero_star_badge.dart';
-
-/// Greyscale matrix used by [ColorFiltered] for the B&W treatment.
-/// Mirrors the web player's `filter: grayscale(1)` look.
-const ColorFilter _kGrayscaleFilter = ColorFilter.matrix(<double>[
-  0.299, 0.587, 0.114, 0, 0,
-  0.299, 0.587, 0.114, 0, 0,
-  0.299, 0.587, 0.114, 0, 0,
-  0,     0,     0,     1, 0,
-]);
 
 /// Live mini preview for an [ExerciseCapture].
 ///
@@ -161,10 +153,12 @@ class _MiniPreviewState extends State<MiniPreview> {
 
     if (widget.staticHero) {
       // Pure Image.file render — no controller to maintain. Flutter's
-      // image cache keys on the path; bumping focus_frame_offset_ms
-      // overwrites the JPG in place, so the next paint after
-      // regenerateHeroThumbnails picks up the new bytes via
-      // [_HeroFrameImage]'s ValueKey.
+      // image cache keys on the path; ConversionService.regenerateHero
+      // Thumbnails overwrites the JPG in place, so [_HeroFileImage]
+      // uses file-mtime (not focus_frame_offset_ms) as the cache-bust
+      // signal so a regen-completion repaints with the new bytes
+      // without flickering during a drag (mtime is stable while the
+      // file content is unchanged).
       return;
     }
 
@@ -199,54 +193,29 @@ class _MiniPreviewState extends State<MiniPreview> {
   }
 
   /// Treatment the mini should reflect — mirrors the Preview tab's
-  /// current selection via `preferredTreatment`. Falls back to line.
+  /// current selection via `preferredTreatment`. Falls back to B&W
+  /// (grayscale) per the 2026-05-15 publish-flow refactor (PR-B).
+  ///
+  /// Read internally for state-tracking (e.g. `didUpdateWidget`
+  /// path comparison) — the actual file selection routes through
+  /// [resolveExerciseHero] so all surfaces converge on the same
+  /// contract.
   Treatment _treatmentFor(ExerciseCapture ex) =>
-      ex.preferredTreatment ?? Treatment.line;
-
-  /// True when the exercise wants the segmented body-pop variant for
-  /// non-line treatments. Mirrors the Preview tab's _enhancedBackground
-  /// getter (`bodyFocus ?? true` — default ON, opt-out per exercise).
-  bool _bodyFocusFor(ExerciseCapture ex) => ex.bodyFocus ?? true;
+      ex.preferredTreatment ?? Treatment.grayscale;
 
   /// Returns the video path the mini should play, or null when the
   /// exercise isn't a playable video (rest / photo / missing file).
-  /// Mirrors `_sourcePathForTreatment` in studio_mode_screen.dart:
-  ///   * line                          → converted line-drawing
-  ///   * grayscale/original + bodyFocus → segmentedRawFilePath
-  ///   * grayscale/original + !bodyFocus → archive (raw 720p) → raw
-  /// Each step falls through to the next-best on-disk file.
+  /// Delegates to [resolveExerciseHero] (HeroSurface.mediaViewer)
+  /// so the playback fallback chain stays in lockstep with the
+  /// editor sheet's Preview tab + the bundled web player.
   String? _videoPathFor(ExerciseCapture ex) {
     if (ex.isRest) return null;
     if (ex.mediaType != MediaType.video) return null;
-    final treatment = _treatmentFor(ex);
-    if (treatment == Treatment.line) {
-      final path = ex.absoluteConvertedFilePath;
-      if (path != null && path.isNotEmpty && File(path).existsSync()) {
-        return path;
-      }
-      return null;
-    }
-    // grayscale / original — try segmented body-pop first if Body Focus
-    // is ON, then archive (raw 720p), then raw, then line-drawing.
-    if (_bodyFocusFor(ex)) {
-      final seg = ex.absoluteSegmentedRawFilePath;
-      if (seg != null && seg.isNotEmpty && File(seg).existsSync()) {
-        return seg;
-      }
-    }
-    final archive = ex.absoluteArchiveFilePath;
-    if (archive != null && archive.isNotEmpty && File(archive).existsSync()) {
-      return archive;
-    }
-    final raw = ex.absoluteRawFilePath;
-    if (raw.isNotEmpty && File(raw).existsSync()) return raw;
-    final fallback = ex.absoluteConvertedFilePath;
-    if (fallback != null &&
-        fallback.isNotEmpty &&
-        File(fallback).existsSync()) {
-      return fallback;
-    }
-    return null;
+    final hero = resolveExerciseHero(
+      exercise: ex,
+      surface: HeroSurface.mediaViewer,
+    );
+    return hero.videoFile?.path;
   }
 
   void _initForExercise(ExerciseCapture ex) {
@@ -447,45 +416,27 @@ class _PhotoFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Treatment-aware path selection:
-    //   * line      → converted (line-drawing JPG)
-    //   * grayscale → raw (will receive a greyscale colour filter)
-    //   * original  → raw
-    // Falls back through thumbnail → raw → converted if the chosen one
-    // is missing on disk.
-    String? path;
-    if (treatment == Treatment.line) {
-      path = exercise.absoluteConvertedFilePath;
-    } else {
-      path = exercise.absoluteRawFilePath.isNotEmpty
-          ? exercise.absoluteRawFilePath
-          : null;
-    }
-    if (path == null || !File(path).existsSync()) {
-      final thumb = exercise.absoluteThumbnailPath;
-      if (thumb != null && File(thumb).existsSync()) path = thumb;
-    }
-    if (path == null || !File(path).existsSync()) {
-      final raw = exercise.absoluteRawFilePath;
-      if (raw.isNotEmpty && File(raw).existsSync()) path = raw;
-    }
-    if (path == null || !File(path).existsSync()) {
-      final conv = exercise.absoluteConvertedFilePath;
-      if (conv != null && File(conv).existsSync()) path = conv;
-    }
-    if (path == null || !File(path).existsSync()) {
-      return const _PhotoFallback();
-    }
+    // Treatment-aware path selection routes through the resolver so
+    // the photo fallback chain (treatment file → thumbnail → raw →
+    // converted) stays in lockstep with Studio cards + filmstrip +
+    // peek.
+    final hero = resolveExerciseHero(
+      exercise: exercise,
+      surface: HeroSurface.studioCard,
+    );
+    final file = hero.posterFile;
+    if (file == null) return const _PhotoFallback();
     // Wave Lobby — practitioner-authored 1:1 crop window.
     final align = heroCropAlignment(exercise);
     final image = Image.file(
-      File(path),
+      file,
       fit: BoxFit.cover,
       alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
-    if (treatment == Treatment.grayscale) {
-      return ColorFiltered(colorFilter: _kGrayscaleFilter, child: image);
+    final filter = hero.filter;
+    if (filter != null) {
+      return ColorFiltered(colorFilter: filter, child: image);
     }
     return image;
   }
@@ -553,7 +504,7 @@ class _VideoFrame extends StatelessWidget {
       ),
     );
     if (treatment == Treatment.grayscale) {
-      return ColorFiltered(colorFilter: _kGrayscaleFilter, child: video);
+      return ColorFiltered(colorFilter: kHeroGrayscaleFilter, child: video);
     }
     return video;
   }
@@ -574,9 +525,15 @@ class _VideoFrame extends StatelessWidget {
 ///
 /// Hero regeneration overwrites the JPG IN PLACE — same path, new bytes —
 /// which Flutter's default `FileImage` cache can't see. We use
-/// [_HeroFileImage] (a `FileImage` subclass that includes the picked
-/// offset in its identity) so a fresh pick busts the cache and the
-/// Studio card / editor header repaint with the new frame.
+/// [_HeroFileImage] (a `FileImage` subclass that includes the file's
+/// last-modified-time in its identity) so the regen-completion (which
+/// advances mtime) busts the cache and the Studio card / bottom rail
+/// repaints with the new frame. Keying on mtime rather than the picked
+/// offset also keeps the glyph stable mid-drag — `_persistHero`
+/// optimistically bumps `focusFrameOffsetMs` every gesture tick, but the
+/// JPG bytes don't change until the 250ms-debounced regen lands, so
+/// keying on offset would flicker the cache on every tick while still
+/// painting the same stale bytes.
 class _HeroFrameImage extends StatelessWidget {
   final ExerciseCapture exercise;
   final Treatment treatment;
@@ -596,33 +553,37 @@ class _HeroFrameImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final basePath = exercise.absoluteThumbnailPath;
-    // No thumbnail extracted yet (e.g. mid-conversion on a fresh
-    // capture). Show the dark fallback instead of trying to render the
-    // raw video as an Image — that just bubbles up an error painter.
-    if (basePath == null) {
-      return const _PhotoFallback();
+    // Route the per-treatment thumbnail variant selection through the
+    // resolver so the {id}_thumb_line.jpg / _thumb_color.jpg / _thumb.jpg
+    // fallback chain is shared with the rest of the static-poster
+    // surfaces (Studio card, filmstrip, peek).
+    final hero = resolveExerciseHero(
+      exercise: exercise,
+      surface: HeroSurface.studioCard,
+    );
+    final useFile = hero.posterFile;
+    if (useFile == null) return const _PhotoFallback();
+    // Cache-bust on file mtime, not on focus_frame_offset_ms. Regen
+    // overwrites the JPG in place, advancing mtime; mid-drag the
+    // optimistic offset bumps every gesture tick but the file bytes are
+    // unchanged, so mtime is the right signal for "the picture really
+    // did change".
+    int mtimeMs;
+    try {
+      mtimeMs = useFile.lastModifiedSync().millisecondsSinceEpoch;
+    } catch (_) {
+      // Filesystems that race a rewrite vs. a stat can throw — fall
+      // back to 0 so we still render the on-disk bytes (cache hit on
+      // the prior key is acceptable; next paint with a real mtime busts
+      // it cleanly).
+      mtimeMs = 0;
     }
-    String thumbPath;
-    switch (treatment) {
-      case Treatment.line:
-        thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
-      case Treatment.grayscale:
-        thumbPath = basePath; // default thumbnail IS B&W
-      case Treatment.original:
-        thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
-    }
-    final thumbFile = File(thumbPath);
-    final fallbackFile = File(basePath);
-    final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
-    if (!useFile.existsSync()) return const _PhotoFallback();
-    final offset = exercise.focusFrameOffsetMs ?? 0;
     // Wave Lobby — practitioner-authored 1:1 crop window. Defaults to
     // centred for legacy / un-authored exercises so the existing pixel
     // output is preserved.
     final align = heroCropAlignment(exercise);
     return Image(
-      image: _HeroFileImage(useFile, offset),
+      image: _HeroFileImage(useFile, mtimeMs),
       fit: BoxFit.cover,
       alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
@@ -634,22 +595,25 @@ class _HeroFrameImage extends StatelessWidget {
   /// `aspectRatio`:
 }
 
-/// `FileImage` whose cache identity includes the practitioner-picked
-/// Hero offset. Without this, an in-place rewrite of the same path
-/// (which is what [ConversionService.regenerateHeroThumbnails] does)
-/// keeps the stale bytes in [PaintingBinding.imageCache]. Bumping the
-/// offset → different `==` / `hashCode` → cache miss → fresh decode.
+/// `FileImage` whose cache identity includes the JPG's
+/// `lastModified.millisecondsSinceEpoch`. Without this, an in-place
+/// rewrite of the same path (which is what
+/// [ConversionService.regenerateHeroThumbnails] does) keeps the stale
+/// bytes in [PaintingBinding.imageCache]. mtime advances only when the
+/// file is actually rewritten, so it sidesteps the mid-drag flicker that
+/// keying on `focusFrameOffsetMs` introduces (the offset bumps every
+/// gesture tick but the bytes are stale until the debounce lands).
 class _HeroFileImage extends FileImage {
-  final int offsetMs;
-  const _HeroFileImage(super.file, this.offsetMs);
+  final int mtimeMs;
+  const _HeroFileImage(super.file, this.mtimeMs);
 
   @override
   bool operator ==(Object other) {
     if (other is! _HeroFileImage) return false;
-    return file.path == other.file.path && offsetMs == other.offsetMs;
+    return file.path == other.file.path && mtimeMs == other.mtimeMs;
   }
 
   @override
-  int get hashCode => Object.hash(file.path, offsetMs);
+  int get hashCode => Object.hash(file.path, mtimeMs);
 }
 

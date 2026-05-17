@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
     show
@@ -199,8 +201,10 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
   // ---------------------------------------------------------------------------
   // Native bridge — JSON messages posted from `window.HomefitBridge` in
   // `web-player/app.js`. Shape:
-  //   { "type": "haptic", "kind": "selection"|"mediumImpact"|"heavyImpact" }
-  //   { "type": "audio",  "active": true|false }
+  //   { "type": "haptic",      "kind": "selection"|"mediumImpact"|"heavyImpact" }
+  //   { "type": "audio",       "active": true|false }
+  //   { "type": "share_image", "dataUrl": "data:image/png;base64,...",
+  //                            "fileName": "homefit-lobby-...png" }
   // Malformed or unknown messages are logged (debug only) and ignored
   // so a stray payload can't crash the preview.
   // ---------------------------------------------------------------------------
@@ -229,10 +233,120 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
         _audioSessionActivated = _audioSessionActivated || active;
         unawaited(_setAudioPlayback(active));
         break;
+      case 'share_image':
+        // 2026-05-13 — lobby share-as-static export. The web player
+        // hands us a base64-encoded PNG; we decode + write to a temp
+        // file + present iOS UIActivityViewController.
+        final dataUrl = payload['dataUrl'];
+        final fileName = payload['fileName'];
+        if (dataUrl is String && dataUrl.isNotEmpty) {
+          unawaited(_shareImagePayload(
+            dataUrl,
+            fileName is String ? fileName : 'homefit-plan.png',
+          ));
+        }
+        break;
+      case 'share_file':
+        // 2026-05-14 — lobby multi-page PDF export. The web player
+        // hands us raw base64 of an arbitrary file (typically a PDF)
+        // plus a mimeType + filename. We decode + write to a temp
+        // file + present iOS UIActivityViewController. The share
+        // sheet includes Save to Files, AirDrop, Messages, Mail.
+        final b64 = payload['base64'];
+        final mime = payload['mimeType'];
+        final shareFileName = payload['fileName'];
+        if (b64 is String && b64.isNotEmpty) {
+          unawaited(_shareFilePayload(
+            b64,
+            shareFileName is String ? shareFileName : 'homefit-plan.bin',
+            mime is String ? mime : 'application/octet-stream',
+          ));
+        }
+        break;
       default:
         if (kDebugMode) {
           debugPrint('[UnifiedPreview] bridge: unknown type "$type"');
         }
+    }
+  }
+
+  /// Decode the base64 PNG payload posted from the web player's lobby
+  /// share button and present it via [Share.shareXFiles]. The share
+  /// sheet surfaces iOS's UIActivityViewController, which gives the
+  /// practitioner save-to-Photos / WhatsApp / Mail / AirDrop targets.
+  ///
+  /// Best-effort: any failure (malformed payload, file IO blocked) is
+  /// debugPrinted and swallowed. The lobby modal already shows the PNG
+  /// inline as a fallback so the practitioner can long-press → Save.
+  Future<void> _shareImagePayload(String dataUrl, String fileName) async {
+    try {
+      const prefix = 'data:image/png;base64,';
+      if (!dataUrl.startsWith(prefix)) {
+        if (kDebugMode) {
+          debugPrint('[UnifiedPreview] share_image: bad data URL prefix');
+        }
+        return;
+      }
+      final b64 = dataUrl.substring(prefix.length);
+      final bytes = base64Decode(b64);
+      final tempDir = await getTemporaryDirectory();
+      final safeName = fileName.isNotEmpty ? fileName : 'homefit-plan.png';
+      final file = File('${tempDir.path}/$safeName');
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      // sharePositionOrigin required on iPad; pass a sensible default
+      // rooted at the top-left of the visible viewport so the popover
+      // anchors safely. iPhone ignores the field.
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null
+          ? box.localToGlobal(Offset.zero) & box.size
+          : const Rect.fromLTWH(0, 0, 100, 100);
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'image/png', name: safeName)],
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UnifiedPreview] share_image failed: $e');
+      }
+    }
+  }
+
+  /// 2026-05-14 — companion to [_shareImagePayload] for arbitrary
+  /// (mimeType, filename, base64) tuples. Used by the lobby's multi-
+  /// page PDF export pipeline: the WebView hands us
+  /// `share_file` with `{ base64, fileName, mimeType }` and we present
+  /// iOS UIActivityViewController so the practitioner can Save to
+  /// Files / AirDrop / Messages / Mail the PDF.
+  ///
+  /// Best-effort — any failure (malformed base64, write blocked) is
+  /// logged in debug mode and swallowed. The lobby modal already shows
+  /// a Download anchor + Share button as fallbacks so the practitioner
+  /// has another path if the native sheet doesn't surface.
+  Future<void> _shareFilePayload(
+    String base64Str,
+    String fileName,
+    String mimeType,
+  ) async {
+    try {
+      final bytes = base64Decode(base64Str);
+      final tempDir = await getTemporaryDirectory();
+      final safeName = fileName.isNotEmpty ? fileName : 'homefit-plan.bin';
+      final file = File('${tempDir.path}/$safeName');
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null
+          ? box.localToGlobal(Offset.zero) & box.size
+          : const Rect.fromLTWH(0, 0, 100, 100);
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: mimeType, name: safeName)],
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UnifiedPreview] share_file failed: $e');
+      }
     }
   }
 

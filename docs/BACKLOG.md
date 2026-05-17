@@ -10,6 +10,43 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Flutter hero-crop resolver — migrate the five mobile consumers (follow-up to 2026-05-16 web PR)
+
+**Status:** Queued **2026-05-16**. Web-side companion PR (`refactor/hero-crop-resolver-web` → `staging`) landed the same principle on `web-player/`: a single `hero_resolver.js` module owns the "given a portrait/landscape source JPG + a stored offset, produce the 1:1 view" transformation, replacing inline `object-position` math in `lobby.js` and fixing the PDF export's silently-squashed portrait heroes as a side effect.
+
+The Flutter side still builds the alignment math by hand on five+ surfaces against the same `hero_crop_offset` field. This is the mobile half of the same DRY argument.
+
+**Current state — duplication audit:**
+- `app/lib/widgets/studio_exercise_card.dart` — Studio list row hero. Builds its own `Alignment(0, offset * 2 - 1)` against the loaded `Image` to bias the crop window.
+- `app/lib/widgets/session_card.dart` — filmstrip background tiles on session cards. Same alignment math, repeated per tile.
+- `app/lib/screens/camera_mode_screen.dart` (or the peek widget called from it) — viewfinder bottom-left "last captured" thumbnail. Same math.
+- `app/lib/screens/client_sessions_screen.dart` — session-list hero (where a session's most-recent exercise hero appears as a thumb).
+- `app/lib/widgets/exercise_editor_sheet.dart` — `HeroCropViewport` reads + writes the offset, but consumers downstream re-derive crop alignment from the value rather than asking a shared service.
+
+Plus `app/lib/services/exercise_hero_resolver.dart` — already a partial version of this pattern returning an `ExerciseHero` struct (`posterFile` / `filter` / `treatment` / `caps`). The crop offset is **NOT part of the contract yet**.
+
+**Scope of fix:**
+1. **Extend `ExerciseHero`** — add `double heroCropOffset` (0..1; default 0.5) to the struct returned by `exercise_hero_resolver.dart`. Resolver reads `Exercise.heroCropOffset` (already in the model from the wire) and clamps.
+2. **Introduce `CroppedHero(widget)` builder** — a small Flutter widget that wraps a child poster/`Image` widget with the correct `FractionalOffset`/`Alignment` derived from `ExerciseHero.heroCropOffset` + the source's known aspect ratio. Handles the landscape branch (centre horizontally, full height) + portrait branch (full width, vertically positioned) + square (no math). Mirrors the web resolver's `computeCropRect` semantics so the two surfaces stay byte-identical for the same offset.
+3. **Migrate the five consumers** — each call site swaps `Stack(children: [Positioned(top: -offset * (h - w), ...)])` (or whatever the in-place pattern is) for `CroppedHero(hero: hero, child: Image.file(...))`. The math moves into ONE place; consumers don't touch `Alignment` directly.
+4. **Drift guard** — add a unit test that asserts the Dart `CroppedHero` and the JS `HomefitHeroResolver._computeCropRect` produce the same `(sx, sy, sw, sh)` for a representative set of (source aspect ratio, offset) tuples. Same numbers on both surfaces means the same visual.
+
+**Out of scope:**
+- New thumbnail variants or file regen. The source JPGs stay portrait/landscape on disk; the crop happens at consumption time, per surface, against the in-memory exercise row. Same principle as the web PR.
+- The web player's `<img>` consumer — already migrated in the 2026-05-16 PR.
+- Photo capture pipeline / Hero-frame thumbnail generator. Both stay as-is; they upload a frame, the consumer crops it.
+
+**Why deferred (not bundled with the web PR):**
+- Web fix carries a real bug (PDF export squash) that has practitioner-visible impact; it should ship the moment it's tested and not wait on a longer mobile refactor.
+- The Flutter consumers are stable today (the math is wrong in only one direction — duplication, not bug). Risk of regression on a multi-widget refactor is higher than the value of the cleanup on its own.
+- Drift guard test is the load-bearing piece — without it, the two resolvers will diverge silently the next time someone tunes the math on one side.
+
+**Estimated effort:** half-day on the resolver + widget + 5 consumer call-site migrations. Drift guard test is another hour.
+
+**Reference:** the web companion PR's brief is committed at `web-player/hero_resolver.js` head-of-file comment; mirror its `computeCropRect` API in the Dart resolver to keep the two surfaces visually identical.
+
+---
+
 ## Wave 39.3 — Dart timestamp UTC + per-viewer TZ rendering on portal
 
 **Status:** Queued **2026-04-28**. Surfaced during Wave 39 unlock-flow QA. Fire after Wave 39 QA closes (Wave 39 build is on Carl's iPhone right now; bumping mobile would disrupt the QA loop).

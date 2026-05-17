@@ -8,6 +8,8 @@ import '../models/client.dart';
 import '../models/session.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/conversion_service.dart';
+import '../models/exercise_capture.dart';
 import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -82,6 +84,21 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   /// double-taps don't produce duplicate calls.
   bool _renameSaving = false;
 
+  /// 2026-05-13 — subscription to [ConversionService.onConversionUpdate].
+  ///
+  /// Re-pulls sessions from SQLite whenever an in-flight conversion
+  /// completes (or transitions state) so the session-card filmstrip
+  /// background paints the new Hero thumbnails the moment they're
+  /// stamped, without forcing the practitioner to pull-to-refresh.
+  ///
+  /// Companion to the `_loadSessions()` call inside `_openSession` and
+  /// `_startNewSession`: the navigator-pop refresh handles metadata
+  /// changes (rename, delete, reorder) but the post-pop refresh fires
+  /// BEFORE the converter finishes processing fresh captures, so the
+  /// filmstrip stays empty (no `thumbnail_path` yet) until conversion
+  /// resolves. This subscription bridges that window.
+  StreamSubscription<ExerciseCapture>? _conversionSub;
+
   /// True when the inline edit-client-name input is active.
   bool _editingName = false;
   late TextEditingController _nameController;
@@ -94,13 +111,46 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     _client = widget.client;
     _nameController = TextEditingController(text: _client.name);
     _loadSessions();
+
+    // 2026-05-13 — subscribe to conversion-state updates so the session
+    // card filmstrip refreshes when a fresh capture's thumbnail lands.
+    // Filter by sessions in our list to avoid no-op reloads from
+    // captures in other clients (unlikely while this screen is on top,
+    // but cheap to guard).
+    _conversionSub = ConversionService.instance.onConversionUpdate.listen(
+      _handleConversionUpdate,
+    );
+
+    // 2026-05-13 — auto-open the consent sheet the first time this
+    // practitioner enters this client's detail view. The check is
+    // strictly `_client.consentExplicitlySetAt == null` so it covers
+    // newly-created clients AND legacy clients whose consent was never
+    // explicitly toggled (no backfill — see migration
+    // 20260513065845_consent_explicitly_set_at.sql).
+    if (!_client.consentExplicitlySet) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _openConsent();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _conversionSub?.cancel();
     _nameController.dispose();
     _nameFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Conversion-stream handler. Reloads if the firing exercise belongs
+  /// to any session we currently render. Guarded by `mounted` so a
+  /// post-dispose event is a no-op.
+  void _handleConversionUpdate(ExerciseCapture ex) {
+    if (!mounted) return;
+    final sessionIds = _sessions.map((s) => s.id).toSet();
+    if (!sessionIds.contains(ex.sessionId)) return;
+    _loadSessions();
   }
 
   // ---------------------------------------------------------------------------

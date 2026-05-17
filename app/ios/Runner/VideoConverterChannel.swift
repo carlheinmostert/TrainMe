@@ -868,16 +868,13 @@ class VideoConverterChannel {
 
                 // Pull the source format description so the writer can
                 // passthrough the compressed samples without re-encoding.
-                // `formatDescriptions` is [Any] in AVFoundation's legacy
-                // typing; the first entry is the track's canonical format.
-                // Conditional-cast so we pass nil cleanly if the array is
-                // empty (edge case — shouldn't happen for a real track).
-                let formatHint: CMFormatDescription?
-                if let first = audioTrack.formatDescriptions.first {
-                    formatHint = (first as! CMFormatDescription)
-                } else {
-                    formatHint = nil
-                }
+                // `formatDescriptions` is `[Any]` but elements are always
+                // `CMFormatDescription` per AVFoundation's contract. Use
+                // `.map` to skip when the array is empty (was the original
+                // crash on malformed input — force-casting nil traps).
+                // AVAssetWriter accepts a nil hint and derives the format
+                // from the source samples.
+                let formatHint: CMFormatDescription? = audioTrack.formatDescriptions.first.map { $0 as! CMFormatDescription }
                 let audioInput = AVAssetWriterInput(
                     mediaType: .audio,
                     outputSettings: nil,
@@ -1738,14 +1735,21 @@ class VideoConverterChannel {
             // frame to luminance — used by practitioner-facing list
             // thumbnails where the B&W frame is more legible than the
             // line-drawing treatment.
+            //
+            // Wave Lobby auto-pick — same free-axis centroid plumbing as
+            // AppDelegate.extractFrame: when segmentation succeeds we
+            // surface the mask's normalised centroid in the response
+            // map so Dart can stamp `exercises.hero_crop_offset`.
             var finalImage: CGImage = cgImage
+            var autoHeroCropOffset: Double? = nil
             if #available(iOS 15.0, *) {
-                if let masked = Self.applySegmentationToThumbnail(
+                if let segResult = Self.applySegmentationToThumbnailWithCentroid(
                     cgImage: cgImage,
                     cropToPerson: autoPick,
                     grayscale: grayscale
                 ) {
-                    finalImage = masked
+                    finalImage = segResult.image
+                    autoHeroCropOffset = segResult.centroidOffset
                 } else if grayscale {
                     // Segmentation bailed (no person / pre-iOS-15) but the
                     // caller still asked for a B&W thumbnail — honour the
@@ -1778,7 +1782,13 @@ class VideoConverterChannel {
                 )
                 try jpegData.write(to: outURL)
                 DispatchQueue.main.async {
-                    result([
+                    // Wave Lobby — emit the auto-pick centroid as
+                    // `autoHeroCropOffset` when segmentation produced a
+                    // mask. Same omit-on-nil contract as
+                    // AppDelegate.extractFrame's twin payload. Dart
+                    // callers persist this onto
+                    // `exercises.hero_crop_offset` when set.
+                    var resultMap: [String: Any] = [
                         "success": true,
                         "outputPath": outputPath,
                         // Wave Hero — picked timeMs (motion-peak sample
@@ -1786,7 +1796,11 @@ class VideoConverterChannel {
                         // autoPick:false). Persisted by Dart callers as
                         // the Hero offset.
                         "timeMs": pickedTimeMsForResult,
-                    ])
+                    ]
+                    if let offset = autoHeroCropOffset {
+                        resultMap["autoHeroCropOffset"] = offset
+                    }
+                    result(resultMap)
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -1939,6 +1953,59 @@ class VideoConverterChannel {
         cropToPerson: Bool = false,
         grayscale: Bool = false
     ) -> CGImage? {
+        // Back-compat wrapper — the centroid-producing variant is below.
+        // Existing call-sites (notably AppDelegate.extractFrame) that
+        // don't care about the auto-pick centroid keep the old shape.
+        return applySegmentationToThumbnailWithCentroid(
+            cgImage: cgImage,
+            cropToPerson: cropToPerson,
+            grayscale: grayscale
+        )?.image
+    }
+
+    /// Wave Lobby — segmentation result that ALSO carries the
+    /// auto-pick centroid for the 1:1 hero crop. The centroid is a
+    /// normalised [0,1] offset along the source's *free axis* (vertical
+    /// for portrait CGImages, horizontal for landscape) — matches the
+    /// free-axis convention used by `web-player/hero_resolver.js` +
+    /// `app/lib/widgets/hero_crop_viewport.dart`.
+    ///
+    /// `centroidOffset` is nil when:
+    ///   - segmentation produced no person mask (no body to centre on);
+    ///   - the source is square (no free axis exists; centre crop is
+    ///     a fixed no-op);
+    ///   - the centroid was clamped to a degenerate value.
+    ///
+    /// Dart callers persist this onto `ExerciseCapture.heroCropOffset`
+    /// so the lobby + every thumbnail consumer renders the practitioner
+    /// (not whatever happens to be middle-of-frame) by default.
+    struct SegmentedThumbnailResult {
+        let image: CGImage
+        let centroidOffset: Double?
+    }
+
+    /// Variant of [applySegmentationToThumbnail] that also computes a
+    /// segmentation-mask centroid and returns it as a normalised
+    /// free-axis offset (see [SegmentedThumbnailResult]). Returns nil
+    /// only when segmentation/buffer setup fails — same contract as the
+    /// non-centroid wrapper. When segmentation succeeds but the source
+    /// is square (centroid is meaningless), the returned struct has a
+    /// non-nil `image` and a nil `centroidOffset`.
+    ///
+    /// Implementation note: the centroid is the intensity-weighted
+    /// average of the *soft* (tent-convolved) mask. Using the soft
+    /// mask rather than thresholding at 128 makes the value resilient
+    /// to small fragments + matches the body/background blend the
+    /// thumbnail itself uses. We sum positions weighted by mask value
+    /// in a single pass over the same buffer the body/background blend
+    /// already touches, so the cost is sub-millisecond on a 720p
+    /// thumbnail.
+    @available(iOS 15.0, *)
+    static func applySegmentationToThumbnailWithCentroid(
+        cgImage: CGImage,
+        cropToPerson: Bool = false,
+        grayscale: Bool = false
+    ) -> SegmentedThumbnailResult? {
         let width = cgImage.width
         let height = cgImage.height
         guard width > 0, height > 0 else { return nil }
@@ -2094,25 +2161,91 @@ class VideoConverterChannel {
             return nil
         }
 
+        // Wave Lobby — auto-pick centroid. Single pass over the soft
+        // mask, accumulating intensity-weighted column / row sums plus
+        // the bbox we also need for `cropToPerson`. The free axis
+        // (portrait → Y, landscape → X) is decided here against the
+        // CGImage's own dimensions; AVAssetImageGenerator has already
+        // applied the preferred track transform so the CGImage matches
+        // the displayed orientation, which is what `hero_resolver.js`
+        // and `hero_crop_viewport.dart` both think in.
+        //
+        // Centroid math: sum(value · position) / sum(value), only
+        // counting pixels above an 8-bit threshold (32) so background
+        // noise doesn't bias the centre. Result is then normalised
+        // against the free-axis length, clamped to [0,1].
+        //
+        // We deliberately do this in the same physical loop as the
+        // bbox scan — `cropToPerson` is OFTEN false (the post-
+        // conversion B&W extract from `conversion_service.dart` calls
+        // with autoPick=true → cropToPerson=true, but the regen path
+        // and the AppDelegate.extractFrame autoPick=false path both
+        // skip the crop). Even when cropToPerson is false, the
+        // centroid is the cheap part of the scan and we want it on
+        // every regen. Cost: O(W·H) integer adds; sub-ms on a 720p
+        // frame.
+        let bboxThreshold: UInt8 = 128
+        let centroidThreshold: UInt8 = 32
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        var weightSum: UInt64 = 0
+        var weightedX: UInt64 = 0
+        var weightedY: UInt64 = 0
+        for y in 0..<height {
+            let row = y * width
+            for x in 0..<width {
+                let v = softMaskPtr[row + x]
+                if v >= bboxThreshold {
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
+                }
+                if v >= centroidThreshold {
+                    let w = UInt64(v)
+                    weightSum &+= w
+                    weightedX &+= w &* UInt64(x)
+                    weightedY &+= w &* UInt64(y)
+                }
+            }
+        }
+
+        // Decide the free axis from the CGImage's own dimensions.
+        // Square sources (within 1px) have no meaningful free axis;
+        // we leave centroidOffset nil and consumers default to 0.5.
+        var centroidOffset: Double? = nil
+        if weightSum > 0 && abs(width - height) >= 1 {
+            // CGImage Y increases DOWNWARD — same convention the
+            // resolver uses (`heroCropOffset=0` = top-aligned), so the
+            // raw normalised centroid is the value we want without a
+            // flip.
+            if height > width {
+                // Portrait — free axis is Y. Normalise by height.
+                let cy = Double(weightedY) / Double(weightSum)
+                centroidOffset = cy / Double(height)
+            } else {
+                // Landscape — free axis is X. Normalise by width.
+                let cx = Double(weightedX) / Double(weightSum)
+                centroidOffset = cx / Double(width)
+            }
+            // Defensive clamp — should already be in [0,1] from the
+            // weighting math, but guards against any pathological
+            // weighting edge case.
+            if let v = centroidOffset {
+                if !v.isFinite {
+                    centroidOffset = nil
+                } else if v < 0 {
+                    centroidOffset = 0
+                } else if v > 1 {
+                    centroidOffset = 1
+                }
+            }
+        }
+
         // Optional person-centred crop. We compute the bounding box of
         // mask pixels above a mid-threshold (128) and pad by ~10% before
         // cropping. If the bbox is degenerate (no person detected, or
         // covers ~the whole frame already) we return the un-cropped image.
         if cropToPerson {
-            let maskThreshold: UInt8 = 128
-            var minX = width, minY = height, maxX = -1, maxY = -1
-            for y in 0..<height {
-                let row = y * width
-                for x in 0..<width {
-                    if softMaskPtr[row + x] >= maskThreshold {
-                        if x < minX { minX = x }
-                        if x > maxX { maxX = x }
-                        if y < minY { minY = y }
-                        if y > maxY { maxY = y }
-                    }
-                }
-            }
-
             let hasBox = maxX > minX && maxY > minY
             if hasBox {
                 let bboxW = maxX - minX + 1
@@ -2148,13 +2281,25 @@ class VideoConverterChannel {
                         height: cropH
                     )
                     if let cropped = finalImage.cropping(to: cropRect) {
-                        return cropped
+                        // Centroid was computed against the
+                        // PRE-CROP frame, which is the orientation the
+                        // resolver expects (the bbox crop is for the
+                        // SMALL practitioner-facing thumbnail, not the
+                        // lobby render — the lobby reads the raw
+                        // mp4 / line / colour JPG, which is uncropped).
+                        return SegmentedThumbnailResult(
+                            image: cropped,
+                            centroidOffset: centroidOffset
+                        )
                     }
                 }
             }
         }
 
-        return finalImage
+        return SegmentedThumbnailResult(
+            image: finalImage,
+            centroidOffset: centroidOffset
+        )
     }
 
     // MARK: - Grayscale Fallback

@@ -10,16 +10,6 @@
  */
 
 // ============================================================
-// Build marker (rendered discreetly in the footer for QA)
-// ============================================================
-//
-// MUST mirror the cache name suffix in `web-player/sw.js`. Both rev
-// together — bumping one without the other will leave the version
-// label stale on a freshly-cached client. Convention: drop the
-// `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v69-modal-first-desktop';
-
-// ============================================================
 // Native bridge (Wave 4 Phase 2)
 // ============================================================
 //
@@ -65,6 +55,35 @@ const PLAYER_VERSION = 'v69-modal-first-desktop';
     },
     setAudioPlayback: function (active) {
       postBridge({ type: 'audio', active: !!active });
+    },
+    /// 2026-05-14 — share an arbitrary file (mime + filename) via the
+    /// native iOS share sheet. Accepts raw base64 bytes + a mimeType so
+    /// non-image artifacts (PDF, ZIP, …) can route through
+    /// UIActivityViewController without bolting per-format bridge
+    /// methods.
+    ///
+    /// Introduced for the lobby multi-page PDF export pipeline
+    /// (web-player/lobby.js triggerLobbyShare) which generates an
+    /// `application/pdf` blob via jsPDF and needs the iOS share sheet
+    /// to surface Save to Files, AirDrop, Messages, Mail, etc.
+    ///
+    /// Args:
+    ///   `base64`   — raw base64 of the file bytes (NO data: prefix).
+    ///   `fileName` — suggested filename presented to the user.
+    ///   `mimeType` — IANA mime type ("application/pdf").
+    ///
+    /// Returns nothing. If the bridge channel is absent (live web
+    /// player), this is a no-op and the caller's fallback path is
+    /// expected to handle the surface (e.g. navigator.share files +
+    /// download anchor).
+    shareFile: function (base64, fileName, mimeType) {
+      if (typeof base64 !== 'string' || !base64) return;
+      postBridge({
+        type: 'share_file',
+        base64: base64,
+        fileName: typeof fileName === 'string' ? fileName : '',
+        mimeType: typeof mimeType === 'string' ? mimeType : 'application/octet-stream',
+      });
     },
   };
 
@@ -372,28 +391,22 @@ function treatmentFromWire(wire) {
 }
 
 /**
- * The effective treatment for [exercise]. Honours the practitioner's
- * per-exercise `preferred_treatment` when the corresponding URL is
- * available; else falls back to Line (the always-present default).
+ * The treatment THE RESOLVER will pick for [exercise]. Reads
+ * `exercise.preferred_treatment` directly (the gear popover / lobby
+ * pill mutate that field on the in-memory slide). Kept as a thin
+ * helper so non-rendering callers (analytics, refresh paths, the
+ * gear panel) can ask "what treatment is this slide on?" without
+ * spinning up the resolver.
  *
- * Availability check considers BOTH the segmented dual-output URL
- * (Milestone P, preferred) and the untouched original URL (fallback) —
- * consent-wise they move together, but keeping the check permissive
- * ensures a plan with only one of the two still honours the
- * practitioner's sticky choice.
+ * Note: this does NOT return Line as a silent cross-treatment
+ * fallback. The resolver itself reports `caps.treatmentLockedTo` and
+ * `mediaTag === 'unavailable'` when the chosen treatment isn't
+ * available — callers must consult those, not this helper, to
+ * decide whether to render a placeholder.
  */
 function slideTreatment(exercise) {
-  const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
-  const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
-  // Wave 42 — per-exercise client overrides. getEffective() returns the
-  // practitioner's per-exercise preferred_treatment by default; the gear
-  // panel can override per-exercise. Defensive fallback to 'line' when
-  // the chosen treatment's URL is absent (consent removed mid-session,
-  // legacy plan, etc.).
-  const candidate = getEffective(exercise, 'treatment');
-  if (candidate === 'bw' && !hasGray) return 'line';
-  if (candidate === 'original' && !hasOrig) return 'line';
-  return candidate || 'line';
+  if (!exercise) return 'line';
+  return treatmentFromWire(exercise.preferred_treatment);
 }
 
 // Workout timer state
@@ -463,7 +476,7 @@ async function handleVideoError(evt) {
     const idx = cardEl ? Number(cardEl.getAttribute('data-index')) : NaN;
     const slide = Number.isFinite(idx) ? slides[idx] : null;
     if (slide) {
-      const newUrl = resolveTreatmentUrl(slide, slideTreatment(slide));
+      const newUrl = resolveTreatmentUrl(slide);
       if (newUrl) {
         video.setAttribute('data-src', newUrl);
         video.setAttribute('src', newUrl);
@@ -678,54 +691,76 @@ function prepSecondsFor(slide) {
   return PREP_SECONDS;
 }
 
-// Wave 42 — per-exercise client overrides keyed by plan + exercise + property.
-// Resolves effective state as `clientOverrides[exId]?.[prop] ?? practitionerDefault[exId][prop]`.
-// One JSON blob per plan in localStorage; reset by the gear-panel "Reset to
-// practitioner defaults" button. Replaces the prior global flags
-// (homefit-muted, homefit.playback.segmentedEffect, homefit.playback.treatment::*).
-const OVERRIDES_KEY_PREFIX = 'homefit.overrides::';
+// Lobby-settings-unify (2026-05-14) — plan-scoped client override.
+// The lobby gear popover, the deck gear popover, and the lobby treatment
+// pill all share ONE plan-scoped clientOverride object. Toggling any
+// control sets the scope for the whole session — no per-exercise client
+// overrides. Practitioner-set per-exercise `preferred_treatment` /
+// `body_focus` stay sacred per-exercise; the client's override layers
+// on top of all of them at plan-scope.
+//
+//   clientOverride = { muted?, treatment?, bodyFocus? }
+//
+// Resolution:
+//   getEffective(exercise, prop):
+//     • clientOverride[prop] !== undefined → use it.
+//     • else → practitionerDefaultFor(exercise, prop) (per-exercise).
+//
+// Persistence: one JSON blob per plan in localStorage. Reset by the
+// gear-panel "Reset to practitioner" button which drops the entire
+// object and restores per-slide _orig_preferred_treatment /
+// _orig_body_focus snapshots — leaving each exercise's practitioner-
+// set treatment intact.
+const OVERRIDES_KEY_PREFIX = 'homefit.override::';
 const OVERRIDE_PROPS = ['muted', 'treatment', 'bodyFocus'];
 const TREATMENT_VALUES = ['line', 'bw', 'original'];
-let clientOverrides = {}; // { [exerciseId]: { muted?, treatment?, bodyFocus? } }
+let clientOverride = {}; // { muted?, treatment?, bodyFocus? } — plan-scoped
 
 function overridesStorageKey(planId) {
   return OVERRIDES_KEY_PREFIX + (planId || 'unknown');
 }
 
-function loadClientOverrides(planId) {
+function loadClientOverride(planId) {
   try {
     const raw = window.localStorage.getItem(overridesStorageKey(planId));
-    if (!raw) { clientOverrides = {}; return; }
+    if (!raw) { clientOverride = {}; return; }
     const parsed = JSON.parse(raw);
-    clientOverrides = parsed && typeof parsed === 'object' ? parsed : {};
+    // Back-compat shim: an older bundle wrote `{ [exId]: { ... } }`. We
+    // can't safely upgrade that into a plan-scoped value (any per-exercise
+    // override is ambiguous at plan scope), so drop on load and let the
+    // user pick once. Detect by looking for a known prop at the top
+    // level — fresh shape has 'muted' | 'treatment' | 'bodyFocus' as
+    // top-level keys; legacy shape has UUIDs.
+    if (parsed && typeof parsed === 'object') {
+      const hasUnifiedShape =
+        Object.prototype.hasOwnProperty.call(parsed, 'muted') ||
+        Object.prototype.hasOwnProperty.call(parsed, 'treatment') ||
+        Object.prototype.hasOwnProperty.call(parsed, 'bodyFocus');
+      clientOverride = hasUnifiedShape ? parsed : {};
+    } else {
+      clientOverride = {};
+    }
   } catch (_) {
-    clientOverrides = {};
+    clientOverride = {};
   }
 }
 
-function saveClientOverrides(planId) {
+function saveClientOverride(planId) {
   try {
-    window.localStorage.setItem(overridesStorageKey(planId), JSON.stringify(clientOverrides));
+    window.localStorage.setItem(overridesStorageKey(planId), JSON.stringify(clientOverride));
   } catch (_) {
     // Storage blocked — in-memory map still drives this session.
   }
 }
 
 function clearAllOverrides(planId) {
-  clientOverrides = {};
+  clientOverride = {};
   try { window.localStorage.removeItem(overridesStorageKey(planId)); } catch (_) {}
 }
 
 function hasAnyOverrides() {
-  for (const k in clientOverrides) {
-    if (Object.prototype.hasOwnProperty.call(clientOverrides, k)) {
-      const entry = clientOverrides[k];
-      if (entry && typeof entry === 'object') {
-        for (const p in entry) {
-          if (Object.prototype.hasOwnProperty.call(entry, p)) return true;
-        }
-      }
-    }
+  for (const p in clientOverride) {
+    if (Object.prototype.hasOwnProperty.call(clientOverride, p)) return true;
   }
   return false;
 }
@@ -749,83 +784,105 @@ function practitionerDefaultFor(exercise, prop) {
     return null;
   }
   if (prop === 'muted') return !exercise.include_audio;
-  if (prop === 'treatment') return treatmentFromWire(exercise.preferred_treatment);
-  if (prop === 'bodyFocus') return exercise.body_focus !== false;
+  // Hero-resolver no-fallback refactor (2026-05-14): the slide's
+  // `preferred_treatment` / `body_focus` fields are MUTATED by the
+  // gear popover + lobby pill to drive the resolver. The
+  // practitioner-original snapshot lives at `_orig_preferred_treatment`
+  // / `_orig_body_focus` (captured at plan-load time before any
+  // client override is applied). For mute we don't mutate, so the
+  // raw field is still the practitioner default.
+  if (prop === 'treatment') {
+    const original = Object.prototype.hasOwnProperty.call(exercise, '_orig_preferred_treatment')
+      ? exercise._orig_preferred_treatment
+      : exercise.preferred_treatment;
+    return treatmentFromWire(original);
+  }
+  if (prop === 'bodyFocus') {
+    const original = Object.prototype.hasOwnProperty.call(exercise, '_orig_body_focus')
+      ? exercise._orig_body_focus
+      : exercise.body_focus;
+    return original !== false;
+  }
   return null;
 }
 
-/** Effective state = client override if set, else practitioner default. */
+/** Effective state = plan-scoped client override if set, else
+    per-exercise practitioner default. */
 function getEffective(exercise, prop) {
-  if (!exercise) return practitionerDefaultFor(exercise, prop);
-  const entry = clientOverrides[exercise.id];
-  if (entry && Object.prototype.hasOwnProperty.call(entry, prop)) {
-    return entry[prop];
+  if (Object.prototype.hasOwnProperty.call(clientOverride, prop)) {
+    return clientOverride[prop];
   }
   return practitionerDefaultFor(exercise, prop);
 }
 
-function setOverride(exId, prop, value, defaultValue) {
-  if (!exId) return;
-  if (value === defaultValue) {
-    if (clientOverrides[exId]) {
-      delete clientOverrides[exId][prop];
-      // Drop the empty container so hasAnyOverrides() stays accurate.
-      let empty = true;
-      for (const k in clientOverrides[exId]) {
-        if (Object.prototype.hasOwnProperty.call(clientOverrides[exId], k)) {
-          empty = false;
-          break;
-        }
+/**
+ * Plan-scoped override write. Toggling any control sets the scope for
+ * the whole session — no exerciseId, just property + value. When the
+ * value matches the active slide's practitioner default AND no other
+ * slide diverges (i.e. the override would be a no-op for everyone), we
+ * still persist the override — the user picked a value globally and
+ * we honour that until they reset. (Wave-5-style "always write" logic;
+ * defaults-diff is purely a visual cue, not a state action.)
+ *
+ * For treatment + bodyFocus we mirror the value onto every non-rest
+ * slide's `preferred_treatment` / `body_focus` so the resolver picks
+ * it up directly. The clientOverride object stays as the persistence
+ * channel.
+ */
+function setOverride(prop, value) {
+  if (OVERRIDE_PROPS.indexOf(prop) === -1) return;
+  clientOverride[prop] = value;
+
+  // Mirror treatment + bodyFocus onto every non-rest slide so the
+  // resolver reads it via slide.preferred_treatment / slide.body_focus.
+  if (slides && (prop === 'treatment' || prop === 'bodyFocus')) {
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (!s || s.media_type === 'rest' || !s.id) continue;
+      if (prop === 'treatment') {
+        // Resolve against consent — never mirror a locked treatment.
+        let mirrorTarget = value;
+        if (mirrorTarget === 'bw' && !planHasGrayscaleConsent) mirrorTarget = 'line';
+        if (mirrorTarget === 'original' && !planHasOriginalConsent) mirrorTarget = 'line';
+        s.preferred_treatment = treatmentToWire(mirrorTarget);
+      } else {
+        s.body_focus = value !== false;
       }
-      if (empty) delete clientOverrides[exId];
     }
-  } else {
-    if (!clientOverrides[exId]) clientOverrides[exId] = {};
-    clientOverrides[exId][prop] = value;
   }
+
   const planId = (plan && plan.id) || getPlanIdFromURL();
-  saveClientOverrides(planId);
+  saveClientOverride(planId);
+}
+
+/** Map web-player internal treatment key to the wire enum. */
+function treatmentToWire(t) {
+  if (t === 'bw') return 'grayscale';
+  if (t === 'original') return 'original';
+  return 'line';
 }
 
 /**
- * Lobby helper — apply a treatment value as a per-exercise override across
- * the entire plan. Mirrors what setOverride does for one exercise but
- * walks every loaded slide so a single lobby tap propagates everywhere.
- *
- * Wave 5 lobby fixes (Carl device QA): always WRITE the global pick as
- * an explicit override on every exercise, regardless of the
- * practitioner's per-exercise default. The earlier "clear when matches
- * default" branch was wrong — if the practitioner default for an
- * exercise was B&W and the user picked Line globally, clearing meant
- * the row fell back to B&W (the default) instead of staying on Line.
- * Per-exercise gear popover (post-handoff in the deck) can still
- * individually override.
- *
- * Skips locked treatments per-exercise (consent absent → fall back to
- * 'line' for that one). Saves once at the end. Re-binds video sources
- * so deck videos pick up the new src on the next render. Used by
- * lobby.js's `applyTreatmentOverrideToAllExercises` handoff.
+ * Lobby + deck treatment-pill handler — apply a treatment value at
+ * plan scope. Writes `clientOverride.treatment = treatment` (via
+ * setOverride) and mirrors onto every non-rest slide's
+ * `preferred_treatment`. Re-binds video sources so deck videos pick up
+ * the new src on the next render. Used by lobby.js's
+ * `applyTreatmentOverrideToAllExercises` handoff.
  */
 function applyTreatmentOverrideToAllExercises(treatment) {
   if (treatment !== 'line' && treatment !== 'bw' && treatment !== 'original') return;
   if (!plan || !slides) return;
-  for (let i = 0; i < slides.length; i++) {
-    const ex = slides[i];
-    if (!ex || ex.media_type === 'rest' || !ex.id) continue;
-    let target = treatment;
-    // Don't write an override that points at an unconsented treatment.
-    if (target === 'bw' && !planHasGrayscaleConsent) target = 'line';
-    if (target === 'original' && !planHasOriginalConsent) target = 'line';
-    // ALWAYS write — never clear-on-match. The user picked this
-    // treatment globally; per-exercise practitioner defaults must not
-    // win.
-    if (!clientOverrides[ex.id]) clientOverrides[ex.id] = {};
-    clientOverrides[ex.id].treatment = target;
-  }
-  saveClientOverrides(plan && plan.id);
+  setOverride('treatment', treatment);
   // Re-render the deck with new src URLs so post-handoff playback picks
   // up the new treatment.
   try { rebindVideoSources(); } catch (_) { /* deck not yet primed */ }
+  // The prep-overlay HTML (hero poster <img src>) was baked at initial
+  // buildCard() and won't pick up the new treatment by itself — rebind
+  // it explicitly so the upcoming-exercise hero countdown honours the
+  // session override too. (R-10: this surface is shared with the mobile
+  // preview tab.)
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
 }
 
 // Timing constants (from config.dart)
@@ -1174,14 +1231,63 @@ function buildRestCard(slide, index) {
  * crossfaded out via CSS when the overlay's [hidden] attribute lands
  * (overlay→.prep-overlay-number transition handles the digit; the
  * .hero-poster's own transition handles the image).
+ *
+ * 2026-05-13 round-2 — hero poster now mirrors the slide's effective
+ * treatment so a B&W workout doesn't flash a colour Hero during prep
+ * and a photo exercise (which never transitions to a <video>) honours
+ * the practitioner's grayscale choice for the entire slide. The
+ * grayscale class is applied to the <img> directly; CSS `.is-grayscale`
+ * applies the same `filter: grayscale(1) contrast(1.05)` used by the
+ * playing video. Treatment is recomputed on each buildCard() call, so
+ * mid-workout treatment changes (gear-panel override) are picked up
+ * the next time the slide is rebuilt — same lifecycle as the video.
  */
 function buildPrepOverlay(slide) {
-  const heroSrc = slide && slide.thumbnail_url
-    ? `<img class="hero-poster" src="${escapeHTML(slide.thumbnail_url)}" alt="" aria-hidden="true">`
-    : '';
+  // Hero-resolver no-fallback refactor (2026-05-14): the resolver
+  // derives treatment + body-focus from
+  // `slide.preferred_treatment` / `slide.body_focus` internally. When
+  // the requested treatment's variant isn't available, the resolver
+  // returns `mediaTag: 'unavailable'` and the caller renders the
+  // coral-tinted "treatment not available" placeholder — NEVER a
+  // different treatment.
+  if (!slide) {
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  if (!window.HomefitHero || !window.HomefitHero.resolve) {
+    // Defensive — exercise_hero.js failed to load.
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  const hero = window.HomefitHero.resolve(slide, { surface: 'prep' });
+  if (hero.mediaTag === 'unavailable') {
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="hero-not-available" data-treatment="${escapeHTML(hero.treatment)}" aria-hidden="true">
+        <div class="hero-not-available-name">${escapeHTML(slide.name || 'Exercise')}</div>
+        <div class="hero-not-available-sub">${escapeHTML(hero.treatment.toUpperCase())} not available</div>
+      </div>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  if (!hero.posterSrc) {
+    return `
+    <div class="prep-overlay" hidden>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+  }
+  const grayscaleClass = hero.domClass ? ' ' + hero.domClass : '';
   return `
     <div class="prep-overlay" hidden>
-      ${heroSrc}
+      <img class="hero-poster${grayscaleClass}" data-treatment="${escapeHTML(hero.treatment)}" src="${escapeHTML(hero.posterSrc)}" alt="" aria-hidden="true">
       <div class="prep-overlay-number">15</div>
     </div>
   `;
@@ -1422,15 +1528,37 @@ function updateCardNotes() {
 }
 
 function buildMedia(exercise, index) {
-  // Each slide plays whatever treatment the practitioner chose on its
-  // own exercise (preferred_treatment from get_plan_full). No global /
-  // viewer-driven switching; the mental model is "practitioner prescribes
-  // the visual, client just watches". slideTreatment() already falls
-  // back to 'line' when the preferred treatment's URL is missing, so
-  // resolveTreatmentUrl's null branch is only hit for rest slides
-  // (handled below) or exercises with no media at all.
-  const slideT = slideTreatment(exercise);
-  const resolvedUrl = resolveTreatmentUrl(exercise, slideT);
+  // Hero-resolver no-fallback refactor (2026-05-14): the resolver
+  // derives treatment + body-focus internally from
+  // `exercise.preferred_treatment` / `exercise.body_focus`. When the
+  // requested treatment isn't available, the resolver returns
+  // `mediaTag: 'unavailable'` — we render the "treatment not
+  // available" placeholder (NEVER a different treatment).
+  if (!window.HomefitHero || !window.HomefitHero.resolve) {
+    // Defensive — exercise_hero.js failed to load.
+    return `
+      <div class="media-placeholder">
+        <span class="media-placeholder-text">Player error — reload page</span>
+      </div>
+    `;
+  }
+  const hero = window.HomefitHero.resolve(exercise, { surface: 'deck' });
+  const slideT = hero.treatment;
+
+  if (hero.mediaTag === 'unavailable') {
+    // Treatment-not-available placeholder. NEVER substitutes a
+    // different treatment. Coral-tinted skeleton with exercise name +
+    // a small icon flagging the gap.
+    return `
+      <div class="hero-not-available hero-not-available-deck" data-treatment="${escapeHTML(slideT)}">
+        <div class="hero-not-available-name">${escapeHTML(exercise.name || 'Exercise')}</div>
+        <div class="hero-not-available-sub">${escapeHTML(slideT.toUpperCase())} not available</div>
+      </div>
+    `;
+  }
+
+  const resolvedUrl = hero.src;
+  const heroPoster = hero.posterSrc;
 
   if (!resolvedUrl) {
     // Placeholder for exercises without media yet
@@ -1456,7 +1584,7 @@ function buildMedia(exercise, index) {
     // compliance; applyMuteStateToAllVideos() unmutes per-exercise
     // effective state inside the Start Workout user gesture.
     const mutedAttr = 'muted';
-    const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
+    const posterAttr = heroPoster ? `poster="${escapeHTML(heroPoster)}"` : '';
     // Dual-video crossfade (Wave 19.7). Two stacked <video> elements
     // share the same source — the "active" one plays normally; ~250ms
     // before it reaches `duration` we preroll the inactive one and swap
@@ -1577,19 +1705,40 @@ function buildMedia(exercise, index) {
  *
  * Returns null when the treatment has no URL (consent-absent). Callers
  * must handle this gracefully (disable segment + fall back to line).
+ *
+ * Bundle 1 of the hero-resolver migration (audit, 2026-05-13). The
+ * function signature stays public-API stable (lobby.js, the deck's
+ * URL-refresh path, and a handful of internal callers all use it), but
+ * the URL fallback chain now lives in `web-player/exercise_hero.js` so
+ * the resolver and this shim agree on semantics. The inline fallback
+ * remains as a defence for the case where exercise_hero.js failed to
+ * load — same return shape, same edge cases.
  */
-function resolveTreatmentUrl(exercise, treatment) {
+function resolveTreatmentUrl(exercise) {
   if (!exercise) return null;
-  // Wave 42 — body focus is now per-exercise (PR #146 schema) overlaid
-  // by client overrides via getEffective().
-  const bodyFocusOn = getEffective(exercise, 'bodyFocus');
+  // Hero-resolver no-fallback refactor (2026-05-14): treatment +
+  // body-focus are derived INTERNALLY by the resolver from
+  // `exercise.preferred_treatment` and `exercise.body_focus`. The
+  // legacy second `treatment` argument is gone — callers must mutate
+  // `exercise.preferred_treatment` (gear popover / lobby pill) and
+  // re-call without passing the treatment.
+  if (window.HomefitHero && window.HomefitHero.resolve) {
+    const hero = window.HomefitHero.resolve(exercise, { surface: 'deck' });
+    // null when the requested treatment isn't available (caller
+    // surfaces a placeholder; this function does NOT silently
+    // substitute Line). For photos `src` is the JPG; for videos
+    // it's the mp4 URL.
+    return hero.src;
+  }
+  // Defensive — exercise_hero.js failed to load. Inline derivation
+  // mirroring the resolver's strict per-treatment lookup. NO
+  // cross-treatment fallback.
+  const treatment = treatmentFromWire(exercise.preferred_treatment);
+  const bodyFocusOn = exercise.body_focus !== false;
   if (treatment === 'bw') {
     if (bodyFocusOn) {
       return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
     }
-    // Body focus OFF — skip the segmented variant and play the
-    // untouched original. When the raw original is missing we still
-    // fall through to the segmented copy so the slide can play at all.
     return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
   }
   if (treatment === 'original') {
@@ -1598,7 +1747,6 @@ function resolveTreatmentUrl(exercise, treatment) {
     }
     return exercise.original_url || exercise.original_segmented_url || null;
   }
-  // 'line' + unknown treatments → line drawing (the always-available default).
   return exercise.line_drawing_url || exercise.media_url || null;
 }
 
@@ -2166,9 +2314,11 @@ function goTo(index) {
   // the new active slide and hide them on the old one.
   updatePlayPauseToggle();
   updatePrepOverlay();
-  // Wave 42 — repaint the gear panel against the new active slide so
-  // the per-exercise effective state shown matches what's playing. Also
-  // applies muted state because mute is per-exercise.
+  // Lobby-settings-unify: repaint the gear panel against the new
+  // active slide. Plan-scoped values (treatment / body-focus / mute)
+  // don't change per slide — but the body-focus disabled-state cue
+  // depends on the active slide's media_type + treatment, so re-paint
+  // on every slide flip.
   paintGearPanel();
   applyMuteStateToAllVideos();
 
@@ -3815,7 +3965,7 @@ function resumeTimer() {
  */
 function handleMediaTap(e) {
   // Wave 42 — the inline mute button was retired in favour of the gear
-  // panel. Mute is now per-exercise via clientOverrides.
+  // panel. Mute is plan-scoped via clientOverride (Lobby-settings-unify).
   if (!isWorkoutMode) return;
   if (swipeState.didSwipe) {
     swipeState.didSwipe = false;
@@ -3870,15 +4020,18 @@ function applyMuteStateToAllVideos() {
 }
 
 // ============================================================
-// Wave 42 — Consolidated gear panel (per-exercise client overrides)
+// Wave 42 — Consolidated gear panel (plan-scoped client overrides)
 // ============================================================
 //
 // Replaces the legacy three-control split (mute speaker, segmented
 // treatment control, gear-popover Body Focus toggle) with a single
-// gear panel exposing all three as per-exercise overrides on top of
-// the practitioner's per-exercise defaults.
+// gear panel exposing all three as plan-scoped overrides on top of
+// the practitioner's per-exercise defaults. The lobby gear popover
+// hosts the SAME unified panel (Lobby-settings-unify, 2026-05-14) so
+// any control toggled there sets the scope for the whole session —
+// equivalent to toggling on the deck.
 //
-// State lives in `clientOverrides` (defined near the top of this file).
+// State lives in `clientOverride` (defined near the top of this file).
 // The resolver getEffective(exercise, prop) is the single source of
 // truth for muted / treatment / bodyFocus — every renderer + every
 // <video> sync goes through it.
@@ -3886,6 +4039,11 @@ function applyMuteStateToAllVideos() {
 const $btnSettings = document.getElementById('btn-settings');
 const $settingsPopover = document.getElementById('settings-popover');
 const $resetOverridesBtn = document.getElementById('reset-overrides-btn');
+// Lobby popover hosts the SAME unified gear panel (treatment / body
+// focus / reset). Lookup is best-effort — the lobby chrome may be
+// absent in some embedded modes — and the painter / handlers tolerate
+// a null root. See `paintGearPanel(rootEl)`.
+const $lobbySettingsPopover = document.getElementById('lobby-settings-popover');
 
 // Plan-level consent rollup. `get_plan_full` only emits grayscale_url /
 // original_url on exercises the client has consented to that treatment for —
@@ -3953,7 +4111,7 @@ function rebindVideoSources() {
     const slide = slides[idx];
     if (!slide) return;
     const slideT = slideTreatment(slide);
-    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    const nextUrl = resolveTreatmentUrl(slide);
     if (!nextUrl) return;
     // Treatment may have flipped (line ↔ bw ↔ original) under the client
     // override. Keep the data-attribute + grayscale CSS class in sync with
@@ -4026,12 +4184,64 @@ function rebindVideoSources() {
     const slide = slides[idx];
     if (!slide || slide.media_type !== 'photo') return;
     const slideT = slideTreatment(slide);
-    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    const nextUrl = resolveTreatmentUrl(slide);
     if (!nextUrl) return;
     imgEl.setAttribute('data-treatment', slideT);
     imgEl.classList.toggle('is-grayscale', slideT === 'bw');
     const currentAttr = imgEl.getAttribute('src');
     if (currentAttr !== nextUrl) imgEl.setAttribute('src', nextUrl);
+  });
+}
+
+/**
+ * Walk every `.prep-overlay` in the card track and replace it with
+ * fresh markup from `buildPrepOverlay(slide)`. Companion to
+ * `rebindVideoSources()` — videos get a `src` swap in place, but the
+ * prep overlay's `<img class="hero-poster">` was baked at initial
+ * `buildCard()` time with the slide's then-current
+ * `preferred_treatment`. When a session-scoped treatment override flips
+ * every slide's `preferred_treatment` (via `setOverride`), the prep
+ * overlay's poster `<img src>` doesn't refresh on its own and the next
+ * prep countdown flashes the OLD treatment's hero before the video
+ * takes over with the NEW treatment.
+ *
+ * Preserves the overlay's [hidden] state — if it was visible (an
+ * in-flight prep countdown), the new overlay stays visible; if hidden
+ * (idle), the new overlay stays hidden.
+ *
+ * Also preserves the live countdown digit (`.prep-overlay-number`)
+ * value so the swap is invisible to the user mid-countdown.
+ */
+function rebindPrepOverlays() {
+  if (!$cardTrack) return;
+  const overlays = $cardTrack.querySelectorAll('.card-media > .prep-overlay');
+  overlays.forEach((overlayEl) => {
+    const cardMedia = overlayEl.parentElement;
+    if (!cardMedia) return;
+    const card = overlayEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    const wasHidden = overlayEl.hasAttribute('hidden');
+    // Preserve any in-flight countdown digit so a mid-prep override
+    // doesn't visually reset the number.
+    const prevNumEl = overlayEl.querySelector('.prep-overlay-number');
+    const prevNumText = prevNumEl ? prevNumEl.textContent : null;
+    // buildPrepOverlay returns a string wrapped in a `.prep-overlay`
+    // root. Render it into a detached container then transplant the
+    // new root in place of the old one.
+    const tmp = document.createElement('div');
+    tmp.innerHTML = buildPrepOverlay(slide).trim();
+    const newOverlay = tmp.firstElementChild;
+    if (!newOverlay) return;
+    if (!wasHidden) newOverlay.removeAttribute('hidden');
+    if (prevNumText !== null) {
+      const newNumEl = newOverlay.querySelector('.prep-overlay-number');
+      if (newNumEl) newNumEl.textContent = prevNumText;
+    }
+    cardMedia.replaceChild(newOverlay, overlayEl);
   });
 }
 
@@ -4046,19 +4256,51 @@ const ICON_BODY_FOCUS_ON = '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="1
 const ICON_BODY_FOCUS_OFF = '<circle cx="12" cy="12" r="9"/>';
 
 /**
- * Repaint every row in the gear panel from `clientOverrides` + the
- * active slide's practitioner defaults. Called on open and after any
- * mutation. No-ops when the panel isn't in the DOM.
+ * Repaint every row in a unified gear panel from the plan-scoped
+ * `clientOverride` + the active slide's practitioner defaults.
+ *
+ * Used by BOTH the deck's `#settings-popover` (via `paintGearPanel()`)
+ * and the lobby's `#lobby-settings-popover` (via `paintGearPanel()` with
+ * a different root). Same DOM markup, same painter — only the host
+ * container changes.
+ *
+ * For the lobby surface, the "active slide" reference for the
+ * body-focus enable check is the first non-rest video; the treatment
+ * pills + reset button don't depend on the active slide at all (they
+ * read plan-scoped state).
+ *
+ * @param {HTMLElement} [rootEl] — the popover element. Defaults to the
+ *   deck popover for back-compat with existing callsites that don't
+ *   pass an argument.
  */
-function paintGearPanel() {
-  if (!$settingsPopover) return;
-  const slide = slides[currentIndex];
+function paintGearPanel(rootEl) {
+  const root = rootEl || $settingsPopover;
+  if (!root) return;
+  // Reference slide for context-sensitive disabled states (body focus
+  // for photos/rest). Deck uses the active slide. Lobby uses the first
+  // non-rest video so the body-focus row makes sense pre-workout.
+  const isLobbyRoot = root === $lobbySettingsPopover;
+  let referenceSlide = slides && slides[currentIndex];
+  if (isLobbyRoot && slides) {
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (s && s.media_type === 'video') { referenceSlide = s; break; }
+    }
+    // Fall back to first non-rest if no video slide exists.
+    if (!referenceSlide || referenceSlide.media_type === 'rest') {
+      for (let i = 0; i < slides.length; i++) {
+        const s = slides[i];
+        if (s && s.media_type !== 'rest') { referenceSlide = s; break; }
+      }
+    }
+  }
 
-  // Mute row
-  const muteBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="muted"]');
+  // Mute row (deck popover only — lobby doesn't carry a Mute toggle
+  // since there's no audio playing pre-workout).
+  const muteBtn = root.querySelector('.settings-row-btn[data-prop="muted"]');
   if (muteBtn) {
-    const muted = !!getEffective(slide, 'muted');
-    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'muted'));
+    const muted = !!getEffective(referenceSlide, 'muted');
+    const overridden = Object.prototype.hasOwnProperty.call(clientOverride, 'muted');
     muteBtn.classList.toggle('is-overridden', overridden);
     muteBtn.classList.toggle('is-on', !muted);
     muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
@@ -4069,11 +4311,11 @@ function paintGearPanel() {
     }
   }
 
-  // Treatment pills
-  const treatmentRow = $settingsPopover.querySelector('.settings-row-segmented[data-prop="treatment"]');
+  // Treatment pills — plan-scoped value.
+  const treatmentRow = root.querySelector('.settings-row-segmented[data-prop="treatment"]');
   if (treatmentRow) {
-    const effective = getEffective(slide, 'treatment') || 'line';
-    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'treatment'));
+    const effective = getEffective(referenceSlide, 'treatment') || 'line';
+    const overridden = Object.prototype.hasOwnProperty.call(clientOverride, 'treatment');
     treatmentRow.classList.toggle('is-overridden', overridden);
     const pills = treatmentRow.querySelectorAll('.treatment-pills > button');
     pills.forEach((pill) => {
@@ -4095,20 +4337,42 @@ function paintGearPanel() {
     });
   }
 
-  // Body focus row
-  const bfBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]');
+  // Body focus row — plan-scoped value, but disable cues come from
+  // the active/reference slide so the row can hint why it's locked.
+  //
+  // Disable conditions (2026-05-13 round 2):
+  //   * media_type === 'photo'  → Body focus has no segmented variant
+  //                               to act on for static images in the
+  //                               legacy Wave 22 pipeline (per Carl's
+  //                               option C2 spec: surface the disabled
+  //                               state with an explanatory tooltip).
+  //   * media_type === 'rest'   → No media at all.
+  //   * Treatment === 'line'    → Body focus only applies to colour
+  //                               playback (grayscale or original
+  //                               segmented variants); line drawing is
+  //                               its own pipeline.
+  //
+  // For the LOBBY surface we reference the first non-rest video (above),
+  // so this disabled cue mirrors the deck's first-video state at
+  // pre-workout time. C2 photo-only sessions get the "video only"
+  // tooltip even on the lobby.
+  const bfBtn = root.querySelector('.settings-row-btn[data-prop="bodyFocus"]');
   if (bfBtn) {
-    const slideT = slide && slide.media_type === 'video' ? slideTreatment(slide) : 'line';
-    const bfDisabled = slideT === 'line';
-    const bfOn = !!getEffective(slide, 'bodyFocus');
-    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'bodyFocus'));
+    const isVideo = referenceSlide && referenceSlide.media_type === 'video';
+    const isPhoto = referenceSlide && referenceSlide.media_type === 'photo';
+    const slideT = isVideo ? slideTreatment(referenceSlide) : 'line';
+    const bfDisabled = isPhoto || !isVideo || slideT === 'line';
+    const bfOn = !!getEffective(referenceSlide, 'bodyFocus');
+    const overridden = Object.prototype.hasOwnProperty.call(clientOverride, 'bodyFocus');
     bfBtn.classList.toggle('is-disabled', bfDisabled);
     bfBtn.classList.toggle('is-overridden', overridden && !bfDisabled);
-    bfBtn.classList.toggle('is-on', bfOn);
+    bfBtn.classList.toggle('is-on', bfOn && !bfDisabled);
     bfBtn.disabled = bfDisabled;
-    bfBtn.setAttribute('aria-pressed', bfOn ? 'true' : 'false');
+    bfBtn.setAttribute('aria-pressed', (bfOn && !bfDisabled) ? 'true' : 'false');
     bfBtn.setAttribute('aria-label', bfOn ? 'Body focus on' : 'Body focus off');
-    if (bfDisabled) {
+    if (isPhoto) {
+      bfBtn.setAttribute('title', 'Body focus is available for video exercises only.');
+    } else if (bfDisabled) {
       bfBtn.setAttribute('title', 'Body focus applies to colour playback only');
     } else {
       bfBtn.removeAttribute('title');
@@ -4119,88 +4383,146 @@ function paintGearPanel() {
     }
   }
 
-  // Reset button
-  if ($resetOverridesBtn) {
+  // Reset button — every popover surface has its own button (deck
+  // `#reset-overrides-btn`, lobby `#lobby-reset-overrides-btn`). Paint
+  // whichever one lives inside this root.
+  const resetBtn = root.querySelector('.settings-row-reset');
+  if (resetBtn) {
     const any = hasAnyOverrides();
-    $resetOverridesBtn.classList.toggle('is-empty', !any);
-    $resetOverridesBtn.disabled = !any;
+    resetBtn.classList.toggle('is-empty', !any);
+    resetBtn.disabled = !any;
   }
 }
 
-/**
- * Mute toggle handler — flips the per-exercise mute override on the
- * active slide and re-applies muted state to every <video>.
- */
-function onGearMuteClick() {
-  const slide = slides[currentIndex];
-  if (!slide) return;
-  const currentEffective = !!getEffective(slide, 'muted');
-  const next = !currentEffective;
-  const def = practitionerDefaultFor(slide, 'muted');
-  setOverride(slide.id, 'muted', next, def);
-  applyMuteStateToAllVideos();
-  paintGearPanel();
+/** Repaint BOTH gear panels. Use this whenever the override state
+ *  changes from anywhere — keeps lobby + deck visually in lock-step. */
+function paintAllGearPanels() {
+  if ($settingsPopover) paintGearPanel($settingsPopover);
+  if ($lobbySettingsPopover) paintGearPanel($lobbySettingsPopover);
 }
 
 /**
- * Treatment pill handler — sets the per-exercise treatment override on
- * the active slide and rebinds video/photo sources.
+ * Mute toggle handler — flips the plan-scoped mute override and
+ * re-applies muted state to every <video>.
+ */
+function onGearMuteClick() {
+  const referenceSlide = slides && slides[currentIndex];
+  const currentEffective = !!getEffective(referenceSlide, 'muted');
+  const next = !currentEffective;
+  setOverride('muted', next);
+  applyMuteStateToAllVideos();
+  paintAllGearPanels();
+}
+
+/**
+ * Treatment pill handler — sets the plan-scoped treatment override
+ * and rebinds video/photo sources. Tapping the same value writes the
+ * override anyway (it's how the lobby treatment pill works — the user
+ * pinned that choice for the session).
  */
 function onGearTreatmentClick(value) {
-  const slide = slides[currentIndex];
-  if (!slide) return;
   if (TREATMENT_VALUES.indexOf(value) === -1) return;
   // Block unconsented treatments at the click layer (the pill is also
   // visually disabled, but defence in depth).
   if (value === 'bw' && !planHasGrayscaleConsent) return;
   if (value === 'original' && !planHasOriginalConsent) return;
 
-  const previousEffective = getEffective(slide, 'treatment') || 'line';
+  const referenceSlide = slides && slides[currentIndex];
+  const previousEffective = getEffective(referenceSlide, 'treatment') || 'line';
 
-  // Wave 17 analytics — emit on actual treatment flips.
+  // Wave 17 analytics — emit on actual treatment flips. Plan-scoped
+  // override → exerciseId is null; the analytics consumer infers the
+  // source ("gear" here vs "lobby" from the lobby pill handler).
   if (analyticsConsented === true && previousEffective !== value) {
     const fromWire = previousEffective === 'bw' ? 'grayscale' : previousEffective;
     const toWire = value === 'bw' ? 'grayscale' : value;
-    emitAnalyticsEvent('treatment_switched', slide.id, { from: fromWire, to: toWire });
-    // Lobby PR 4 — also emit `treatment_changed` with `source: 'gear'`
-    // so the lobby's `source: 'lobby'` events sit on the same event
-    // channel for downstream analytics. Existing `treatment_switched`
-    // remains for backward-compat consumers.
-    emitAnalyticsEvent('treatment_changed', slide.id, {
+    emitAnalyticsEvent('treatment_switched', null, { from: fromWire, to: toWire });
+    emitAnalyticsEvent('treatment_changed', null, {
       from: fromWire, to: toWire, source: 'gear',
     });
   }
 
-  const def = practitionerDefaultFor(slide, 'treatment');
-  setOverride(slide.id, 'treatment', value, def);
-  rebindVideoSources();
-  paintGearPanel();
+  applyTreatmentOverrideToAllExercises(value);
+  paintAllGearPanels();
 }
 
 /**
- * Body focus toggle — flips the per-exercise body-focus override on
- * the active slide and rebinds video sources (segmented vs. raw file
- * differ at the URL level).
+ * Body focus toggle — flips the plan-scoped body-focus override and
+ * rebinds video sources (segmented vs. raw file differ at the URL
+ * level).
  */
 function onGearBodyFocusClick() {
-  const slide = slides[currentIndex];
-  if (!slide) return;
-  const slideT = slide.media_type === 'video' ? slideTreatment(slide) : 'line';
-  if (slideT === 'line') return; // disabled state guard
-  const next = !getEffective(slide, 'bodyFocus');
-  const def = practitionerDefaultFor(slide, 'bodyFocus');
-  setOverride(slide.id, 'bodyFocus', next, def);
+  // Body-focus is a video-only effect — guard at the click layer too
+  // (the button is also disabled visually). Reference is the active
+  // deck slide for the deck handler; lobby uses its own handler which
+  // references the first non-rest video.
+  const referenceSlide = slides && slides[currentIndex];
+  if (!referenceSlide || referenceSlide.media_type !== 'video') return;
+  const slideT = slideTreatment(referenceSlide);
+  if (slideT === 'line') return; // disabled-state guard
+  const next = !getEffective(referenceSlide, 'bodyFocus');
+  setOverride('bodyFocus', next);
   rebindVideoSources();
-  paintGearPanel();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
+  paintAllGearPanels();
 }
 
-/** Reset button — drop every override for the active plan. */
+/**
+ * Lobby gear handler for body focus — same as the deck handler but
+ * references the first non-rest video for the disabled-state check
+ * so the lobby surface can toggle pre-workout.
+ */
+function onGearBodyFocusClickLobby() {
+  // Find a video slide to validate against (consent + line-treatment
+  // disable cues match the painter's reference-slide logic).
+  let referenceSlide = null;
+  if (slides) {
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (s && s.media_type === 'video') { referenceSlide = s; break; }
+    }
+  }
+  if (!referenceSlide) return; // no videos in plan
+  const slideT = slideTreatment(referenceSlide);
+  if (slideT === 'line') return; // disabled-state guard
+  const next = !getEffective(referenceSlide, 'bodyFocus');
+  setOverride('bodyFocus', next);
+  // Photos in the deck don't have a segmented variant; rebindVideoSources
+  // only touches video elements + photo CSS classes — so this is safe to
+  // call before the deck mounts. The deck is still hidden at lobby time;
+  // rebindVideoSources iterates and exits cleanly when $cardTrack is empty.
+  rebindVideoSources();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
+  paintAllGearPanels();
+}
+
+/** Reset button — drop the plan-scoped client override and restore
+ *  each slide's practitioner-original preferred_treatment / body_focus
+ *  from the snapshot captured at plan-load time. */
 function onGearResetClick() {
   const planId = (plan && plan.id) || getPlanIdFromURL();
   clearAllOverrides(planId);
+  // Hero-resolver no-fallback refactor (2026-05-14): restore each
+  // slide's practitioner-original `preferred_treatment` / `body_focus`
+  // from the snapshot captured at plan-load time. The resolver reads
+  // from the slide so this is what makes "Reset" actually undo the
+  // gear/lobby overrides.
+  if (slides) {
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (!s || s.media_type === 'rest') continue;
+      if (Object.prototype.hasOwnProperty.call(s, '_orig_preferred_treatment')) {
+        s.preferred_treatment = s._orig_preferred_treatment;
+      }
+      if (Object.prototype.hasOwnProperty.call(s, '_orig_body_focus')) {
+        s.body_focus = s._orig_body_focus;
+      }
+    }
+  }
   applyMuteStateToAllVideos();
   rebindVideoSources();
-  paintGearPanel();
+  try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
+  paintAllGearPanels();
 }
 
 /**
@@ -5185,19 +5507,24 @@ async function init() {
     document.body.classList.add('is-local-preview');
   }
 
-  // Discreet build marker in the footer — see PLAYER_VERSION at the
-  // top of this file. Stamped pre-fetch so it's visible even on plan
-  // load failure. Appends git SHA + branch from window.HOMEFIT_CONFIG
-  // (populated by web-player/build.sh from Vercel env vars) so the
-  // exact deployed commit is identifiable at a glance. Falls back to
-  // 'dev' / 'local' for environments without git metadata (Flutter
-  // LocalPlayerServer bundle, bare `python -m http.server`, etc.).
+  // Discreet build marker in the footer. Stamped pre-fetch so it's
+  // visible even on plan load failure. Reports git SHA + branch from
+  // window.HOMEFIT_CONFIG (populated by web-player/build.sh from
+  // Vercel env vars) so the exact deployed commit is identifiable at
+  // a glance. Falls back to 'dev' / 'local' for environments without
+  // git metadata (Flutter LocalPlayerServer bundle, bare
+  // `python -m http.server`, etc.). The PLAYER_VERSION hand-coded
+  // string was dropped 2026-05-16 — it was never bumped in lockstep
+  // with the cache name and ended up showing `v70-png-modal-removed`
+  // weeks after the PNG modal was removed, misleading QA into thinking
+  // the player was stale when it wasn't. gitSha is the single source
+  // of truth now.
   const $versionEl = document.getElementById('footer-version');
   if ($versionEl) {
     const _cfg = (typeof window !== 'undefined' && window.HOMEFIT_CONFIG) || {};
     const sha = (typeof _cfg.gitSha === 'string' && _cfg.gitSha) || 'dev';
     const branch = (typeof _cfg.gitBranch === 'string' && _cfg.gitBranch) || 'local';
-    $versionEl.textContent = `${PLAYER_VERSION} · ${sha} · ${branch}`;
+    $versionEl.textContent = `${sha} · ${branch}`;
   }
 
   // Delegated tap handler for the navigable rep stack. stopPropagation
@@ -5263,28 +5590,54 @@ async function init() {
     // future-proof + cheap).
     loopState.clear();
 
-    // Wave 42 — load per-exercise client overrides for THIS plan and
-    // compute the plan-wide consent rollup BEFORE the first render so
-    // slideTreatment() has correct state when buildCard() resolves URLs.
+    // Lobby-settings-unify — load the plan-scoped client override for
+    // THIS plan and compute the plan-wide consent rollup BEFORE the
+    // first render so slideTreatment() has correct state when
+    // buildCard() resolves URLs.
     recomputePlanConsent();
-    loadClientOverrides(plan && plan.id);
-    // Defensive: drop any treatment override whose value points at an
-    // unconsented treatment (consent could have been revoked since the
-    // last visit). Persist the correction.
-    let overridesDirty = false;
-    for (const exId in clientOverrides) {
-      if (!Object.prototype.hasOwnProperty.call(clientOverrides, exId)) continue;
-      const entry = clientOverrides[exId];
-      if (!entry) continue;
-      if (entry.treatment === 'bw' && !planHasGrayscaleConsent) {
-        delete entry.treatment;
-        overridesDirty = true;
-      } else if (entry.treatment === 'original' && !planHasOriginalConsent) {
-        delete entry.treatment;
-        overridesDirty = true;
+    loadClientOverride(plan && plan.id);
+    // Defensive: clear treatment override if consent was revoked.
+    if (clientOverride.treatment === 'bw' && !planHasGrayscaleConsent) {
+      delete clientOverride.treatment;
+      saveClientOverride(plan && plan.id);
+    } else if (clientOverride.treatment === 'original' && !planHasOriginalConsent) {
+      delete clientOverride.treatment;
+      saveClientOverride(plan && plan.id);
+    }
+
+    // Hero-resolver no-fallback refactor (2026-05-14): snapshot each
+    // slide's practitioner-original `preferred_treatment` /
+    // `body_focus` BEFORE we project client overrides on top. The
+    // gear panel's "Reset to defaults" button restores from these
+    // snapshots.
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i];
+      if (!s || s.media_type === 'rest') continue;
+      s._orig_preferred_treatment = s.preferred_treatment;
+      s._orig_body_focus = s.body_focus;
+    }
+
+    // Project loaded plan-scoped override onto every non-rest slide so
+    // the resolver sees the client's chosen treatment + body-focus via
+    // `slide.preferred_treatment` / `slide.body_focus`. The resolver
+    // doesn't consult clientOverride — it reads off the slide. The
+    // object stays as the persistence channel.
+    if (Object.prototype.hasOwnProperty.call(clientOverride, 'treatment') ||
+        Object.prototype.hasOwnProperty.call(clientOverride, 'bodyFocus')) {
+      for (let i = 0; i < slides.length; i++) {
+        const s = slides[i];
+        if (!s || s.media_type === 'rest') continue;
+        if (Object.prototype.hasOwnProperty.call(clientOverride, 'treatment')) {
+          let mirrorTarget = clientOverride.treatment;
+          if (mirrorTarget === 'bw' && !planHasGrayscaleConsent) mirrorTarget = 'line';
+          if (mirrorTarget === 'original' && !planHasOriginalConsent) mirrorTarget = 'line';
+          s.preferred_treatment = treatmentToWire(mirrorTarget);
+        }
+        if (Object.prototype.hasOwnProperty.call(clientOverride, 'bodyFocus')) {
+          s.body_focus = clientOverride.bodyFocus !== false;
+        }
       }
     }
-    if (overridesDirty) saveClientOverrides(plan && plan.id);
 
     // Render
     renderPlan();
@@ -5511,23 +5864,31 @@ async function init() {
         planHasGrayscaleConsent: function () { return planHasGrayscaleConsent; },
         planHasOriginalConsent: function () { return planHasOriginalConsent; },
         applyTreatmentOverrideToAllExercises: applyTreatmentOverrideToAllExercises,
-        getDefaultTreatment: function () {
-          // Pick the first exercise's effective treatment as the
-          // global default. Falls back to 'line' for empty/rest-only
-          // plans (impossible at this point but cheap defence).
-          for (let i = 0; i < slides.length; i++) {
-            const s = slides[i];
-            if (s && s.media_type !== 'rest') {
-              const t = getEffective(s, 'treatment');
-              if (t === 'bw' && !planHasGrayscaleConsent) return 'line';
-              if (t === 'original' && !planHasOriginalConsent) return 'line';
-              return t || 'line';
-            }
-          }
-          return 'line';
-        },
+        // Per-exercise effective state accessor. Lobby's hero resolver
+        // calls this per row so each slide picks up its own
+        // `preferred_treatment` (with client-override layered on top).
+        // Bundle 1 of the hero-resolver migration (audit B6 part 1):
+        // replaces the lobby-global `activeTreatment` that used to drive
+        // every row. `getDefaultTreatment` retired — the lobby's
+        // treatment-pill picker still propagates a plan-global override
+        // via `applyTreatmentOverrideToAllExercises` (writes per-exercise
+        // overrides for every slide), so the global mental model survives
+        // without a separate "global active treatment" state.
+        getEffective: getEffective,
         getPractitionerName: function () { return analyticsTrainerName; },
         rebindVideoSources: rebindVideoSources,
+        // Lobby-settings-unify (2026-05-14): the lobby renders the same
+        // unified gear panel as the deck. These helpers let the lobby
+        // controller paint + toggle controls through the shared
+        // plan-scoped clientOverride state, instead of re-implementing
+        // its own treatment selector inside the popover.
+        paintGearPanel: function (rootEl) { paintGearPanel(rootEl); },
+        paintAllGearPanels: paintAllGearPanels,
+        onGearTreatmentClick: onGearTreatmentClick,
+        onGearBodyFocusClickLobby: onGearBodyFocusClickLobby,
+        onGearResetClick: onGearResetClick,
+        slideTreatment: slideTreatment,
+        hasAnyOverrides: hasAnyOverrides,
         startWorkout: function () {
           // Reveal the deck, autoplay, and let the legacy startWorkout
           // path take over (timer, fullscreen, prep countdown, etc.).
@@ -5546,6 +5907,33 @@ async function init() {
           plan.exercises.sort((a, b) => a.position - b.position);
           slides = unrollExercises(plan);
           recomputePlanConsent();
+          // Hero-resolver no-fallback refactor (2026-05-14): re-snapshot
+          // the practitioner-original preferred_treatment + body_focus
+          // and re-project client overrides onto the fresh slides.
+          for (let i = 0; i < slides.length; i++) {
+            const s = slides[i];
+            if (!s || s.media_type === 'rest') continue;
+            s._orig_preferred_treatment = s.preferred_treatment;
+            s._orig_body_focus = s.body_focus;
+          }
+          // Re-project the plan-scoped clientOverride onto the refreshed
+          // slides so the resolver picks it up via slide fields.
+          if (Object.prototype.hasOwnProperty.call(clientOverride, 'treatment') ||
+              Object.prototype.hasOwnProperty.call(clientOverride, 'bodyFocus')) {
+            for (let i = 0; i < slides.length; i++) {
+              const s = slides[i];
+              if (!s || s.media_type === 'rest') continue;
+              if (Object.prototype.hasOwnProperty.call(clientOverride, 'treatment')) {
+                let mirrorTarget = clientOverride.treatment;
+                if (mirrorTarget === 'bw' && !planHasGrayscaleConsent) mirrorTarget = 'line';
+                if (mirrorTarget === 'original' && !planHasOriginalConsent) mirrorTarget = 'line';
+                s.preferred_treatment = treatmentToWire(mirrorTarget);
+              }
+              if (Object.prototype.hasOwnProperty.call(clientOverride, 'bodyFocus')) {
+                s.body_focus = clientOverride.bodyFocus !== false;
+              }
+            }
+          }
           // Re-render the deck so post-handoff playback has fresh src.
           try { renderPlan(); } catch (_) { /* defer to first goTo */ }
           return { plan: plan, slides: slides };

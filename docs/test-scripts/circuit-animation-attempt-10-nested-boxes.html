@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — circuit animation attempt #10 (nested CSS boxes)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 &middot; circuit-animation-attempt-10-nested-boxes</div>
+    <h1>QA &mdash; circuit animation attempt #10 (nested CSS boxes)</h1>
+    <p class="lede">
+      <strong>Scope:</strong> client web player <code>session.homefit.studio</code> + iOS embedded preview (workflow Preview tab) + PDF export. Mobile Flutter player is unaffected.
+      <br><br>
+      <strong>The story so far:</strong> nine previous attempts (PRs #257/#258 &rarr; #260 &rarr; #317 &rarr; #322 &rarr; #337 &rarr; #342 &rarr; #353 &rarr; #360) all patched layers of an SVG-tracer architecture that depended on runtime DOM measurement, <code>ResizeObserver</code>, <code>MutationObserver</code>, <code>getTotalLength()</code> polling, font-load awaits, and WAAPI-vs-CSS cascade priority on <code>position:fixed</code> ancestors. Every fix introduced new failure modes; the most recent (PR #360) was a stopgap.
+      <br><br>
+      <strong>Attempt #10:</strong> the entire SVG architecture is gone. Circuit chrome is now N visually-nested <code>&lt;div class=&quot;lobby-circuit-box&quot;&gt;</code> rings (one per cycle, capped at 5) emitted by <code>circuitGroupHTML()</code> in <code>lobby.js</code>, animated by a single CSS keyframe <code>lobby-circuit-pulse</code> staggered via the <code>--box-index</code> custom property. No JS animation. No measurement. No observers. No <code>requestAnimationFrame</code> chain. The whole class of races cannot recur.
+      <br><br>
+      <strong>Mockup:</strong> <code>docs/design/mockups/circuit-nested-boxes.html</code> (variant 1, outward ripple). The keyframes in the live CSS are the same shape as the mockup&apos;s <code>v1-pulse</code>.
+      <br><br>
+      <strong>Install:</strong> on Carl&apos;s iPhone via <code>./install-device.sh</code> after the PR merges to <code>staging</code>. The web surface (<code>session.homefit.studio</code>) auto-deploys on Vercel from the merge. Service worker cache is bumped so Safari clients flush the stale SVG-tracer code paths.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>You need at least one published plan with a circuit (the trainer app: add 2+ exercises to a circuit, set the rounds chip to the count you want to test).</li>
+        <li>Test with multiple plans: one with <code>&times;1</code> circuit, one with <code>&times;3</code>, one with <code>&times;6</code> (to verify the cap).</li>
+        <li>Hard-refresh the web player (<code>Cmd+Shift+R</code> on desktop, or kill + relaunch the iOS app for the embedded preview) so the service worker picks up the new cache name.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Nested boxes render per circuit count</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>&times;1 circuit renders 1 box.</strong> Open the lobby for a plan whose circuit has cycles = 1. <strong>Expected:</strong> the circuit group is wrapped in exactly ONE coral-bordered rounded rectangle around the exercise rows. The header strip (<code>CIRCUIT NAME &middot; &times;1</code>) sits above the box. A single rectangle pulses softly (border brightens + faint coral glow every ~2.4 seconds).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>&times;2 circuit renders 2 nested boxes.</strong> Open a plan whose circuit cycles = 2. <strong>Expected:</strong> two concentric rounded rectangles. The outer one wraps the inner one; the inner one wraps the rows. The two rings pulse with a small stagger (~0.4 s) so the brightening visibly ripples outward from the inner ring.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>&times;3 circuit renders 3 nested boxes.</strong> Open a plan whose circuit cycles = 3. <strong>Expected:</strong> three concentric rounded rectangles; each successive outer ring has a larger radius than the one inside it. The pulse staggers visibly across the three rings &mdash; you should be able to count three distinct brightening moments per cycle, propagating outward.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>&times;5 circuit renders 5 nested boxes.</strong> Open a plan whose circuit cycles = 5. <strong>Expected:</strong> five concentric rings. This is the cap (<code>CIRCUIT_BOX_CAP = 5</code>); the count chip still reads <code>&times;5</code>. The whole nest fits inside the lobby column without horizontal scroll.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>&times;6+ circuit still renders 5 boxes (cap respected).</strong> Open a plan whose circuit cycles = 6 (or higher). <strong>Expected:</strong> only 5 nested rings are drawn &mdash; the same as &times;5 above. The header chip should read the TRUTHFUL count (<code>&times;6</code> / <code>&times;7</code> / etc.) so the practitioner&apos;s actual rounds aren&apos;t hidden; only the chrome caps. No horizontal scroll, no overflow visual.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Animation behaviour</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Pulse is visible &mdash; not subtle, not over-the-top.</strong> Watch a &times;3 circuit on the lobby for ~10 seconds. <strong>Expected:</strong> each ring visibly brightens to full coral + emits a soft glow (~24px box-shadow), then settles back. The peak should be obvious from across the room but not strobe-level distracting. If you can&apos;t see any movement, the keyframe is inert (regression of the 6-variant mockup&apos;s &quot;too subtle&quot; problem). If it&apos;s pulsing so hard it&apos;s uncomfortable, we tuned too high.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Outward ripple direction.</strong> On &times;3 / &times;5, the brightening should propagate INNER &rarr; OUTER (the inner ring lights up first, then the middle, then the outermost). If it ripples the wrong way or the rings light up in unison, the <code>--box-index</code> &times; <code>animation-delay</code> mapping regressed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Animation runs steadily &mdash; no pause, no stutter, no main-thread peg.</strong> Scroll the lobby up and down a few times, switch slides in the deck, then come back to the lobby. The circuit boxes should still be pulsing smoothly. The page should remain interactive (tap a row, scroll). Any stutter or page-freeze on circuit plans means a JS path is still touching the chrome.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong><code>prefers-reduced-motion</code> kills the animation.</strong> In <em>Settings &rarr; Accessibility &rarr; Motion &rarr; Reduce Motion</em>, enable the toggle, then re-open the lobby. <strong>Expected:</strong> the nested boxes are visible (static coral borders, dim) but do not pulse. Disable the toggle again &mdash; the pulse should resume on the next page load. If the animation keeps running with reduce-motion on, the <code>@media (prefers-reduced-motion: reduce)</code> rule isn&apos;t reaching.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Embedded preview parity (iOS workflow Preview tab)</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Embedded preview shows the same chrome as the public web player.</strong> From the trainer app, open a published plan&apos;s preview via Studio &rarr; Preview. <strong>Expected:</strong> the WKWebView renders the same nested-box chrome you saw on <code>session.homefit.studio</code> &mdash; identical ring count, identical pulse cadence, identical ripple direction. The earlier &quot;black preview&quot; bug from the ninth-attempt observer feedback loop must not recur.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&#10003;</button><button class="fail" type="button" aria-label="Fail 11">&#10007;</button></div>
+        <span class="num">11.</span>
+        <span class="text"><strong>Embedded preview &mdash; lobby thumbnails still load.</strong> Each exercise row in the embedded preview should show its Hero thumbnail. The ninth-attempt fix list cited &quot;lobby thumbnails starved&quot; as a symptom of the main-thread peg. <strong>Expected:</strong> thumbnails render within ~1 second of the lobby opening.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&#10003;</button><button class="fail" type="button" aria-label="Fail 12">&#10007;</button></div>
+        <span class="num">12.</span>
+        <span class="text"><strong>Embedded preview &mdash; Share button responsive.</strong> Tap the Share button at the bottom of the embedded preview. <strong>Expected:</strong> the PDF modal opens promptly (within ~3 seconds for typical plans). The earlier &quot;share button non-responsive&quot; symptom was tied to the ninth-attempt observer loop; this should no longer be possible.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; PDF export parity</h2>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&#10003;</button><button class="fail" type="button" aria-label="Fail 13">&#10007;</button></div>
+        <span class="num">13.</span>
+        <span class="text"><strong>PDF preview shows the nested boxes (static).</strong> Tap Share, wait for the PDF preview modal. <strong>Expected:</strong> on the rendered page, each circuit group is wrapped in N visible coral-bordered rings (same count as the live lobby). The chrome is rasterised as a SETTLED frame &mdash; no animation, no half-pulsed state, no missing borders. The CSS overrides border-color to a bright coral so the rings read clearly in print.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&#10003;</button><button class="fail" type="button" aria-label="Fail 14">&#10007;</button></div>
+        <span class="num">14.</span>
+        <span class="text"><strong>PDF &mdash; no clipped right edge on the outermost ring.</strong> Inspect the rendered page carefully. The outermost ring&apos;s right border must not be cropped by the page edge. (The export CSS forces <code>overflow:visible</code> on every level the chrome nests inside.) If you see a half-rendered ring, the export pipeline is clipping a parent.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&#10003;</button><button class="fail" type="button" aria-label="Fail 15">&#10007;</button></div>
+        <span class="num">15.</span>
+        <span class="text"><strong>PDF &mdash; rows render inside the innermost ring, not below it.</strong> The in-circuit exercise rows must sit visually inside the inner ring&apos;s padded area. If the inner-ring border draws around an EMPTY rectangle with the rows below it, the row clone path lost its parent in the DOM clone.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&#10003;</button><button class="fail" type="button" aria-label="Fail 16">&#10007;</button></div>
+        <span class="num">16.</span>
+        <span class="text"><strong>PDF download succeeds.</strong> Tap Download in the PDF preview modal. <strong>Expected:</strong> the PDF saves to your device&apos;s downloads (or iOS Files / shares via the native sheet). Open the saved PDF &mdash; it should look identical to the in-app preview (nested rings + rows inside the inner one).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Regression sweep (things attempts #1&ndash;#9 broke)</h2>
+    <ul class="checklist">
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&#10003;</button><button class="fail" type="button" aria-label="Fail 17">&#10007;</button></div>
+        <span class="num">17.</span>
+        <span class="text"><strong>No DOM measurement &mdash; rotate the device, resize the window.</strong> On the lobby with a circuit plan, rotate the iPhone (or resize the browser tab on desktop). <strong>Expected:</strong> the nested boxes re-flow with the lobby column width but the animation does NOT pause, glitch, or restart. No <code>ResizeObserver</code> is wired to the chrome, so geometry changes are pure CSS reflow.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">&#10003;</button><button class="fail" type="button" aria-label="Fail 18">&#10007;</button></div>
+        <span class="num">18.</span>
+        <span class="text"><strong>No observer feedback loop &mdash; switch slides rapidly.</strong> In the deck, tap forward/back chevrons rapidly for ~5 seconds. Return to the lobby. <strong>Expected:</strong> the page stays interactive (scroll works, taps land, animation continues). The ninth-attempt symptom of &quot;main thread pegged&quot; from observer recursion cannot recur because there is no observer.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">&#10003;</button><button class="fail" type="button" aria-label="Fail 19">&#10007;</button></div>
+        <span class="num">19.</span>
+        <span class="text"><strong>Active-row coral highlight still works on in-circuit rows.</strong> Tap an exercise row inside a circuit. The row should get the existing coral &quot;active row&quot; treatment (border + tint). The nested boxes should not interfere with row-level styling. If active-row state is invisible, the new ring borders are over-painting the row chrome.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">&#10003;</button><button class="fail" type="button" aria-label="Fail 20">&#10007;</button></div>
+        <span class="num">20.</span>
+        <span class="text"><strong>Lobby loads cleanly &mdash; no console errors about <code>renderCircuitLanes</code> / <code>lobby-circuit-lanes</code> / <code>lane-tracer</code>.</strong> Open Safari Web Inspector against the page (or Console.app for the embedded WKWebView). Reload the lobby. <strong>Expected:</strong> no console errors. If you see <code>renderCircuitLanes is not defined</code> or any reference to the deleted SVG architecture, there&apos;s a dead caller still pointing at the old code.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Source-of-truth lives in <code>web-player/lobby.js</code> (<code>circuitGroupHTML</code>) + <code>web-player/styles.css</code> (the <code>.lobby-circuit-box</code> rules + <code>@keyframes lobby-circuit-pulse</code>). Mockup at <code>docs/design/mockups/circuit-nested-boxes.html</code>. Service worker cache bumped automatically by <code>web-player/build.sh</code> from the deploy SHA.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'circuit-animation-attempt-10-nested-boxes.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'circuit-animation-attempt-10-nested-boxes', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

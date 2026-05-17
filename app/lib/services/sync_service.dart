@@ -13,6 +13,7 @@ import '../models/exercise_set.dart';
 import '../models/pending_op.dart';
 import '../models/session.dart' as model;
 import '../models/treatment.dart';
+import '../config.dart';
 import 'api_client.dart';
 import 'client_defaults_api.dart';
 import 'local_storage_service.dart';
@@ -615,7 +616,7 @@ class SyncService {
       exercises: const [],
       createdAt: createdAt,
       sentAt: sentAt,
-      planUrl: 'https://session.homefit.studio/p/$id',
+      planUrl: '${AppConfig.webPlayerOrigin}/p/$id',
       version: version,
       lastPublishedAt: lastPublishedAt,
       circuitCycles: circuitCycles,
@@ -963,6 +964,13 @@ class SyncService {
       // server-side `set_client_video_consent` re-stamps to its own now()
       // when the queued op flushes.
       consentConfirmedAt: nowMs,
+      // 2026-05-13 — same idea for the auto-open gate: stamp locally
+      // the instant the practitioner saves so a re-entry into this
+      // client's detail view doesn't re-open the sheet while the
+      // queued op is still flushing. Server-side RPC re-stamps to
+      // its own now() on flush; the local value is overwritten on the
+      // next sync pull either way.
+      consentExplicitlySetAt: current.consentExplicitlySetAt ?? nowMs,
       dirty: true,
     );
     await _storage.upsertCachedClient(updated);

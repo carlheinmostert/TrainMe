@@ -162,9 +162,11 @@ class ExerciseCapture {
   /// exercise.
   ///
   /// Semantics:
-  ///   * `null` → no explicit choice, render as [Treatment.line] (the
-  ///     de-identifying default). This is the value for every exercise
-  ///     at capture time and after a fresh install.
+  ///   * `null` → no explicit choice, render as [Treatment.grayscale]
+  ///     (B&W) per the 2026-05-15 publish-flow refactor (PR-B). New
+  ///     captures land with an explicit `grayscale` value via
+  ///     `StickyDefaults.applyGlobalCaptureDefaults`; this read-time
+  ///     fallback only matters for legacy NULL rows captured pre-2026-05-12.
   ///   * non-null → the practitioner cycled the treatment on this
   ///     exercise (via the Studio `_MediaViewer` vertical swipe, a
   ///     plan-preview segment tap, or a Studio-card tile tap) and wants
@@ -347,6 +349,33 @@ class ExerciseCapture {
   /// (schema_wave_hero_crop.sql, NUMERIC).
   final double? heroCropOffset;
 
+  /// Local-only hint that the per-treatment Hero thumbnails on disk
+  /// (`_thumb.jpg`, `_thumb_color.jpg`, `_thumb_line.jpg`) have been
+  /// regenerated since the last successful publish and need to be
+  /// re-uploaded next time. NOT mirrored to Supabase — purely a Dart-
+  /// side flag the publish flow honours.
+  ///
+  /// Set by [ConversionService.regenerateHeroThumbnails] when the
+  /// practitioner moves the Hero star or drags the hero crop viewport.
+  /// Honoured by [UploadService.uploadPlan] in three ways:
+  ///   1. Any dirty exercise breaks the fast-path so the normal upload
+  ///      loop runs (`rawArchiveUploadedAt && !thumbnailsDirty`).
+  ///   2. Inside the normal loop, dirty exercises override the
+  ///      existing-file skip on the three thumb uploads
+  ///      (`_thumb.jpg`, `_thumb_line.jpg`, `_thumb_color.jpg`).
+  ///   3. The metadata-only fast-path's thumb backfill also re-uploads
+  ///      all three when dirty (uses `upsert: true`, silent overwrite).
+  ///
+  /// Cleared back to false after each successful per-exercise upload
+  /// (same write that stamps `rawArchiveUploadedAt`).
+  ///
+  /// Persistence: local SQLite `exercises.thumbnails_dirty` (schema
+  /// v40, INTEGER 0/1). No Supabase mirror — every fresh sync from the
+  /// cloud leaves this false, which is correct: cloud is the source of
+  /// truth for "have these thumbs been pushed?" and a fresh pull is
+  /// by definition up-to-date.
+  final bool thumbnailsDirty;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -382,6 +411,7 @@ class ExerciseCapture {
     this.bodyFocus,
     this.focusFrameOffsetMs,
     this.heroCropOffset,
+    this.thumbnailsDirty = false,
   });
 
   /// Create a new capture with a generated UUID.
@@ -496,6 +526,7 @@ class ExerciseCapture {
           : null,
       focusFrameOffsetMs: map['focus_frame_offset_ms'] as int?,
       heroCropOffset: (map['hero_crop_offset'] as num?)?.toDouble(),
+      thumbnailsDirty: (map['thumbnails_dirty'] as int? ?? 0) != 0,
     );
   }
 
@@ -533,6 +564,7 @@ class ExerciseCapture {
       'body_focus': bodyFocus == null ? null : (bodyFocus! ? 1 : 0),
       'focus_frame_offset_ms': focusFrameOffsetMs,
       'hero_crop_offset': heroCropOffset,
+      'thumbnails_dirty': thumbnailsDirty ? 1 : 0,
     };
   }
 
@@ -596,6 +628,7 @@ class ExerciseCapture {
     bool clearFocusFrameOffsetMs = false,
     double? heroCropOffset,
     bool clearHeroCropOffset = false,
+    bool? thumbnailsDirty,
   }) {
     return ExerciseCapture(
       id: id,
@@ -662,6 +695,7 @@ class ExerciseCapture {
       heroCropOffset: clearHeroCropOffset
           ? null
           : (heroCropOffset ?? this.heroCropOffset),
+      thumbnailsDirty: thumbnailsDirty ?? this.thumbnailsDirty,
     );
   }
 

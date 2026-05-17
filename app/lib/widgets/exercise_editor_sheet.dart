@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/exercise_capture.dart';
-import '../models/exercise_set.dart';
 import '../models/session.dart';
 import '../theme.dart';
 import 'plan_table.dart';
@@ -13,46 +12,71 @@ import 'media_viewer_body.dart';
 import 'mini_preview.dart';
 import 'preset_chip_row.dart';
 
-/// Which tab the editor sheet should land on when first opened. The
-/// standalone Hero tab was decommissioned 2026-05-03 — the Hero-frame
-/// pick now lives on the Preview tab's trim panel as a third handle on
-/// the shared timeline.
-enum ExerciseEditorTab { plan, notes, preview, settings }
+/// Which tab the editor sheet should land on when first opened.
+///
+/// Order matches the visible tab strip left-to-right
+/// (`Demo · Plan · Notes · Settings`) so the enum's declaration index
+/// can be reused directly as the tab strip / PageView index for a
+/// non-rest exercise. Rest exercises render only the single "Rest"
+/// cell — initial tab is clamped to 0 for them.
+///
+/// 2026-05-15 — `preview` renamed to `demo` (per ADR-0019). "Preview"
+/// implied passive viewing and collided with the CAPS workflow chain's
+/// "Preview" step (a separate surface). The tab is the active edit
+/// surface for the captured asset (trim, hero pick, treatment, body
+/// focus, audio). "Demo" echoes the product narrative ("line-drawing
+/// demonstrations") and is unambiguous.
+enum ExerciseEditorTab { demo, plan, notes, settings }
 
 /// The tabbed bottom-sheet editor for an exercise.
 ///
 /// Mounts via [showExerciseEditorSheet]. Hosts four tabs:
-///   * **Plan** — `PlanTable` editing per-set rows.
-///   * **Notes** — multiline `TextField` for practitioner-only notes.
-///   * **Preview** — embeds `MediaViewerBody` so the practitioner can
+///   * **Demo** — embeds `MediaViewerBody` so the practitioner can
 ///     verify what the client will see, scoped to the active exercise.
 ///     The trim panel here also hosts the Hero-frame pick (a third
 ///     handle on the shared timeline). Decommissioned the standalone
-///     Hero tab 2026-05-03 in favour of that consolidation.
+///     Hero tab 2026-05-03 in favour of that consolidation. Renamed
+///     from "Preview" 2026-05-15 (ADR-0019). Default opening tab.
+///   * **Plan** — `PlanTable` editing per-set rows.
+///   * **Notes** — multiline `TextField` for practitioner-only notes.
 ///   * **Settings** — preset chip rows for `prepSeconds` +
 ///     `videoRepsPerLoop` (rarely-changed metadata).
 ///
-/// The sheet runs at one of two snap detents (medium ~60%, large ~92%);
-/// the drag handle and `DraggableScrollableSheet` snap behaviour mirror
-/// `circuit_control_sheet.dart`. Tab swipe horizontally is delegated to
-/// an internal `PageView`. The Notes tab promotes the sheet to large
-/// when the textarea gains focus so the keyboard doesn't eat the field.
+/// Detent (2026-05-15 — ADR-0019 inversion extension): the sheet always
+/// opens AND stays at the 0.95 maximum detent. The 0.75 floor remains
+/// reachable via manual drag-down on the chrome (top drag pill OR
+/// bottom rail). The earlier per-tab auto-snap rule (Preview at 0.95,
+/// other tabs at 0.75) was retired because the continuous PageView
+/// (see below) would oscillate the sheet height at every tab boundary
+/// — jarring. Bottom-aligned tab content (Plan / Notes / Settings)
+/// keeps the most-tapped controls within thumb reach even at 0.95.
 ///
-/// On every meaningful edit the sheet fires [onExerciseChanged] with the
-/// (index, fresh ExerciseCapture) so the Studio screen can persist +
-/// re-render without waiting for the sheet to dismiss.
+/// PageView (2026-05-15): a single continuous virtual PageView spans
+/// every `(exerciseIndex, tabIndex)` cell in the session, with WRAP
+/// at session boundaries. Tab swipe at the last tab of one exercise
+/// flows smoothly into the first tab of the next; swiping past the
+/// last cell wraps to the first. Chevron taps on the bottom rail and
+/// chrome-horizontal-swipes keep their bounded "jump to next exercise"
+/// semantics. Implemented via `PageView.builder` with a large
+/// `itemCount = totalCells * 10000` and start near the midpoint, so
+/// modulo `totalCells` of the page index maps to the cell offset.
 ///
-/// The sheet hosts prev/next chevrons and a dot row so the practitioner
-/// can step through the parent session's exercises without closing and
-/// reopening the sheet. The active index lives in sheet state and may
-/// diverge from [initialExerciseIndex] over the lifetime of the sheet.
+/// On every meaningful edit the sheet fires [onExerciseChanged] with
+/// the (index, fresh ExerciseCapture) so the Studio screen can persist
+/// + re-render without waiting for the sheet to dismiss.
+///
+/// The sheet hosts prev/next chevrons so the practitioner can step
+/// through the parent session's exercises without closing and reopening
+/// the sheet. The active index lives in sheet state and may diverge
+/// from [initialExerciseIndex] over the lifetime of the sheet.
 Future<void> showExerciseEditorSheet({
   required BuildContext context,
   required Session session,
   required int initialExerciseIndex,
   required void Function(int index, ExerciseCapture updated) onExerciseChanged,
   ValueChanged<Session>? onSessionUpdate,
-  ExerciseEditorTab initialTab = ExerciseEditorTab.plan,
+  ValueChanged<ExerciseCapture>? onReplaceMedia,
+  ExerciseEditorTab initialTab = ExerciseEditorTab.demo,
 }) async {
   HapticFeedback.selectionClick();
   // Pause every Studio-list MiniPreview for the duration of the sheet
@@ -101,6 +125,7 @@ Future<void> showExerciseEditorSheet({
             initialExerciseIndex: initialExerciseIndex,
             onExerciseChanged: onExerciseChanged,
             onSessionUpdate: onSessionUpdate,
+            onReplaceMedia: onReplaceMedia,
             initialTab: initialTab,
           ),
         ],
@@ -136,7 +161,14 @@ class ExerciseEditorSheet extends StatefulWidget {
   /// the embed propagate back to the Studio screen.
   final ValueChanged<Session>? onSessionUpdate;
 
-  /// Tab to land on when the sheet opens. Defaults to Plan.
+  /// Optional replace-media callback — wired to the Demo tab's
+  /// `MediaViewerBody.onReplaceMedia`. The sheet just forwards the
+  /// currently-focused exercise back to the host (Studio screen), which
+  /// runs the image-picker swap via `_replaceMedia(dataIndex)`. Null
+  /// disables the Replace pill on the Demo surface.
+  final ValueChanged<ExerciseCapture>? onReplaceMedia;
+
+  /// Tab to land on when the sheet opens. Defaults to Demo.
   final ExerciseEditorTab initialTab;
 
   const ExerciseEditorSheet({
@@ -145,7 +177,8 @@ class ExerciseEditorSheet extends StatefulWidget {
     required this.initialExerciseIndex,
     required this.onExerciseChanged,
     this.onSessionUpdate,
-    this.initialTab = ExerciseEditorTab.plan,
+    this.onReplaceMedia,
+    this.initialTab = ExerciseEditorTab.demo,
   });
 
   @override
@@ -153,32 +186,50 @@ class ExerciseEditorSheet extends StatefulWidget {
 }
 
 class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
-  // Round 3 — Carl's spec evolved twice. Round 2 had drag-down past the
-  // floor dismiss; retest reported releasing below dismissed instead of
-  // snapping. Round 3: the floor is the FLOOR — releases below stay
-  // pinned at the floor. Dismiss is via fast downward velocity (>800),
-  // tap-outside (frosted-scrim layer), or explicit close.
+  // 2026-05-15 — per-tab auto-snap retired (ADR-0019 inversion
+  // extension). The sheet always opens AND stays at the 0.95 max
+  // detent; the 0.75 floor remains reachable via manual drag-down on
+  // the chrome (top drag pill OR bottom rail). The earlier rule (Preview
+  // at 0.95, other tabs at 0.75) would have oscillated the sheet height
+  // at every Demo boundary now that swipe is continuous across tabs +
+  // exercises — jarring. Bottom-aligned tab content (Plan / Notes /
+  // Settings) keeps the most-tapped controls within thumb reach.
   //
-  // 2026-05-05 — floor raised 0.55 → 0.75. With a transparent default
-  // barrier replaced by a BackdropFilter scrim (see [showExerciseEditorSheet]),
-  // the underlying Studio is intentionally blurred + heavily dimmed; the
-  // 0.75 floor stops the eye drifting back to it.
-  //
-  // Tab-aware default detent: Preview tab promotes to 0.95 (full canvas
-  // for the embedded media viewer); all other tabs settle at 0.75 (form
-  // controls don't need the full screen — leaves a frosted strip of the
-  // parent visible). The tab swipe / tab-strip tap calls `_snapSheetForTab`
-  // to honour this. Initial detent is computed in `build()` via `_detentForTab`.
+  // Earlier history:
+  //   * 2026-05-05 — floor raised 0.55 → 0.75 to stop the eye drifting
+  //     to the heavily-dimmed underlying Studio.
+  //   * Round 3 (2026-05-03) — the floor is the FLOOR; releases below
+  //     stay pinned at the floor. Dismiss is via fast downward fling
+  //     (>800), tap-outside (frosted-scrim layer), or explicit close.
   static const double _kMinDetent = 0.75;
   static const double _kMaxDetent = 0.95;
-  static const double _kPreviewDetent = 0.95;
 
   /// Velocity threshold (logical pt/sec) for fling-down dismissal. Slow
   /// drags below the floor snap back to 0.75 instead of dismissing.
   static const double _kFlingDismissVelocity = 800;
 
+  /// Number of `(exerciseIndex, tabIndex)` cells per non-rest exercise.
+  /// Mirrors the four [ExerciseEditorTab] enum values.
+  static const int _kNonRestCellsPerExercise = 4;
+
+  /// Virtual cycle multiplier for the continuous wrap PageView. Total
+  /// page item count = `cycleLength * _kCycleRepeats`; start near the
+  /// midpoint so the practitioner has thousands of cycles of headroom
+  /// in either direction. 10000 cycles × ~20 cells/session ≈ 200k
+  /// pages — plenty.
+  static const int _kCycleRepeats = 10000;
+
   late final DraggableScrollableController _sheetController;
   late final PageController _pageController;
+  // Guard for the `late final _pageController` field. `_pageForCell()` reads
+  // `_pageController.hasClients` to choose between the midpoint-anchor and
+  // nearest-cycle math, but `initState` calls `_pageForCell()` BEFORE the
+  // controller is assigned (to compute its own `initialPage`). Touching a
+  // late-final field before assignment throws `LateInitializationError`,
+  // which Flutter silently swallows by replacing the subtree with an
+  // ErrorWidget — that's how PR #340's regression manifested as a blank
+  // grey sheet on Carl's iPhone. Flip true the instant assignment lands.
+  bool _pageControllerInitialized = false;
   late int _exerciseIndex;
   late ExerciseCapture _exercise;
   // Local mirror of `widget.session.exercises`. The widget reference is
@@ -191,14 +242,29 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   // from it.
   late List<ExerciseCapture> _exercises;
   int _activeTabIndex = 0;
-  // Set in _switchTab while animateToPage is in flight. _onPageChanged
-  // ignores intermediate page-crosses while non-null so the sheet doesn't
-  // briefly snap to a transitional tab's detent (e.g. Notes → Settings
-  // crosses Preview, which would otherwise jump the sheet to 0.95).
-  int? _pendingFinalTab;
+  // When an animateToPage is in flight (chevron-jump or multi-tab tab-
+  // strip tap), `_onPageChanged` fires for every intermediate page the
+  // animation crosses. Without a sentinel the bottom rail would flicker
+  // through each intermediate exercise. While set, intermediate page
+  // crosses are ignored; only the final page applies state.
+  int? _pendingFinalPage;
   String? _activeSettingsKey;
   final FocusNode _notesFocusNode = FocusNode();
-  late TextEditingController _notesController;
+  // One Notes controller per exercise id. PageView.builder eagerly
+  // constructs the adjacent pages, so each cell needs its own
+  // controller — building a single `_notesController` inside the
+  // active page only would either leak (controllers re-created on
+  // every setState) or flicker (different widget tree per cell).
+  // Lifetime: lazy-created on first render of each Notes cell;
+  // disposed all together when the sheet dismisses.
+  final Map<String, TextEditingController> _notesControllers = {};
+
+  TextEditingController _notesControllerFor(ExerciseCapture ex) {
+    return _notesControllers.putIfAbsent(
+      ex.id,
+      () => TextEditingController(text: ex.notes ?? ''),
+    );
+  }
 
   @override
   void initState() {
@@ -208,43 +274,123 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     _exercise = _exercises[_exerciseIndex];
     // Rest exercises render only one tab ("Rest") — clamp the active
     // index to 0 regardless of the requested initialTab so the
-    // PageController doesn't init beyond the only valid page.
+    // PageController doesn't init beyond the only valid cell.
     _activeTabIndex =
         _exercise.isRest ? 0 : _tabIndexFor(widget.initialTab);
     _sheetController = DraggableScrollableController();
-    _pageController = PageController(initialPage: _activeTabIndex);
-    _notesController = TextEditingController(text: _exercise.notes ?? '');
+    _pageController = PageController(
+      initialPage: _pageForCell(_exerciseIndex, _activeTabIndex),
+    );
+    // Guard now satisfied — subsequent _pageForCell() calls (chevron jumps,
+    // tab-strip taps) can safely read _pageController.hasClients.
+    _pageControllerInitialized = true;
     _notesFocusNode.addListener(_onNotesFocusChanged);
-  }
-
-  /// Returns the canonical detent for the given tab index — Preview
-  /// goes large (0.95) so the embedded video has canvas; every other
-  /// tab snaps to 0.75 so the underlying screen stays partially visible
-  /// (behind the frosted scrim).
-  double _detentForTab(int tabIndex) {
-    if (tabIndex == _tabIndexFor(ExerciseEditorTab.preview)) {
-      return _kPreviewDetent;
-    }
-    return _kMinDetent;
   }
 
   @override
   void dispose() {
     _notesFocusNode.removeListener(_onNotesFocusChanged);
     _notesFocusNode.dispose();
-    _notesController.dispose();
+    for (final controller in _notesControllers.values) {
+      controller.dispose();
+    }
+    _notesControllers.clear();
     _pageController.dispose();
     _sheetController.dispose();
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // Virtual page-index <-> (exercise, tab) mapping
+  // ---------------------------------------------------------------------------
+
+  /// Tabs per exercise (rest exercises contribute exactly one cell).
+  int _cellsFor(ExerciseCapture e) =>
+      e.isRest ? 1 : _kNonRestCellsPerExercise;
+
+  /// Sum of cells across the whole session — one full wrap cycle.
+  int get _cycleLength {
+    int n = 0;
+    for (final e in _exercises) {
+      n += _cellsFor(e);
+    }
+    return n;
+  }
+
+  /// Total item count for the virtual PageView. Modulo `_cycleLength`
+  /// of any page index maps back to a (exercise, tab) cell within a
+  /// single session cycle.
+  int get _itemCount => _cycleLength * _kCycleRepeats;
+
+  /// Resolve a virtual page index to its (exerciseIndex, tabIndex) cell.
+  ({int exIdx, int tabIdx}) _cellAt(int page) {
+    final cycle = _cycleLength;
+    if (cycle == 0) return (exIdx: 0, tabIdx: 0);
+    int rem = page % cycle;
+    if (rem < 0) rem += cycle; // Dart's `%` is non-negative; defensive.
+    for (int i = 0; i < _exercises.length; i++) {
+      final w = _cellsFor(_exercises[i]);
+      if (rem < w) return (exIdx: i, tabIdx: rem);
+      rem -= w;
+    }
+    return (exIdx: 0, tabIdx: 0); // Unreachable.
+  }
+
+  /// Page index for a cell. Computes the NEAREST page that maps to the
+  /// requested cell relative to the current PageController position —
+  /// so animateToPage walks at most half a cycle, not across the whole
+  /// virtual range. Without the nearest-neighbour math, repeated wrap-
+  /// arounds would drift the anchor and chevron jumps would animate
+  /// across the entire session.
+  int _pageForCell(int exIdx, int tabIdx) {
+    final cycle = _cycleLength;
+    if (cycle == 0) return 0;
+    int offset = 0;
+    for (int i = 0; i < exIdx; i++) {
+      offset += _cellsFor(_exercises[i]);
+    }
+    offset += tabIdx;
+    // Before the controller's `late final` is assigned (we're called from
+    // initState to compute its own initialPage) OR before it's attached to
+    // a viewport, park near the midpoint so wrap headroom exists in both
+    // directions. The `_pageControllerInitialized` guard prevents the
+    // LateInitializationError that otherwise blanks the entire sheet.
+    final controllerReady =
+        _pageControllerInitialized && _pageController.hasClients;
+    if (!controllerReady) {
+      final anchor = (_kCycleRepeats ~/ 2) * cycle;
+      return anchor + offset;
+    }
+    final currentPage = _pageController.page?.round() ??
+        ((_kCycleRepeats ~/ 2) * cycle);
+    final currentCycleStart = (currentPage ~/ cycle) * cycle;
+    // Three candidate pages around the current cycle: previous cycle,
+    // current cycle, next cycle. Pick the one whose absolute distance
+    // to `currentPage` is smallest.
+    final candidates = <int>[
+      currentCycleStart - cycle + offset,
+      currentCycleStart + offset,
+      currentCycleStart + cycle + offset,
+    ];
+    int best = candidates.first;
+    int bestDist = (candidates.first - currentPage).abs();
+    for (int i = 1; i < candidates.length; i++) {
+      final d = (candidates[i] - currentPage).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        best = candidates[i];
+      }
+    }
+    return best;
+  }
+
   int _tabIndexFor(ExerciseEditorTab t) {
     switch (t) {
-      case ExerciseEditorTab.plan:
+      case ExerciseEditorTab.demo:
         return 0;
-      case ExerciseEditorTab.notes:
+      case ExerciseEditorTab.plan:
         return 1;
-      case ExerciseEditorTab.preview:
+      case ExerciseEditorTab.notes:
         return 2;
       case ExerciseEditorTab.settings:
         return 3;
@@ -255,63 +401,52 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     // setState rebuilds the Notes tab so the Done button shows/hides as
     // focus changes. Listener fires on BOTH gain and loss of focus.
     if (mounted) setState(() {});
-    if (!_sheetController.isAttached) return;
-    // Promote on focus gain (so keyboard doesn't squash the textarea),
-    // restore to floor detent on focus loss (Notes' canonical detent).
-    _sheetController.animateTo(
-      _notesFocusNode.hasFocus ? _kMaxDetent : _kMinDetent,
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOutCubic,
-    );
+    // Sheet stays at 0.95 regardless of Notes focus now (ADR-0019).
+    // The keyboard appears over the bottom-aligned textarea; no detent
+    // change needed.
   }
 
-  void _switchTab(int next) {
-    if (next == _activeTabIndex) return;
+  /// Tab-strip tap: animate the PageView to the same exercise's chosen
+  /// tab. Within-exercise hop — no exercise change.
+  void _switchTab(int nextTab) {
+    if (nextTab == _activeTabIndex) return;
+    if (_exercise.isRest) return; // Rest has only one tab.
     HapticFeedback.selectionClick();
-    _pendingFinalTab = next;
-    setState(() => _activeTabIndex = next);
+    final targetPage = _pageForCell(_exerciseIndex, nextTab);
+    if (!_pageController.hasClients) return;
+    _pendingFinalPage = targetPage;
     _pageController
         .animateToPage(
-          next,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-        )
+      targetPage,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    )
         .whenComplete(() {
-      if (mounted && _pendingFinalTab == next) _pendingFinalTab = null;
+      if (mounted && _pendingFinalPage == targetPage) {
+        _pendingFinalPage = null;
+      }
     });
-    _snapSheetForTab(next);
   }
 
-  void _onPageChanged(int next) {
-    // While _switchTab's animateToPage is in flight across non-adjacent
-    // pages, ignore intermediate page-crosses so we don't snap to a
-    // transitional tab's detent (e.g. Preview's 0.95 mid-flight).
-    if (_pendingFinalTab != null && next != _pendingFinalTab) return;
-    if (next == _activeTabIndex) return;
-    setState(() => _activeTabIndex = next);
-    // Snap immediately. The earlier settle-listener defer was a workaround
-    // for the shouldCloseOnMinExtent auto-dismiss bug: residual vertical
-    // finger motion at floor would trigger the dismiss observer. With
-    // shouldCloseOnMinExtent: false we no longer need that defer, and
-    // immediate snap is more reliable (Preview → Settings/Notes via swipe
-    // sometimes failed to snap when settle fired too early).
-    _snapSheetForTab(next);
-  }
-
-  /// Round 5 — hard-snap the sheet to the canonical detent for the given
-  /// tab. Preview promotes to 0.95 (full canvas for the embedded media
-  /// viewer); every other tab settles at 0.75 so the underlying screen
-  /// stays partially visible (behind the frosted scrim).
-  ///
-  /// Uses [DraggableScrollableController.jumpTo] (instant) instead of
-  /// `animateTo`. Round 4 used a 240ms easeOutCubic animation, but the
-  /// PageView's swipe gesture feeds vertical pan deltas into the same
-  /// `DraggableScrollableSheet` and cancels the in-flight animation
-  /// mid-flight — leaving the sheet parked at intermediate sizes (~65%)
-  /// when the user swipes between tabs. Hard snap eliminates the race.
-  void _snapSheetForTab(int tabIndex) {
-    if (!_sheetController.isAttached) return;
-    _sheetController.jumpTo(_detentForTab(tabIndex));
+  void _onPageChanged(int page) {
+    // Ignore intermediate pages while a programmatic animateToPage is in
+    // flight (chevron jump or multi-tab tab-strip tap). Only update state
+    // when the page settles at the destination — prevents the bottom rail
+    // from flashing through every intermediate exercise / tab.
+    if (_pendingFinalPage != null && page != _pendingFinalPage) return;
+    final cell = _cellAt(page);
+    if (cell.exIdx == _exerciseIndex && cell.tabIdx == _activeTabIndex) {
+      return;
+    }
+    final crossedExercise = cell.exIdx != _exerciseIndex;
+    setState(() {
+      if (crossedExercise) {
+        _exerciseIndex = cell.exIdx;
+        _exercise = _exercises[cell.exIdx];
+        _activeSettingsKey = null;
+      }
+      _activeTabIndex = cell.tabIdx;
+    });
   }
 
   void _emit(ExerciseCapture next) {
@@ -337,51 +472,44 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     widget.onExerciseChanged(idx, next);
   }
 
-  /// Step the active exercise by ±1 (or jump to a specific index from the
-  /// dot row). Out-of-range / no-op calls are silently ignored. Resets the
-  /// Notes controller so stale text from the previous exercise can't
-  /// linger, and collapses any open Settings row.
+  /// Step the active exercise by ±1 (or jump to a specific index from
+  /// a chevron tap / chrome-horizontal-swipe). Out-of-range / no-op
+  /// calls are silently ignored — chevrons disable at boundaries, and
+  /// the chrome-horizontal-swipe handler also clamps. The continuous
+  /// PageView itself wraps; this 1-jump path stays bounded so the
+  /// chevrons keep their familiar "first / last" affordance.
   ///
-  /// When crossing the rest / non-rest boundary the tab strip changes
-  /// shape (rest = 1 tab, non-rest = 5). Reset the active tab to 0 so
-  /// the PageView lands on a valid page in either world.
+  /// Animates the PageView to the new exercise's first tab — Demo for
+  /// non-rest, Rest for rest. The `_onPageChanged` callback then
+  /// updates `_exerciseIndex`, resets the Notes controller, and
+  /// collapses any open Settings row.
   void _navigateExercise(int newIndex) {
     if (newIndex < 0 || newIndex >= _exercises.length) return;
     if (newIndex == _exerciseIndex) return;
     HapticFeedback.selectionClick();
-    // Read from the local mirror, NOT widget.session — the widget
-    // reference is the open-time snapshot and would silently drop any
-    // edits made in this sheet session before the user navigated away.
-    final next = _exercises[newIndex];
-    final crossesRestBoundary = next.isRest != _exercise.isRest;
-    setState(() {
-      _exerciseIndex = newIndex;
-      _exercise = next;
-      _notesController.text = _exercise.notes ?? '';
-      _activeSettingsKey = null;
-      if (crossesRestBoundary) {
-        _activeTabIndex = 0;
-        _pendingFinalTab = null;
+    if (!_pageController.hasClients) return;
+    final targetPage = _pageForCell(newIndex, 0);
+    _pendingFinalPage = targetPage;
+    _pageController
+        .animateToPage(
+      targetPage,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    )
+        .whenComplete(() {
+      if (mounted && _pendingFinalPage == targetPage) {
+        _pendingFinalPage = null;
       }
     });
-    if (crossesRestBoundary && _pageController.hasClients) {
-      _pageController.jumpToPage(0);
-    }
-  }
-
-  void _onSetsChanged(List<ExerciseSet> sets) {
-    _emit(_exercise.copyWith(sets: sets));
-  }
-
-  void _onNotesChanged(String text) {
-    _emit(_exercise.copyWith(notes: text));
   }
 
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
       controller: _sheetController,
-      initialChildSize: _detentForTab(_activeTabIndex),
+      // Always open at the max detent. 0.75 floor is a manual-drag-only
+      // destination now (ADR-0019).
+      initialChildSize: _kMaxDetent,
       minChildSize: _kMinDetent,
       maxChildSize: _kMaxDetent,
       snap: true,
@@ -389,10 +517,9 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       snapSizes: const [_kMinDetent, _kMaxDetent],
       // CRITICAL: defaults to true. When true, _BottomSheetState.extentChanged
       // (Flutter framework) auto-closes the route the moment extent equals
-      // minChildSize — which is exactly where our slow drag-down lands and
-      // where _snapSheetForTab parks every non-Preview tab. Disabling this
-      // hands all dismissal control back to us. Tap-outside (modal barrier)
-      // remains the canonical "I'm done" gesture.
+      // minChildSize — which is exactly where our slow drag-down lands.
+      // Disabling this hands all dismissal control back to us. Tap-outside
+      // (frosted-scrim layer) remains the canonical "I'm done" gesture.
       shouldCloseOnMinExtent: false,
       expand: false,
       builder: (ctx, scrollController) {
@@ -413,27 +540,35 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                   top: BorderSide(color: AppColors.surfaceBorder, width: 1),
                 ),
               ),
+              // Layout inverted 2026-05-06 for one-handed reach. The
+              // thumbnail + title + chevrons used to sit at the top
+              // (out of thumb range when the sheet snaps to 0.95);
+              // they now live in the bottom rail, with the tab strip
+              // tucked directly above as a single thumb-zone dock.
+              //
+              // 2026-05-15 — content-inversion landed (ADR-0019). The
+              // PageView is a single continuous virtual stream of
+              // (exercise, tab) cells with wrap. Cell pages bottom-
+              // align their content (except Demo, which uses the full
+              // upper canvas for the video).
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildDragChrome(),
-                  _buildTabStrip(),
                   Expanded(
-                    child: PageView(
+                    child: PageView.builder(
                       controller: _pageController,
                       onPageChanged: _onPageChanged,
-                      children: _exercise.isRest
-                          ? [
-                              _buildRestTab(scrollController),
-                            ]
-                          : [
-                              _buildPlanTab(scrollController),
-                              _buildNotesTab(scrollController),
-                              _buildPreviewTab(),
-                              _buildSettingsTab(scrollController),
-                            ],
+                      itemCount: _itemCount,
+                      itemBuilder: (ctx, page) {
+                        final cell = _cellAt(page);
+                        final ex = _exercises[cell.exIdx];
+                        return _buildCell(ex, cell.tabIdx, scrollController);
+                      },
                     ),
                   ),
+                  _buildTabStrip(),
+                  _buildBottomRail(),
                 ],
               ),
             ),
@@ -443,54 +578,65 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     );
   }
 
+  /// Renders the body widget for a single virtual cell. The sheet's
+  /// own `ScrollController` (from `DraggableScrollableSheet.builder`)
+  /// is wired to the currently-visible page only — that's what makes
+  /// the inner scroll-to-resize trick work. Off-screen cells receive
+  /// `null` so they create their own internal controller (Flutter
+  /// manages its lifecycle); attaching the sheet's controller to
+  /// every cell would make multi-cell `attach` throw.
+  Widget _buildCell(
+    ExerciseCapture ex,
+    int tabIdx,
+    ScrollController activeScrollController,
+  ) {
+    final isActive = ex.id == _exercise.id && tabIdx == _activeTabIndex;
+    final ScrollController? controller =
+        isActive ? activeScrollController : null;
+    if (ex.isRest) {
+      return _buildRestTab(ex, controller);
+    }
+    switch (tabIdx) {
+      case 0:
+        return _buildDemoTab(ex);
+      case 1:
+        return _buildPlanTab(ex, controller);
+      case 2:
+        return _buildNotesTab(ex, controller);
+      case 3:
+        return _buildSettingsTab(ex, controller);
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Header chrome
   // ---------------------------------------------------------------------------
 
-  /// Chrome cluster (drag handle + title) that owns the sheet's vertical
-  /// drag affordance. With `enableDrag: false` on showModalBottomSheet,
-  /// nothing else listens for vertical pulls outside the inner Scrollables
-  /// so the handle is the canonical "expand / collapse / dismiss" surface.
-  ///
-  /// Round 3 — wraps the chrome AND the drag-handle pill in their own
-  /// GestureDetectors with `behavior: opaque`. The pill itself bumps to
-  /// 48pt-tall hit area (visible bar still 4pt) so the drag region is
-  /// thumb-friendly even on the Preview tab. Carl's retest reported the
-  /// Preview tab "does not allow dragging the card up or down" — the
-  /// previous chrome surface was only ~50pt tall after the 6pt SizedBox
-  /// gap, easy to miss next to the embedded MediaViewerBody's gestures.
+  /// Top-of-sheet drag affordance — drag-handle pill only. The thumbnail
+  /// + title + chevron-nav cluster has moved to the bottom rail
+  /// ([_buildBottomRail]) for one-handed reach, so the chrome is now a
+  /// minimal 22pt hit strip that owns vertical resize / horizontal nav
+  /// drags at the very top of the sheet.
   Widget _buildDragChrome() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onVerticalDragUpdate: _onChromeDragUpdate,
       onVerticalDragEnd: _onChromeDragEnd,
-      // Horizontal swipe on the chrome navigates between exercises.
-      // The drag system picks the dominant axis: mostly-vertical = resize,
-      // mostly-horizontal = navigate. Threshold 200 pt/s ensures a slow
-      // wobble doesn't trigger nav.
       onHorizontalDragEnd: _onChromeHorizontalDragEnd,
       child: SizedBox(
         width: double.infinity,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Drag-handle pill — visible 4pt bar centered in a 22pt-tall
-            // hit zone for thumb-friendly grabbing.
-            SizedBox(
-              height: 22,
-              child: Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceBorder,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+        height: 22,
+        child: Center(
+          child: Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceBorder,
+              borderRadius: BorderRadius.circular(2),
             ),
-            _buildHeader(),
-          ],
+          ),
         ),
       ),
     );
@@ -559,85 +705,99 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     );
   }
 
-  Widget _buildHeader() {
+  /// Thumb-zone bottom rail — the canonical exercise-nav surface. The
+  /// whole rail is the horizontal-swipe drag region (vertical drag still
+  /// resizes the sheet so thumb-down-to-dismiss keeps working anywhere).
+  /// Far-left + far-right chevrons sit at the rail edge for unambiguous
+  /// prominence; a Hero-frame thumbnail and the editable title ride
+  /// between them.
+  Widget _buildBottomRail() {
     final title = _exercise.name?.trim().isNotEmpty == true
         ? _exercise.name!
         : 'Exercise ${_exercise.position + 1}';
     final canPrev = _exerciseIndex > 0;
     final canNext = _exerciseIndex < _exercises.length - 1;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      // Live mini preview on the left (168×110) with chevrons overlaid
-      // at the vertical midline. Title block sits to the right, vertical
-      // stack: editable title above the meta line.
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          MiniPreview(
-            exercise: _exercise,
-            width: 168,
-            height: 110,
-            borderRadius: BorderRadius.circular(12),
-            // Editor header — show the Hero frame, not a looping clip.
-            // The Preview tab below uses MediaViewerBody (separate
-            // widget) so motion still happens where it should.
-            staticHero: true,
-            // Wave Lobby PR 2 — render the practitioner's live 1:1
-            // crop offset on the header thumbnail so the drag on the
-            // Hero tab's [HeroCropViewport] reflects up here in
-            // lock-step. Pulled straight off the in-memory
-            // `_exercise` mirror (which `_emit` updates on every
-            // viewport tick) — null on legacy rows preserves the
-            // pre-Lobby `BoxFit.cover` centred render.
-            cropOffset: _exercise.heroCropOffset,
-            overlay: _ChevronNavOverlay(
-              canPrev: canPrev,
-              canNext: canNext,
-              onPrev: () => _navigateExercise(_exerciseIndex - 1),
-              onNext: () => _navigateExercise(_exerciseIndex + 1),
-            ),
+    final viewPaddingBottom = MediaQuery.of(context).viewPadding.bottom;
+    return GestureDetector(
+      // translucent so InlineEditableText taps + chevron InkWells still
+      // claim their hits via the gesture arena, while the empty rail
+      // surface still feeds horizontal drags into the swipe handler.
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragUpdate: _onChromeDragUpdate,
+      onVerticalDragEnd: _onChromeDragEnd,
+      onHorizontalDragEnd: _onChromeHorizontalDragEnd,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surfaceRaised,
+          border: Border(
+            top: BorderSide(color: AppColors.surfaceBorder, width: 1),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InlineEditableText(
-                  // KEY ensures the editable text rebuilds when the
-                  // resolved title changes (e.g. position drift on a
-                  // capture without a name). Without the key the
-                  // controller text wouldn't refresh on a fresh exercise.
-                  key: ValueKey(
-                      'editor-title-${_exercise.id}-${_exercise.position}'),
-                  initialValue: title,
-                  hintText: 'Name this exercise…',
-                  onCommit: (next) =>
-                      _emit(_exercise.copyWith(name: next)),
-                  textStyle: const TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                    color: AppColors.textOnDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _metaLine(),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontSize: 11,
-                    color: AppColors.textSecondaryOnDark,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ],
+        ),
+        padding: EdgeInsets.fromLTRB(4, 8, 4, 8 + viewPaddingBottom),
+        child: Row(
+          children: [
+            _BottomRailChevron(
+              icon: Icons.chevron_left,
+              enabled: canPrev,
+              onTap: () => _navigateExercise(_exerciseIndex - 1),
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            // Static Hero-frame thumbnail. MiniPreview's _HeroFrameImage
+            // uses an mtime-keyed cache (see hero_file_image.dart) so the
+            // glyph repaints the moment ConversionService finishes a
+            // hero-frame regen — even though the JPG path doesn't change.
+            MiniPreview(
+              exercise: _exercise,
+              width: 56,
+              height: 40,
+              borderRadius: BorderRadius.circular(8),
+              staticHero: true,
+              cropOffset: _exercise.heroCropOffset,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InlineEditableText(
+                    key: ValueKey(
+                        'rail-title-${_exercise.id}-${_exercise.position}'),
+                    initialValue: title,
+                    hintText: 'Name this exercise…',
+                    onCommit: (next) =>
+                        _emit(_exercise.copyWith(name: next)),
+                    textStyle: const TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                      color: AppColors.textOnDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _metaLine(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontSize: 10,
+                      color: AppColors.textSecondaryOnDark,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            _BottomRailChevron(
+              icon: Icons.chevron_right,
+              enabled: canNext,
+              onTap: () => _navigateExercise(_exerciseIndex + 1),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -660,10 +820,12 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   Widget _buildTabStrip() {
     final tabs = _exercise.isRest
         ? const ['Rest']
-        : const ['Plan', 'Notes', 'Preview', 'Settings'];
-    // Round 2 — tab strip listens for vertical drag too so the Preview
-    // tab (whose body owns gestures inside MediaViewerBody) still has a
-    // reliable drag region between the chrome and the page content.
+        : const ['Demo', 'Plan', 'Notes', 'Settings'];
+    // 2026-05-06 — tab strip now sits between page content and the
+    // bottom rail. Top hairline separates from page content; the
+    // rail's own top border supplies the divider on the other side
+    // (avoids the doubled-hairline that comes from stacking two
+    // adjacent borders).
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onVerticalDragUpdate: _onChromeDragUpdate,
@@ -671,7 +833,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       child: Container(
       decoration: const BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
+          top: BorderSide(color: AppColors.surfaceBorder, width: 1),
         ),
       ),
       child: Row(
@@ -682,9 +844,12 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                 onTap: () => _switchTab(i),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
+                  // Tabs sit BELOW the page content now, so the active
+                  // indicator hangs off the TOP edge to point up at the
+                  // content it controls.
                   decoration: BoxDecoration(
                     border: Border(
-                      bottom: BorderSide(
+                      top: BorderSide(
                         color: _activeTabIndex == i
                             ? AppColors.primary
                             : Colors.transparent,
@@ -718,8 +883,58 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   // Tab bodies
   // ---------------------------------------------------------------------------
 
-  Widget _buildPlanTab(ScrollController scrollController) {
-    final cycles = _circuitCycles();
+  /// Demo tab — embeds [MediaViewerBody] for the practitioner to verify
+  /// what the client will see. Uses the full PageView canvas (no bottom-
+  /// alignment) — the video IS the content, and treatment / trim
+  /// affordances live inside the embed.
+  Widget _buildDemoTab(ExerciseCapture ex) {
+    if (ex.isRest) {
+      // Rest exercises don't reach this branch (they're 1-cell with
+      // their own `_buildRestTab`), but guard defensively.
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Rest periods have no media to demo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+        ),
+      );
+    }
+    return MediaViewerBody(
+      // Force re-mount on chevron / dot navigation. MediaViewerBody owns
+      // its own VideoPlayerController and treatment-state — without a
+      // unique key it doesn't pick up the new exercise via didUpdateWidget.
+      key: ValueKey('demo-tab-${ex.id}'),
+      exercises: [ex],
+      initialIndex: 0,
+      session: widget.session,
+      onExerciseUpdate: (updated) {
+        _emit(updated);
+      },
+      onSessionUpdate: widget.onSessionUpdate,
+      // 2026-05-16 — Replace pill on the Demo embed. Sheet has only one
+      // exercise in scope (`ex`), but the viewer hands it back through
+      // the callback so the host can do its own id → dataIndex lookup.
+      onReplaceMedia: widget.onReplaceMedia,
+      // Round 3 — embedded mode hides the X button (the sheet's drag-down
+      // + tap-outside dismiss) and shifts the vertical treatment pill up
+      // so it doesn't collide with the bottom-left Body Focus + Rotate
+      // pills on the shorter sheet canvas.
+      embeddedInSheet: true,
+    );
+  }
+
+  Widget _buildPlanTab(
+    ExerciseCapture ex,
+    ScrollController? scrollController,
+  ) {
+    final cycles = _circuitCyclesFor(ex);
     // Round 2 — bottom padding mirrors MediaQuery.viewInsets.bottom so
     // the iOS keyboard (when the inline custom-value editor opens)
     // doesn't cover the bottom rows of the table OR the inline editor
@@ -727,44 +942,49 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     // the centring; this padding prevents the sheet's bottom from
     // getting clipped.
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-    return SingleChildScrollView(
-      controller: scrollController,
+    return _BottomAlignedTab(
+      scrollController: scrollController,
       padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: PlanTable(
-        sets: _exercise.sets,
-        onSetsChanged: _onSetsChanged,
+        sets: ex.sets,
+        onSetsChanged: (sets) => _emit(ex.copyWith(sets: sets)),
         circuitCycles: cycles,
       ),
     );
   }
 
-  /// Resolved circuit cycle count, or null when the exercise isn't part
-  /// of a circuit.
-  int? _circuitCycles() {
-    final circuitId = _exercise.circuitId;
+  /// Resolved circuit cycle count for the given exercise, or null when
+  /// it isn't part of a circuit.
+  int? _circuitCyclesFor(ExerciseCapture ex) {
+    final circuitId = ex.circuitId;
     if (circuitId == null) return null;
     return widget.session.circuitCycles[circuitId];
   }
 
-  Widget _buildNotesTab(ScrollController scrollController) {
+  Widget _buildNotesTab(
+    ExerciseCapture ex,
+    ScrollController? scrollController,
+  ) {
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+    final isActive = ex.id == _exercise.id;
+    final controller = _notesControllerFor(ex);
     return GestureDetector(
       // Tap anywhere outside the textarea dismisses the keyboard. translucent
       // so the TextField still claims its own taps via the gesture arena.
       behavior: HitTestBehavior.translucent,
       onTap: () => _notesFocusNode.unfocus(),
-      child: SingleChildScrollView(
-        controller: scrollController,
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      child: _BottomAlignedTab(
+        scrollController: scrollController,
         padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + keyboardInset),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
             // Done button — only takes vertical space when visible, so the
             // textarea sits flush under the tab strip when the keyboard
-            // is closed.
-            if (_notesFocusNode.hasFocus)
+            // is closed. Only the active Notes cell can have focus.
+            if (isActive && _notesFocusNode.hasFocus)
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
@@ -788,13 +1008,13 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
             ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 200),
               child: TextField(
-              controller: _notesController,
-              focusNode: _notesFocusNode,
+              controller: controller,
+              focusNode: isActive ? _notesFocusNode : null,
               minLines: 8,
               maxLines: null,
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
-              onChanged: _onNotesChanged,
+              onChanged: (text) => _emit(ex.copyWith(notes: text)),
               style: const TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
@@ -837,53 +1057,20 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     );
   }
 
-  Widget _buildPreviewTab() {
-    if (_exercise.isRest) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Rest periods have no media to preview.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              color: AppColors.textSecondaryOnDark,
-            ),
-          ),
-        ),
-      );
-    }
-    return MediaViewerBody(
-      // Force re-mount on chevron / dot navigation. MediaViewerBody owns
-      // its own VideoPlayerController and treatment-state — without a
-      // unique key it doesn't pick up the new exercise via didUpdateWidget.
-      key: ValueKey('preview-tab-${_exercise.id}'),
-      exercises: [_exercise],
-      initialIndex: 0,
-      session: widget.session,
-      onExerciseUpdate: (updated) {
-        _emit(updated);
-      },
-      onSessionUpdate: widget.onSessionUpdate,
-      // Round 3 — embedded mode hides the X button (the sheet's drag-down
-      // + tap-outside dismiss) and shifts the vertical treatment pill up
-      // so it doesn't collide with the bottom-left Body Focus + Rotate
-      // pills on the shorter sheet canvas.
-      embeddedInSheet: true,
-    );
-  }
-
   /// Rest-exercise editor body. Single collapsible row (label "Rest
   /// period" + summary "${seconds}s") that expands a [PresetChipRow]
   /// of canonical durations. Mirrors the rest-bar in Studio so the
   /// affordance is familiar when the practitioner taps a rest from
-  /// the editor sheet.
-  Widget _buildRestTab(ScrollController scrollController) {
-    final restSecs = _exercise.restHoldSeconds ?? 30;
+  /// the editor sheet. Bottom-aligned per ADR-0019.
+  Widget _buildRestTab(
+    ExerciseCapture ex,
+    ScrollController? scrollController,
+  ) {
+    final restSecs = ex.restHoldSeconds ?? 30;
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-    return SingleChildScrollView(
-      controller: scrollController,
+    final isActive = ex.id == _exercise.id;
+    return _BottomAlignedTab(
+      scrollController: scrollController,
       padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -892,7 +1079,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
           _CollapsibleSettingsRow(
             label: 'Rest period',
             summary: _formatRestSummary(restSecs),
-            isExpanded: _activeSettingsKey == 'rest',
+            isExpanded: isActive && _activeSettingsKey == 'rest',
             onTap: () => setState(() {
               _activeSettingsKey =
                   _activeSettingsKey == 'rest' ? null : 'rest';
@@ -906,7 +1093,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
               undoLabel: 'rest',
               scrollable: false,
               onChanged: (v) {
-                _emit(_exercise.copyWith(restHoldSeconds: v.round()));
+                _emit(ex.copyWith(restHoldSeconds: v.round()));
                 setState(() => _activeSettingsKey = null);
               },
             ),
@@ -927,12 +1114,16 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
 
-  Widget _buildSettingsTab(ScrollController scrollController) {
-    final prepSeconds = _exercise.prepSeconds ?? 5;
-    final videoReps = _exercise.videoRepsPerLoop ?? 3;
+  Widget _buildSettingsTab(
+    ExerciseCapture ex,
+    ScrollController? scrollController,
+  ) {
+    final prepSeconds = ex.prepSeconds ?? 5;
+    final videoReps = ex.videoRepsPerLoop ?? 3;
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-    return SingleChildScrollView(
-      controller: scrollController,
+    final isActive = ex.id == _exercise.id;
+    return _BottomAlignedTab(
+      scrollController: scrollController,
       padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -941,7 +1132,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
           _CollapsibleSettingsRow(
             label: 'Prep seconds',
             summary: '${prepSeconds}s',
-            isExpanded: _activeSettingsKey == 'prep',
+            isExpanded: isActive && _activeSettingsKey == 'prep',
             onTap: () => setState(() {
               _activeSettingsKey =
                   _activeSettingsKey == 'prep' ? null : 'prep';
@@ -955,17 +1146,18 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
               undoLabel: 'prep',
               scrollable: false,
               onChanged: (v) {
-                _emit(_exercise.copyWith(prepSeconds: v.round()));
+                _emit(ex.copyWith(prepSeconds: v.round()));
                 setState(() => _activeSettingsKey = null);
               },
             ),
           ),
-          if (_exercise.mediaType == MediaType.video) ...[
+          if (ex.mediaType == MediaType.video) ...[
             const SizedBox(height: 8),
             _CollapsibleSettingsRow(
               label: 'Reps in Video',
               summary: '$videoReps',
-              isExpanded: _activeSettingsKey == 'videoRepsPerLoop',
+              isExpanded:
+                  isActive && _activeSettingsKey == 'videoRepsPerLoop',
               onTap: () => setState(() {
                 _activeSettingsKey =
                     _activeSettingsKey == 'videoRepsPerLoop'
@@ -981,7 +1173,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                 undoLabel: 'reps per loop',
                 scrollable: false,
                 onChanged: (v) {
-                  _emit(_exercise.copyWith(videoRepsPerLoop: v.round()));
+                  _emit(ex.copyWith(videoRepsPerLoop: v.round()));
                   setState(() => _activeSettingsKey = null);
                 },
               ),
@@ -993,66 +1185,19 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 }
 
-/// Chevron pair overlaid on the editor-sheet header's MiniPreview.
-/// Painted at the vertical midline, hugging the left/right edges (4pt
-/// inset). Both chevrons are 32×32 hit areas with a 26pt coral glyph and
-/// a soft drop shadow so they remain legible against any frame of the
-/// underlying line-drawing video.
+/// Edge-aligned chevron for the bottom rail — 48×48 tap target, 30pt
+/// coral glyph for prominence at thumb reach. No drop shadow (the rail's
+/// surfaceRaised background gives the glyph a clean substrate, unlike the
+/// retired overlay which had to read against a moving video).
 ///
 /// Disabled state (at the first / last exercise) drops opacity and
 /// nulls the tap handler so it's an unambiguous no-op.
-class _ChevronNavOverlay extends StatelessWidget {
-  final bool canPrev;
-  final bool canNext;
-  final VoidCallback onPrev;
-  final VoidCallback onNext;
-
-  const _ChevronNavOverlay({
-    required this.canPrev,
-    required this.canNext,
-    required this.onPrev,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned(
-          left: 4,
-          top: 0,
-          bottom: 0,
-          child: Center(
-            child: _ChevronButton(
-              icon: Icons.chevron_left,
-              enabled: canPrev,
-              onTap: onPrev,
-            ),
-          ),
-        ),
-        Positioned(
-          right: 4,
-          top: 0,
-          bottom: 0,
-          child: Center(
-            child: _ChevronButton(
-              icon: Icons.chevron_right,
-              enabled: canNext,
-              onTap: onNext,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ChevronButton extends StatelessWidget {
+class _BottomRailChevron extends StatelessWidget {
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
 
-  const _ChevronButton({
+  const _BottomRailChevron({
     required this.icon,
     required this.enabled,
     required this.onTap,
@@ -1067,34 +1212,73 @@ class _ChevronButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         child: SizedBox(
-          width: 32,
-          height: 32,
-          // Drop shadow under the icon for legibility against the
-          // line-drawing video. Two stacked icons — black slightly
-          // offset, then the coral glyph on top — render the shadow
-          // without needing a Container/BoxShadow that would clip.
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 26,
-                color: Colors.black.withValues(alpha: 0.55),
-              ),
-              Positioned(
-                top: -1,
-                child: Icon(
-                  icon,
-                  size: 26,
-                  color: color,
-                ),
-              ),
-            ],
+          width: 48,
+          height: 48,
+          child: Center(
+            child: Icon(icon, size: 30, color: color),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Bottom-aligned tab body wrapper (ADR-0019 inversion extension —
+/// 2026-05-15). Wraps content in a `SingleChildScrollView` whose child
+/// is a [Column] with `MainAxisAlignment.end`, sized to at least the
+/// viewport height. Result: when the content is shorter than the
+/// available canvas, empty space sits at the top and the controls
+/// pin to the bottom — within thumb reach above the tab strip. When
+/// the content is taller, the scroll handles overflow as normal.
+///
+/// Demo tab does NOT use this — it owns the full upper canvas for the
+/// embedded video.
+class _BottomAlignedTab extends StatelessWidget {
+  /// `null` for off-screen cells — the inner `SingleChildScrollView`
+  /// then creates its own internal controller. Only the currently-
+  /// visible cell receives the sheet's own controller so the
+  /// scroll-to-resize trick works without `attach`-ing the same
+  /// controller to multiple scrollables.
+  final ScrollController? scrollController;
+  final EdgeInsets padding;
+  final Widget child;
+  final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
+
+  const _BottomAlignedTab({
+    required this.scrollController,
+    required this.padding,
+    required this.child,
+    this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        // Available content height = viewport minus our own padding,
+        // clamped to non-negative. ConstrainedBox(minHeight:) forces
+        // the Column to occupy at least that height so
+        // MainAxisAlignment.end can push the child to the bottom.
+        final minHeight =
+            (constraints.maxHeight - padding.top - padding.bottom)
+                .clamp(0.0, double.infinity);
+        return SingleChildScrollView(
+          controller: scrollController,
+          keyboardDismissBehavior: keyboardDismissBehavior,
+          padding: padding,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisSize: MainAxisSize.max,
+              children: [child],
+            ),
+          ),
+        );
+      },
     );
   }
 }

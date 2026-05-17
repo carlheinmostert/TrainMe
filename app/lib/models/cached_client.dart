@@ -68,6 +68,16 @@ class CachedClient {
   /// confirmation sheet before the publish proceeds.
   final int? consentConfirmedAt;
 
+  /// 2026-05-13 — epoch-ms of the first-ever `set_client_video_consent`
+  /// call for this client. NULL means the practitioner has never
+  /// explicitly toggled consent for this client; the
+  /// `ClientSessionsScreen` auto-opens the consent sheet on entry when
+  /// this column is NULL. Stamped server-side by the RPC AND locally by
+  /// `SyncService.queueSetConsent` so the auto-open suppresses the
+  /// instant the practitioner saves, without waiting for a sync round-
+  /// trip. See migration `20260513065845_consent_explicitly_set_at.sql`.
+  final int? consentExplicitlySetAt;
+
   /// Epoch-ms of the last successful cloud pull that confirmed this
   /// row. Null for offline-created rows that haven't synced yet.
   final int? syncedAt;
@@ -92,6 +102,7 @@ class CachedClient {
     this.avatarPath,
     this.clientExerciseDefaults = const <String, dynamic>{},
     this.consentConfirmedAt,
+    this.consentExplicitlySetAt,
     this.syncedAt,
     this.dirty = false,
     this.deleted = false,
@@ -118,6 +129,13 @@ class CachedClient {
     } else if (confirmed is int) {
       confirmedMs = confirmed;
     }
+    final explicit = json['consent_explicitly_set_at'];
+    int? explicitMs;
+    if (explicit is String) {
+      explicitMs = DateTime.tryParse(explicit)?.millisecondsSinceEpoch;
+    } else if (explicit is int) {
+      explicitMs = explicit;
+    }
     final pathRaw = json['avatar_path'];
     return CachedClient(
       id: json['id'] as String,
@@ -131,6 +149,7 @@ class CachedClient {
           pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaultsMap,
       consentConfirmedAt: confirmedMs,
+      consentExplicitlySetAt: explicitMs,
       syncedAt: nowMs,
       dirty: false,
       deleted: false,
@@ -185,6 +204,7 @@ class CachedClient {
           pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaults,
       consentConfirmedAt: row['consent_confirmed_at'] as int?,
+      consentExplicitlySetAt: row['consent_explicitly_set_at'] as int?,
       syncedAt: row['synced_at'] as int?,
       dirty: (row['dirty'] as int? ?? 0) == 1,
       deleted: (row['deleted'] as int? ?? 0) == 1,
@@ -207,6 +227,7 @@ class CachedClient {
       'avatar_path': avatarPath,
       'client_exercise_defaults': jsonEncode(clientExerciseDefaults),
       'consent_confirmed_at': consentConfirmedAt,
+      'consent_explicitly_set_at': consentExplicitlySetAt,
       'synced_at': syncedAt,
       'dirty': dirty ? 1 : 0,
       'deleted': deleted ? 1 : 0,
@@ -224,6 +245,7 @@ class CachedClient {
       avatarAllowed: avatarAllowed,
       analyticsAllowed: analyticsAllowed,
       avatarPath: avatarPath,
+      consentExplicitlySetAt: consentExplicitlySetAt,
     );
   }
 
@@ -239,6 +261,7 @@ class CachedClient {
     bool clearAvatarPath = false,
     Map<String, dynamic>? clientExerciseDefaults,
     int? consentConfirmedAt,
+    int? consentExplicitlySetAt,
     int? syncedAt,
     bool? dirty,
     bool? deleted,
@@ -255,6 +278,8 @@ class CachedClient {
       clientExerciseDefaults:
           clientExerciseDefaults ?? this.clientExerciseDefaults,
       consentConfirmedAt: consentConfirmedAt ?? this.consentConfirmedAt,
+      consentExplicitlySetAt:
+          consentExplicitlySetAt ?? this.consentExplicitlySetAt,
       syncedAt: syncedAt ?? this.syncedAt,
       dirty: dirty ?? this.dirty,
       deleted: deleted ?? this.deleted,

@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 39;
+  static const _dbVersion = 42;
 
   Database? _db;
 
@@ -132,6 +132,7 @@ class LocalStorageService {
         body_focus INTEGER,
         focus_frame_offset_ms INTEGER,
         hero_crop_offset REAL,
+        thumbnails_dirty INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -212,6 +213,7 @@ class LocalStorageService {
         avatar_path TEXT,
         client_exercise_defaults TEXT NOT NULL DEFAULT '{}',
         consent_confirmed_at INTEGER,
+        consent_explicitly_set_at INTEGER,
         synced_at INTEGER,
         dirty INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
@@ -1108,6 +1110,98 @@ class LocalStorageService {
       );
     }
     if (oldVersion < 39) {
+      // 2026-05-13 — consent_explicitly_set_at.
+      //
+      // NULL = practitioner has never explicitly set this client's
+      // consent. The ClientSessionsScreen auto-opens the consent sheet
+      // on first entry when this column is NULL. Stamped by
+      // `set_client_video_consent` (server) and locally on
+      // `SyncService.queueSetConsent`. Existing rows stay NULL on
+      // purpose so legacy clients also trigger the auto-open until
+      // their consent is confirmed (Carl-signoff 2026-05-13).
+      //
+      // Supabase mirror: 20260513065845_consent_explicitly_set_at.sql.
+      await _addColumnIfMissing(
+        db,
+        'cached_clients',
+        'consent_explicitly_set_at',
+        'INTEGER',
+      );
+    }
+    if (oldVersion < 40) {
+      // 2026-05-16 — thumbnails_dirty (regenerated-thumb cloud staleness fix).
+      //
+      // ConversionService.regenerateHeroThumbnails rewrites the three
+      // per-treatment thumbs locally (`_thumb.jpg`, `_thumb_color.jpg`,
+      // `_thumb_line.jpg`) when the practitioner moves the Hero star or
+      // drags the hero crop viewport. But the publish fast-path keys on
+      // `raw_archive_uploaded_at` being non-null and skips ALL uploads —
+      // including thumbs — when the raw archive was uploaded in a prior
+      // publish. Cloud stayed on the stale autoPick=true motion-peak
+      // thumb regardless of subsequent hero offset changes.
+      //
+      // This column is a local-only Dart-side hint, NOT mirrored to
+      // Supabase. Set true on regenerate; honoured by the publish flow
+      // to force the thumb-upload blocks; cleared after successful
+      // per-exercise upload. INTEGER 0/1, default 0 so existing rows
+      // round-trip unchanged.
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'thumbnails_dirty',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 41) {
+      // 2026-05-16 — photo `_thumb_bw.jpg` baked-bytes pipeline.
+      //
+      // Photo B&W treatment historically rendered colour bytes + a CSS
+      // `filter: grayscale(1) contrast(1.05)` at render time. That
+      // worked on the live lobby but broke the PDF export + embedded
+      // preview (CSS filters get dropped during html2canvas snapshot
+      // and the WKWebView scheme bridge doesn't reach the canvas
+      // resolver). The fix bakes a sibling `_thumb_bw.jpg` at photo
+      // capture time so every render path consumes bytes-baked
+      // greyscale-with-contrast.
+      //
+      // Schema-side this migration adds NO new column — the BW file
+      // path is computed by suffix-replacement off `thumbnail_path`
+      // (`_thumb.jpg` → `_thumb_bw.jpg`), matching the existing
+      // convention for `_thumb_color.jpg` / `_thumb_line.jpg`. The
+      // v41 bump exists to:
+      //
+      //   1. Stamp `thumbnails_dirty = 1` on every PHOTO exercise so
+      //      the next publish re-uploads its variant set, including
+      //      the freshly-baked `_thumb_bw.jpg` once
+      //      `ConversionService.backfillMissingVariants` has run on
+      //      app launch. Pre-existing legacy photos thus pick up the
+      //      cloud-side BW thumb automatically.
+      //   2. Surface a recognisable upgrade point so the next time
+      //      we touch the photo thumb pipeline we don't have to
+      //      re-derive what bumped the version.
+      //
+      // Videos are unaffected: their canonical `_thumb.jpg` already
+      // IS baked greyscale bytes (segmented-body-focus pipeline), so
+      // the lobby's `thumbnail_url` fallback chain already serves the
+      // right bytes for video B&W. Filtering by media_type below
+      // keeps the stamp scoped to the rows that actually need it.
+      //
+      // `media_type` is stored as an INTEGER (enum index from
+      // [MediaType]); photo == 0 (see MediaType enum order:
+      // photo=0, video=1, rest=2).
+      await db.execute(
+        '''
+        UPDATE exercises
+           SET thumbnails_dirty = 1
+         WHERE media_type = 0
+        ''',
+      );
+    }
+    if (oldVersion < 42) {
+      // 2026-05-16 (PR #363, originally landed direct-to-main as v39;
+      // renumbered to v42 in the staging→main promotion to avoid a
+      // version collision with the staging-side v39 migration above).
+      //
       // Persist practice_id on the local sessions table so multi-practice
       // users always have the correct tenant context without falling back
       // to AuthService.currentPracticeId.

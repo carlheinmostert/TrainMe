@@ -99,7 +99,7 @@ void main() {
 
         // Sanity: user_version landed at the current schema version.
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 39);
+        expect(version.first['user_version'], 42);
 
         await svc.close();
       },
@@ -116,7 +116,7 @@ void main() {
           factory: databaseFactoryFfi,
         );
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 39);
+        expect(version.first['user_version'], 42);
 
         // Spot-check a few of the columns the v3+ migration branches
         // touch — they must all be present after _createTables.

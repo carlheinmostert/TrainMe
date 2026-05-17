@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-14 — Hero resolver: derives treatment internally + no silent fallbacks</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .scope-tag {
+    display: inline-block; margin-left: 8px;
+    padding: 1px 7px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: 2px;
+    background: rgba(134,239,172,0.12); color: var(--sage);
+    border: 1px solid rgba(134,239,172,0.30);
+  }
+  .checklist li .scope-tag.cr {
+    background: rgba(96,165,250,0.12); color: #60A5FA;
+    border-color: rgba(96,165,250,0.30);
+  }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-14 · Hero resolver refactor (audit follow-up)</div>
+    <h1>Device QA — Hero resolver: derives treatment internally + no silent fallbacks</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the resolver-API refactor that Carl ratified today. The hero pic on every surface (Studio card, filmstrip cell, lobby row, prep overlay, deck poster, snapshot) must reflect the per-exercise <code>preferred_treatment</code>. When a treatment's variant isn't available, the caller renders an explicit <strong>"&lt;TREATMENT&gt; not available"</strong> coral placeholder &mdash; <strong>no</strong> silent fallback to a B&amp;W or line-art image of a different treatment.
+      <br><br>
+      <strong>Before (broken):</strong> every caller passed <code>(treatment, bodyFocus)</code> into <code>resolveExerciseHero</code>. Some callers (notably the prep overlay and one filmstrip path) hard-coded <code>grayscale</code>, producing the audit's B6/D13/F17/F21 symptoms &mdash; B&amp;W hero on a Line-treatment exercise, etc.
+      <br><br>
+      <strong>After (this PR):</strong> resolver signature simplifies to <code>resolveExerciseHero({exercise, surface})</code> (Flutter) and <code>HomefitHero.resolve(exercise, {surface})</code> (web). The resolver maps <code>exercise.preferred_treatment</code> via <code>treatmentFromWire</code> and reads <code>exercise.body_focus</code> internally. When the required variant isn't on disk / not available, return <code>null</code> (Flutter) or a skeleton tag (web), and callers render <code>.hero-not-available</code> instead of substituting.
+      <br><br>
+      <strong>In scope:</strong> Studio card hero, filmstrip cells, lobby rows, prep overlay, deck poster, embedded preview &mdash; both mobile (Flutter) and web (player + embedded WKWebView). Drift sync between <code>web-player/*</code> and <code>app/assets/web-player/*</code>.
+      <br><br>
+      <strong>Out of scope:</strong> Studio card 1:1 image-left layout, media-type icon top-right (stacked in a follow-up small PR). Treatment-switching control on the player (unchanged). MediaViewer playback semantics (unchanged).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Build from <code>refactor/hero-resolver-no-fallback</code> branch installed on Carl's iPhone via <code>./install-device.sh</code>.</li>
+        <li>One client with a session that has both <strong>video</strong> exercises (across all three treatments) and <strong>photo</strong> exercises &mdash; mixed coverage so the per-row treatment can be visually distinguished.</li>
+        <li>Two video exercises whose <code>preferred_treatment</code> can be flipped between Line, B&amp;W, and Color (right-swipe to set) without re-capture.</li>
+      </ul>
+    </div>
+
+    <h2>1 · Studio card hero treatment</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open a session in Studio. For one captured video exercise, swipe between treatments and confirm the card hero updates to the matching variant on disk. Repeat for a captured photo. Captured = converted (line + raw archive uploaded).
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&cross;</button></div>
+        <span class="num">1.</span>
+        <span class="text">Capture a video exercise &rarr; set <code>preferred_treatment = Line</code> (right-swipe). Studio card hero shows the line-art frame (the converted <code>_thumb_line.jpg</code> equivalent / line-drawing rendition). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&cross;</button></div>
+        <span class="num">2.</span>
+        <span class="text">Swipe the same exercise to <code>preferred_treatment = B&amp;W</code>. Studio card hero updates to the B&amp;W frame (raw-archive frame, grayscale rendition). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&cross;</button></div>
+        <span class="num">3.</span>
+        <span class="text">Swipe again to <code>preferred_treatment = Original</code> (Color). Studio card hero updates to the color raw frame. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&cross;</button></div>
+        <span class="num">4.</span>
+        <span class="text">Capture a photo exercise &rarr; repeat all three treatments. Each treatment renders the matching variant: Line &rarr; converted line drawing JPG; B&amp;W &rarr; raw color JPG rendered with the grayscale filter; Color &rarr; raw color JPG. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Filmstrip reflects per-exercise treatment</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Session card filmstrip cells (the horizontal frame band that backs the row). Each cell must show <em>its own</em> treatment, not the session's default or a single global treatment.
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&cross;</button></div>
+        <span class="num">5.</span>
+        <span class="text">Open a session whose video exercises have a <em>mix</em> of treatments (e.g. ex1 Line, ex2 B&amp;W, ex3 Color, ex4 Line). Filmstrip on the session card shows each cell rendering its own treatment. <strong>Not all cells forced B&amp;W.</strong> <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&cross;</button></div>
+        <span class="num">6.</span>
+        <span class="text">Open a session with 3 photo exercises across different treatments. All 3 photo cells show their respective treatments (per-row, not forced uniform). <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Lobby + prep + deck (embedded preview)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      In the trainer app, open a session in Studio &rarr; tap <strong>Preview</strong> in the workflow pill to launch the embedded WKWebView preview (the same bundle the public web player ships).
+    </p>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&cross;</button></div>
+        <span class="num">7.</span>
+        <span class="text">Workflow Preview &rarr; lobby. Each row's hero matches <em>that exercise's</em> <code>preferred_treatment</code>. There is no &ldquo;global default treatment&rdquo; that leaks across rows. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&cross;</button></div>
+        <span class="num">8.</span>
+        <span class="text">Tap Start Workout &rarr; prep countdown for a <strong>Line</strong>-treatment video. The hero shown behind the countdown is the line drawing (NOT a B&amp;W substitute). The audit's <code>B6</code> + <code>D13</code> symptom is fixed. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&cross;</button></div>
+        <span class="num">9.</span>
+        <span class="text">Continue to a <strong>Color</strong>-treatment video. The prep hero is the color frame (NOT B&amp;W). After prep ends, the deck poster also matches Color until the video begins playback. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · No-fallback placeholders</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      When the required variant is missing, surfaces render the coral <code>.hero-not-available</code> block ("&lt;TREATMENT&gt; not available") rather than substituting another treatment's image. The placeholder is intentional &mdash; it tells the practitioner the gap exists.
+    </p>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&cross;</button></div>
+        <span class="num">10.</span>
+        <span class="text">On the simulator (so you can poke files): delete the raw / color archive file for one exercise (the file the Color treatment would render), then set that exercise's <code>preferred_treatment = Original</code>. Reopen the session. Studio card + lobby row both show the coral <strong>"ORIGINAL not available"</strong> placeholder &mdash; NOT a silently-substituted B&amp;W or line image. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&cross;</button></div>
+        <span class="num">11.</span>
+        <span class="text">Re-capture (or re-convert) so the missing variant exists again. The placeholder swaps to the real hero on the next render. No app restart required. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Regression checks</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The big refactor touched the web bundle on both sides. Drift CI must stay green and the capture &rarr; publish path must still end-to-end.
+    </p>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&cross;</button></div>
+        <span class="num">12.</span>
+        <span class="text">From <code>app/</code>: <code>dart run tool/sync_web_player_bundle.dart --check</code> exits 0 with "bundle in sync" output. (CR-OK &mdash; no device install needed.) <span class="scope-tag cr">CR-OK</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&check;</button><button class="fail" type="button" aria-label="Fail 13">&cross;</button></div>
+        <span class="num">13.</span>
+        <span class="text">Capture &rarr; convert &rarr; preview &rarr; publish &rarr; open the shared URL in Mobile Safari. Full e2e still works. Treatment switcher on the player (Line / B&amp;W / Original) still respects consent flags. <span class="scope-tag">device</span></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Refactor narrative: every caller (lobby, prep, deck, snapshot, Studio card, filmstrip, MediaViewer, peek) previously computed treatment + bodyFocus and handed them to <code>resolveExerciseHero</code>. Drift accumulated &mdash; the prep overlay and one filmstrip path hard-coded grayscale, masking the audit's B6 / D13 / F17 / F21 symptoms behind a uniform B&amp;W coat of paint. The resolver now derives both from the exercise itself (<code>preferred_treatment</code> + <code>body_focus</code>). Callers only specify <code>surface</code>. Fallback chains across treatments are gone &mdash; missing variant = explicit <code>.hero-not-available</code> placeholder. The audit document at <code>docs/audits/photo-video-treatment-audit-2026-05-13.md</code> tracks the full diagnostic chain.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'hero-resolver-no-fallback.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'hero-resolver-no-fallback', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

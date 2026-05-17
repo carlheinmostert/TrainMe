@@ -9,6 +9,11 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+# Agent QA credentials (staging-only test account; see docs/AGENT_QA_AUTH.md).
+# Never commit — generated locally by the keep-auth setup. Covered by the
+# upstream `.env.*.local` pattern too, but called out explicitly so the
+# intent is obvious.
+.env.test
 
 # IDE
 .vscode/
@@ -54,6 +59,11 @@ app/ios/.symlinks/
 app/android/.gradle/
 app/android/local.properties
 *.iml
+
+# install-device.sh dart-define fingerprint sentinel — used to auto-clean
+# Flutter's kernel cache when GIT_SHA / ENV / SUPABASE_URL change between
+# builds (see install-device.sh header).
+app/.last_dart_define_fingerprint
 
 # Test-script runtime output — tester's per-click pass/fail journal,
 # written by docs/test-scripts/_server.py. Mid-QA state is not worth

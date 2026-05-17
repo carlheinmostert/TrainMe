@@ -10,6 +10,7 @@ import '../models/session.dart';
 import '../models/treatment.dart';
 import 'local_storage_service.dart';
 import 'path_resolver.dart';
+import 'thumb_paths.dart';
 
 /// True when an exercise's `convertedFilePath` is a still-image fallback
 /// (the converter dropped to a single frame because video conversion
@@ -147,7 +148,8 @@ class UnifiedPreviewSchemeBridge {
         kind != 'segmented' &&
         kind != 'hero' &&
         kind != 'hero_color' &&
-        kind != 'hero_line') {
+        kind != 'hero_line' &&
+        kind != 'hero_bw') {
       throw PlatformException(code: 'BAD_ARGS', message: 'unknown kind $kind');
     }
 
@@ -207,16 +209,27 @@ class UnifiedPreviewSchemeBridge {
         // swapped for `_thumb_color.jpg`. Native conversion
         // (conversion_service.dart line 253) writes both lockstep.
         if (exercise.thumbnailPath != null) {
-          relative = exercise.thumbnailPath!
-              .replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+          relative = thumbVariantPath(exercise.thumbnailPath!, 'color');
         }
         break;
       case 'hero_line':
         // Wave Three-Treatment-Thumbs — line drawing JPG from the
         // converted line video, used by Line treatment.
         if (exercise.thumbnailPath != null) {
-          relative = exercise.thumbnailPath!
-              .replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+          relative = thumbVariantPath(exercise.thumbnailPath!, 'line');
+        }
+        break;
+      case 'hero_bw':
+        // 2026-05-16 photo `_thumb_bw.jpg` baked-bytes — bytes-baked
+        // greyscale + contrast 1.05 sibling for photos. The web-player
+        // resolver prefers this over `thumbnail_url_color` + CSS
+        // filter so PDF export + html2canvas snapshot render the
+        // photo B&W treatment without depending on a CSS filter.
+        // Photos only; videos already carry baked greyscale bytes in
+        // `_thumb.jpg` via the segmented body-focus pipeline.
+        if (exercise.mediaType == MediaType.photo &&
+            exercise.thumbnailPath != null) {
+          relative = thumbVariantPath(exercise.thumbnailPath!, 'bw');
         }
         break;
     }
@@ -331,6 +344,24 @@ class UnifiedPreviewSchemeBridge {
           (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
               ? '/local/${e.id}/hero_color'
               : null,
+      // 2026-05-16 — bytes-baked B&W sibling for photos
+      // (`_thumb_bw.jpg`). Photos only; videos already have
+      // baked greyscale bytes in `_thumb.jpg` via the segmented
+      // body-focus pipeline, so the resolver's existing
+      // `thumbnail_url` fallback chain serves video B&W
+      // without a dedicated file. The native scheme bridge
+      // resolves this back to `_thumb_bw.jpg` on disk via the
+      // `hero_bw` kind; the embedded web player then uses the
+      // baked bytes instead of compositing CSS
+      // `filter: grayscale(1) contrast(1.05)` at render time —
+      // matching the public-surface contract from
+      // `get_plan_full` (which emits `thumbnail_url_bw` via an
+      // existence check against the `media` bucket).
+      'thumbnail_url_bw': (e.mediaType == MediaType.photo &&
+              e.thumbnailPath != null &&
+              e.thumbnailPath!.isNotEmpty)
+          ? '/local/${e.id}/hero_bw'
+          : null,
       'media_type': e.mediaType.name,
       'sets': setsJson,
       'notes': e.notes,
@@ -364,12 +395,27 @@ class UnifiedPreviewSchemeBridge {
       // bundle via the local scheme handler so parity is mandatory.
       'rest_seconds': e.restHoldSeconds,
       'preferred_treatment': e.preferredTreatment?.wireValue,
+      // Wave 42 — per-exercise body-focus default (PR #146 schema).
+      // Mirror the cloud `get_plan_full` shape so the embedded preview
+      // matches the live web player. Without this field the web
+      // player's `getEffective(exercise, 'bodyFocus')` falls back to
+      // `exercise.body_focus !== false`, which evaluates `true` for
+      // undefined → body-focus ON. Combined with PR #309's capture
+      // default of `preferred_treatment='grayscale'`, every new
+      // capture would resolve to `grayscale_segmented_url` (the
+      // body-focus-blurred segmented mp4/JPG) — the regression Carl
+      // flagged as QA item 8 (embedded Preview heroes blurred).
+      'body_focus': e.bodyFocus,
       'line_drawing_url': lineUrl,
-      'grayscale_url':
-          (consent.grayscale && archiveUrl != null) ? archiveUrl : null,
-      'original_url':
-          (consent.original && archiveUrl != null) ? archiveUrl : null,
-      // Practitioner is the viewer — file-presence gating only.
+      // 2026-05-14 hotfix: practitioner is the viewer on the embedded
+      // preview — consent gates the CLIENT surface (cloud `get_plan_full`
+      // RPC enforces consent there). Locally, file-presence is the only
+      // gate. Without this bypass, the no-fallback resolver (PR #324)
+      // treats every Wave-309-default-B&W exercise as "treatment locked
+      // to line" because consent defaults to lineOnly, and the lobby
+      // renders the `.hero-not-available` placeholder for every row.
+      'grayscale_url': archiveUrl,
+      'original_url': archiveUrl,
       'grayscale_segmented_url': segmentedUrl,
       'original_segmented_url': segmentedUrl,
     };

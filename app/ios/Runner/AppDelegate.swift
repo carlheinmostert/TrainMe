@@ -128,18 +128,29 @@ import AVFoundation
           // the two-zone blend is skipped and the whole frame is
           // recoloured to luminance — practitioner-facing surfaces use
           // this path so the client reads clearly at small sizes.
+          //
+          // Wave Lobby auto-pick — when segmentation runs we also pull
+          // out the mask's free-axis centroid as a normalised 0..1
+          // offset (vertical for portrait, horizontal for landscape).
+          // Returned alongside the picked time so Dart can stamp
+          // `exercises.hero_crop_offset` and the lobby + every
+          // thumbnail surface frames the practitioner by default
+          // instead of whatever happens to be middle-of-frame (a TV
+          // in Carl's QA case).
           var finalImage: CGImage = cgImage
+          var autoHeroCropOffset: Double? = nil
           // Only apply segmentation (body-focus + crop) when autoPick is
           // true. When false, the caller wants a plain unprocessed frame
           // (e.g. the "original" treatment thumbnail).
           if autoPick || grayscale {
             if #available(iOS 15.0, *) {
-              if let masked = VideoConverterChannel.applySegmentationToThumbnail(
+              if let result = VideoConverterChannel.applySegmentationToThumbnailWithCentroid(
                 cgImage: cgImage,
                 cropToPerson: autoPick,
                 grayscale: grayscale
               ) {
-                finalImage = masked
+                finalImage = result.image
+                autoHeroCropOffset = result.centroidOffset
               } else if grayscale {
                 if let gray = VideoConverterChannel.grayscaleCGImage(cgImage) {
                   finalImage = gray
@@ -170,10 +181,28 @@ import AVFoundation
               // timeMs (motion-peak sample on autoPick:true; the caller's
               // verbatim timeMs on autoPick:false). Dart callers cast to
               // `Map` and read `result['path']` + `result['timeMs']`.
-              result([
+              //
+              // Wave Lobby — also return `autoHeroCropOffset` when
+              // segmentation succeeded: the normalised free-axis
+              // centroid of the person mask, suitable for
+              // `exercises.hero_crop_offset`. Nil when segmentation
+              // bailed, the source is square, or no person was
+              // detected — Dart callers leave the existing
+              // hero_crop_offset value alone in those cases (no
+              // destructive override). Always nil on the
+              // grayscale-only / non-segmentation paths above so the
+              // contract stays: "centroid only when we actually ran
+              // segmentation". Field is omitted (rather than null) on
+              // failure because Flutter's Map<dynamic, dynamic>
+              // bridging treats absent and null the same way to Dart.
+              var resultMap: [String: Any] = [
                 "path": outputPath,
                 "timeMs": pickedTimeMs,
-              ])
+              ]
+              if let offset = autoHeroCropOffset {
+                resultMap["autoHeroCropOffset"] = offset
+              }
+              result(resultMap)
             }
           } catch {
             DispatchQueue.main.async {

@@ -20,6 +20,7 @@ import {
 import { AuditCsvButton } from '@/components/AuditCsvButton';
 import { ClientTime } from '@/components/ClientTime';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { webPlayerBaseUrl } from '@/lib/env';
 
 /**
  * `/audit` — Wave 9 unified practice event log.
@@ -807,8 +808,10 @@ function buildLink(row: AuditRow): AuditLink | null {
       // The plan URL lives on plans.plan_url, which the RPC doesn't surface.
       // Use refId (plan uuid) as the link; the player page treats any
       // non-matching uuid as "plan not found" gracefully.
+      // A8 (HARDCODED-AUDIT-2026-05-12) — env-aware web-player origin so
+      // staging audit rows link to staging player, not prod.
       return {
-        href: `https://session.homefit.studio/p/${row.refId}`,
+        href: `${webPlayerBaseUrl()}/p/${row.refId}`,
         label: 'Player',
         external: true,
       };

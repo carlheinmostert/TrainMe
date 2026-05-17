@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-15 — gear popover CSS-override fix (landscape iOS)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-15 · web-player lobby gear popover CSS-override fix</div>
+    <h1>Device QA — gear popover stays above gear in landscape on iOS</h1>
+    <p class="lede">
+      <strong>Why:</strong> PR #338 added <code>repositionLobbySettingsPopover()</code> JS that correctly computes a viewport-aware "open above the gear" position via <code>position: fixed</code> + <code>top = gearRect.top &minus; gap &minus; popH</code>. BUT a stale <code>.lobby-settings-popover { position: absolute; bottom: calc(100% + 8px); right: 16px; }</code> rule in <code>styles.css</code> won the cascade, anchoring the popover to the fixed CTA bar's containing block instead of the viewport. In landscape on iOS this pushed the popover BELOW the gear and off the bottom of the screen.
+      <br><br>
+      <strong>Fix:</strong> drop the conflicting <code>position: absolute</code> / <code>bottom</code> / <code>right</code> declarations from the base <code>.lobby-settings-popover</code> rule; switch to <code>position: fixed</code> so there's no FOUC; JS-set <code>top</code> + <code>left</code> are now the only positional rules in play.
+      <br><br>
+      <strong>Bumps:</strong> none &mdash; CSS-only change, no JS / bundle / cache slug movement.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This PR merged to staging + Vercel preview / <code>staging.session.homefit.studio</code> live with the fix.</li>
+        <li>Hard-refresh (kill + reopen Safari) on iPhone CHM so any cached <code>styles.css</code> is purged.</li>
+        <li>Test plan: any published plan whose lobby renders (Start workout + gear button visible in sticky CTA bar).</li>
+      </ul>
+    </div>
+
+    <h2>Portrait — baseline</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Open lobby in PORTRAIT, tap gear &rarr; popover appears ABOVE the gear button.</strong> Hold the iPhone vertically. Open a plan's lobby. Tap the gear button in the bottom CTA bar. <strong>Expected:</strong> the popover (titled <code>SHOW ME</code> with three pills) opens upward; its bottom edge sits ~8 px above the gear's top edge; the entire popover is fully visible on screen; tapping outside dismisses it cleanly.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Landscape — the actual bug</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Rotate to LANDSCAPE, tap gear &rarr; popover appears ABOVE the gear (not offscreen).</strong> Rotate the iPhone to landscape. With the lobby visible, tap the gear button (now in the bottom CTA bar in landscape). <strong>Expected:</strong> the popover renders ABOVE the gear, fully visible. It must NOT (a) appear below the gear, (b) fall off the bottom of the screen, or (c) overflow the right viewport edge. If any of those happen, the CSS-override is still winning &mdash; fail this item with a screenshot.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Rotation re-anchor</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Rotate back to PORTRAIT &rarr; popover re-anchors above the gear correctly.</strong> Starting from the landscape state in item 2, close the popover (tap outside) then rotate back to portrait. Tap the gear again. <strong>Expected:</strong> the popover opens above the gear with the same portrait layout as item 1 &mdash; no leftover landscape coordinates, no offset drift, fully on-screen. If the popover is already open during rotation, the <code>orientationchange</code> handler should re-position it without manual close + reopen.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I&apos;ll triage. <code>3 items</code> across 3 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'fix-gear-popover-css-override.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+          }
+          save();
+        });
+
+        if (noteInput) {
+          noteInput.addEventListener('input', function() {
+            var status = li.getAttribute('data-status') || '';
+            if (!status) return;
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

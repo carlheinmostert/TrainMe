@@ -115,11 +115,20 @@
     const _host = (typeof window !== 'undefined' && window.location)
       ? (window.location.hostname || '')
       : '';
-    const _isLoopback = _host === '127.0.0.1'
+    // Local-surface hosts — exempt from strict-fail so the Flutter-embedded
+    // WebView (`homefit-local://plan/...`, Wave 4 Phase 2) and the legacy
+    // Dart-shelf loopback path (Wave 4 Phase 1, retired but tolerated) can
+    // boot with the inert empty config served by the scheme handler.
+    // KEEP THIS LIST IN LOCKSTEP with `isLocalSurface()` below — if the two
+    // diverge, api.js will throw at module load before `isLocalSurface()`
+    // gets a chance to short-circuit, and the embedded preview will surface
+    // the catch-all "No internet connection" in app.js.
+    const _isLocalSurfaceHost = _host === '127.0.0.1'
       || _host === 'localhost'
       || _host === '0.0.0.0'
-      || _host.startsWith('127.');
-    if (!_isLoopback && (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey)) {
+      || _host.startsWith('127.')
+      || _host === 'plan';
+    if (!_isLocalSurfaceHost && (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey)) {
       throw new Error(
         'homefit.studio web player: window.HOMEFIT_CONFIG missing or '
         + 'incomplete. Verify /config.js was emitted by web-player/build.sh '
@@ -250,6 +259,21 @@
       grayscale_segmented_url: e.grayscale_segmented_url || null,
       original_segmented_url: e.original_segmented_url || null,
       mask_url: e.mask_url || null,
+      // Wave Three-Treatment-Thumbs (videos: 2026-05-05) + Bundle 2b
+      // (photos: 2026-05-13). The cloud `get_plan_full` RPC emits these
+      // for both media types when the variant file exists in storage
+      // (existence-checked against `storage.objects`). NULL means the
+      // file isn't available (legacy / pre-pipeline plans) and the web
+      // player's `pickTreatmentPoster` / `resolveExerciseHero`
+      // fallback chain handles it (degrades to the single legacy
+      // `thumbnail_url`).
+      //
+      // The embedded preview bridge (Flutter
+      // `unified_preview_scheme_bridge.dart`) emits these as opaque
+      // `homefit-local://` URLs already; the normaliser keeps the same
+      // key names so both surfaces converge.
+      thumbnail_url_line: e.thumbnail_url_line || null,
+      thumbnail_url_color: e.thumbnail_url_color || null,
       // Milestone X — per-exercise soft-trim window (Wave 20).
       // Both null = no trim, full clip plays. Both set = mobile + web
       // player clamp `<video>.currentTime` to [start, end] in ms and

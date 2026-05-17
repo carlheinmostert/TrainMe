@@ -115,6 +115,32 @@
 
       <!-- Hero list — vertical scroll. Built by app.js's buildLobbyList(). -->
       <ul class="lobby-list" id="lobby-list" role="list"></ul>
+
+      <!-- "Import to the app" teaser card. Appears below the hero
+           list, under Start Workout. Today this is a static
+           "Coming soon" card: it advertises the future feature but
+           collects nothing — no email, no submit. When the import
+           backend (plan_invitations + magic-link email) ships, the
+           card will get its tap target back; the position + framing
+           stay the same. See docs/CLIENT_WORKOUTS_AND_CLASSES.md.
+           The matrix-logo SVG is injected at init by lobby.js
+           via buildHomefitLogoSvg() in app.js. -->
+      <section
+        class="lobby-import-card"
+        id="lobby-import-card"
+        aria-labelledby="lobby-import-title"
+        hidden
+      >
+        <span class="lobby-import-glyph" aria-hidden="true" id="lobby-import-glyph"></span>
+        <div class="lobby-import-copy">
+          <div class="lobby-import-head">
+            <span class="lobby-import-title" id="lobby-import-title">Get the app &amp; import this session</span>
+            <span class="lobby-import-soon" aria-label="Coming soon">Coming soon</span>
+          </div>
+          <span class="lobby-import-sub">Soon you'll be able to import this session into the app to track your progress.</span>
+        </div>
+      </section>
+
       <!-- Export-only footer (Wave Free Lobby Export, 2026-05-05). Hidden
            during normal lobby viewing; shown only when html.is-exporting
            is set during the html2canvas snapshot pass. Branding + tagline. -->
@@ -127,28 +153,12 @@
       </div>
     </div>
 
-    <!-- Desktop export modal (Wave Free Lobby Export hardening, 2026-05-05).
-         Desktop browsers (macOS Safari + Chrome) reliably block both
-         `window.open` and programmatic `<a download>` clicks after an async
-         snapshot — user-activation is consumed, popup blockers fire,
-         downloads are silently dropped. Workaround: show the rendered PNG
-         in an in-page modal with a real Download anchor. The user's click
-         on the anchor is a fresh gesture that browsers consistently honour.
-         Mobile Safari uses navigator.share and never reaches this modal. -->
-    <div class="lobby-export-modal" id="lobby-export-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lobby-export-modal-title">
-      <div class="lobby-export-modal-backdrop" id="lobby-export-modal-backdrop"></div>
-      <div class="lobby-export-modal-card">
-        <div class="lobby-export-modal-header">
-          <h2 id="lobby-export-modal-title" class="lobby-export-modal-title">Your plan, ready to share</h2>
-          <button class="lobby-export-modal-close" id="lobby-export-modal-close" aria-label="Close">×</button>
-        </div>
-        <img class="lobby-export-modal-img" id="lobby-export-modal-img" alt="Plan preview">
-        <div class="lobby-export-modal-actions">
-          <a class="lobby-export-modal-download" id="lobby-export-modal-download" download="homefit-lobby.png">Download PNG</a>
-          <p class="lobby-export-modal-hint">Tip: right-click the image to save, or drag it into WhatsApp / Mail.</p>
-        </div>
-      </div>
-    </div>
+    <!-- Lightweight transient toast — kept around for future use even
+         though the import card no longer fires it (the form was
+         retired in favour of a static "Coming soon" card). Some other
+         lobby flows may want to surface a polite notice without a
+         full modal. -->
+    <div class="lobby-toast" id="lobby-toast" hidden role="status" aria-live="polite"></div>
 
     <!-- Sticky-bottom CTA bar. Backdrop-blur veil over the row beneath.
          Round-4: treatment selector moved behind a settings gear button.
@@ -187,20 +197,44 @@
       </div>
 
       <!-- Lobby settings popover — anchored to the viewport-bottom and
-           opens upward from the gear button. Only contains the treatment
-           selector for now; shaped to grow into a broader pre-workout
-           settings surface without needing new chrome. Distinct from the
-           deck's `#settings-popover` (post-Start, per-exercise overrides);
-           no shared state. -->
-      <div id="lobby-settings-popover" class="lobby-settings-popover"
+           opens upward from the gear button. Carries the SAME unified
+           control set as the deck's `#settings-popover` (treatment, body
+           focus, reset). Every control writes a plan-scoped client
+           override; toggling here is equivalent to toggling on the deck
+           gear, and the deck gear takes the same effect plan-wide on the
+           next render. The lobby-only treatment-pill row remains above
+           as a fast in-bar swap; both write to the same clientOverride
+           state. -->
+      <!-- 2026-05-15 (gear popover landscape fix): the shared `settings-popover`
+           class was DROPPED from this element. The deck popover's class
+           carries `position: absolute; top: 156px; right: 12px` (styles.css
+           line 939) and a landscape media query at line 2401 that re-asserts
+           `top: 134px; right: 8px`. Even with PR #343's positional rules
+           removed from `.lobby-settings-popover`, the cascade was still
+           re-applying the deck's coords whenever JS cleared inline styles
+           on close — putting the popover below the gear and offscreen in
+           landscape. Keeping `settings-popover--lobby` preserves the
+           min-width rule at styles.css line 3805 (now matched via that
+           variant class). Title also dropped `settings-popover-title`. -->
+      <div id="lobby-settings-popover" class="lobby-settings-popover settings-popover--lobby"
            role="dialog"
            aria-labelledby="lobby-settings-title"
            hidden>
-        <div class="lobby-settings-popover-title" id="lobby-settings-title">Show me</div>
-        <div class="lobby-treatment-row" id="lobby-treatment-row" role="radiogroup" aria-label="Treatment">
-          <button type="button" role="radio" aria-checked="false" data-value="line">Line</button>
-          <button type="button" role="radio" aria-checked="false" data-value="bw">B&amp;W</button>
-          <button type="button" role="radio" aria-checked="false" data-value="original">Colour</button>
+        <div class="lobby-settings-popover-title" id="lobby-settings-title">For this session</div>
+        <div class="settings-panel-rows">
+          <div class="settings-row-segmented" data-prop="treatment" role="radiogroup" aria-label="Treatment">
+            <span class="settings-row-label">Treatment</span>
+            <div class="treatment-pills">
+              <button data-value="line" type="button" role="radio" aria-checked="false">Line</button>
+              <button data-value="bw" type="button" role="radio" aria-checked="false">B&amp;W</button>
+              <button data-value="original" type="button" role="radio" aria-checked="false">Colour</button>
+            </div>
+          </div>
+          <button class="settings-row-btn" data-prop="bodyFocus" type="button" aria-pressed="true">
+            <span class="settings-row-label">Body focus</span>
+            <span class="settings-row-state" data-state-icon></span>
+          </button>
+          <button class="settings-row-reset is-empty" type="button" id="lobby-reset-overrides-btn" disabled>Reset to practitioner</button>
         </div>
       </div>
     </div>
@@ -358,7 +392,7 @@
            segmented control + body-focus switch).  Each control's
            visual cue includes a coral border/tint when overridden. -->
       <div id="settings-popover" class="settings-popover" role="dialog" aria-labelledby="settings-popover-title" hidden>
-        <div class="settings-popover-title" id="settings-popover-title">For this exercise</div>
+        <div class="settings-popover-title" id="settings-popover-title">For this session</div>
         <div class="settings-panel-rows">
           <button class="settings-row-btn" data-prop="muted" type="button" aria-pressed="false">
             <span class="settings-row-label">Mute</span>
@@ -376,7 +410,7 @@
             <span class="settings-row-label">Body focus</span>
             <span class="settings-row-state" data-state-icon></span>
           </button>
-          <button class="settings-row-reset is-empty" type="button" id="reset-overrides-btn" disabled>Reset to practitioner defaults</button>
+          <button class="settings-row-reset is-empty" type="button" id="reset-overrides-btn" disabled>Reset to practitioner</button>
         </div>
       </div>
 
@@ -504,6 +538,24 @@
        Supabase surface lives in api.js; app.js is forbidden from calling
        fetch('.../rest/v1/...') directly. See docs/DATA_ACCESS_LAYER.md. -->
   <script src="/api.js"></script>
+  <!-- Exercise hero resolver — MUST load before app.js + lobby.js. Single
+       stateless function deciding how each surface renders an exercise's
+       hero/poster (treatment + body-focus + photo-vs-video + fallbacks).
+       See docs/audits/photo-video-treatment-audit-2026-05-13.md. -->
+  <script src="/exercise_hero.js"></script>
+  <!-- Hero crop resolver — MUST load before lobby.js. Owns the
+       portrait/landscape source → 1:1 square data URL transformation.
+       Replaces CSS object-fit/object-position on lobby-hero-media so
+       the PDF export rasteriser (html2canvas) honours the practitioner's
+       chosen crop offset. Memoised per (exerciseId, treatment, offset,
+       targetSize) so treatment switches and re-renders hit cache. -->
+  <script src="/hero_resolver.js"></script>
+  <!-- jsPDF UMD bundle — vendored at /jspdf.umd.min.js so the lobby
+       export pipeline can generate multi-page PDFs same-origin under
+       `script-src 'self'`. Loads BEFORE lobby.js so the global
+       `window.jspdf.jsPDF` constructor is ready when triggerLobbyShare
+       fires. v2.5.2; 358KB minified (gzip ~85KB). -->
+  <script src="/jspdf.umd.min.js"></script>
   <script src="/app.js"></script>
   <script src="/lobby.js"></script>
 </body>

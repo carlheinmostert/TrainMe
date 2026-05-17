@@ -449,3 +449,27 @@ Restart Claude Code to load new MCP tools into an existing session.
 - Push media to simulator: `xcrun simctl addmedia <device-id> <file>`
 - Read simulator clipboard: `xcrun simctl pbpaste <device-id>` (use this to grab shared URLs)
 - Query Supabase directly: `curl -H "apikey: <key>" "https://yrwcofhovrcydootivjx.supabase.co/rest/v1/plans?..."`
+
+### Two install scripts — pick the right one
+
+- **`install-sim.sh`** — uninstalls the app first, lands on the Sign-In screen. Use for fresh-start QA and brand screenshots.
+- **`install-sim-keep-auth.sh`** — skips the uninstall, lands wherever the app was last (typically Clients / Studio). Use for agent-driven QA runs and rapid iteration when you don't want to retype credentials.
+
+Both scripts take the same optional ENV positional arg (`branch` | `staging` | `prod`, defaults to `branch`).
+
+### Agent QA test account (staging only)
+
+A dedicated test account exists on the **STAGING** Supabase project (`vadjvkmldtoeyspyoqbx`) for autonomous agent QA:
+
+- Email: `qa@homefit.studio`
+- Password: see `.env.test` at the repo root (gitignored, NEVER committed)
+- Practice: `QA Test Practice — agent QA only` (8 credits seeded: +3 signup_bonus, +5 adjustment)
+- User id / practice id are recorded in `.env.test` for direct API checks
+
+Rules:
+
+- **Staging only.** This account does not exist on prod and must not. The `QA_TEST_ENV=staging` line in `.env.test` is the contract — any tooling that reads it MUST refuse to run against prod.
+- **No real data.** No PII, no real plans worth keeping, no payment records. Top up via `docs/AGENT_QA_AUTH.md` if more credits are needed.
+- **Refresh-token caveat.** Supabase refresh tokens last ~30 days in Keychain. When the persistent session lapses, the next launch via `install-sim-keep-auth.sh` lands on the Sign-In screen — sign in once with the credentials from `.env.test` and the session is good for another ~30 days.
+
+Full runbook: `docs/AGENT_QA_AUTH.md`.
