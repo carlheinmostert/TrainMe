@@ -44,6 +44,19 @@ The fixed-corner build chip on the web surfaces is the canonical way to confirm 
 - **No modal confirmations** (R-01) — Destructive actions fire immediately with an undo SnackBar + 7-day soft-delete recycle bin. Never "Are you sure?".
 - **Practitioner, always** (R-06) — UI copy uses "practitioner". "Bio" / "physio" / "trainer" / "coach" are retired role nouns. Client-facing copy uses `{TrainerName}` with "your practitioner" as the fallback.
 
+## Safe Mode
+
+Geofenced bystander-blur capture for shared spaces (gyms, group sessions). Lands in two waves: Phase 1 + 2 in PR #389 (premises CRUD, capture-time geofence check, native compositing) and the completion wave (2026-05-21) which closes the upload-swap loop and audit stamping.
+
+- **What it is** — when a practitioner is inside an enforcing premises polygon at the moment of capture, the native iOS pipeline (`SafeModeProcessor` in `VideoConverterChannel.swift`) writes a 4th output (`{exerciseId}_safe.mp4` for videos, `{exerciseId}_safe.jpg` for photos) where every segmented person OTHER than the largest detected human bounding box is painted coral. The largest bbox is the client; everyone else is a bystander.
+- **Premises polygons** — `practice_premises` table (PR #389) holds practitioner-drawn GeoJSON polygons with an `enforced` boolean. The Flutter `SafeModeService` singleton polls the device's geolocation against `findPremisesAt` and flips `isActive=true` when inside an enforcing polygon. The capture screen shows a coral top banner while active.
+- **Upload swap** — `UploadService._uploadRawArchives` reads `exercise.safeRawFilePath` (set by ConversionService when the safe variant was produced). If `safeModeActive=true` AND `safeRawFilePath != null`, the safe variant uploads to the cloud `raw-archive/{practice}/{plan}/{exercise}.{mp4|jpg}` key in PLACE of the raw archive. The local archive on the device keeps the original un-blurred bytes — practitioners can still re-export raw footage locally.
+- **Audit stamping** — `replace_plan_exercises` RPC accepts two new per-row jsonb keys (`safe_mode_active`, `captured_in_premises_id`) and writes them to the cloud `exercises` table. Portal audit feed surfaces both. Signature unchanged — pre-wave callers omit the keys and get the column defaults (`false` / `NULL`).
+- **Fail-closed UX** — the Vision miss-rate (frames where no human was detected) is tracked in `SafeModeProcessor` and surfaced as `safeFramesMissedRate` to Dart. Above `kSafeModeMaxMissRate` (0.05 — 5%) the conversion service throws `SafeModeRejection`, deletes the exercise row, and emits on `ConversionService.onSafeModeRejection`. The capture screen subscribes and shows an inline coral-bordered toast at the top of the viewfinder for 4 seconds (no modal — R-01).
+- **Local crash-recovery** — `exercises.safe_raw_file_path TEXT` column on SQLite v44. Local-only, NOT mirrored to Supabase. Survives app kill mid-upload so the publish flow can resume the swap on next launch.
+- **Abuse channel** — `report_premises` flow (PR #389). No server-side check that the practitioner's account has access to `captured_in_premises_id` — trust + report.
+- **File references**: `app/ios/Runner/VideoConverterChannel.swift` (`SafeModeProcessor` class, `applySafeModeToPhoto`, `processPhotoSafeMode` channel method), `app/lib/services/safe_mode_service.dart`, `app/lib/services/conversion_service.dart` (`SafeModeRejection`, `kSafeModeMaxMissRate`), `app/lib/services/upload_service.dart` (`_uploadRawArchives` swap logic), `app/lib/screens/capture_mode_screen.dart` (rejection toast subscription + render).
+
 ## Mobile ↔ Web Player Parity (R-10)
 
 The trainer Flutter app and the client web player at `session.homefit.studio`
