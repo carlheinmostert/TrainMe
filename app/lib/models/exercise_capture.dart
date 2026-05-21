@@ -376,6 +376,57 @@ class ExerciseCapture {
   /// by definition up-to-date.
   final bool thumbnailsDirty;
 
+  /// Whether Safe Mode was active at capture time (Safe Mode
+  /// completion wave, 2026-05-21).
+  ///
+  /// Set true by the capture screen when the practitioner is inside an
+  /// enforcing premises polygon at the moment the shutter fires. The
+  /// native pipeline then writes a 4th `safe.mp4` (or `safe.jpg`)
+  /// output with coral silhouettes baked over bystanders. On publish,
+  /// `UploadService` swaps the safe variant into the
+  /// `raw-archive/{practice}/{plan}/{exercise}.{ext}` cloud key in
+  /// place of the raw file. The local archive on the practitioner's
+  /// device keeps the original un-blurred bytes.
+  ///
+  /// Persistence: local SQLite `exercises.safe_mode_active` (schema
+  /// v44, INTEGER 0/1) + Supabase `exercises.safe_mode_active`
+  /// (boolean NOT NULL DEFAULT false, added in PR #389). Written via
+  /// `replace_plan_exercises` on publish so the audit feed can show
+  /// it.
+  final bool safeModeActive;
+
+  /// The premises polygon (`practice_premises.id`) whose enforcement
+  /// triggered Safe Mode for this capture. NULL when Safe Mode was off.
+  ///
+  /// Persistence: local SQLite `exercises.captured_in_premises_id`
+  /// (schema v44, TEXT) + Supabase `exercises.captured_in_premises_id`
+  /// (uuid NULL, added in PR #389). Round-trips through
+  /// `replace_plan_exercises` on publish.
+  final String? capturedInPremisesId;
+
+  /// Relative path (via [PathResolver]) to the composited safe variant
+  /// of the raw capture — produced when Safe Mode was active during
+  /// the capture.
+  ///
+  /// Videos: `{exerciseId}_safe.mp4` written by the native
+  /// `SafeModeProcessor` pass during AVAssetWriter conversion.
+  /// Photos: `{exerciseId}_safe.jpg` written by the
+  /// `processPhotoSafeMode` native method.
+  ///
+  /// Used by `UploadService` to decide which local file to upload to
+  /// the private `raw-archive` bucket. When non-null and
+  /// `safeModeActive == true`, the safe variant takes the cloud key
+  /// instead of the raw file. When null, upload behaviour is
+  /// unchanged.
+  ///
+  /// NOT mirrored to Supabase — purely a local crash-recovery hint
+  /// so the publish flow can resume the upload swap after an app
+  /// kill mid-upload. SyncService leaves it alone.
+  ///
+  /// Persistence: local SQLite `exercises.safe_raw_file_path` (schema
+  /// v44, TEXT).
+  final String? safeRawFilePath;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -412,6 +463,9 @@ class ExerciseCapture {
     this.focusFrameOffsetMs,
     this.heroCropOffset,
     this.thumbnailsDirty = false,
+    this.safeModeActive = false,
+    this.capturedInPremisesId,
+    this.safeRawFilePath,
   });
 
   /// Create a new capture with a generated UUID.
@@ -527,6 +581,9 @@ class ExerciseCapture {
       focusFrameOffsetMs: map['focus_frame_offset_ms'] as int?,
       heroCropOffset: (map['hero_crop_offset'] as num?)?.toDouble(),
       thumbnailsDirty: (map['thumbnails_dirty'] as int? ?? 0) != 0,
+      safeModeActive: (map['safe_mode_active'] as int? ?? 0) != 0,
+      capturedInPremisesId: map['captured_in_premises_id'] as String?,
+      safeRawFilePath: map['safe_raw_file_path'] as String?,
     );
   }
 
@@ -565,6 +622,9 @@ class ExerciseCapture {
       'focus_frame_offset_ms': focusFrameOffsetMs,
       'hero_crop_offset': heroCropOffset,
       'thumbnails_dirty': thumbnailsDirty ? 1 : 0,
+      'safe_mode_active': safeModeActive ? 1 : 0,
+      'captured_in_premises_id': capturedInPremisesId,
+      'safe_raw_file_path': safeRawFilePath,
     };
   }
 
@@ -629,6 +689,11 @@ class ExerciseCapture {
     double? heroCropOffset,
     bool clearHeroCropOffset = false,
     bool? thumbnailsDirty,
+    bool? safeModeActive,
+    String? capturedInPremisesId,
+    bool clearCapturedInPremisesId = false,
+    String? safeRawFilePath,
+    bool clearSafeRawFilePath = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -696,8 +761,21 @@ class ExerciseCapture {
           ? null
           : (heroCropOffset ?? this.heroCropOffset),
       thumbnailsDirty: thumbnailsDirty ?? this.thumbnailsDirty,
+      safeModeActive: safeModeActive ?? this.safeModeActive,
+      capturedInPremisesId: clearCapturedInPremisesId
+          ? null
+          : (capturedInPremisesId ?? this.capturedInPremisesId),
+      safeRawFilePath: clearSafeRawFilePath
+          ? null
+          : (safeRawFilePath ?? this.safeRawFilePath),
     );
   }
+
+  /// Absolute path to the Safe Mode composited variant (mp4 for
+  /// videos, jpg for photos), or null when [safeRawFilePath] is unset.
+  String? get absoluteSafeRawFilePath => safeRawFilePath != null
+      ? PathResolver.resolve(safeRawFilePath!)
+      : null;
 
   /// Backfill the per-capture persistence defaults.
   ///

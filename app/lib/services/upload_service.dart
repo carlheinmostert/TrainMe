@@ -1657,6 +1657,14 @@ class UploadService {
                 // consumer reads this yet — landed for round-trip
                 // parity ahead of the editor + lobby PRs.
                 'hero_crop_offset': e.heroCropOffset,
+                // Safe Mode completion (2026-05-21). Round-trips both
+                // audit fields through `replace_plan_exercises` so the
+                // portal audit feed can show which captures were
+                // taken inside an enforcing premises polygon. false /
+                // null when Safe Mode was off — matches the cloud
+                // column defaults exactly.
+                'safe_mode_active': e.safeModeActive,
+                'captured_in_premises_id': e.capturedInPremisesId,
               })
           .toList();
 
@@ -2148,16 +2156,38 @@ class UploadService {
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
       if (exercise.rawArchiveUploadedAt != null) continue;
-      final relPath = exercise.archiveFilePath;
+
+      // Safe Mode upload swap (Safe Mode completion wave, 2026-05-21).
+      // When the capture was inside an enforcing premises polygon
+      // AND the converter wrote a composited safe variant, upload
+      // THAT file to the cloud `raw-archive` bucket in place of the
+      // raw archive. Cloud key stays the same
+      // (`{practice}/{plan}/{exercise}.mp4`) so player + downstream
+      // consumers don't need to learn a new path. The original
+      // un-blurred file stays in the device's local archive — only
+      // cloud is rewritten.
+      //
+      // Local archive is only pruned at the 90-day retention sweep;
+      // practitioners can still re-export raw locally if needed.
+      final useSafeVariant = exercise.safeModeActive &&
+          exercise.safeRawFilePath != null &&
+          exercise.safeRawFilePath!.isNotEmpty;
+
+      final relPath = useSafeVariant
+          ? exercise.safeRawFilePath
+          : exercise.archiveFilePath;
       if (relPath == null || relPath.isEmpty) continue;
-      final absPath = exercise.absoluteArchiveFilePath;
+      final absPath = useSafeVariant
+          ? exercise.absoluteSafeRawFilePath
+          : exercise.absoluteArchiveFilePath;
       if (absPath == null) continue;
 
       final file = File(absPath);
       if (!file.existsSync()) {
         debugPrint(
           'UploadService: raw-archive file missing for exercise ${exercise.id} '
-          'at $absPath — skipping (local archive may have been pruned).',
+          'at $absPath (variant=${useSafeVariant ? "safe" : "raw"}) — '
+          'skipping (local archive may have been pruned).',
         );
         continue;
       }
@@ -2380,14 +2410,29 @@ class UploadService {
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
       if (exercise.mediaType.name != 'photo') continue;
-      final rawRel = exercise.rawFilePath;
+
+      // Safe Mode upload swap (Safe Mode completion wave, 2026-05-21).
+      // Symmetric with the video loop above — when this photo was
+      // captured inside an enforcing premises AND the converter
+      // wrote a composited `_safe.jpg`, upload that instead of the
+      // raw colour JPG. Cloud key stays the same so
+      // `get_plan_full`'s signed-URL composition is unaffected.
+      final useSafeVariant = exercise.safeModeActive &&
+          exercise.safeRawFilePath != null &&
+          exercise.safeRawFilePath!.isNotEmpty;
+
+      final rawRel =
+          useSafeVariant ? exercise.safeRawFilePath! : exercise.rawFilePath;
       if (rawRel.isEmpty) continue;
-      final absRaw = exercise.absoluteRawFilePath;
+      final absRaw = useSafeVariant
+          ? (exercise.absoluteSafeRawFilePath ?? exercise.absoluteRawFilePath)
+          : exercise.absoluteRawFilePath;
       final rawFile = File(absRaw);
       if (!rawFile.existsSync()) {
         debugPrint(
           'UploadService: raw photo missing for exercise ${exercise.id} '
-          'at $absRaw — skipping (pre-migration / pruned).',
+          'at $absRaw (variant=${useSafeVariant ? "safe" : "raw"}) — '
+          'skipping (pre-migration / pruned).',
         );
         continue;
       }

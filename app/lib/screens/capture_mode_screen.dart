@@ -190,6 +190,17 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// reverses on stop / cancel.
   late final AnimationController _lockTargetController;
 
+  /// Safe Mode rejection-toast state (Safe Mode completion wave,
+  /// 2026-05-21). When a capture's Vision miss-rate exceeded
+  /// [kSafeModeMaxMissRate] the conversion service deletes the row
+  /// and emits on its rejection stream — this controller is the
+  /// subscription that drives [_showSafeRejectionToast]. Non-null
+  /// `_safeToastMessage` paints an inline coral-bordered banner at
+  /// the top of the viewfinder; auto-clears after 4 seconds.
+  StreamSubscription<SafeModeRejection>? _safeRejectionSub;
+  String? _safeToastMessage;
+  Timer? _safeToastClearTimer;
+
 
   @override
   void initState() {
@@ -209,6 +220,16 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 200),
     );
+    // Safe Mode rejection toast (Safe Mode completion wave). The
+    // conversion service emits AFTER deleting the exercise row, so we
+    // just need to surface the user-facing toast. Capture session
+    // can outlast a conversion (multiple captures queued); keep the
+    // subscription for the whole screen lifetime.
+    _safeRejectionSub = ConversionService.instance.onSafeModeRejection
+        .listen((_) {
+      if (!mounted) return;
+      _showSafeRejectionToast();
+    });
     _initCamera();
   }
 
@@ -230,10 +251,31 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
     _recordingTickTimer?.cancel();
     _recordingTickTimer = null;
+    _safeRejectionSub?.cancel();
+    _safeRejectionSub = null;
+    _safeToastClearTimer?.cancel();
+    _safeToastClearTimer = null;
     _cameraController?.dispose();
     _flyController.dispose();
     _lockTargetController.dispose();
     super.dispose();
+  }
+
+  /// Surface the Safe Mode rejection toast at the top of the
+  /// viewfinder. Coral-bordered inline banner — no modal (R-01,
+  /// `feedback_no_popups_ever`). Auto-clears after 4 seconds.
+  void _showSafeRejectionToast() {
+    _safeToastClearTimer?.cancel();
+    setState(() {
+      _safeToastMessage =
+          "Safe Mode couldn't track everyone — try a steadier shot or better lighting.";
+    });
+    _safeToastClearTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      setState(() {
+        _safeToastMessage = null;
+      });
+    });
   }
 
   @override
@@ -1066,6 +1108,24 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // back to B&W treatment + body-focus off (2026-05-12).
       exercise = StickyDefaults.applyGlobalCaptureDefaults(exercise);
 
+      // Safe Mode stamp (Safe Mode completion wave, 2026-05-21). When
+      // the session is inside an enforcing premises polygon at the
+      // moment of capture, persist that state on the exercise row so
+      // the publish flow can stamp the cloud audit fields + the
+      // upload swap knows which captures are eligible. SafeModeService
+      // is a singleton initialised at app start; bail silently in
+      // tests where it's never initialised.
+      try {
+        if (SafeModeService.instance.isActive) {
+          exercise = exercise.copyWith(
+            safeModeActive: true,
+            capturedInPremisesId: SafeModeService.instance.premisesId,
+          );
+        }
+      } catch (_) {
+        // Service not initialised — Safe Mode off.
+      }
+
       await widget.storage.saveExercise(exercise);
       ConversionService.instance.queueConversion(exercise);
       return exercise;
@@ -1241,6 +1301,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                       return _SafeModeBanner(premisesName: svc.premisesName);
                     },
                   ),
+                  // Safe Mode rejection toast (Safe Mode completion
+                  // wave, 2026-05-21). Inline coral-bordered banner
+                  // for the >5% Vision miss case — auto-dismisses
+                  // after 4s. No modal (R-01 / no-popups-ever).
+                  if (_safeToastMessage != null)
+                    _SafeModeRejectionToast(message: _safeToastMessage!),
                 ],
               ),
             ),
@@ -2117,6 +2183,63 @@ class _SafeModeBanner extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Inline coral-bordered rejection toast (Safe Mode completion wave,
+/// 2026-05-21). Shows after the conversion service rejects a capture
+/// whose Vision miss-rate exceeded [kSafeModeMaxMissRate]. Auto-
+/// dismisses after 4 seconds via [_CaptureModeScreenState._showSafeRejectionToast].
+///
+/// Visual: dark translucent fill, coral border (4px left edge +
+/// 1px elsewhere), white body text. No modal — matches R-01 +
+/// `feedback_no_popups_ever`.
+class _SafeModeRejectionToast extends StatelessWidget {
+  const _SafeModeRejectionToast({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xCC0F1117),
+          borderRadius: BorderRadius.circular(8),
+          border: const Border(
+            left: BorderSide(color: Color(0xFFFF6B35), width: 4),
+            top: BorderSide(color: Color(0xFFFF6B35), width: 1),
+            right: BorderSide(color: Color(0xFFFF6B35), width: 1),
+            bottom: BorderSide(color: Color(0xFFFF6B35), width: 1),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.shield_outlined,
+                size: 16,
+                color: Color(0xFFFF6B35),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
