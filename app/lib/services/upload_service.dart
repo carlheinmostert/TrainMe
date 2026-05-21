@@ -2155,7 +2155,6 @@ class UploadService {
 
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
-      if (exercise.rawArchiveUploadedAt != null) continue;
 
       // Safe Mode upload swap (Safe Mode completion wave, 2026-05-21).
       // When the capture was inside an enforcing premises polygon
@@ -2172,6 +2171,15 @@ class UploadService {
       final useSafeVariant = exercise.safeModeActive &&
           exercise.safeRawFilePath != null &&
           exercise.safeRawFilePath!.isNotEmpty;
+
+      // S-C2 fix (synthesis 2026-05-21): when Safe Mode applies, IGNORE
+      // the `rawArchiveUploadedAt` fast-path skip and force re-upload.
+      // Otherwise an exercise published before its polygon enforced —
+      // or before the Safe Mode wave landed — would keep the un-blurred
+      // cloud blob forever. `uploadRawArchive` is `upsert: true` so the
+      // overwrite is idempotent. For non-safe captures, keep the existing
+      // fast-path behaviour.
+      if (!useSafeVariant && exercise.rawArchiveUploadedAt != null) continue;
 
       final relPath = useSafeVariant
           ? exercise.safeRawFilePath
@@ -2195,7 +2203,10 @@ class UploadService {
       final storagePath = '$practiceId/${session.id}/${exercise.id}.mp4';
 
       // Skip if already in storage (existence check from listing above).
-      if (existingRaw.contains(storagePath)) {
+      // S-C2 fix: when Safe Mode applies, do NOT skip on existence —
+      // the existing cloud blob is the un-blurred raw and must be
+      // overwritten. `uploadRawArchive` is idempotent (`upsert: true`).
+      if (!useSafeVariant && existingRaw.contains(storagePath)) {
         debugPrint('_uploadRawArchives: skip $storagePath (exists)');
         // Still stamp locally so future publishes skip the listing check too.
         await loudSwallow(
@@ -2450,7 +2461,10 @@ class UploadService {
           : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
       final storagePath =
           '$practiceId/${session.id}/${exercise.id}$normalisedExt';
-      if (existingRaw.contains(storagePath)) {
+      // S-C2 fix: when Safe Mode applies, do NOT skip on existence —
+      // the existing cloud blob is the un-blurred raw photo and must
+      // be overwritten. `uploadRawArchive` is `upsert: true`.
+      if (!useSafeVariant && existingRaw.contains(storagePath)) {
         debugPrint('_uploadRawArchives: skip photo $storagePath (exists)');
         // Still stamp locally so future publishes hit the fast-path skip
         // and don't even bother with the listing call. Mirrors the video
