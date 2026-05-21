@@ -33,8 +33,164 @@
 
   let currentProfile = null;
 
+  const BRAND_HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+  const HTTPS_RE = /^https?:\/\//;
+
   function show(el) { if (el) el.hidden = false; }
   function hide(el) { if (el) el.hidden = true; }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = String(s == null ? '' : s);
+    return div.innerHTML;
+  }
+
+  // Public Profile v2 — cascade the practice brand color into the same
+  // CSS variables the rest of the player reads from. Mirror of
+  // applyPracticeBranding(plan) in app.js but sourced from the profile
+  // payload rather than a plan payload.
+  //
+  // Validation up-front via strict #RRGGBB regex; invalid / missing
+  // values leave the homefit-coral defaults in styles.css :root.
+  function applyProfileBranding(profile) {
+    const root = document.documentElement;
+    if (!root || !root.style) return;
+    const raw = profile && typeof profile === 'object' ? profile.brandColor : null;
+    if (typeof raw !== 'string' || !BRAND_HEX_RE.test(raw)) {
+      root.style.removeProperty('--c-brand');
+      root.style.removeProperty('--c-brand-strong');
+      root.style.removeProperty('--c-brand-soft');
+      root.style.removeProperty('--c-brand-tint-bg');
+      root.style.removeProperty('--c-brand-tint-border');
+      return;
+    }
+    const hex = raw.toUpperCase();
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const triplet = r + ', ' + g + ', ' + b;
+    root.style.setProperty('--c-brand', hex);
+    root.style.setProperty('--c-brand-strong', hex);
+    root.style.setProperty('--c-brand-soft', 'rgba(' + triplet + ', 0.12)');
+    root.style.setProperty('--c-brand-tint-bg', 'rgba(' + triplet + ', 0.12)');
+    root.style.setProperty('--c-brand-tint-border', 'rgba(' + triplet + ', 0.30)');
+  }
+
+  function hydrateExtras(profile) {
+    // Tagline (max 60 chars, DB-enforced).
+    if (profile.tagline) {
+      const el = document.getElementById('hero-tagline');
+      el.textContent = profile.tagline;
+      el.hidden = false;
+    }
+
+    // Hero CTA — points at contact_website. https:// validated.
+    if (profile.contactWebsite && HTTPS_RE.test(profile.contactWebsite)) {
+      const cta = document.getElementById('hero-cta');
+      const display = profile.contactWebsite.replace(/^https?:\/\/(www\.)?/, '');
+      cta.textContent = 'Visit ' + display + ' →';
+      cta.href = profile.contactWebsite;
+      cta.hidden = false;
+    }
+
+    // Specialties chips.
+    const specialties = Array.isArray(profile.specialties) ? profile.specialties : [];
+    if (specialties.length > 0) {
+      const list = document.getElementById('specialties-chips');
+      list.innerHTML = '';
+      specialties.forEach((s) => {
+        if (typeof s !== 'string' || s.length === 0) return;
+        const span = document.createElement('span');
+        span.className = 'v-chip';
+        span.textContent = s;
+        list.appendChild(span);
+      });
+      document.getElementById('specialties-section').hidden = false;
+    }
+
+    // Contact list — email + WhatsApp. Website is the hero CTA above,
+    // never duplicated here.
+    const contacts = [];
+    if (profile.contactEmail) {
+      contacts.push({
+        label: 'Email',
+        value: profile.contactEmail,
+        href: 'mailto:' + profile.contactEmail,
+      });
+    }
+    if (profile.contactWhatsapp) {
+      const digits = profile.contactWhatsapp.replace(/[^\d]/g, '');
+      if (digits.length > 0) {
+        contacts.push({
+          label: 'WhatsApp',
+          value: profile.contactWhatsapp,
+          href: 'https://wa.me/' + digits,
+        });
+      }
+    }
+    if (contacts.length > 0) {
+      const list = document.getElementById('contact-list');
+      list.innerHTML = '';
+      contacts.forEach((c) => {
+        const a = document.createElement('a');
+        a.className = 'v-contact-row';
+        a.href = c.href;
+        if (c.href.startsWith('http')) {
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+        }
+        const lbl = document.createElement('div');
+        lbl.className = 'v-contact-label';
+        lbl.textContent = c.label;
+        const val = document.createElement('div');
+        val.className = 'v-contact-value';
+        val.textContent = c.value;
+        const wrap = document.createElement('div');
+        wrap.appendChild(lbl);
+        wrap.appendChild(val);
+        a.appendChild(wrap);
+        list.appendChild(a);
+      });
+      document.getElementById('contact-section').hidden = false;
+    }
+  }
+
+  async function hydrateTeam(practiceId) {
+    if (!practiceId) return;
+    const members = await window.HomefitApi.getPracticePublicMembers(practiceId);
+    if (!Array.isArray(members) || members.length === 0) return;
+    const grid = document.getElementById('team-grid');
+    grid.innerHTML = '';
+    members.forEach((m) => {
+      const name = m.displayName || 'Practitioner';
+      const initials = name
+        .split(/\s+/)
+        .map((w) => (w.charAt(0) || '').toUpperCase())
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('') || '?';
+      const card = document.createElement('div');
+      card.className = 'v-team-card';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'v-team-avatar';
+      avatar.textContent = initials;
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'v-team-name';
+      nameEl.textContent = name;
+
+      const role = document.createElement('div');
+      role.className = 'v-team-role';
+      role.textContent = m.role === 'owner' ? 'Practice owner' : 'Practitioner';
+
+      card.appendChild(avatar);
+      card.appendChild(nameEl);
+      card.appendChild(role);
+      grid.appendChild(card);
+    });
+    document.getElementById('team-section').hidden = false;
+  }
 
   function getSlug() {
     const m = window.location.pathname.match(/^\/v\/([a-zA-Z0-9-]+)/);
@@ -208,9 +364,18 @@
         show(elNotFound);
         return;
       }
+      // Apply brand color cascade BEFORE render so the initial paint
+      // is already tinted (no FOUC flash from coral to the practice
+      // brand color).
+      applyProfileBranding(profile);
       renderProfile(profile);
+      hydrateExtras(profile);
       hide(elLoading);
       show(elProfile);
+      // Team cards are an additional RPC call — fire-and-forget so the
+      // main profile is visible the moment its data lands. The Team
+      // section stays hidden until rows arrive.
+      hydrateTeam(profile.practiceId);
     } catch (_) {
       hide(elLoading);
       show(elNotFound);

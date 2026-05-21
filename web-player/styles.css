@@ -4516,3 +4516,126 @@ html.is-exporting .lobby-import-card { display: none; }
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------
+   Public Profile v2 (2026-05-21) — advertising-page sections.
+   New blocks: tagline, hero CTA, specialties chips, team cards, contact
+   list. All read from --c-brand / --c-brand-soft / --c-brand-tint-* so
+   they re-tint when applyProfileBranding() cascades a practice brand
+   color into documentElement.
+   --------------------------------------------------------------------- */
+.v-tagline {
+  font-size: 17px;
+  color: var(--c-brand);
+  font-weight: 600;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.v-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px auto 0;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1.5px solid var(--c-brand);
+  color: var(--c-brand);
+  background: var(--c-brand-soft);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.v-hero-cta:hover {
+  background: var(--c-brand);
+  color: var(--c-surface-bg);
+}
+
+.v-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.v-chip {
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--c-ink-primary);
+}
+
+.v-team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.v-team-card {
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+
+.v-team-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: var(--c-surface-bg);
+  border: 2px solid var(--c-brand-soft);
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-brand);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.v-team-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-ink-primary);
+}
+
+.v-team-role {
+  font-size: 11px;
+  color: var(--c-ink-muted);
+  margin-top: 2px;
+}
+
+.v-contact-list {
+  display: grid;
+  gap: 10px;
+}
+
+.v-contact-row {
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--c-ink-primary);
+}
+
+.v-contact-row:hover {
+  border-color: var(--c-brand);
+}
+
+.v-contact-label {
+  font-size: 11px;
+  color: var(--c-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.v-contact-value {
+  font-size: 15px;
+  color: var(--c-ink-primary);
+}
