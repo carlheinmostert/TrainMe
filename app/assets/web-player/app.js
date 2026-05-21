@@ -898,6 +898,10 @@ const $error = document.getElementById('error');
 const $app = document.getElementById('app');
 const $clientName = document.getElementById('client-name');
 const $planTitle = document.getElementById('plan-title');
+// Public Profile v2 — practice logo slot in the plan-bar (Task 12).
+// Populated by applyPracticeBranding() from plan.public_logo_url;
+// stays [hidden] when no logo is set.
+const $planBarLogo = document.getElementById('plan-bar-logo');
 const $progress = document.getElementById('progress');
 const $cardViewport = document.getElementById('card-viewport');
 const $cardTrack = document.getElementById('card-track');
@@ -1011,6 +1015,97 @@ function getPlanIdFromURL() {
   const path = window.location.pathname;
   const match = path.match(/^\/p\/([a-zA-Z0-9_-]+)/);
   return match ? match[1] : null;
+}
+
+// ============================================================
+// Practice branding cascade (Public Profile v2, 2026-05-21)
+// ============================================================
+//
+// `applyPracticeBranding(plan)` rewrites the brand-cascade CSS variables
+// on documentElement whenever a plan carries a custom `brand_color`.
+// Every UI accent in the player reads from --c-brand / --c-brand-soft /
+// --c-brand-strong / --c-brand-tint-bg / --c-brand-tint-border, so
+// re-pointing them re-tints the whole player without per-element work.
+//
+// SAFETY:
+//   - Hex shape is validated up front via a strict #RRGGBB regex.
+//     Invalid input (null, malformed, "rgb(...)", "blue") falls through
+//     to the homefit-coral defaults defined in styles.css :root. No
+//     try/catch — bad data is just ignored (no exception-driven control
+//     flow per feedback_no_exception_control_flow).
+//   - The homefit matrix logo SVGs use literal #FF6B35 fills and are
+//     deliberately NOT touched here — homefit identity never recolors
+//     per-practice. See styles.css :root comment + index.html SVG.
+//
+// Token derivation:
+//   --c-brand          = brand_color (validated hex)
+//   --c-brand-strong   = brand_color (solid; for primary action buttons)
+//   --c-brand-soft     = brand_color @ 0.12 alpha (badge backgrounds)
+//   --c-brand-tint-bg  = brand_color @ 0.12 alpha (legacy alias used by
+//                        existing styles.css selectors; matches --c-brand-soft)
+//   --c-brand-tint-border = brand_color @ 0.30 alpha
+//
+// The logo slot (Task 12) is populated separately via plan.public_logo_url.
+const BRAND_HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
+function _hexToRgb(hex) {
+  // Caller has already passed BRAND_HEX_RE — safe to slice without checks.
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return { r: r, g: g, b: b };
+}
+
+function applyPracticeBranding(planObj) {
+  const root = document.documentElement;
+  if (!root || !root.style) return;
+
+  const raw = planObj && typeof planObj === 'object' ? planObj.brand_color : null;
+
+  // Validate. Anything that doesn't match #RRGGBB is treated as
+  // "no custom brand" — defaults from styles.css :root stay in force.
+  if (typeof raw !== 'string' || !BRAND_HEX_RE.test(raw)) {
+    // If a previous plan in the same session set a brand and we're
+    // now loading one without — fall back by clearing the inline
+    // overrides on documentElement so the :root cascade re-takes.
+    root.style.removeProperty('--c-brand');
+    root.style.removeProperty('--c-brand-strong');
+    root.style.removeProperty('--c-brand-soft');
+    root.style.removeProperty('--c-brand-tint-bg');
+    root.style.removeProperty('--c-brand-tint-border');
+  } else {
+    const hex = raw.toUpperCase();
+    const rgb = _hexToRgb(hex);
+    const triplet = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
+
+    root.style.setProperty('--c-brand', hex);
+    root.style.setProperty('--c-brand-strong', hex);
+    root.style.setProperty('--c-brand-soft', `rgba(${triplet}, 0.12)`);
+    root.style.setProperty('--c-brand-tint-bg', `rgba(${triplet}, 0.12)`);
+    root.style.setProperty('--c-brand-tint-border', `rgba(${triplet}, 0.30)`);
+  }
+
+  // Task 12 — practice logo slot in the plan-bar. Driven by the same
+  // plan payload so a single applyPracticeBranding(plan) call sets
+  // both colour cascade + leading brand mark together.
+  // Schema: plan.public_logo_url is a public CDN URL (Supabase storage
+  // public bucket). The img stays [hidden] until both:
+  //   - the URL is a non-empty string, AND
+  //   - it survives a minimal sanity check (http/https origin).
+  // Anything else falls through to the homefit footer wordmark.
+  if ($planBarLogo) {
+    const logo = planObj && typeof planObj === 'object' ? planObj.public_logo_url : null;
+    const looksUrl = typeof logo === 'string' && /^https?:\/\//.test(logo);
+    if (looksUrl) {
+      // alt left empty (decorative) — the practice name already lives
+      // in plan.client_name + plan.title; the logo is brand reinforcement.
+      $planBarLogo.src = logo;
+      $planBarLogo.hidden = false;
+    } else {
+      $planBarLogo.removeAttribute('src');
+      $planBarLogo.hidden = true;
+    }
+  }
 }
 
 async function fetchPlan(planId) {
@@ -3542,8 +3637,11 @@ function showVideoLoadingOverlay() {
   var overlay = document.createElement('div');
   overlay.id = 'video-loading-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,17,23,0.7);z-index:9999;';
+  // Spinner ring uses --c-brand-soft (track) + --c-brand (head) so the
+  // per-plan brand cascade tints the loading state too. Falls back to
+  // coral when no plan is loaded yet (vars defined in styles.css :root).
   overlay.innerHTML = '<div style="text-align:center;color:#F0F0F5;font-family:Inter,sans-serif;">' +
-    '<div style="width:32px;height:32px;border:3px solid rgba(255,107,53,0.3);border-top-color:#FF6B35;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>' +
+    '<div style="width:32px;height:32px;border:3px solid var(--c-brand-soft);border-top-color:var(--c-brand);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>' +
     '<div style="font-size:13px;opacity:0.7;">Loading video\u2026</div></div>';
   // Add keyframe if not already present
   if (!document.getElementById('video-loading-spin')) {
@@ -5570,6 +5668,14 @@ async function init() {
       throw new Error('Empty plan');
     }
 
+    // Public Profile v2 (2026-05-21) — apply the practice's brand
+    // cascade BEFORE first render. Re-tints --c-brand / --c-brand-soft
+    // / --c-brand-strong / --c-brand-tint-bg / --c-brand-tint-border
+    // on documentElement so every UI accent (badges, action buttons,
+    // focus rings, spinners) picks up the practice's chosen colour.
+    // Falls back silently to homefit coral when no/invalid hex.
+    applyPracticeBranding(plan);
+
     // Wave 33 — fire the engagement-analytics stamp once per session
     // start. Idempotently sets `plans.first_opened_at` (preserving any
     // prior value) + advances `plans.last_opened_at`. Skipped on the
@@ -5904,6 +6010,10 @@ async function init() {
           const fresh = await fetchPlan(planId);
           if (!fresh) return null;
           plan = fresh;
+          // Re-apply the brand cascade in case the practitioner rebranded
+          // between the first load and this self-grant refetch. Idempotent
+          // when unchanged.
+          applyPracticeBranding(plan);
           plan.exercises.sort((a, b) => a.position - b.position);
           slides = unrollExercises(plan);
           recomputePlanConsent();

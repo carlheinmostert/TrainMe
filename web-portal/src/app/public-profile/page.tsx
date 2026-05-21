@@ -4,24 +4,24 @@ import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
-import { PremisesListPanel } from '@/components/PremisesListPanel';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { PublicProfileEditor } from './PublicProfileEditor';
 
-type SearchParams = { practice?: string };
+type SearchParams = { practice?: string; section?: 'branding' | 'identity' };
 
 /**
- * `/premises` — manage the physical sites that anchor Safe Mode + the
- * public directory listing for this practice.
+ * `/public-profile` — the owner-facing editor for branding (logo +
+ * brand colour) and identity / directory listing (slug + tagline +
+ * blurb + specialties + contact links).
  *
- * Members can view + add + edit premises. The directory opt-in lives
- * here too (separate from per-premises Safe Mode toggle) — a practice
- * can have premises without being directory-listed, and vice versa.
+ * Mirrors `/premises` shape: server component, picks an active
+ * practice via cookie + ?practice= query, gets role + profile in
+ * parallel, hands them to the client `PublicProfileEditor` shell.
  *
- * Owner-only edits enforced inside the RPCs (`upsert_premises` allows
- * any member; `set_practice_public_profile` is owner-only — see the
- * server-side error mapping in PortalApi).
+ * The two panels (Branding + Identity) live behind `<details>`
+ * accordions per R-01 ("inline state only, no modals").
  */
-export default async function PremisesPage({
+export default async function PublicProfilePage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
@@ -47,12 +47,9 @@ export default async function PremisesPage({
   const selected = practices.find((p) => p.id === selectedId) ?? practices[0];
   const qs = `?practice=${selected.id}`;
 
-  // Public-profile data no longer fetched here — moved to its own
-  // /public-profile route in v2. /premises is now site-management
-  // only (physical premises + Safe Mode enforcement).
-  const [role, premises] = await Promise.all([
+  const [role, profile] = await Promise.all([
     api.getCurrentUserRole(selected.id, user.id),
-    api.listPracticePremises(selected.id),
+    api.getPracticePublicProfile(selected.id),
   ]);
   const isOwner = role === 'owner';
 
@@ -65,7 +62,7 @@ export default async function PremisesPage({
         userEmail={user.email ?? ''}
         practices={practices}
       />
-      <div className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">
+      <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link href={`/dashboard${qs}`} className="hover:text-brand">
             ← Dashboard
@@ -73,19 +70,32 @@ export default async function PremisesPage({
         </nav>
 
         <div className="mb-6 flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold">Premises</h1>
+          <h1 className="font-heading text-3xl font-bold">Public profile</h1>
           <p className="text-sm text-ink-muted">
-            Register the physical sites where this practice operates.
-            Inside an enforced premises, Safe Mode automatically blurs
-            bystanders in any capture — no matter which practice the
-            practitioner belongs to.
+            What clients see at{' '}
+            <code className="rounded bg-surface-raised px-1 py-0.5 text-[11px] text-ink">
+              session.homefit.studio/v/{profile?.slug ?? 'your-slug'}
+            </code>
+            . Logo + brand color also cascade into every plan you publish.
           </p>
+          {profile?.slug && profile.listed && (
+            <a
+              href={`https://session.homefit.studio/v/${profile.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="self-start rounded-md border border-surface-border bg-surface-raised px-3 py-1.5 text-xs text-ink hover:border-brand hover:text-brand"
+            >
+              Preview your page ↗
+            </a>
+          )}
         </div>
 
-        <PremisesListPanel
+        <PublicProfileEditor
           practiceId={selected.id}
+          practiceName={selected.name}
           isOwner={isOwner}
-          initialPremises={premises}
+          initial={profile}
+          initialSection={params.section}
         />
       </div>
     </main>

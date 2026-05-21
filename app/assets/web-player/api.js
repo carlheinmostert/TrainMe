@@ -665,9 +665,54 @@
         logoUrl: row.logo_url || null,
         blurb: row.blurb || null,
         premises: Array.isArray(row.premises) ? row.premises : [],
+        // Public Profile v2 — branding + advertising fields.
+        brandColor: row.brand_color || null,
+        tagline: row.tagline || null,
+        specialties: Array.isArray(row.specialties) ? row.specialties : [],
+        contactEmail: row.contact_email || null,
+        contactWhatsapp: row.contact_whatsapp || null,
+        contactWebsite: row.contact_website || null,
       };
     } catch (_) {
       return null;
+    }
+  }
+
+  /**
+   * `get_practice_public_members(p_practice_id)` — anonymous SECURITY
+   * DEFINER RPC that returns the practitioner display names + roles for
+   * a listed practice. Returns an empty array when the practice has not
+   * opted into the directory (`public_profile_listed=false`), matching
+   * the privacy behavior of `get_practice_profile`.
+   *
+   * No email / no trainer_id ever leaves the DB; only display_name +
+   * role. The web player renders initials avatars from display_name.
+   */
+  async function getPracticePublicMembers(practiceId) {
+    if (!practiceId || typeof practiceId !== 'string') return [];
+    if (isLocalSurface()) return [];
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_practice_public_members`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_practice_id: practiceId }),
+        },
+      );
+      if (!response.ok) return [];
+      const rows = await response.json();
+      if (!Array.isArray(rows)) return [];
+      return rows.map((r) => ({
+        displayName: r.display_name || null,
+        role: r.role || null,
+      }));
+    } catch (_) {
+      return [];
     }
   }
 
@@ -708,6 +753,7 @@
   window.HomefitApi = Object.freeze({
     getPlanFull,
     getPracticeProfile,
+    getPracticePublicMembers,
     reportPremises,
     recordPlanOpened,
     startAnalyticsSession,

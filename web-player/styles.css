@@ -16,12 +16,27 @@
   /* D-06 (canonical state treatments) is a per-screen refactor.       */
 
   /* ── Brand (coral — single accent) ── */
+  /* Public Profile v2 (2026-05-21): --c-brand is now THE brand-cascade
+     entry point. The default coral here is the homefit fallback;
+     `applyPracticeBranding(plan)` in app.js re-writes --c-brand /
+     --c-brand-soft / --c-brand-strong on the documentElement whenever
+     the loaded plan carries `brand_color`. The homefit logo SVG keeps
+     its literal #FF6B35 fills — the logo never recolors per-practice.
+     Everything else (UI accents, focus rings, action buttons, badges)
+     reads from these vars and re-tints automatically. */
   --c-brand: #FF6B35;
   --c-brand-dark: #E85A24;
   --c-brand-light: #FF8F5E;
   --c-brand-surface: #FFF3ED;
   --c-brand-tint-bg: rgba(255, 107, 53, 0.12);       /* D-10 */
   --c-brand-tint-border: rgba(255, 107, 53, 0.30);   /* D-10 */
+  /* Brand-cascade aliases used by JS-injected inline styles. Defaults
+     match the coral surface tokens above; applyPracticeBranding()
+     overwrites them when a custom brand_color is present.
+       --c-brand-soft     soft tint (12%) for badge backgrounds.
+       --c-brand-strong   solid colour for primary action buttons. */
+  --c-brand-soft: rgba(255, 107, 53, 0.12);
+  --c-brand-strong: #FF6B35;
   /* Coral rail — used by the lobby's tree-branch circuit grouping
      (3 px wide pseudo-element pieces concatenating across header +
      rows). Slightly punchier than the tint-border so the line reads
@@ -245,11 +260,38 @@ body {
   background: var(--c-surface-bg);
 }
 
+/* Plan-bar left cluster — Public Profile v2 turned this into a
+   horizontal flex container so the practice-logo slot (if set) can
+   sit beside the plan-title + client-subtitle stack. Without a logo
+   (.plan-bar-logo[hidden]) the layout reads identically to the
+   pre-v2 column-only stack. */
 .plan-bar-left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.plan-bar-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+/* Practice logo slot. Square 36px, contain-fit so portrait and
+   landscape logos both work. Hidden via the [hidden] attribute when
+   no plan.public_logo_url is set — defaults to the homefit footer
+   logo carrying brand presence on those plans. */
+.plan-bar-logo {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 6px;
+  background: transparent;
 }
 
 .plan-title {
@@ -4060,7 +4102,7 @@ html.is-exporting .lobby-row.is-active,
 .lobby-import-soon {
   display: inline-block;
   padding: 2px 8px;
-  background: var(--brand-default, #ff6b35);
+  background: var(--c-brand);
   color: #ffffff;
   border-radius: 100px;
   font-family: 'Inter', system-ui, sans-serif;
@@ -4473,4 +4515,127 @@ html.is-exporting .lobby-import-card { display: none; }
 .v-modal-submit[disabled] {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------
+   Public Profile v2 (2026-05-21) — advertising-page sections.
+   New blocks: tagline, hero CTA, specialties chips, team cards, contact
+   list. All read from --c-brand / --c-brand-soft / --c-brand-tint-* so
+   they re-tint when applyProfileBranding() cascades a practice brand
+   color into documentElement.
+   --------------------------------------------------------------------- */
+.v-tagline {
+  font-size: 17px;
+  color: var(--c-brand);
+  font-weight: 600;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.v-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px auto 0;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1.5px solid var(--c-brand);
+  color: var(--c-brand);
+  background: var(--c-brand-soft);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.v-hero-cta:hover {
+  background: var(--c-brand);
+  color: var(--c-surface-bg);
+}
+
+.v-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.v-chip {
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--c-ink-primary);
+}
+
+.v-team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.v-team-card {
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+
+.v-team-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: var(--c-surface-bg);
+  border: 2px solid var(--c-brand-soft);
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-brand);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.v-team-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-ink-primary);
+}
+
+.v-team-role {
+  font-size: 11px;
+  color: var(--c-ink-muted);
+  margin-top: 2px;
+}
+
+.v-contact-list {
+  display: grid;
+  gap: 10px;
+}
+
+.v-contact-row {
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--c-ink-primary);
+}
+
+.v-contact-row:hover {
+  border-color: var(--c-brand);
+}
+
+.v-contact-label {
+  font-size: 11px;
+  color: var(--c-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.v-contact-value {
+  font-size: 15px;
+  color: var(--c-ink-primary);
 }

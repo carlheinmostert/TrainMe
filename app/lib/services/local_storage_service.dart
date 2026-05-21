@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 42;
+  static const _dbVersion = 43;
 
   Database? _db;
 
@@ -229,13 +229,19 @@ class LocalStorageService {
     // cached_practices — mirror of cloud practice_members + practice
     // name + joined_at. One row per membership. Pull deletes stale rows
     // so the switcher doesn't list practices the user left.
+    //
+    // brand_color + public_logo_url (v43, 2026-05-21) mirror the
+    // practices table's V2 branding so the embedded preview can apply
+    // the cascade without a cloud round-trip when offline.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cached_practices (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         role TEXT NOT NULL,
         joined_at INTEGER NOT NULL,
-        synced_at INTEGER NOT NULL
+        synced_at INTEGER NOT NULL,
+        brand_color TEXT,
+        public_logo_url TEXT
       )
     ''');
 
@@ -1223,6 +1229,21 @@ class LocalStorageService {
         // cached_practices may not exist on a partial/test upgrade path;
         // backfill is best-effort — sessions are stamped on next write.
       }
+    }
+
+    if (oldVersion < 43) {
+      // 2026-05-21 — Public Profile v2 cache columns.
+      // Mirror practices.brand_color + practices.public_logo_url so the
+      // embedded Preview's plan payload can include them without a cloud
+      // round-trip when the user is offline. Both columns are nullable
+      // and populated on the next SyncService.pullAll cycle.
+      await _addColumnIfMissing(db, 'cached_practices', 'brand_color', 'TEXT');
+      await _addColumnIfMissing(
+        db,
+        'cached_practices',
+        'public_logo_url',
+        'TEXT',
+      );
     }
   }
 

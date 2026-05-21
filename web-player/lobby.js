@@ -2395,11 +2395,13 @@
     });
     const badge = document.createElement('span');
     badge.setAttribute('data-page-badge', '');
+    // Page-count chip — tinted with the per-plan brand cascade. `--c-brand-soft`
+    // is the 12% tint background; `--c-brand` carries the text + border.
     Object.assign(badge.style, {
-      display: 'inline-block', background: 'rgba(255,107,53,0.12)',
-      color: '#FF6B35', fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      display: 'inline-block', background: 'var(--c-brand-soft)',
+      color: 'var(--c-brand)', fontFamily: "'JetBrains Mono', ui-monospace, monospace",
       fontSize: '11px', fontWeight: '600', padding: '4px 10px',
-      borderRadius: '999px', border: '1px solid rgba(255,107,53,0.30)',
+      borderRadius: '999px', border: '1px solid var(--c-brand-tint-border)',
     });
     badge.textContent = '1 of 1 pages';
     previewWrap.appendChild(img);
@@ -2407,9 +2409,11 @@
 
     const errorMsg = document.createElement('p');
     errorMsg.setAttribute('data-export-error', '');
+    // Inline error copy — accent uses the per-plan brand cascade so the
+    // error stays visually consistent with the rest of the modal.
     Object.assign(errorMsg.style, {
       margin: '0', display: 'none',
-      color: '#FF6B35',
+      color: 'var(--c-brand)',
       fontFamily: "'Inter', -apple-system, sans-serif",
       fontSize: '13px',
       textAlign: 'center',
@@ -2427,10 +2431,15 @@
     const downloadLink = document.createElement('a');
     downloadLink.textContent = 'Download PDF';
     downloadLink.setAttribute('data-download', '');
+    // Primary action — uses --c-brand-strong so the per-plan brand
+    // cascade picks up the practice's chosen colour. Text stays dark
+    // for contrast against the brand background (assumed ≥ AA on the
+    // bright-coral default; practitioners are nudged toward WCAG-safe
+    // colours in the BrandColorPicker tip).
     Object.assign(downloadLink.style, {
       flex: '1 1 0',
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      background: '#FF6B35', color: '#0F1117',
+      background: 'var(--c-brand-strong)', color: '#0F1117',
       fontFamily: "'Montserrat', -apple-system, sans-serif",
       fontWeight: '600', fontSize: '14px', padding: '12px 16px',
       borderRadius: '999px', textDecoration: 'none', cursor: 'pointer',
@@ -2455,10 +2464,12 @@
     retryBtn.type = 'button';
     retryBtn.textContent = 'Retry';
     retryBtn.setAttribute('data-retry', '');
+    // Retry button — same brand-cascade strong tint as the primary
+    // download action above. Shown when the snapshot pass fails.
     Object.assign(retryBtn.style, {
       display: 'none',
       width: '100%',
-      background: '#FF6B35', color: '#0F1117', border: '0',
+      background: 'var(--c-brand-strong)', color: '#0F1117', border: '0',
       fontFamily: "'Montserrat', -apple-system, sans-serif",
       fontWeight: '600', fontSize: '14px', padding: '12px 16px',
       borderRadius: '999px', cursor: 'pointer',

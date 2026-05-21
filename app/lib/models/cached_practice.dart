@@ -26,12 +26,25 @@ class CachedPractice {
   /// a cloud pull.
   final int syncedAt;
 
+  /// Public Profile v2 — `practices.brand_color`. Validated `#RRGGBB`
+  /// hex string on the DB side. Null for practices that haven't set a
+  /// brand color; the embedded Preview falls back to homefit coral.
+  final String? brandColor;
+
+  /// Public Profile v2 — `practices.public_logo_url`. Public CDN URL
+  /// for the practice logo (Supabase storage public bucket). Null
+  /// when the practice hasn't uploaded a logo; the player's plan-bar
+  /// hides the logo slot.
+  final String? publicLogoUrl;
+
   const CachedPractice({
     required this.id,
     required this.name,
     required this.role,
     required this.joinedAt,
     required this.syncedAt,
+    this.brandColor,
+    this.publicLogoUrl,
   });
 
   /// Hydrate from a SQLite row.
@@ -44,6 +57,8 @@ class CachedPractice {
           : PracticeRole.practitioner,
       joinedAt: row['joined_at'] as int,
       syncedAt: row['synced_at'] as int,
+      brandColor: row['brand_color'] as String?,
+      publicLogoUrl: row['public_logo_url'] as String?,
     );
   }
 
@@ -54,6 +69,8 @@ class CachedPractice {
       'role': role == PracticeRole.owner ? 'owner' : 'practitioner',
       'joined_at': joinedAt,
       'synced_at': syncedAt,
+      'brand_color': brandColor,
+      'public_logo_url': publicLogoUrl,
     };
   }
 
@@ -61,6 +78,12 @@ class CachedPractice {
   /// by [ApiClient.listMyPractices]. Kept structurally identical so
   /// callers don't branch on cache vs. live.
   PracticeMembership toMembership() {
-    return PracticeMembership(id: id, name: name, role: role);
+    return PracticeMembership(
+      id: id,
+      name: name,
+      role: role,
+      brandColor: brandColor,
+      publicLogoUrl: publicLogoUrl,
+    );
   }
 }
