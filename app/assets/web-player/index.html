@@ -275,11 +275,20 @@
        swipe-hint. Wave 19.3 relocations: timeline-bar dropped below the
        active-slide-header, remaining-total moved into its centre slot. -->
   <div id="app" hidden>
-    <!-- Plan title bar -->
+    <!-- Plan title bar.
+         Public Profile v2 (2026-05-21): adds a leading practice-logo
+         slot. Populated by app.js from `plan.public_logo_url` after
+         fetchPlan() lands. Hidden via the `hidden` attribute when no
+         logo is set; CSS gives it a compact square-fit slot beside
+         the plan title. The homefit footer logo is unaffected — it
+         lives in the page footer and stays the homefit identity. -->
     <div class="plan-bar">
       <div class="plan-bar-left">
-        <h1 id="plan-title" class="plan-title"></h1>
-        <span id="client-name" class="header-client"></span>
+        <img id="plan-bar-logo" class="plan-bar-logo" alt="" hidden>
+        <div class="plan-bar-text">
+          <h1 id="plan-title" class="plan-title"></h1>
+          <span id="client-name" class="header-client"></span>
+        </div>
       </div>
       <div id="progress" class="progress-label"></div>
     </div>
