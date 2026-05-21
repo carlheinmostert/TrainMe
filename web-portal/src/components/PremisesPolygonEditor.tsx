@@ -234,9 +234,28 @@ export function PremisesPolygonEditor({
           iconAnchor: [11, 11],
         }),
       });
+      // During drag we mutate the polygon's geometry directly via Leaflet's
+      // setLatLngs — NO React re-render. If we called setVertices here every
+      // drag event, the render effect would tear down + re-create all markers
+      // mid-gesture, the dragged marker would be destroyed, and the drag
+      // would silently halt after the first few pixels (Carl flagged this
+      // on item 10). State is committed once on `dragend`.
       marker.on('drag', () => {
         const next = marker.getLatLng();
-        setVertices((prev) => prev.map((p, i) => i === idx ? { lat: next.lat, lng: next.lng } : p));
+        const live = vertices.map((p, i) =>
+          i === idx ? [next.lat, next.lng] : [p.lat, p.lng],
+        ) as LatLngExpression[];
+        if (polygonLayerRef.current) {
+          polygonLayerRef.current.setLatLngs(live);
+        }
+      });
+      marker.on('dragend', () => {
+        const next = marker.getLatLng();
+        setVertices((prev) =>
+          prev.map((p, i) =>
+            i === idx ? { lat: next.lat, lng: next.lng } : p,
+          ),
+        );
       });
       marker.on('contextmenu', (e: LeafletMouseEvent) => {
         L.DomEvent.stop(e);
