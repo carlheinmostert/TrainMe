@@ -1510,13 +1510,16 @@ class ApiClient {
       final row = result.first;
       if (row is! Map) return null;
       final id = row['premises_id'];
-      final practiceId = row['practice_id'];
       final name = row['premises_name'];
       final enforced = row['safe_mode_enforced'];
-      if (id is! String || practiceId is! String) return null;
+      if (id is! String) return null;
+      // S-H1 fix (synthesis 2026-05-21): the anon RPC no longer returns
+      // practice_id (anti-enumeration). Mobile doesn't use it — Safe
+      // Mode only needs the premises id + name + enforcement boolean.
+      // If a caller needs the practice context, look it up via
+      // cached_practices keyed by the active session.
       return SafeModeMatch(
         premisesId: id,
-        practiceId: practiceId,
         premisesName: name is String ? name : '',
         safeModeEnforced: enforced is bool ? enforced : false,
       );
@@ -1557,13 +1560,11 @@ class ApiClient {
 @immutable
 class SafeModeMatch {
   final String premisesId;
-  final String practiceId;
   final String premisesName;
   final bool safeModeEnforced;
 
   const SafeModeMatch({
     required this.premisesId,
-    required this.practiceId,
     required this.premisesName,
     required this.safeModeEnforced,
   });
