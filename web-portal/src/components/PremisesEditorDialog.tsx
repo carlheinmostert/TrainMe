@@ -60,6 +60,13 @@ export function PremisesEditorDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
+  type GeoStatus =
+    | { kind: 'idle' }
+    | { kind: 'requesting' }
+    | { kind: 'ok' }
+    | { kind: 'denied' }
+    | { kind: 'unavailable'; message: string };
+  const [geoStatus, setGeoStatus] = useState<GeoStatus>({ kind: 'idle' });
   // Bumped each time the user picks an address-search result so the map
   // pans to the new centre. The `nonce` lets the editor's effect
   // re-trigger even if the user picks the same result twice.
@@ -67,35 +74,56 @@ export function PremisesEditorDialog({
     { lat: number; lng: number; zoom?: number; nonce: number } | null
   >(null);
 
-  // Geolocate on open so the map starts somewhere useful. Failure is fine —
-  // the editor falls back to a default centre.
-  //
-  // On success we ALSO fire centerTrigger so the already-mounted map flies
-  // there. The polygon editor's init effect runs once at mount with
-  // defaultCenter, which is undefined before getCurrentPosition resolves;
-  // without this second pan the map stays on the Cape Town fallback even
-  // after geo permission is granted. Permissions-Policy on the portal must
-  // include `geolocation=(self)` for the browser to even prompt the user
-  // — `geolocation=()` blocks the API silently and our error callback
-  // never sees it.
-  useEffect(() => {
-    if (initial || !('geolocation' in navigator)) return;
+  // Shared geolocation request — used by both the auto-attempt on dialog
+  // open AND the explicit "Use my location" button. A user-gesture call
+  // gets the browser to re-prompt even when permission state was previously
+  // denied (or when the auto-call hit a sticky deny from a prior session).
+  const requestLocation = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      setGeoStatus({
+        kind: 'unavailable',
+        message: 'Geolocation API not supported in this browser.',
+      });
+      return;
+    }
+    setGeoStatus({ kind: 'requesting' });
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setGeo(next);
-        setCenterTrigger((prev) =>
-          // Only auto-pan if the user hasn't already moved the map via
-          // address search — don't clobber their intent.
-          prev === null
-            ? { lat: next.lat, lng: next.lng, zoom: 17, nonce: Date.now() }
-            : prev,
-        );
+        setGeoStatus({ kind: 'ok' });
+        setCenterTrigger({
+          lat: next.lat,
+          lng: next.lng,
+          zoom: 17,
+          nonce: Date.now(),
+        });
       },
-      () => {},
-      { enableHighAccuracy: false, timeout: 5_000, maximumAge: 60_000 },
+      (err) => {
+        // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+        if (err.code === err.PERMISSION_DENIED) {
+          setGeoStatus({ kind: 'denied' });
+        } else {
+          setGeoStatus({
+            kind: 'unavailable',
+            message: err.message || 'Could not get your location.',
+          });
+        }
+      },
+      { enableHighAccuracy: false, timeout: 8_000, maximumAge: 60_000 },
     );
-  }, [initial]);
+  }, []);
+
+  // Try geolocation on open for users who've already granted permission —
+  // resolves silently and pans the map. Users with denied/prompt state get
+  // a 'denied' or 'unavailable' status surfaced in the UI + can click the
+  // explicit "Use my location" button (which is a user-gesture call —
+  // browsers re-prompt on user gestures more reliably than on page-load
+  // auto-calls).
+  useEffect(() => {
+    if (initial) return;
+    requestLocation();
+  }, [initial, requestLocation]);
 
   const handleChange = useCallback(
     (next: PolygonGeoJSON | null, nextStats: PolygonStats) => {
@@ -206,6 +234,34 @@ export function PremisesEditorDialog({
               }
             />
           </label>
+        </div>
+
+        <div className="mb-2 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={requestLocation}
+            disabled={geoStatus.kind === 'requesting'}
+            className="inline-flex items-center gap-1.5 rounded-md border border-surface-border bg-surface-raised px-3 py-1.5 text-xs text-ink hover:border-brand hover:text-brand disabled:opacity-50"
+          >
+            <span aria-hidden="true">📍</span>
+            {geoStatus.kind === 'requesting'
+              ? 'Getting location…'
+              : geo
+                ? 'Re-centre on my location'
+                : 'Use my current location'}
+          </button>
+          {geoStatus.kind === 'denied' && (
+            <span className="text-xs text-error">
+              Location permission was denied. Reset it in your browser&apos;s
+              site settings (lock icon in the address bar → Location → Allow),
+              then click the button again.
+            </span>
+          )}
+          {geoStatus.kind === 'unavailable' && (
+            <span className="text-xs text-ink-muted">
+              {geoStatus.message}
+            </span>
+          )}
         </div>
 
         <div className="mb-4">
