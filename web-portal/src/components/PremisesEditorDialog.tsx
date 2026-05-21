@@ -225,7 +225,14 @@ export function PremisesEditorDialog({
           </div>
         )}
 
-        <div className="flex justify-end gap-3">
+        <div className="flex items-center justify-end gap-3">
+          {(() => {
+            const reason = disableReason(name, stats);
+            if (!reason || saving) return null;
+            return (
+              <span className="mr-auto text-xs text-ink-muted">{reason}</span>
+            );
+          })()}
           <button
             type="button"
             onClick={onClose}
@@ -246,6 +253,26 @@ export function PremisesEditorDialog({
       </div>
     </div>
   );
+}
+
+// Inline-explains why the Save / Create button is disabled. Returns null
+// when the form is ready to submit so the hint disappears. Surfaced
+// alongside the button so the user doesn't have to guess.
+function disableReason(name: string, stats: PolygonStats): string | null {
+  if (name.trim().length === 0) return 'Add a name to enable Save.';
+  if (stats.vertexCount < 3) {
+    return `Place at least 3 vertices (currently ${stats.vertexCount}).`;
+  }
+  if (stats.vertexCount > 12) return 'Too many vertices (max 12).';
+  if (stats.areaM2 < 25) {
+    const rounded = Math.round(stats.areaM2);
+    return `Polygon too small (need ≥ 25 m², currently ${rounded} m²).`;
+  }
+  if (stats.areaM2 > 1_000_000) {
+    const km2 = (stats.areaM2 / 1_000_000).toFixed(3);
+    return `Polygon too large (max 1 km², currently ${km2} km²).`;
+  }
+  return null;
 }
 
 function messageForKind(err: PremisesError): string {
