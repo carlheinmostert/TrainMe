@@ -9,6 +9,10 @@
     {
       "source": "/p/:path*",
       "destination": "/index.html"
+    },
+    {
+      "source": "/v/:slug*",
+      "destination": "/v.html"
     }
   ],
   "headers": [

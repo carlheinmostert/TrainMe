@@ -6,10 +6,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config.dart';
 import 'theme.dart';
 import 'theme/flags.dart';
+import 'services/api_client.dart';
 import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
 import 'services/practitioner_custom_presets.dart';
+import 'services/safe_mode_service.dart';
 import 'services/sync_service.dart';
 import 'services/unified_preview_scheme_bridge.dart';
 import 'screens/auth_gate.dart';
@@ -82,6 +84,11 @@ void main() async {
     // PresetChipRow instances render the MRU chips on first paint
     // without waiting for an async load.
     await PractitionerCustomPresets.init();
+
+    // Safe Mode (2026-05-21) — session-scoped geofenced bystander blur
+    // service. Singleton wired here so the capture screen can read its
+    // state without dependency injection plumbing. Idempotent.
+    SafeModeService.initialize(ApiClient.instance);
 
     runApp(TrainMeApp(storage: storage));
   } catch (e, stack) {

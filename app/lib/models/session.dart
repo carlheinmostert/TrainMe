@@ -69,9 +69,11 @@ class Session {
   final int? preferredRestIntervalSeconds;
 
   /// Practice tenant that owns this plan. Added in Milestone A (multi-tenant
-  /// billing foundation). Not persisted locally yet — the trainer app uses
-  /// [AppConfig.sentinelPracticeId] when publishing. Exposed here so
-  /// round-trips through Supabase preserve the value.
+  /// billing foundation). Persisted locally in SQLite schema v39 so the
+  /// correct tenant context survives cold restarts without relying on
+  /// AuthService. Stamped at session-creation time from
+  /// [AuthService.instance.currentPracticeId]; populated on cloud-pulled
+  /// rows via [SyncService._sessionFromCloudJson].
   final String? practiceId;
 
   /// Timestamp of the first time the client web player fetched this plan (set
@@ -169,6 +171,7 @@ class Session {
     required String clientName,
     String? title,
     String? clientId,
+    String? practiceId,
   }) {
     return Session(
       id: const Uuid().v4(),
@@ -178,6 +181,7 @@ class Session {
       circuitCycles: {},
       createdByUserId: AuthService.instance.currentUserId,
       clientId: clientId,
+      practiceId: practiceId ?? AuthService.instance.currentPracticeId.value,
     );
   }
 
@@ -246,9 +250,6 @@ class Session {
       circuitCycles: cycles,
       circuitNames: names,
       preferredRestIntervalSeconds: map['preferred_rest_interval'] as int?,
-      // `practice_id` and `first_opened_at` only exist on remote Supabase rows
-      // today — no local SQLite mirror yet. If present (remote hydration path),
-      // we round-trip them; otherwise they stay null.
       practiceId: map['practice_id'] as String?,
       firstOpenedAt: _parseTimestamp(map['first_opened_at']),
       lastOpenedAt: _parseTimestamp(map['last_opened_at']),
@@ -273,7 +274,6 @@ class Session {
   /// Serialize to a map suitable for SQLite insertion.
   /// Exercises are stored in their own table — not included here.
   ///
-  /// `practiceId` is omitted (claim-time + membership-derived; not local).
   /// `firstOpenedAt` IS persisted (Wave 29 follow-up): SessionShell
   /// reconciles cloud → local on open so the structural-edit lock UI
   /// can read it offline.
@@ -298,6 +298,7 @@ class Session {
       'preferred_rest_interval': preferredRestIntervalSeconds,
       'created_by_user_id': createdByUserId,
       'client_id': clientId,
+      'practice_id': practiceId,
       'crossfade_lead_ms': crossfadeLeadMs,
       'crossfade_fade_ms': crossfadeFadeMs,
       'unlock_credit_prepaid_at':

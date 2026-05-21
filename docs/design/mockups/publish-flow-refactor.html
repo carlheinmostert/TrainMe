@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Publish flow refactor — spec + mockups</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #1A1D26;
+    --surface-raised: #232734;
+    --surface-elev: #2A2E3C;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255, 107, 53, 0.12);
+    --coral-dim: rgba(255, 107, 53, 0.25);
+    --sage: #86EFAC;
+    --sage-bg: rgba(134, 239, 172, 0.12);
+    --danger: #EF6B6B;
+    --danger-bg: rgba(239, 107, 107, 0.12);
+    --gray-300: #6B7280;
+    --gray-400: #9CA3AF;
+    --gray-500: #D1D5DB;
+    --gray-700: #4B5563;
+    --text: #F5F7FB;
+    --text-dim: #9CA3AF;
+    --text-mute: #6B7280;
+    --border: rgba(255, 255, 255, 0.06);
+    --montserrat: 'Montserrat', system-ui, -apple-system, sans-serif;
+    --inter: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--inter);
+    font-size: 15px;
+    line-height: 1.65;
+    padding: 48px 24px 120px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 {
+    font-family: var(--montserrat);
+    font-weight: 800;
+    font-size: 36px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--coral), #FF9655);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .meta { color: var(--text-dim); font-size: 13px; margin-bottom: 32px; }
+  h2 {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 22px;
+    margin: 56px 0 16px;
+    color: var(--coral);
+    scroll-margin-top: 32px;
+  }
+  h3 {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 16px;
+    margin: 24px 0 8px;
+    color: var(--text);
+  }
+  p { margin: 12px 0; }
+  strong { color: var(--text); font-weight: 700; }
+  code {
+    background: var(--coral-bg);
+    color: var(--coral);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13px;
+  }
+
+  /* TOC */
+  .toc {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin: 16px 0 40px;
+    border-left: 3px solid var(--coral);
+  }
+  .toc-title {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--coral);
+    margin-bottom: 12px;
+  }
+  .toc ol {
+    list-style: none;
+    counter-reset: tocnum;
+  }
+  .toc li {
+    counter-increment: tocnum;
+    padding: 4px 0;
+  }
+  .toc li::before {
+    content: counter(tocnum) ". ";
+    color: var(--coral);
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .toc a {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .toc a:hover { color: var(--coral); }
+
+  /* Boxes */
+  .box {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .box.coral {
+    background: var(--coral-bg);
+    border-left: 3px solid var(--coral);
+  }
+  .box.sage {
+    background: var(--sage-bg);
+    border-left: 3px solid var(--sage);
+  }
+  .box.danger {
+    background: var(--danger-bg);
+    border-left: 3px solid var(--danger);
+  }
+  .box-label {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .box.coral .box-label { color: var(--coral); }
+  .box.sage .box-label { color: var(--sage); }
+  .box.danger .box-label { color: var(--danger); }
+
+  /* Lists */
+  ul.bullet, ol.numbered {
+    margin: 12px 0 12px 0;
+    padding-left: 22px;
+  }
+  ul.bullet li, ol.numbered li {
+    margin: 6px 0;
+  }
+
+  /* Comparison table */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+  @media (max-width: 720px) { .compare { grid-template-columns: 1fr; } }
+  .compare .col {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .compare .col h4 {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  .compare .col.before h4 { color: var(--text-dim); }
+  .compare .col.after h4 { color: var(--coral); }
+  .compare .col p, .compare .col li { font-size: 14px; }
+
+  /* Mockup phone */
+  .mockup-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+    margin: 20px 0 32px;
+  }
+  .mockup {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .mockup-caption {
+    font-family: var(--montserrat);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--coral);
+    text-align: center;
+  }
+  .mockup-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+  .phone {
+    width: 100%;
+    aspect-ratio: 9 / 16;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .phone .header {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .phone .player-stage {
+    position: absolute;
+    inset: 36px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+  }
+  .hero {
+    aspect-ratio: 16 / 11;
+    background: linear-gradient(135deg, #5b4033, #2d2017);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero.bw {
+    filter: grayscale(1) contrast(1.05);
+  }
+  .hero.line {
+    background: #fff;
+    background-image:
+      repeating-linear-gradient(45deg, transparent 0 8px, rgba(0,0,0,0.12) 8px 9px),
+      repeating-linear-gradient(-45deg, transparent 0 6px, rgba(0,0,0,0.08) 6px 7px);
+  }
+  .hero.unavailable {
+    background: var(--coral-bg);
+    border: 2px dashed var(--coral);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--coral);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 8px;
+  }
+  .hero-treatment-label {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .player-meta { font-size: 11px; font-weight: 700; color: var(--text); }
+  .player-meta .sub { font-size: 9px; color: var(--text-dim); font-weight: 400; margin-top: 2px; }
+  .treatment-pills {
+    display: flex;
+    gap: 4px;
+    margin: 6px 0;
+  }
+  .pill {
+    flex: 1;
+    text-align: center;
+    padding: 4px 0;
+    font-size: 9px;
+    font-weight: 700;
+    border-radius: 6px;
+    background: var(--surface-raised);
+    color: var(--text-dim);
+  }
+  .pill.active {
+    background: var(--coral);
+    color: var(--bg);
+  }
+  .pill.locked {
+    color: var(--text-mute);
+    opacity: 0.5;
+    text-decoration: line-through;
+  }
+
+  /* Flow diagram */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background: var(--surface-raised);
+    border-radius: 10px;
+    border-left: 3px solid var(--gray-700);
+  }
+  .flow-step.required { border-left-color: var(--coral); }
+  .flow-step.atomic { border-left-color: var(--sage); }
+  .flow-step .num {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--surface-elev);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--coral);
+  }
+  .flow-step .text { flex: 1; font-size: 13px; }
+  .flow-step .text .name { font-weight: 600; }
+  .flow-step .text .detail { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .flow-arrow {
+    text-align: center;
+    color: var(--text-mute);
+    font-size: 14px;
+    line-height: 0;
+  }
+  .flow-fail {
+    background: var(--danger-bg);
+    border-left: 3px solid var(--danger);
+    padding: 12px 16px;
+    border-radius: 10px;
+    color: var(--danger);
+    font-size: 13px;
+    margin-top: 12px;
+  }
+
+  /* Decision table */
+  .decision-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    background: var(--surface);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .decision-table th, .decision-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .decision-table th {
+    background: var(--surface-raised);
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--coral);
+  }
+  .decision-table tr:last-child td { border-bottom: none; }
+  .yes { color: var(--sage); font-weight: 700; }
+  .no { color: var(--danger); font-weight: 700; }
+  .changes { color: var(--coral); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Publish flow refactor</h1>
+<p class="meta">Spec + mockups · 2026-05-15 · Awaiting redline</p>
+
+<div class="box coral">
+  <div class="box-label">Why this exists</div>
+  <p>Three load-bearing decisions Carl made on 2026-05-15 that together reshape how publishing works:</p>
+  <ol class="numbered">
+    <li><strong>B&amp;W becomes the primary treatment</strong> (line drawing demotes to one of several practitioner-choice options).</li>
+    <li><strong>Publish is atomic</strong> — every file must land before publish is declared successful; otherwise the whole thing fails and the credit refunds.</li>
+    <li><strong>Consent is decoupled from upload.</strong> Every treatment file uploads on every publish regardless of consent. Consent stays as a pure player-side visibility gate — practitioners can toggle later without re-publishing.</li>
+  </ol>
+</div>
+
+<div class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#decisions">Decisions captured</a></li>
+    <li><a href="#default-swap">Default treatment swap (line → B&amp;W)</a></li>
+    <li><a href="#atomic-publish">Atomic publish (all-or-nothing)</a></li>
+    <li><a href="#consent-decouple">Consent as visibility gate (not upload gate)</a></li>
+    <li><a href="#soft-fallback">Soft fallback to line drawing</a></li>
+    <li><a href="#scope">What changes in code</a></li>
+    <li><a href="#open">Open questions</a></li>
+    <li><a href="#phasing">Phasing &amp; rollout</a></li>
+  </ol>
+</div>
+
+<!-- ─────────────────────────────────────── 1. DECISIONS ─────────────────────────────────────── -->
+<h2 id="decisions">1. Decisions captured</h2>
+<table class="decision-table">
+  <thead>
+    <tr><th>Decision</th><th>Today</th><th>After refactor</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Default treatment a new exercise is captured with</td>
+      <td>Line drawing</td>
+      <td class="changes">Black &amp; white</td>
+    </tr>
+    <tr>
+      <td>What the client sees by default when opening the plan link</td>
+      <td>Line drawing</td>
+      <td class="changes">Black &amp; white (with consent), else line drawing as soft fallback</td>
+    </tr>
+    <tr>
+      <td>Publish flow on partial failure</td>
+      <td>Toast says "published; some files still processing"</td>
+      <td class="changes">Whole publish fails. Credit refunds. Practitioner retries.</td>
+    </tr>
+    <tr>
+      <td>What gets uploaded</td>
+      <td>Line always; B&amp;W + colour only if consent granted</td>
+      <td class="changes">Everything, every time, regardless of consent</td>
+    </tr>
+    <tr>
+      <td>Consent role</td>
+      <td>Gates uploads AND playback</td>
+      <td class="changes">Gates playback only (player surface)</td>
+    </tr>
+    <tr>
+      <td>Re-publish required after consent change</td>
+      <td class="no">Yes</td>
+      <td class="yes">No — files are already in the cloud</td>
+    </tr>
+    <tr>
+      <td>Credit consumption</td>
+      <td>Before uploads (with compensating refund on partial failure)</td>
+      <td>No change — but refund path becomes the standard failure mode, not the exception</td>
+    </tr>
+    <tr>
+      <td>Backfill existing plans</td>
+      <td>n/a</td>
+      <td class="no">No — not in production yet</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ─────────────────────────────────────── 2. DEFAULT SWAP ─────────────────────────────────────── -->
+<h2 id="default-swap">2. Default treatment swap (line → B&amp;W)</h2>
+<p>B&amp;W becomes the default treatment a new exercise is captured with, and the default rendering when a client opens a plan link with full consent. Practitioners can still pick per-exercise (Line / B&amp;W / Colour) on the editor sheet, and clients can override session-wide via the gear popover.</p>
+
+<div class="mockup-row">
+  <div class="mockup">
+    <div class="mockup-caption">Today · line is primary</div>
+    <div class="mockup-note">Client opens link, sees line drawing first</div>
+    <div class="phone">
+      <div class="header"><span>9:41</span><span>● ●</span></div>
+      <div class="player-stage">
+        <div class="player-meta">Hi Mike<div class="sub">3 exercises · ~8 min · From Coach</div></div>
+        <div class="hero line">
+          <div class="hero-treatment-label">Line</div>
+        </div>
+        <div class="player-meta">Lateral raise<div class="sub">3 sets · 10 reps</div></div>
+        <div class="treatment-pills">
+          <span class="pill active">Line</span>
+          <span class="pill">B&amp;W</span>
+          <span class="pill">Colour</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-caption">After · B&amp;W is primary</div>
+    <div class="mockup-note">Same client, same consent, B&amp;W front and centre</div>
+    <div class="phone">
+      <div class="header"><span>9:41</span><span>● ●</span></div>
+      <div class="player-stage">
+        <div class="player-meta">Hi Mike<div class="sub">3 exercises · ~8 min · From Coach</div></div>
+        <div class="hero bw">
+          <div class="hero-treatment-label">B&amp;W</div>
+        </div>
+        <div class="player-meta">Lateral raise<div class="sub">3 sets · 10 reps</div></div>
+        <div class="treatment-pills">
+          <span class="pill">Line</span>
+          <span class="pill active">B&amp;W</span>
+          <span class="pill">Colour</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="box sage">
+  <div class="box-label">Why the swap</div>
+  <p>Line drawing was the easy default to ship — it's always consented, the de-identified version is POPIA-friendly by design. But B&amp;W is more visually informative for clients trying to copy a movement: real human form, real space, but still distanced from full-colour identification. Line stays as a treatment option (and the soft consent fallback) but cedes the default slot.</p>
+</div>
+
+<!-- ─────────────────────────────────────── 3. ATOMIC PUBLISH ─────────────────────────────────────── -->
+<h2 id="atomic-publish">3. Atomic publish (all-or-nothing)</h2>
+<p>Today's publish flow runs in two phases: line drawing → public bucket (Phase 1, "must succeed for publish to count"), then raw archive variants → private bucket (Phase 2, "best-effort, partial failure surfaces a toast"). The new model collapses both into one mandatory phase.</p>
+
+<div class="compare">
+  <div class="col before">
+    <h4>Today — partial success allowed</h4>
+    <ul class="bullet">
+      <li>Phase 1 sends line drawing</li>
+      <li>If Phase 1 succeeds → publish is "successful"</li>
+      <li>Phase 2 tries the rest best-effort</li>
+      <li>Partial failure → toast: "published; some files still processing"</li>
+      <li>Practitioner has to remember to retry to backfill</li>
+    </ul>
+  </div>
+  <div class="col after">
+    <h4>After — all uploads mandatory</h4>
+    <ul class="bullet">
+      <li>Every treatment file uploads</li>
+      <li>If ANY file fails → publish fails</li>
+      <li>Credit refunds silently — never charged on failure</li>
+      <li>Retry button on the progress sheet</li>
+      <li>Once published, all treatments are in the cloud and consent toggles work without re-publishing</li>
+    </ul>
+  </div>
+</div>
+
+<div class="flow">
+  <div class="flow-step required">
+    <div class="num">1</div>
+    <div class="text"><div class="name">Preparing</div><div class="detail">File integrity check + capture consent snapshot</div></div>
+  </div>
+  <div class="flow-arrow">▼</div>
+  <div class="flow-step atomic">
+    <div class="num">2</div>
+    <div class="text"><div class="name">Reserve credit (atomic RPC)</div><div class="detail">Credit is consumed up front; refunds on any failure below</div></div>
+  </div>
+  <div class="flow-arrow">▼</div>
+  <div class="flow-step required">
+    <div class="num">3</div>
+    <div class="text"><div class="name">Upload every treatment file</div><div class="detail">Line + B&amp;W + colour + segmented + thumbnails + mask · ALL must succeed regardless of consent · ~30s for typical plan</div></div>
+  </div>
+  <div class="flow-arrow">▼</div>
+  <div class="flow-step atomic">
+    <div class="num">4</div>
+    <div class="text"><div class="name">Save plan metadata</div><div class="detail">Atomic upsert of exercises + plan version bump</div></div>
+  </div>
+  <div class="flow-arrow">▼</div>
+  <div class="flow-step atomic">
+    <div class="num">5</div>
+    <div class="text"><div class="name">Finalise</div><div class="detail">Orphan cleanup + plan issuance audit row + share URL ready</div></div>
+  </div>
+  <div class="flow-fail"><strong>Any failure</strong> → halt, refund credit silently, surface the failed step on the progress sheet with a retry button. No partial-success path.</div>
+</div>
+
+<p>Full UX of the progress sheet itself lives in the sibling wireframe at <code><a href="./publish-progress-sheet.html" style="color: var(--coral); text-decoration: underline;">publish-progress-sheet.html</a></code>.</p>
+
+<!-- ─────────────────────────────────────── 4. CONSENT DECOUPLE ─────────────────────────────────────── -->
+<h2 id="consent-decouple">4. Consent as visibility gate (not upload gate)</h2>
+<p>Today, consent gates BOTH the upload (we skip uploading colour if the client hasn't granted colour consent) AND the playback (signed URLs are NULL when consent is revoked). The new model retains only the latter.</p>
+
+<div class="box sage">
+  <div class="box-label">Why decouple</div>
+  <p>If a client revokes consent today and later grants it again, the practitioner has to <strong>re-publish</strong> the plan to push the missing files. That's wasteful (uploads they already paid for in the credit) and clunky (the practitioner may not even know consent changed). With decoupled uploads, the files are always in the cloud, and consent toggles become a pure player-side switch with zero round-trip.</p>
+</div>
+
+<table class="decision-table">
+  <thead>
+    <tr><th>Surface</th><th>Today</th><th>After</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Mobile upload flow (<code>_uploadRawArchives</code>)</td><td>Skips files for revoked treatments</td><td class="changes">Uploads everything, always</td></tr>
+    <tr><td>Player <code>get_plan_full</code> RPC</td><td>Returns NULL signed URL for revoked treatments</td><td>No change — already correct</td></tr>
+    <tr><td>Practitioner toggles consent in editor</td><td>Affects next publish's upload set</td><td class="changes">Affects player surface immediately, no re-publish needed</td></tr>
+  </tbody>
+</table>
+
+<!-- ─────────────────────────────────────── 5. SOFT FALLBACK ─────────────────────────────────────── -->
+<h2 id="soft-fallback">5. Soft fallback to line drawing</h2>
+<p>Carl picked <strong>Option A</strong> on the consent-fallback question (2026-05-15): when the practitioner's preferred treatment lacks client consent, the player shows the line drawing as a soft fallback — not a coral "treatment not available" placeholder.</p>
+
+<div class="mockup-row">
+  <div class="mockup">
+    <div class="mockup-caption">B&amp;W consented</div>
+    <div class="mockup-note">Practitioner preferred B&amp;W, client granted B&amp;W → B&amp;W</div>
+    <div class="phone">
+      <div class="header"><span>9:41</span><span>● ●</span></div>
+      <div class="player-stage">
+        <div class="player-meta">Lateral raise<div class="sub">3 sets · 10 reps</div></div>
+        <div class="hero bw">
+          <div class="hero-treatment-label">B&amp;W (preferred)</div>
+        </div>
+        <div class="treatment-pills">
+          <span class="pill">Line</span>
+          <span class="pill active">B&amp;W</span>
+          <span class="pill">Colour</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-caption">B&amp;W consent revoked</div>
+    <div class="mockup-note">Practitioner preferred B&amp;W, client only consented to line → soft fallback to line</div>
+    <div class="phone">
+      <div class="header"><span>9:41</span><span>● ●</span></div>
+      <div class="player-stage">
+        <div class="player-meta">Lateral raise<div class="sub">3 sets · 10 reps</div></div>
+        <div class="hero line">
+          <div class="hero-treatment-label">Line (fallback)</div>
+        </div>
+        <div class="treatment-pills">
+          <span class="pill active">Line</span>
+          <span class="pill locked">B&amp;W</span>
+          <span class="pill locked">Colour</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-caption">File missing on disk</div>
+    <div class="mockup-note">Preferred treatment file actually missing → coral placeholder (no-fallback principle)</div>
+    <div class="phone">
+      <div class="header"><span>9:41</span><span>● ●</span></div>
+      <div class="player-stage">
+        <div class="player-meta">Lateral raise<div class="sub">3 sets · 10 reps</div></div>
+        <div class="hero unavailable">
+          Treatment not available
+        </div>
+        <div class="treatment-pills">
+          <span class="pill">Line</span>
+          <span class="pill active">B&amp;W</span>
+          <span class="pill">Colour</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="box coral">
+  <div class="box-label">The distinction matters</div>
+  <p>The no-fallback principle (ratified 2026-05-14) says: when a treatment file is genuinely <strong>missing</strong> (URL expired, file never uploaded, etc.) we show a coral "not available" placeholder. That principle stands.</p>
+  <p>The new <strong>soft-fallback</strong> rule covers a different case: the file exists, but <strong>consent</strong> hides it. Line drawing — the universal-consent baseline — is the documented substitute. This is not a silent swap on file failure; it's a deliberate floor for the consent layer specifically.</p>
+</div>
+
+<!-- ─────────────────────────────────────── 6. SCOPE ─────────────────────────────────────── -->
+<h2 id="scope">6. What changes in code</h2>
+<p>High-level scope — implementation agent will map this to actual diffs.</p>
+
+<h3>Mobile (Flutter)</h3>
+<ul class="bullet">
+  <li><strong>Default treatment on new exercises</strong> — flip from line → B&amp;W wherever the default is set (capture flow, editor sheet, sticky defaults table).</li>
+  <li><strong>Publish flow (<code>upload_service.dart</code>)</strong> — remove consent branching from the raw-archive upload loop; every file uploads every time. Treat each file failure as a hard publish failure.</li>
+  <li><strong>Progress sheet</strong> — new bottom sheet widget per the <a href="./publish-progress-sheet.html" style="color: var(--coral); text-decoration: underline;">sibling wireframe</a>. Replaces the partial-success toast.</li>
+  <li><strong>Workflow toolbar chip</strong> — surfaces "publishing N/M" when the sheet is dismissed; tap to re-open.</li>
+  <li><strong>Failure UX</strong> — coral retry button; tap-through to the in-app diagnostic sheet shipped in <a href="https://github.com/carlheinmostert/TrainMe/pull/345" target="_blank" style="color: var(--coral); text-decoration: underline;">#345</a>.</li>
+</ul>
+
+<h3>Web player</h3>
+<ul class="bullet">
+  <li><strong>Default treatment in the lobby resolver</strong> — flip from line → B&amp;W when an exercise has no explicit <code>preferred_treatment</code>.</li>
+  <li><strong>Soft fallback to line</strong> — when the player resolver tries the preferred treatment and the signed URL is NULL (consent revoked, not file-missing), fall back to line drawing rather than the coral placeholder. Add a small "Line (showing because B&amp;W is private)" hint? Or silent? — open question.</li>
+</ul>
+
+<h3>Backend (Supabase)</h3>
+<ul class="bullet">
+  <li><strong>No schema migration required.</strong> The <code>video_consent</code> jsonb on <code>clients</code> already gates the <code>get_plan_full</code> RPC's signed-URL emission. We just remove the upload-side branch.</li>
+  <li><strong><code>consume_credit</code> + refund</strong> — keep the existing atomic pattern. Refund row writes happen on every failure (today they happen only on post-consume failures, but they're already idempotent).</li>
+</ul>
+
+<!-- ─────────────────────────────────────── 7. OPEN QUESTIONS ─────────────────────────────────────── -->
+<h2 id="open">7. Open questions</h2>
+
+<div class="box coral">
+  <div class="box-label">Q1 · Should soft-fallback be explicit or silent?</div>
+  <p>When line replaces B&amp;W due to consent, does the client see a small label ("Showing line — B&amp;W is private for this plan"), or is the swap silent and the consent state only readable from the player gear menu? Argument for explicit: clients don't get confused about why the look changed if they previously had B&amp;W. Argument for silent: keeps the experience clean; the practitioner controls the narrative.</p>
+  <p>Carl's call.</p>
+</div>
+
+<div class="box coral">
+  <div class="box-label">Q2 · Storage cost ceiling</div>
+  <p>With every publish now uploading every variant regardless of consent, raw-archive storage grows ~3× the line-only baseline (every plan now ships colour + B&amp;W + segmented variants for every exercise). For the typical practitioner running 8-12 plans/month, this is fine. At scale (100+ practitioners), worth knowing the per-plan storage budget. <strong>Not blocking</strong> — flag for the business case spreadsheet.</p>
+</div>
+
+<div class="box coral">
+  <div class="box-label">Q3 · Per-exercise treatment preference defaults</div>
+  <p>If <code>preferred_treatment</code> on a new exercise is now B&amp;W instead of line, do existing exercises in mid-edit sessions auto-migrate to B&amp;W, or only newly-captured ones? I'd say: only newly captured (don't surprise the practitioner with treatment changes on plans they've started). Confirm.</p>
+</div>
+
+<!-- ─────────────────────────────────────── 8. PHASING ─────────────────────────────────────── -->
+<h2 id="phasing">8. Phasing &amp; rollout</h2>
+<p>Suggest landing in three sequential PRs to keep blast radius small:</p>
+
+<ol class="numbered">
+  <li><strong>PR-A · Decouple consent from upload.</strong> Just the <code>_uploadRawArchives</code> change — remove the consent branch, always upload. Atomic-failure semantic is the same as today's "any failure halts" but applied across all phases. Low-risk, single file.</li>
+  <li><strong>PR-B · Default treatment swap.</strong> Mobile + web player both flip default from line → B&amp;W. Touches capture flow, editor sheet, sticky defaults, and the web player resolver. Adds the soft-fallback rule. Medium scope; reviewable in 30 min.</li>
+  <li><strong>PR-C · Progress sheet + atomic publish UX.</strong> The new bottom sheet, the workflow chip, the failure retry path, the death of the partial-success toast. Largest of the three; depends on PR-A being in. UI-heavy.</li>
+</ol>
+
+<p>Estimated total effort: 4-6 hours of agent work. Each PR ships its own test script. Carl reviews PR-A and PR-C eyeball before merge (publish flow + UX both sensitive zones); PR-B is mostly mechanical and probably merge-on-pass.</p>
+
+<div class="box sage">
+  <div class="box-label">Ready to dispatch?</div>
+  <p>Redline this doc directly in the file if anything needs to change (decisions, scope, phasing). When you greenlight, I'll spawn three parallel agents — one per PR — and report PR URLs as they land. None of this changes anything until you say go.</p>
+</div>
+
+</div>
+</body>
+</html>

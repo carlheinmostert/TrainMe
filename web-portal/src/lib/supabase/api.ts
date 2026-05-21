@@ -673,6 +673,161 @@ export class PortalApi {
     if (code === '42501') throw new DeleteClientError('not-member', error.message);
     throw new Error(error.message);
   }
+
+  // ==========================================================================
+  // Premises + public profile (Safe Mode)
+  // ==========================================================================
+
+  /**
+   * `list_practice_premises(p_practice_id)` — SECURITY DEFINER RPC returning
+   * each premises with the polygon serialised as GeoJSON, plus pre-computed
+   * centroid lat/lng and area in m² for the portal map pins and the area
+   * sanity-check.
+   *
+   * Non-member callers receive 42501 inside the RPC; we fold to an empty
+   * list — the caller should have gated on practice membership first.
+   */
+  async listPracticePremises(
+    practiceId: string,
+  ): Promise<PracticePremises[]> {
+    const { data, error } = await this.supabase.rpc('list_practice_premises', {
+      p_practice_id: practiceId,
+    });
+    if (error || !data) return [];
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    return rows.map(mapPracticePremisesRow);
+  }
+
+  /**
+   * Create or update a premises. The polygon must be valid GeoJSON
+   * (`{"type":"Polygon","coordinates":[[[lng,lat],...]]}`) — Leaflet's
+   * `polygon.toGeoJSON().geometry` gives this directly.
+   *
+   * `id` is `null` to create a new row. Returns the row's id either way.
+   * Throws `PremisesError` with a kind discriminator on validation failure
+   * (vertex count, area, name shape, membership).
+   */
+  async upsertPremises(input: UpsertPremisesInput): Promise<string> {
+    const { data, error } = await this.supabase.rpc('upsert_premises', {
+      p_id: input.id ?? null,
+      p_practice_id: input.practiceId,
+      p_name: input.name,
+      p_address: input.address ?? null,
+      p_polygon_geojson: input.polygonGeoJson,
+      p_safe_mode_enforced: input.safeModeEnforced,
+    });
+    if (!error) {
+      return typeof data === 'string' ? data : '';
+    }
+    const code = (error as { code?: string }).code ?? '';
+    const message = error.message ?? '';
+    if (code === '42501') throw new PremisesError('not-member', message);
+    if (code === '22023') {
+      if (/too many vertices/i.test(message)) throw new PremisesError('too-many-vertices', message);
+      if (/at least 3 vertices/i.test(message)) throw new PremisesError('not-enough-vertices', message);
+      if (/polygon too large/i.test(message)) throw new PremisesError('polygon-too-large', message);
+      if (/polygon too small/i.test(message)) throw new PremisesError('polygon-too-small', message);
+      if (/name required/i.test(message)) throw new PremisesError('name-empty', message);
+      if (/name too long/i.test(message)) throw new PremisesError('name-too-long', message);
+      if (/invalid polygon/i.test(message)) throw new PremisesError('invalid-polygon', message);
+      throw new PremisesError('invalid-input', message);
+    }
+    throw new Error(message);
+  }
+
+  /**
+   * Soft-delete a premises (idempotent on an already-deleted row).
+   */
+  async deletePremises(premisesId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('delete_premises', {
+      p_premises_id: premisesId,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code ?? '';
+    if (code === '42501') throw new PremisesError('not-member', error.message);
+    throw new Error(error.message);
+  }
+
+  /**
+   * Restore a soft-deleted premises (idempotent on a live row).
+   */
+  async restorePremises(premisesId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('restore_premises', {
+      p_premises_id: premisesId,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code ?? '';
+    if (code === '42501') throw new PremisesError('not-member', error.message);
+    if (code === 'P0002') throw new PremisesError('not-found', error.message);
+    throw new Error(error.message);
+  }
+
+  /**
+   * Set the practice's public profile (slug + logo + blurb + directory
+   * opt-in). Owner-only inside the RPC (42501 for practitioners).
+   */
+  async setPracticePublicProfile(
+    input: SetPracticePublicProfileInput,
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc('set_practice_public_profile', {
+      p_practice_id: input.practiceId,
+      p_slug: input.slug,
+      p_logo_url: input.logoUrl,
+      p_blurb: input.blurb,
+      p_listed: input.listed,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code ?? '';
+    const message = error.message ?? '';
+    if (code === '23505') throw new PublicProfileError('slug-taken', message);
+    if (code === '42501') throw new PublicProfileError('not-owner', message);
+    if (code === '22023') {
+      if (/slug must be/i.test(message)) throw new PublicProfileError('slug-invalid', message);
+      if (/blurb max/i.test(message)) throw new PublicProfileError('blurb-too-long', message);
+      if (/cannot list practice/i.test(message)) throw new PublicProfileError('listed-without-slug', message);
+      throw new PublicProfileError('invalid-input', message);
+    }
+    throw new Error(message);
+  }
+
+  /**
+   * Returns the current `practices` row including the public profile
+   * columns (slug + logo + blurb + listed) for the settings form.
+   */
+  async getPracticePublicProfile(
+    practiceId: string,
+  ): Promise<PracticePublicProfile | null> {
+    const { data, error } = await this.supabase
+      .from('practices')
+      .select(
+        'id, name, public_slug, public_logo_url, public_blurb, public_profile_listed',
+      )
+      .eq('id', practiceId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      practiceId: data.id,
+      practiceName: data.name,
+      slug: data.public_slug,
+      logoUrl: data.public_logo_url,
+      blurb: data.public_blurb,
+      listed: data.public_profile_listed ?? false,
+    };
+  }
+
+  /**
+   * Suggest a slug from a practice name (server-side helper —
+   * lowercase, hyphen-separated, alphanumeric only). The caller still
+   * needs to handle uniqueness; the RPC returns NULL for empty input.
+   */
+  async suggestPracticeSlug(name: string): Promise<string | null> {
+    const { data, error } = await this.supabase.rpc(
+      'practice_premises_default_slug',
+      { p_name: name },
+    );
+    if (error) return null;
+    return typeof data === 'string' && data.length > 0 ? data : null;
+  }
 }
 
 export class RenameClientError extends Error {
@@ -717,6 +872,114 @@ export class DeleteClientError extends Error {
   ) {
     super(message);
     this.name = 'DeleteClientError';
+  }
+}
+
+// ============================================================================
+// Premises types (Safe Mode)
+// ============================================================================
+
+export type PracticePremises = {
+  id: string;
+  practiceId: string;
+  name: string;
+  address: string | null;
+  /** GeoJSON `Geometry` object as a string — feed to Leaflet via `JSON.parse`. */
+  polygonGeoJson: string;
+  centroidLat: number;
+  centroidLng: number;
+  areaM2: number;
+  safeModeEnforced: boolean;
+  signalType: 'gps' | 'gps+wifi' | 'gps+beacon';
+  createdAt: string;
+  updatedAt: string;
+};
+
+function mapPracticePremisesRow(r: Record<string, unknown>): PracticePremises {
+  return {
+    id: String(r.id ?? ''),
+    practiceId: String(r.practice_id ?? ''),
+    name: String(r.name ?? ''),
+    address: typeof r.address === 'string' && r.address.length > 0 ? r.address : null,
+    polygonGeoJson: String(r.polygon_geojson ?? ''),
+    centroidLat: Number(r.centroid_lat ?? 0),
+    centroidLng: Number(r.centroid_lng ?? 0),
+    areaM2: Number(r.area_m2 ?? 0),
+    safeModeEnforced: Boolean(r.safe_mode_enforced),
+    signalType: (r.signal_type === 'gps+wifi' || r.signal_type === 'gps+beacon')
+      ? r.signal_type
+      : 'gps',
+    createdAt: String(r.created_at ?? ''),
+    updatedAt: String(r.updated_at ?? ''),
+  };
+}
+
+export type UpsertPremisesInput = {
+  /** Null to create a new row; the existing UUID to update. */
+  id: string | null;
+  practiceId: string;
+  name: string;
+  address: string | null;
+  /** GeoJSON `Geometry` object as a string. */
+  polygonGeoJson: string;
+  safeModeEnforced: boolean;
+};
+
+export type PremisesErrorKind =
+  | 'not-member'
+  | 'not-found'
+  | 'name-empty'
+  | 'name-too-long'
+  | 'invalid-polygon'
+  | 'too-many-vertices'
+  | 'not-enough-vertices'
+  | 'polygon-too-large'
+  | 'polygon-too-small'
+  | 'invalid-input';
+
+export class PremisesError extends Error {
+  constructor(
+    public readonly kind: PremisesErrorKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PremisesError';
+  }
+}
+
+export type SetPracticePublicProfileInput = {
+  practiceId: string;
+  /** Null to clear. Must match `^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$`. */
+  slug: string | null;
+  logoUrl: string | null;
+  blurb: string | null;
+  listed: boolean;
+};
+
+export type PracticePublicProfile = {
+  practiceId: string;
+  practiceName: string;
+  slug: string | null;
+  logoUrl: string | null;
+  blurb: string | null;
+  listed: boolean;
+};
+
+export type PublicProfileErrorKind =
+  | 'slug-taken'
+  | 'not-owner'
+  | 'slug-invalid'
+  | 'blurb-too-long'
+  | 'listed-without-slug'
+  | 'invalid-input';
+
+export class PublicProfileError extends Error {
+  constructor(
+    public readonly kind: PublicProfileErrorKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PublicProfileError';
   }
 }
 

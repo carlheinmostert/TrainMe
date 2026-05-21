@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Publish progress sheet — wireframe</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #1A1D26;
+    --surface-raised: #232734;
+    --surface-elev: #2A2E3C;
+    --coral: #FF6B35;
+    --coral-dim: rgba(255, 107, 53, 0.18);
+    --coral-bg: rgba(255, 107, 53, 0.12);
+    --sage: #86EFAC;
+    --sage-dim: rgba(134, 239, 172, 0.18);
+    --danger: #EF6B6B;
+    --danger-bg: rgba(239, 107, 107, 0.12);
+    --text: #F5F7FB;
+    --text-dim: #9CA3AF;
+    --text-mute: #6B7280;
+    --border: rgba(255, 255, 255, 0.06);
+    --montserrat: 'Montserrat', system-ui, -apple-system, sans-serif;
+    --inter: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--inter);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 32px 16px 80px;
+  }
+  .page-title {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 24px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .page-subtitle {
+    color: var(--text-dim);
+    text-align: center;
+    margin-bottom: 40px;
+    font-size: 14px;
+  }
+  .variants {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 32px;
+    max-width: 1500px;
+    margin: 0 auto;
+  }
+  .variant {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .variant-label {
+    font-family: var(--montserrat);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--coral);
+  }
+  .variant-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    min-height: 32px;
+  }
+
+  /* iPhone frame */
+  .phone {
+    width: 100%;
+    max-width: 380px;
+    aspect-ratio: 390 / 700;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 36px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    margin: 0 auto;
+  }
+  .phone .status-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 22px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .phone .stage {
+    position: absolute;
+    inset: 44px 0 0 0;
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+  }
+  /* The underlying app (dimmed when sheet is up) */
+  .app-bg {
+    position: absolute;
+    inset: 44px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 12px;
+    opacity: 0.18;
+    pointer-events: none;
+  }
+  .app-bg.bright {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .app-card {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .app-card .thumb {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #4B5563, #2A2E3C);
+  }
+  .app-card .body { flex: 1; }
+  .app-card .name { font-weight: 600; font-size: 13px; }
+  .app-card .meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  /* Workflow toolbar at bottom of app */
+  .workflow-toolbar {
+    position: absolute;
+    bottom: 24px;
+    left: 16px;
+    right: 16px;
+    background: var(--surface-raised);
+    border-radius: 28px;
+    padding: 10px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .workflow-step {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 0;
+  }
+  .workflow-step.active {
+    color: var(--coral);
+  }
+  .workflow-step .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* The publishing chip that appears when sheet is dismissed */
+  .publishing-chip {
+    position: absolute;
+    top: 60px;
+    left: 16px;
+    right: 16px;
+    background: var(--coral-bg);
+    border: 1px solid var(--coral-dim);
+    border-radius: 22px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .publishing-chip .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--coral-dim);
+    border-top-color: var(--coral);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .publishing-chip .text {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .publishing-chip .text .progress-line {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 400;
+    margin-top: 1px;
+  }
+  .publishing-chip .chevron {
+    color: var(--text-dim);
+    font-size: 18px;
+  }
+
+  /* The bottom sheet */
+  .sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-radius: 24px 24px 0 0;
+    padding: 12px 0 28px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.4);
+  }
+  .sheet .handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--text-mute);
+    align-self: center;
+    margin-bottom: 16px;
+    opacity: 0.6;
+  }
+  .sheet .title {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 18px;
+    padding: 0 20px 14px;
+  }
+  .sheet .subtitle {
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 0 20px 16px;
+    margin-top: -10px;
+  }
+  .sheet .steps {
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .step:last-of-type { border-bottom: none; }
+  .step .icon {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--surface-elev);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .step.pending .icon {
+    background: var(--surface-elev);
+    color: var(--text-mute);
+  }
+  .step.active .icon {
+    background: var(--coral-bg);
+    border: 1.5px solid var(--coral);
+    color: var(--coral);
+    position: relative;
+  }
+  .step.active .icon::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1.5px solid var(--coral);
+    opacity: 0.35;
+    animation: pulse 1.6s ease-out infinite;
+  }
+  @keyframes pulse {
+    from { transform: scale(0.95); opacity: 0.35; }
+    to { transform: scale(1.4); opacity: 0; }
+  }
+  .step.done .icon {
+    background: var(--sage-dim);
+    color: var(--sage);
+  }
+  .step.failed .icon {
+    background: var(--danger-bg);
+    border: 1.5px solid var(--danger);
+    color: var(--danger);
+  }
+  .step .body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .step .name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .step.pending .name { color: var(--text-dim); }
+  .step .detail {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .step.failed .detail { color: var(--danger); }
+
+  /* The thin progress bar inside step 3 */
+  .substep-progress {
+    margin-top: 6px;
+    height: 3px;
+    background: var(--surface-elev);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .substep-progress .bar {
+    height: 100%;
+    background: var(--coral);
+    border-radius: 2px;
+  }
+
+  /* The diagnostic tap-through caret inside failed step */
+  .failed-tap-target {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--coral);
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 4px;
+    cursor: pointer;
+  }
+
+  /* CTA buttons at sheet bottom */
+  .sheet-cta {
+    padding: 20px 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .btn {
+    border: none;
+    border-radius: 28px;
+    padding: 14px;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: var(--inter);
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--coral);
+    color: var(--bg);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-dim);
+  }
+
+  /* Success "all set" final beat */
+  .success-banner {
+    margin: 16px 20px 0;
+    padding: 14px;
+    background: var(--sage-dim);
+    border-radius: 14px;
+    text-align: center;
+    color: var(--sage);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  /* Annotation flag (legend-style) */
+  .annotation {
+    background: var(--coral-bg);
+    border-left: 3px solid var(--coral);
+    padding: 10px 12px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .annotation b { color: var(--coral); font-weight: 700; }
+
+  .legend {
+    max-width: 720px;
+    margin: 48px auto 0;
+    padding: 24px;
+    background: var(--surface);
+    border-radius: 14px;
+  }
+  .legend h2 {
+    font-family: var(--montserrat);
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--coral);
+  }
+  .legend ul { list-style: none; padding: 0; }
+  .legend li {
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .legend li b { color: var(--coral); }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Publish progress sheet</h1>
+<p class="page-subtitle">Wireframe · 4 state variants · 2026-05-15</p>
+
+<div class="variants">
+
+  <!-- ─────────────────────────────────────── VARIANT 1 ─────────────────────────────────────── -->
+  <div class="variant">
+    <span class="variant-label">A · mid-publish</span>
+    <div class="variant-note">Two phases done, uploads in progress (8 of 12 files), two phases waiting. Pulse on the active row.</div>
+    <div class="phone">
+      <div class="status-bar"><span>14:23</span><span>● ●</span></div>
+      <div class="app-bg">
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+      </div>
+      <div class="sheet">
+        <div class="handle"></div>
+        <div class="title">Publishing your plan</div>
+        <p class="subtitle">Swipe down to keep working — we'll keep going.</p>
+        <div class="steps">
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Preparing</div><div class="detail">File check + consent snapshot</div></div></div>
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Reserving credit</div><div class="detail">1 credit reserved</div></div></div>
+          <div class="step active"><div class="icon">3</div><div class="body"><div class="name">Uploading treatments</div><div class="detail">8 of 12 files · ~30s remaining</div><div class="substep-progress"><div class="bar" style="width: 67%;"></div></div></div></div>
+          <div class="step pending"><div class="icon">4</div><div class="body"><div class="name">Saving plan</div></div></div>
+          <div class="step pending"><div class="icon">5</div><div class="body"><div class="name">Finalising</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation">
+      <b>Note:</b> Active row pulses coral. Phase 3 shows aggregated <b>"N of M files"</b> + thin progress bar. Tap-to-expand the per-file detail could live here later (not in v1).
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────── VARIANT 2 ─────────────────────────────────────── -->
+  <div class="variant">
+    <span class="variant-label">B · failure</span>
+    <div class="variant-note">Upload phase halted. Coral row with reason. Big retry button. Tap-target into the deep diagnostic.</div>
+    <div class="phone">
+      <div class="status-bar"><span>14:24</span><span>● ●</span></div>
+      <div class="app-bg">
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+      </div>
+      <div class="sheet">
+        <div class="handle"></div>
+        <div class="title">Publish failed</div>
+        <p class="subtitle">Credit refunded · nothing was charged.</p>
+        <div class="steps">
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Preparing</div></div></div>
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Reserving credit</div></div></div>
+          <div class="step failed"><div class="icon">!</div><div class="body"><div class="name">Uploading treatments</div><div class="detail">3 of 12 files couldn't upload. Network may have dropped.</div><div class="failed-tap-target">Show which files →</div></div></div>
+          <div class="step pending"><div class="icon">4</div><div class="body"><div class="name">Saving plan</div></div></div>
+          <div class="step pending"><div class="icon">5</div><div class="body"><div class="name">Finalising</div></div></div>
+        </div>
+        <div class="sheet-cta">
+          <button class="btn btn-primary">Retry publish</button>
+          <button class="btn btn-ghost">Close</button>
+        </div>
+      </div>
+    </div>
+    <div class="annotation">
+      <b>Note:</b> Failed row stays coral, halt all subsequent steps. <b>"Show which files →"</b> opens the deep per-file diagnostic sheet (the affordance from the publish-toast diagnostic PR). Credit refunded silently before the sheet enters this state, so the user is never told "we charged you, retry to recover".
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────── VARIANT 3 ─────────────────────────────────────── -->
+  <div class="variant">
+    <span class="variant-label">C · success (final beat)</span>
+    <div class="variant-note">All five done. Brief 1-second "All set" beat, then sheet auto-dismisses back to the workflow toolbar.</div>
+    <div class="phone">
+      <div class="status-bar"><span>14:25</span><span>● ●</span></div>
+      <div class="app-bg">
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+      </div>
+      <div class="sheet">
+        <div class="handle"></div>
+        <div class="title">Publishing your plan</div>
+        <p class="subtitle">Swipe down to keep working — we'll keep going.</p>
+        <div class="steps">
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Preparing</div></div></div>
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Reserving credit</div></div></div>
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Uploading treatments</div><div class="detail">12 of 12 files uploaded</div></div></div>
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Saving plan</div></div></div>
+          <div class="step done"><div class="icon">✓</div><div class="body"><div class="name">Finalising</div></div></div>
+        </div>
+        <div class="success-banner">✓ All set</div>
+      </div>
+    </div>
+    <div class="annotation">
+      <b>Note:</b> "All set" beat shows for ~1 second, then the sheet auto-dismisses. The Share button on the workflow toolbar lights up coral and a transient toast confirms "Plan published" with no parenthetical jargon. Tapping the share affordance opens the iOS share sheet directly.
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────── VARIANT 4 ─────────────────────────────────────── -->
+  <div class="variant">
+    <span class="variant-label">D · dismissed (chip mode)</span>
+    <div class="variant-note">User swiped the sheet down mid-publish. Publish continues. A coral chip appears under the AppBar; tap to re-open the sheet.</div>
+    <div class="phone">
+      <div class="status-bar"><span>14:23</span><span>● ●</span></div>
+      <div class="app-bg bright">
+        <div class="publishing-chip">
+          <div class="spinner"></div>
+          <div class="text">Publishing your plan<div class="progress-line">8 of 12 files · 30s</div></div>
+          <div class="chevron">↑</div>
+        </div>
+        <div style="height: 60px;"></div>
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+        <div class="app-card"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+      </div>
+    </div>
+    <div class="annotation">
+      <b>Note:</b> Chip is non-blocking, lives under the AppBar (above the exercise list). Spinner indicates progress. Tapping anywhere on the chip re-opens the full sheet. On completion, chip morphs into the dismissible "Plan published" toast; on failure, chip turns coral with "Tap to retry".
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <h2>Design decisions captured</h2>
+  <ul>
+    <li><b>(1) Non-blocking</b> — swipe-dismissible sheet; publish continues in background; chip on the workflow toolbar surfaces progress so the user can re-open the sheet at any time.</li>
+    <li><b>(2) Aggregated progress</b> — Phase 3 (Uploading treatments) shows <code>"N of M files"</code> + a thin coral progress bar. Per-file granularity is one tap away (failure-state diagnostic).</li>
+    <li><b>(3) Failure UX</b> — failing row turns coral, halts subsequent rows, credit refunds silently, big retry button at the bottom, deep diagnostic tap-through on the failed row's <i>"Show which files →"</i> link.</li>
+    <li><b>(4) Success</b> — 1-second "All set" beat, then sheet auto-dismisses. Share affordance lights up on the workflow toolbar.</li>
+    <li><b>(5) Cancellation</b> — not offered. Swipe-dismiss continues the publish; no abort path. Avoids the race between credit consume and refund.</li>
+    <li><b>(6) Phase count</b> — 5 visible phases. Atomic and fast phases (credit reserve, plan save, finalise) get their own row; slow phase (uploads) gets the progress detail.</li>
+  </ul>
+</div>
+
+</body>
+</html>

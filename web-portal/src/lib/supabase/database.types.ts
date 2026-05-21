@@ -601,20 +601,126 @@ export type Database = {
           id: string
           name: string
           owner_trainer_id: string | null
+          public_blurb: string | null
+          public_logo_url: string | null
+          public_profile_listed: boolean
+          public_profile_updated_at: string | null
+          public_slug: string | null
         }
         Insert: {
           created_at?: string
           id?: string
           name: string
           owner_trainer_id?: string | null
+          public_blurb?: string | null
+          public_logo_url?: string | null
+          public_profile_listed?: boolean
+          public_profile_updated_at?: string | null
+          public_slug?: string | null
         }
         Update: {
           created_at?: string
           id?: string
           name?: string
           owner_trainer_id?: string | null
+          public_blurb?: string | null
+          public_logo_url?: string | null
+          public_profile_listed?: boolean
+          public_profile_updated_at?: string | null
+          public_slug?: string | null
         }
         Relationships: []
+      }
+      practice_premises: {
+        Row: {
+          address: string | null
+          created_at: string
+          created_by_user_id: string | null
+          deleted_at: string | null
+          deleted_by_user_id: string | null
+          id: string
+          name: string
+          polygon: unknown
+          practice_id: string
+          safe_mode_enforced: boolean
+          signal_type: string
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          deleted_at?: string | null
+          deleted_by_user_id?: string | null
+          id?: string
+          name: string
+          polygon: unknown
+          practice_id: string
+          safe_mode_enforced?: boolean
+          signal_type?: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          created_by_user_id?: string | null
+          deleted_at?: string | null
+          deleted_by_user_id?: string | null
+          id?: string
+          name?: string
+          polygon?: unknown
+          practice_id?: string
+          safe_mode_enforced?: boolean
+          signal_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_premises_practice_fk"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      premises_reports: {
+        Row: {
+          created_at: string
+          id: string
+          premises_id: string
+          reason: string
+          reporter_user_id: string | null
+          resolution_note: string | null
+          resolved_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          premises_id: string
+          reason: string
+          reporter_user_id?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          premises_id?: string
+          reason?: string
+          reporter_user_id?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "premises_reports_premises_fk"
+            columns: ["premises_id"]
+            isOneToOne: false
+            referencedRelation: "practice_premises"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       referral_codes: {
         Row: {
@@ -1059,6 +1165,80 @@ export type Database = {
       }
       user_is_practice_owner: { Args: { pid: string }; Returns: boolean }
       user_practice_ids: { Args: never; Returns: string[] }
+      delete_premises: {
+        Args: { p_premises_id: string }
+        Returns: undefined
+      }
+      restore_premises: {
+        Args: { p_premises_id: string }
+        Returns: undefined
+      }
+      upsert_premises: {
+        Args: {
+          p_id: string | null
+          p_practice_id: string
+          p_name: string
+          p_address: string | null
+          p_polygon_geojson: string
+          p_safe_mode_enforced: boolean
+        }
+        Returns: string
+      }
+      list_practice_premises: {
+        Args: { p_practice_id: string }
+        Returns: {
+          id: string
+          practice_id: string
+          name: string
+          address: string | null
+          polygon_geojson: string
+          centroid_lat: number
+          centroid_lng: number
+          area_m2: number
+          safe_mode_enforced: boolean
+          signal_type: string
+          created_at: string
+          updated_at: string
+        }[]
+      }
+      set_practice_public_profile: {
+        Args: {
+          p_practice_id: string
+          p_slug: string | null
+          p_logo_url: string | null
+          p_blurb: string | null
+          p_listed: boolean
+        }
+        Returns: undefined
+      }
+      find_premises_at: {
+        Args: { p_lat: number; p_lng: number }
+        Returns: {
+          premises_id: string
+          practice_id: string
+          premises_name: string
+          safe_mode_enforced: boolean
+        }[]
+      }
+      get_practice_profile: {
+        Args: { p_slug: string }
+        Returns: {
+          practice_id: string
+          practice_name: string
+          slug: string
+          logo_url: string | null
+          blurb: string | null
+          premises: Json
+        }[]
+      }
+      report_premises: {
+        Args: { p_premises_id: string; p_reason: string }
+        Returns: string
+      }
+      practice_premises_default_slug: {
+        Args: { p_name: string }
+        Returns: string | null
+      }
     }
     Enums: {
       referral_rebate_kind:

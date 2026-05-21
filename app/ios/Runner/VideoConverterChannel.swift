@@ -278,12 +278,23 @@ class VideoConverterChannel {
             // output. Independently best-effort; a failure here never
             // disturbs the line-drawing or segmented writers.
             let maskOutputPath = args["maskOutputPath"] as? String
+            // Safe Mode (2026-05-21) — optional FOURTH writer emits a
+            // bystander-blurred raw archive: same source frame, but
+            // every segmented person OUTSIDE the largest detected
+            // human bbox is replaced with a flat coral silhouette.
+            // Only enabled when the capture happened inside a
+            // Safe-Mode-enforcing premises. Independently best-effort:
+            // a failure here MUST NOT disturb the line / segmented /
+            // mask writers — the practitioner still gets a usable
+            // line drawing even if the safe pass crashed.
+            let safeOutputPath = args["safeOutputPath"] as? String
             processingQueue.async { [weak self] in
                 self?.convertVideo(
                     inputPath: inputPath,
                     outputPath: outputPath,
                     segmentedOutputPath: segmentedOutputPath,
                     maskOutputPath: maskOutputPath,
+                    safeOutputPath: safeOutputPath,
                     blurKernel: blurKernel,
                     thresholdBlock: thresholdBlock,
                     contrastLow: contrastLow,
@@ -584,6 +595,7 @@ class VideoConverterChannel {
         outputPath: String,
         segmentedOutputPath: String?,
         maskOutputPath: String?,
+        safeOutputPath: String?,
         blurKernel: Int,
         thresholdBlock: Int,
         contrastLow: Int,
@@ -833,6 +845,54 @@ class VideoConverterChannel {
             }
         }
 
+        // --- Safe Mode writer setup (2026-05-21) ---
+        //
+        // Optional FOURTH writer that produces a bystander-blurred copy
+        // of the raw frame. The pipeline runs `VNDetectHumanRectangles`
+        // alongside person segmentation; the LARGEST detected human
+        // bbox is treated as the client. Every mask pixel that's
+        // BOTH (a) classified as person AND (b) lies outside the
+        // client bbox is rewritten to coral (#FF6B35). The result is
+        // the same source video with bystanders silhouetted in coral,
+        // suitable as the raw archive when capture happened inside an
+        // enforcing Safe Mode premises.
+        //
+        // Identical encoding settings to the line writer (same shape,
+        // same H.264 bitrate target) so file-size analytics stay
+        // comparable. Best-effort: any failure below logs and skips —
+        // the line + segmented + mask writers continue unaffected.
+        var safeWriter: AVAssetWriter? = nil
+        var safeWriterInput: AVAssetWriterInput? = nil
+        var safeAdaptor: AVAssetWriterInputPixelBufferAdaptor? = nil
+        if let sfPath = safeOutputPath {
+            let sfURL = URL(fileURLWithPath: sfPath)
+            try? FileManager.default.removeItem(at: sfURL)
+            do {
+                let sw = try AVAssetWriter(outputURL: sfURL, fileType: .mp4)
+                let sInput = AVAssetWriterInput(
+                    mediaType: .video,
+                    outputSettings: writerOutputSettings
+                )
+                sInput.expectsMediaDataInRealTime = false
+                sInput.transform = transform
+                let sAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+                    assetWriterInput: sInput,
+                    sourcePixelBufferAttributes: pixelBufferAttributes
+                )
+                if sw.canAdd(sInput) {
+                    sw.add(sInput)
+                    safeWriter = sw
+                    safeWriterInput = sInput
+                    safeAdaptor = sAdaptor
+                    NSLog("[VideoConverter] safe writer attached at \(sfPath)")
+                } else {
+                    NSLog("[VideoConverter] safe writer.canAdd(video) failed — skipping")
+                }
+            } catch {
+                NSLog("[VideoConverter] safe writer failed: \(error.localizedDescription) — skipping")
+            }
+        }
+
         // --- Audio passthrough setup ---
         // Copy the audio track as-is (no re-encoding) so the converted video
         // retains the original audio. If the source has no audio track, or
@@ -982,6 +1042,22 @@ class VideoConverterChannel {
             }
         }
 
+        // Safe Mode: start the safe writer in parallel.
+        if let sw = safeWriter {
+            if sw.startWriting() {
+                sw.startSession(atSourceTime: .zero)
+                NSLog("[VideoConverter] safe writer started")
+            } else {
+                NSLog(
+                    "[VideoConverter] safe writer startWriting failed: " +
+                    "\(sw.error?.localizedDescription ?? "unknown") — disabling safe output"
+                )
+                safeWriter = nil
+                safeWriterInput = nil
+                safeAdaptor = nil
+            }
+        }
+
         // Pre-allocate the line drawing processor for reuse across frames.
         let processor = LineDrawingProcessor(
             width: videoWidth,
@@ -990,6 +1066,13 @@ class VideoConverterChannel {
             thresholdBlock: thresholdBlock,
             contrastLow: contrastLow
         )
+
+        // Safe Mode processor — composites coral over bystander pixels.
+        // Only allocated when the safe writer survived its init/start
+        // pair, so the cost stays off for normal captures.
+        let safeProcessor: SafeModeProcessor? = (safeWriter != nil)
+            ? SafeModeProcessor(width: videoWidth, height: videoHeight)
+            : nil
 
         // v7.1 dual-output: optional colour-segmented processor. Same Vision
         // mask, but the compositing is a colour-passthrough body + dimmed
@@ -1015,6 +1098,8 @@ class VideoConverterChannel {
         var framesProcessed = 0
         var lastProgressReport = 0
         var audioSamplesWritten = 0
+        var safeFramesProcessed = 0
+        var safeVideoFinished = false
 
         NSLog(
             "[VideoConverter] starting video pump — estimatedFrames=\(estimatedTotalFrames) " +
@@ -1060,6 +1145,7 @@ class VideoConverterChannel {
         group.enter()
         if segWriterInput != nil { group.enter() }
         if maskWriterInput != nil { group.enter() }
+        if safeWriterInput != nil { group.enter() }
         var videoPumpFinished = false
         var segVideoFinished = false
         var maskVideoFinished = false
@@ -1076,6 +1162,7 @@ class VideoConverterChannel {
                                 "[VideoConverter] video pump exited — frames=\(framesProcessed) " +
                                 "segFrames=\(segFramesProcessed) " +
                                 "maskFrames=\(maskFramesProcessed) " +
+                                "safeFrames=\(safeFramesProcessed) " +
                                 "readerStatus=\(reader.status.rawValue) " +
                                 "readerError=\(reader.error?.localizedDescription ?? "nil")"
                             )
@@ -1092,6 +1179,12 @@ class VideoConverterChannel {
                                 maskVideoFinished = true
                                 mInput.markAsFinished()
                                 NSLog("[VideoConverter] mask video input markAsFinished called")
+                                group.leave()
+                            }
+                            if let sfInput = safeWriterInput, !safeVideoFinished {
+                                safeVideoFinished = true
+                                sfInput.markAsFinished()
+                                NSLog("[VideoConverter] safe video input markAsFinished called")
                                 group.leave()
                             }
                         }
@@ -1244,6 +1337,51 @@ class VideoConverterChannel {
                                 if mInput.isReadyForMoreMediaData {
                                     if mAd.append(mBuffer, withPresentationTime: presentationTime) {
                                         maskFramesProcessed += 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Safe Mode (2026-05-21): produce a bystander-blurred
+                    // copy of the raw frame. Runs `VNDetectHumanRectangles`
+                    // on the source frame, finds the LARGEST detected
+                    // human bbox (= client), and rewrites every mask
+                    // pixel outside that bbox to coral. Best-effort: any
+                    // failure here just skips this frame's safe output —
+                    // the line / segmented / mask pumps continue.
+                    if let sfAd = safeAdaptor,
+                       let sfInput = safeWriterInput,
+                       let safeProc = safeProcessor,
+                       !safeVideoFinished {
+                        var sfOut: CVPixelBuffer?
+                        let sfAlloc: CVReturn
+                        if let pool = sfAd.pixelBufferPool {
+                            sfAlloc = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &sfOut)
+                        } else {
+                            sfAlloc = CVPixelBufferCreate(
+                                kCFAllocatorDefault,
+                                videoWidth,
+                                videoHeight,
+                                kCVPixelFormatType_32BGRA,
+                                nil,
+                                &sfOut
+                            )
+                        }
+                        if sfAlloc == kCVReturnSuccess, let sfBuffer = sfOut {
+                            if safeProc.processFrame(
+                                source: pixelBuffer,
+                                mask: maskPtr,
+                                into: sfBuffer
+                            ) {
+                                var waited = 0
+                                while !sfInput.isReadyForMoreMediaData && waited < 200 {
+                                    usleep(1000)
+                                    waited += 1
+                                }
+                                if sfInput.isReadyForMoreMediaData {
+                                    if sfAd.append(sfBuffer, withPresentationTime: presentationTime) {
+                                        safeFramesProcessed += 1
                                     }
                                 }
                             }
@@ -1461,6 +1599,36 @@ class VideoConverterChannel {
                 }
             }
 
+            // Safe Mode: finish the safe writer. Same best-effort contract.
+            var safeSuccessPath: String? = nil
+            if let sw = safeWriter, let safePath = safeOutputPath {
+                let sfSem = DispatchSemaphore(value: 0)
+                sw.finishWriting {
+                    sfSem.signal()
+                }
+                let sfWait = sfSem.wait(timeout: .now() + 60)
+                if sfWait == .timedOut {
+                    NSLog(
+                        "[VideoConverter] safe finishWriting TIMEOUT — " +
+                        "safeFrames=\(safeFramesProcessed) " +
+                        "safeWriterStatus=\(sw.status.rawValue) " +
+                        "safeWriterError=\(sw.error?.localizedDescription ?? "nil")"
+                    )
+                    sw.cancelWriting()
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: safePath))
+                } else if sw.status == .completed {
+                    NSLog("[VideoConverter] safe finishWriting completed — safeFrames=\(safeFramesProcessed)")
+                    safeSuccessPath = safePath
+                } else {
+                    NSLog(
+                        "[VideoConverter] safe finishWriting failed — " +
+                        "safeWriterStatus=\(sw.status.rawValue) " +
+                        "safeWriterError=\(sw.error?.localizedDescription ?? "nil")"
+                    )
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: safePath))
+                }
+            }
+
             reader.cancelReading()
 
             // Surface audio + error state in the device log so we can verify
@@ -1477,6 +1645,8 @@ class VideoConverterChannel {
                 "segFrames=\(segFramesProcessed) " +
                 "maskOutputWritten=\(maskSuccessPath != nil) " +
                 "maskFrames=\(maskFramesProcessed) " +
+                "safeOutputWritten=\(safeSuccessPath != nil) " +
+                "safeFrames=\(safeFramesProcessed) " +
                 "writerStatus=\(writer.status.rawValue) " +
                 "writerError=\(writer.error?.localizedDescription ?? "nil") " +
                 "readerStatus=\(reader.status.rawValue) " +
@@ -1498,6 +1668,10 @@ class VideoConverterChannel {
                     if let maskPath = maskSuccessPath {
                         payload["maskOutputPath"] = maskPath
                         payload["maskFramesProcessed"] = maskFramesProcessed
+                    }
+                    if let safePath = safeSuccessPath {
+                        payload["safeOutputPath"] = safePath
+                        payload["safeFramesProcessed"] = safeFramesProcessed
                     }
                     result(payload)
                     endBackgroundTask()
@@ -3440,5 +3614,194 @@ private class HandPoseDilator {
                 }
             }
         }
+    }
+}
+
+// ============================================================================
+// SafeModeProcessor — Safe Mode bystander-blur compositor (2026-05-21)
+// ============================================================================
+//
+// Produces a copy of the source video frame with bystanders silhouetted in
+// flat coral (#FF6B35) and the client passed through untouched. Used by the
+// Safe Mode 4th-output writer in `convertVideo` when the capture happened
+// inside a Safe-Mode-enforcing premises (resolved at session-start by
+// `SafeModeService` on the Dart side).
+//
+// Algorithm
+// ---------
+// 1. Run `VNDetectHumanRectanglesRequest` on the source frame. Each
+//    observation is a normalized bbox (origin bottom-left in Vision's
+//    convention) of a detected human torso/upper-body.
+// 2. Pick the LARGEST observation by area — that's the client.
+// 3. Convert the chosen bbox to pixel coordinates (origin top-left to
+//    match BGRA pixel layout).
+// 4. For each pixel:
+//      mask[p] < 128 → background: pass through source pixel unchanged
+//      mask[p] >= 128:
+//          inside client bbox  → pass through source pixel (client body)
+//          outside client bbox → write coral (bystander)
+//
+// If detection returns zero observations the safe pass is skipped for
+// the frame (the writer skips its append; the per-frame loss is
+// preferable to silently failing-open and shipping a clean
+// untreated bystander into the raw archive).
+//
+// Performance
+// -----------
+// VNDetectHumanRectanglesRequest is ~5-15ms per frame on iPhone 15.
+// At 30 fps that's <50% of the per-frame budget — fine for a non-realtime
+// post-capture pass. We re-use a `VNSequenceRequestHandler` across frames
+// so Vision can warm-cache the model.
+//
+// Memory
+// ------
+// Stateless aside from the sequence handler. Output is a one-pass
+// memcpy + per-pixel branch; no scratch allocations per frame.
+//
+// What this DOES NOT do (yet)
+// ---------------------------
+//  - Fail closed when no human is detected. Today the safe pass simply
+//    skips the frame on zero detections; long stretches of no-detection
+//    leave gaps in the safe.mp4. The spec says fail-closed at capture
+//    time, but the device-side rejection UX is a Carl-only call (needs
+//    to surface a "try again" toast inline in the capture flow). For
+//    MVP we ship the soft version + count missed frames in the result
+//    payload so Carl can see whether the data justifies investing in
+//    fail-closed.
+//  - Smooth bystander edges with a Gaussian blur over the mask. The
+//    segmentation mask is already soft from the line-drawing pipeline's
+//    tent convolve; reusing that smoother would require threading it
+//    through the call site. Skipped for now — Carl can A/B on device.
+//  - Blur multiple clients (the only "client" is the largest bbox). If
+//    two practitioners + a client are all in the gym at once, two of
+//    them get coral'd. Acceptable: Safe Mode protects bystanders from
+//    capture; protecting practitioners from each other isn't a feature.
+
+private class SafeModeProcessor {
+    let width: Int
+    let height: Int
+
+    // Re-used Vision request handler so the framework can keep its
+    // model warm across frames. Vision's `VNSequenceRequestHandler` is
+    // the canonical pattern for per-frame requests on the same video.
+    private let sequenceHandler = VNSequenceRequestHandler()
+    private let humanRequest: VNDetectHumanRectanglesRequest
+
+    // Coral BGRA bytes — single-source-of-truth color for bystanders.
+    // BGRA order: B=0x35, G=0x6B, R=0xFF, A=0xFF.
+    private let coralB: UInt8 = 0x35
+    private let coralG: UInt8 = 0x6B
+    private let coralR: UInt8 = 0xFF
+    private let coralA: UInt8 = 0xFF
+
+    init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+        humanRequest = VNDetectHumanRectanglesRequest()
+        if #available(iOS 15.0, *) {
+            // Include upper-body so the client doesn't disappear when
+            // only the torso is in frame (low-angle gym shots).
+            humanRequest.upperBodyOnly = false
+        }
+    }
+
+    func processFrame(
+        source: CVPixelBuffer,
+        mask: UnsafePointer<UInt8>?,
+        into outBuffer: CVPixelBuffer
+    ) -> Bool {
+        // --- Find the largest human bbox via Vision ---
+        // Skip processing if Vision fails — caller will retry on the
+        // next frame. The pump's progress doesn't depend on safe output
+        // succeeding for every frame.
+        do {
+            try sequenceHandler.perform([humanRequest], on: source)
+        } catch {
+            return false
+        }
+        let observations = humanRequest.results ?? []
+        if observations.isEmpty {
+            return false
+        }
+
+        // Vision returns normalized rects in origin-bottom-left
+        // coordinates. Pick the LARGEST by area; that's the client.
+        var bestArea: CGFloat = 0
+        var clientRect: CGRect = .zero
+        for obs in observations {
+            let r = obs.boundingBox
+            let area = r.width * r.height
+            if area > bestArea {
+                bestArea = area
+                clientRect = r
+            }
+        }
+        if bestArea <= 0 {
+            return false
+        }
+
+        // Convert normalized [0,1] bottom-left to pixel top-left.
+        // Flip Y: pixel y = (1 - (normY + normHeight)) * height
+        let clientX0 = max(0, Int((clientRect.origin.x * CGFloat(width)).rounded(.down)))
+        let clientY0 = max(0, Int(((1.0 - clientRect.origin.y - clientRect.height) * CGFloat(height)).rounded(.down)))
+        let clientX1 = min(width, Int(((clientRect.origin.x + clientRect.width) * CGFloat(width)).rounded(.up)))
+        let clientY1 = min(height, Int(((1.0 - clientRect.origin.y) * CGFloat(height)).rounded(.up)))
+
+        // --- Composite ---
+        CVPixelBufferLockBaseAddress(source, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(source, .readOnly) }
+        guard let srcBase = CVPixelBufferGetBaseAddress(source) else { return false }
+        let srcRowBytes = CVPixelBufferGetBytesPerRow(source)
+
+        CVPixelBufferLockBaseAddress(outBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(outBuffer, []) }
+        guard let dstBase = CVPixelBufferGetBaseAddress(outBuffer) else { return false }
+        let dstRowBytes = CVPixelBufferGetBytesPerRow(outBuffer)
+
+        let srcPtr = srcBase.assumingMemoryBound(to: UInt8.self)
+        let dstPtr = dstBase.assumingMemoryBound(to: UInt8.self)
+
+        // Per-row composite. When there's no mask the safe output is
+        // a plain copy (Vision found a human but no segmentation mask
+        // means we can't tell which pixels belong to bystanders — fall
+        // back to passing the frame through; Carl can tune to "skip
+        // this frame" if he prefers fail-closed-ish behaviour).
+        if mask == nil {
+            for y in 0..<height {
+                let srcRow = srcPtr + y * srcRowBytes
+                let dstRow = dstPtr + y * dstRowBytes
+                memcpy(dstRow, srcRow, width * 4)
+            }
+            return true
+        }
+        let maskPtr = mask!
+
+        for y in 0..<height {
+            let srcRow = srcPtr + y * srcRowBytes
+            let dstRow = dstPtr + y * dstRowBytes
+            let maskRow = maskPtr + y * width
+            // Inside the client bbox vertically? If yes, we still
+            // per-pixel check the X bound and the mask — bystander
+            // can sit beside client at the same y.
+            for x in 0..<width {
+                let mv = maskRow[x]
+                let inClient = (x >= clientX0 && x < clientX1
+                                && y >= clientY0 && y < clientY1)
+                let bgraOffset = x * 4
+                if mv >= 128 && !inClient {
+                    dstRow[bgraOffset]     = coralB
+                    dstRow[bgraOffset + 1] = coralG
+                    dstRow[bgraOffset + 2] = coralR
+                    dstRow[bgraOffset + 3] = coralA
+                } else {
+                    dstRow[bgraOffset]     = srcRow[bgraOffset]
+                    dstRow[bgraOffset + 1] = srcRow[bgraOffset + 1]
+                    dstRow[bgraOffset + 2] = srcRow[bgraOffset + 2]
+                    dstRow[bgraOffset + 3] = srcRow[bgraOffset + 3]
+                }
+            }
+        }
+
+        return true
     }
 }

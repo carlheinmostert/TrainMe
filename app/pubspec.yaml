@@ -1,7 +1,7 @@
 name: raidme
 description: "Exercise plan capture and sharing for biokineticists"
 publish_to: 'none'
-version: 1.0.0+3
+version: 1.0.0+4
 
 environment:
   sdk: ^3.11.4
@@ -57,6 +57,13 @@ dependencies:
   # matrix into a Canvas so it composes directly into the card widget
   # tree that gets snapshotted via RepaintBoundary.toImage().
   qr_flutter: ^4.1.0
+
+  # Safe Mode (2026-05-21) — geofenced bystander blur. Used by
+  # `SafeModeService` to query `find_premises_at(lat, lng)` at session
+  # start and decide whether to enter Safe Mode for the rest of the
+  # session. Permission posture: `when in use` only. See
+  # ios/Runner/Info.plist `NSLocationWhenInUseUsageDescription`.
+  geolocator: ^13.0.2
 
   # Persistence for lightweight preferences that survive app restarts
   # (e.g. which practice the practitioner last chose when they belong to

@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circuit nested boxes — N rounds = N boxes</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #1A1D26;
+    --surface-raised: #232734;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255, 107, 53, 0.12);
+    --coral-dim: rgba(255, 107, 53, 0.25);
+    --coral-mid: rgba(255, 107, 53, 0.45);
+    --coral-strong: rgba(255, 107, 53, 0.7);
+    --text: #F5F7FB;
+    --text-dim: #9CA3AF;
+    --montserrat: 'Montserrat', system-ui, -apple-system, sans-serif;
+    --inter: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--inter);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 32px 20px 80px;
+  }
+  .page-title {
+    font-family: var(--montserrat);
+    font-weight: 800;
+    font-size: 28px;
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  .page-subtitle {
+    color: var(--text-dim);
+    text-align: center;
+    margin-bottom: 36px;
+    font-size: 13px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 28px;
+    max-width: 1700px;
+    margin: 0 auto;
+  }
+  .variant {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .variant-label {
+    font-family: var(--montserrat);
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--coral);
+  }
+  .variant-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    min-height: 56px;
+    line-height: 1.45;
+  }
+
+  .stage {
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 56px 56px 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: visible;
+  }
+
+  /* CIRCUIT A header */
+  .circuit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 14px;
+    position: relative;
+    z-index: 5;
+  }
+  .circuit-label {
+    font-family: var(--montserrat);
+    font-weight: 800;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--coral);
+  }
+  .circuit-cycles {
+    background: var(--coral-bg);
+    border: 1px solid var(--coral);
+    border-radius: 14px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--coral);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Nested-box structure for ×3 circuit (3 visible boxes)
+     - .box-3 is outermost
+     - .box-2 is middle
+     - .box-1 is innermost (wraps the rows)
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .box-3 {
+    position: relative;
+    width: 100%;
+    border: 2px solid var(--coral);
+    border-radius: 18px;
+    padding: 8px;
+  }
+  .box-2 {
+    border: 2px solid var(--coral);
+    border-radius: 14px;
+    padding: 8px;
+  }
+  .box-1 {
+    border: 2px solid var(--coral);
+    border-radius: 10px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--bg);
+  }
+
+  /* Exercise row */
+  .ex-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .ex-row .thumb {
+    width: 52px;
+    height: 52px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #4B5563, #2A2E3C);
+    flex-shrink: 0;
+  }
+  .ex-row .body { flex: 1; }
+  .ex-row .name { font-family: var(--montserrat); font-weight: 700; font-size: 13px; }
+  .ex-row .meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+  /* ═══ TREATMENT 1 · OUTWARD RIPPLE (innermost → middle → outer) ═════════ */
+  .v1 .box-1 { animation: v1-pulse 2.4s ease-in-out infinite; }
+  .v1 .box-2 { animation: v1-pulse 2.4s ease-in-out infinite; animation-delay: 0.4s; }
+  .v1 .box-3 { animation: v1-pulse 2.4s ease-in-out infinite; animation-delay: 0.8s; }
+  @keyframes v1-pulse {
+    0%, 100% {
+      border-color: rgba(255, 107, 53, 0.25);
+      box-shadow: 0 0 0 0 transparent;
+    }
+    25% {
+      border-color: rgba(255, 107, 53, 1);
+      box-shadow: 0 0 24px 4px rgba(255, 107, 53, 0.65),
+                  0 0 0 2px rgba(255, 107, 53, 0.45);
+    }
+    55%, 99% {
+      border-color: rgba(255, 107, 53, 0.25);
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+
+  /* ═══ TREATMENT 2 · INWARD RIPPLE (outer → middle → innermost) ══════════ */
+  .v2 .box-3 { animation: v2-pulse 2.4s ease-in-out infinite; }
+  .v2 .box-2 { animation: v2-pulse 2.4s ease-in-out infinite; animation-delay: 0.4s; }
+  .v2 .box-1 { animation: v2-pulse 2.4s ease-in-out infinite; animation-delay: 0.8s; }
+  @keyframes v2-pulse {
+    0%, 100% {
+      border-color: rgba(255, 107, 53, 0.25);
+      box-shadow: 0 0 0 0 transparent;
+    }
+    25% {
+      border-color: rgba(255, 107, 53, 1);
+      box-shadow: 0 0 24px 4px rgba(255, 107, 53, 0.65),
+                  0 0 0 2px rgba(255, 107, 53, 0.45);
+    }
+    55%, 99% {
+      border-color: rgba(255, 107, 53, 0.25);
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+
+  /* ═══ TREATMENT 3 · SYNCHRONOUS PULSE (all 3 in unison) ═════════════════ */
+  .v3 .box-1, .v3 .box-2, .v3 .box-3 {
+    animation: v3-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes v3-pulse {
+    0%, 100% {
+      border-color: rgba(255, 107, 53, 0.4);
+      box-shadow: 0 0 0 0 transparent;
+    }
+    50% {
+      border-color: rgba(255, 107, 53, 1);
+      box-shadow: 0 0 18px 3px rgba(255, 107, 53, 0.55);
+    }
+  }
+
+  /* ═══ TREATMENT 4 · COUNTER PHASE (each box different rhythm) ═══════════ */
+  .v4 .box-1 { animation: v4-pulse 2s ease-in-out infinite; }
+  .v4 .box-2 { animation: v4-pulse 2.6s ease-in-out infinite; animation-delay: 0.3s; }
+  .v4 .box-3 { animation: v4-pulse 3.4s ease-in-out infinite; animation-delay: 0.7s; }
+  @keyframes v4-pulse {
+    0%, 100% { border-color: rgba(255, 107, 53, 1); }
+    50%      { border-color: rgba(255, 107, 53, 0.18); }
+  }
+
+  /* ═══ TREATMENT 5 · OUTER-BOX ONLY PULSES (others static) ══════════════ */
+  .v5 .box-3 { animation: v5-pulse 2s ease-in-out infinite; }
+  @keyframes v5-pulse {
+    0%, 100% {
+      border-color: rgba(255, 107, 53, 0.5);
+      box-shadow: 0 0 0 0 transparent;
+    }
+    50% {
+      border-color: rgba(255, 107, 53, 1);
+      box-shadow: 0 0 28px 6px rgba(255, 107, 53, 0.55),
+                  0 0 0 3px rgba(255, 107, 53, 0.4);
+    }
+  }
+
+  /* Respect reduced-motion at the OS level — but only kill the keyframes,
+     keep the static boxes visible so variant comparison still works. */
+  @media (prefers-reduced-motion: reduce) {
+    .v1 .box-1, .v1 .box-2, .v1 .box-3,
+    .v2 .box-1, .v2 .box-2, .v2 .box-3,
+    .v3 .box-1, .v3 .box-2, .v3 .box-3,
+    .v4 .box-1, .v4 .box-2, .v4 .box-3,
+    .v5 .box-3 { animation: none !important; }
+  }
+
+  /* ═══ TREATMENT 6 · STATIC NESTED BOXES (no animation, baseline) ═══════ */
+  /* (no extra rules — purely static for comparison) */
+
+  /* Annotation flag */
+  .annotation {
+    background: var(--coral-bg);
+    border-left: 3px solid var(--coral);
+    padding: 9px 12px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .annotation b { color: var(--coral); font-weight: 700; }
+
+  .footer {
+    max-width: 800px;
+    margin: 56px auto 0;
+    padding: 20px 24px;
+    background: var(--surface);
+    border-radius: 14px;
+    text-align: center;
+  }
+  .footer h2 {
+    font-family: var(--montserrat);
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--coral);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .footer p {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .footer p b { color: var(--text); }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Circuit nested boxes — N rounds = N boxes</h1>
+<p class="page-subtitle">Pure CSS · ×3 circuit shown with 3 visible boxes · all live-animating · 2026-05-15</p>
+
+<div class="grid">
+
+  <!-- 1 · Outward ripple -->
+  <div class="variant v1">
+    <span class="variant-label">1 · Outward ripple (inside → out)</span>
+    <div class="variant-note">Innermost box pulses first, then middle, then outermost. Visual: "rounds layering outward, growing the cycle".</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="box-3">
+        <div class="box-2">
+          <div class="box-1">
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> three same-keyframe animations with staggered <code>animation-delay</code>. Strongest "expanding outward" semantic.</div>
+  </div>
+
+  <!-- 2 · Inward ripple -->
+  <div class="variant v2">
+    <span class="variant-label">2 · Inward ripple (outside → in)</span>
+    <div class="variant-note">Outermost box pulses first, then middle, then innermost. Visual: "rounds converging onto the work, focus tightening".</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="box-3">
+        <div class="box-2">
+          <div class="box-1">
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> same keyframe, reverse stagger. Visually focuses attention inward to the exercises themselves.</div>
+  </div>
+
+  <!-- 3 · Synchronous pulse -->
+  <div class="variant v3">
+    <span class="variant-label">3 · Synchronous pulse (heartbeat)</span>
+    <div class="variant-note">All 3 boxes pulse in unison. Fastest cadence. "This group is alive, all rounds beating as one unit".</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="box-3">
+        <div class="box-2">
+          <div class="box-1">
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> single keyframe applied to all three boxes simultaneously. Most "alive" feel.</div>
+  </div>
+
+  <!-- 4 · Counter-phase (subtle, breathing) -->
+  <div class="variant v4">
+    <span class="variant-label">4 · Counter-phase breathing</span>
+    <div class="variant-note">Each box has its own duration (2s, 2.4s, 3.2s) → never quite in sync, never repeating exactly. Quiet, organic feel.</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="box-3">
+        <div class="box-2">
+          <div class="box-1">
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> different durations per box, no shared period — visually never identical from one moment to the next.</div>
+  </div>
+
+  <!-- 5 · Outer-box only pulses -->
+  <div class="variant v5">
+    <span class="variant-label">5 · Outer-only pulse (minimal)</span>
+    <div class="variant-note">Inner two boxes stay static; only the outermost pulses with a soft outer glow. The inner boxes communicate rep count; outer pulse signals "active group".</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="box-3">
+        <div class="box-2">
+          <div class="box-1">
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> single <code>box-shadow</code> animation on the outermost box only. Lowest visual energy — calmest of the bunch.</div>
+  </div>
+
+  <!-- 6 · Static (baseline) -->
+  <div class="variant v6">
+    <span class="variant-label">6 · Static (no animation)</span>
+    <div class="variant-note">Baseline: just the 3 nested boxes with no animation. Worth seeing — maybe the rep count alone (visually, as 3 boxes) is enough signal without any pulse at all.</div>
+    <div class="stage">
+      <div class="circuit-header"><span class="circuit-label">CIRCUIT A</span><span class="circuit-cycles">×3</span></div>
+      <div class="box-3">
+        <div class="box-2">
+          <div class="box-1">
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 1</div><div class="meta">3 sets · 10 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 2</div><div class="meta">2 sets · 12 reps</div></div></div>
+            <div class="ex-row"><div class="thumb"></div><div class="body"><div class="name">Exercise 3</div><div class="meta">1 set · 8 reps</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation"><b>Tech:</b> no animation — just nested borders. Cheapest. Useful baseline if the count itself is enough signal.</div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <h2>One detail — what if circuit cycles = 1?</h2>
+  <p>If ×1 we render <b>1 box</b>, ×2 → <b>2 boxes</b>, ×N → <b>N boxes</b> (capped at some sensible max, probably 5 or 6 before it gets silly).</p>
+  <p style="margin-top: 10px;">Same animation applies regardless of N. The ripple variants (1, 2) get more visually interesting with more boxes; the synchronous variant (3) reads the same at any N.</p>
+</div>
+
+</body>
+</html>
