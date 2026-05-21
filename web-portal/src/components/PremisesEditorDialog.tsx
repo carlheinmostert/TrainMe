@@ -8,6 +8,7 @@ import {
   type PracticePremises,
   PremisesError,
 } from '@/lib/supabase/api';
+import { AddressSearchInput, type AddressMatch } from './AddressSearchInput';
 import type { PolygonGeoJSON, PolygonStats } from './PremisesPolygonEditor';
 
 // Leaflet writes to `window` at import time, so the editor must be SSR-skipped.
@@ -59,6 +60,12 @@ export function PremisesEditorDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
+  // Bumped each time the user picks an address-search result so the map
+  // pans to the new centre. The `nonce` lets the editor's effect
+  // re-trigger even if the user picks the same result twice.
+  const [centerTrigger, setCenterTrigger] = useState<
+    { lat: number; lng: number; zoom?: number; nonce: number } | null
+  >(null);
 
   // Geolocate on open so the map starts somewhere useful. Failure is fine —
   // the editor falls back to a default centre.
@@ -167,12 +174,17 @@ export function PremisesEditorDialog({
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-ink">Address (optional)</span>
-            <input
-              type="text"
+            <AddressSearchInput
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Maude St, Sandton, 2196"
-              className="rounded-md border border-surface-border bg-surface-bg px-3 py-2 text-ink placeholder:text-ink-muted focus:border-brand focus:outline-none"
+              onChange={setAddress}
+              onSelect={(match: AddressMatch) =>
+                setCenterTrigger({
+                  lat: match.lat,
+                  lng: match.lng,
+                  zoom: 17,
+                  nonce: Date.now(),
+                })
+              }
             />
           </label>
         </div>
@@ -184,6 +196,7 @@ export function PremisesEditorDialog({
               geo ? { lat: geo.lat, lng: geo.lng, zoom: 17 } : undefined
             }
             onChange={handleChange}
+            centerTrigger={centerTrigger}
           />
         </div>
 

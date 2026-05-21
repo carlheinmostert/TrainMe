@@ -42,6 +42,12 @@ type Props = {
   maxVertices?: number;
   /** Max area in m². Default 1,000,000 (1 km²). */
   maxAreaM2?: number;
+  /**
+   * Fly the map to a new centre when this value changes. Use a `nonce`
+   * (e.g. `Date.now()`) to re-trigger panning to the same point — the
+   * effect keys on object identity, not lat/lng equality.
+   */
+  centerTrigger?: { lat: number; lng: number; zoom?: number; nonce: number } | null;
 };
 
 export type PolygonStats = {
@@ -59,6 +65,7 @@ export function PremisesPolygonEditor({
   onChange,
   maxVertices = 12,
   maxAreaM2 = 1_000_000,
+  centerTrigger,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -198,6 +205,18 @@ export function PremisesPolygonEditor({
       markerLayersRef.current.push(marker);
     });
   }, [vertices]);
+
+  // Pan the map when the address-search picks a result. Keyed on the
+  // whole `centerTrigger` reference (nonce included) so the same lat/lng
+  // re-triggers panning if the user picks it twice.
+  useEffect(() => {
+    if (!centerTrigger) return;
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo([centerTrigger.lat, centerTrigger.lng], centerTrigger.zoom ?? 17, {
+      duration: 0.6,
+    });
+  }, [centerTrigger]);
 
   // Raise onChange whenever the polygon settles into a new state.
   useEffect(() => {
