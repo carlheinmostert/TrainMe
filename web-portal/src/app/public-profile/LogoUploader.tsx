@@ -12,8 +12,12 @@ type Props = {
 };
 
 const MAX_BYTES = 1_048_576; // 1 MB
-const ACCEPT = 'image/png,image/jpeg,image/svg+xml';
-const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg', 'image/svg+xml']);
+// SVG is intentionally excluded — SVG can carry inline <script>/<foreignObject>
+// payloads that render in any surface that draws the logo via <img src=>.
+// The storage policy (20260521170000_branding_storage_policies.sql) also blocks
+// SVG at the bucket layer; this is the matching client-side gate.
+const ACCEPT = 'image/png,image/jpeg';
+const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg']);
 
 /**
  * Uploads the practice logo to the public `media` bucket under
@@ -46,7 +50,7 @@ export function LogoUploader({
       return;
     }
     if (!ALLOWED_MIMES.has(file.type)) {
-      setError('Logo must be PNG, JPG, or SVG.');
+      setError('Logo must be PNG or JPG.');
       return;
     }
     setUploading(true);
@@ -130,7 +134,7 @@ export function LogoUploader({
             {currentUrl ? 'Replace logo' : 'Upload a logo'}
           </div>
           <div className="text-xs text-ink-muted">
-            PNG, JPG, or SVG · ≤ 1 MB · square or landscape works
+            PNG or JPG · ≤ 1 MB · square or landscape works
           </div>
         </div>
         {currentUrl && isOwner && (
