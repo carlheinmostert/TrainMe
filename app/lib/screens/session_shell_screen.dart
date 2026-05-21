@@ -92,18 +92,6 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     }
   }
 
-  void _handlePageScroll() {
-    if (!_pageController.hasClients) return;
-    final page = _pageController.page;
-    if (page == null) return;
-    // Round to nearest page so canPop is binary — avoids re-rendering
-    // every animation frame.
-    final nearest = page.round();
-    if (nearest != _currentPage) {
-      setState(() => _currentPage = nearest);
-    }
-  }
-
   Future<void> _reconcileWithCloudIfUnpublished() async {
     // Wave 29 follow-up: ALSO runs on already-published sessions so we
     // can pull `first_opened_at` + `unlock_credit_prepaid_at` from cloud
