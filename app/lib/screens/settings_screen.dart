@@ -142,6 +142,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _PracticeRow(practiceId: practiceId),
                       ),
                       _Divider(),
+                      // Hand-off to the web portal. Generic surface (lands
+                      // on the dashboard, not the credits page) so it stays
+                      // on the right side of Apple Guideline 3.1.1 — same
+                      // reason the old "Top up credits" row below was
+                      // removed and the Home credits chip was de-tappified.
+                      // External Safari (not the in-app browser used for
+                      // Privacy / Terms) because the portal is a separate
+                      // authenticated workspace, not an embedded read.
+                      // Coral FilledButton matches the "Share invite link"
+                      // treatment in the Network section so this stands
+                      // out as an action, not just a read-only row.
+                      Padding(
+                        padding:
+                            const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _signOutPending
+                                ? null
+                                : _openManagePortal,
+                            icon: const Icon(
+                              Icons.open_in_new_rounded,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'manage.homefit.studio',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor:
+                                  AppColors.surfaceRaised,
+                              disabledForegroundColor:
+                                  AppColors.textSecondaryOnDark,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMd,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      _Divider(),
                       // Regular credit balance (purchases + signup bonus −
                       // consumed). Distinct from the "Network rebate" stat
                       // in the Network section below, which shows referral
@@ -447,6 +499,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _openLegalUrl(
       Uri.parse('${AppConfig.portalOrigin}/terms'),
     );
+  }
+
+  /// Opens the practitioner-facing web portal in external Safari.
+  /// External (not in-app) because the portal is a separate authenticated
+  /// workspace — practitioners hop over to manage clients, view the audit
+  /// log, invite members — not a quick embedded read like Privacy / Terms.
+  Future<void> _openManagePortal() async {
+    HapticFeedback.selectionClick();
+    final uri = Uri.parse(AppConfig.portalOrigin);
+    bool launched = false;
+    try {
+      launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(
+              "Couldn't open Safari. Try again shortly.",
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            backgroundColor: AppColors.surfaceRaised,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+    }
   }
 
   /// Shared launcher for the two Legal rows. Tries the in-app
