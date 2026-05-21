@@ -3542,8 +3542,11 @@ function showVideoLoadingOverlay() {
   var overlay = document.createElement('div');
   overlay.id = 'video-loading-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,17,23,0.7);z-index:9999;';
+  // Spinner ring uses --c-brand-soft (track) + --c-brand (head) so the
+  // per-plan brand cascade tints the loading state too. Falls back to
+  // coral when no plan is loaded yet (vars defined in styles.css :root).
   overlay.innerHTML = '<div style="text-align:center;color:#F0F0F5;font-family:Inter,sans-serif;">' +
-    '<div style="width:32px;height:32px;border:3px solid rgba(255,107,53,0.3);border-top-color:#FF6B35;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>' +
+    '<div style="width:32px;height:32px;border:3px solid var(--c-brand-soft);border-top-color:var(--c-brand);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>' +
     '<div style="font-size:13px;opacity:0.7;">Loading video\u2026</div></div>';
   // Add keyframe if not already present
   if (!document.getElementById('video-loading-spin')) {
