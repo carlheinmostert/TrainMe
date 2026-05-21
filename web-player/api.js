@@ -753,10 +753,45 @@
    * Returns the new report id on success, null on failure (the caller
    * just renders a toast either way — no point distinguishing).
    */
+  // S-H2 fix (synthesis 2026-05-21): derive a stable browser-side
+  // fingerprint for rate-limiting report_premises. The hash is a
+  // best-effort identifier (UA + viewport rounded to 200px buckets +
+  // language + timezone offset) — not a tracking primitive. Stored only
+  // server-side in premises_reports, used by the trailing-hour
+  // rate-limit check inside the RPC.
+  async function _reporterFingerprint() {
+    try {
+      const parts = [
+        navigator.userAgent || '',
+        navigator.language || '',
+        String(new Date().getTimezoneOffset()),
+        String(Math.round((screen && screen.width) || 0 / 200) * 200),
+        String(Math.round((screen && screen.height) || 0 / 200) * 200),
+      ].join('|');
+      // SubtleCrypto SHA-256 — available everywhere we care about.
+      if (window.crypto && window.crypto.subtle) {
+        const buf = new TextEncoder().encode(parts);
+        const hashBuf = await window.crypto.subtle.digest('SHA-256', buf);
+        return Array.from(new Uint8Array(hashBuf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')
+          .slice(0, 32);
+      }
+      // Defensive fallback — non-crypto hash, still distinguishes
+      // unrelated browsers.
+      let h = 0;
+      for (let i = 0; i < parts.length; i++) h = ((h << 5) - h + parts.charCodeAt(i)) | 0;
+      return 'fb:' + Math.abs(h).toString(16);
+    } catch (_) {
+      return '';
+    }
+  }
+
   async function reportPremises(premisesId, reason) {
     if (!premisesId || !reason) return null;
     if (isLocalSurface()) return null;
     try {
+      const fingerprint = await _reporterFingerprint();
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/rpc/report_premises`,
         {
@@ -769,6 +804,7 @@
           body: JSON.stringify({
             p_premises_id: premisesId,
             p_reason: String(reason).slice(0, 500),
+            p_reporter_fingerprint: fingerprint,
           }),
         },
       );
