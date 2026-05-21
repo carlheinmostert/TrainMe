@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0F1117">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- OG preview placeholders — Vercel Edge Middleware rewrites these
+       per-slug for bot user-agents (WhatsApp / iMessage / Slack). -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="homefit.studio practice">
+  <meta property="og:description" content="A practice profile on homefit.studio">
+  <meta property="og:site_name" content="homefit.studio">
+  <meta name="twitter:card" content="summary">
+
+  <title>homefit.studio — practice profile</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="v-body">
+  <!-- Loading state -->
+  <div id="v-loading" class="loading-screen">
+    <div class="loading-content">
+      <div class="loading-mark">
+        <svg class="mark mark--loading" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Loading">
+          <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+          <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC"/>
+        </svg>
+      </div>
+      <p class="loading-text">Loading…</p>
+    </div>
+  </div>
+
+  <!-- Not-found state -->
+  <div id="v-not-found" class="error-screen" hidden>
+    <div class="error-content">
+      <div class="error-icon">!</div>
+      <h2 class="error-title">Practice not found</h2>
+      <p class="error-text" id="v-not-found-text">
+        This profile may have been removed or the link may be incorrect.
+        Visit <a href="https://homefit.studio" class="v-link">homefit.studio</a> to learn more.
+      </p>
+    </div>
+  </div>
+
+  <!-- Profile state -->
+  <main id="v-profile" class="v-profile" hidden>
+    <header class="v-header">
+      <div class="v-logo" id="v-logo" aria-hidden="true"></div>
+      <h1 class="v-name" id="v-name"></h1>
+      <div class="v-tagline" id="hero-tagline" hidden></div>
+      <p class="v-blurb" id="v-blurb"></p>
+      <a class="v-hero-cta" id="hero-cta" target="_blank" rel="noopener" hidden></a>
+    </header>
+
+    <section class="v-section">
+      <h2 class="v-section-title">Premises</h2>
+      <ul class="v-premises-list" id="v-premises-list" role="list"></ul>
+    </section>
+
+    <section class="v-section" id="specialties-section" hidden>
+      <h2 class="v-section-title">What we do</h2>
+      <div class="v-chips" id="specialties-chips"></div>
+    </section>
+
+    <section class="v-section" id="team-section" hidden>
+      <h2 class="v-section-title">Who you'll see</h2>
+      <div class="v-team-grid" id="team-grid"></div>
+    </section>
+
+    <section class="v-section" id="contact-section" hidden>
+      <h2 class="v-section-title">Get in touch</h2>
+      <div class="v-contact-list" id="contact-list"></div>
+    </section>
+
+    <section class="v-section v-meta-section">
+      <p class="v-fine-print">
+        Practitioners capturing exercises inside an enforced premises
+        have bystanders automatically obscured. See{' '}
+        <a href="/what-we-share" class="v-link">what we share</a>{' '}
+        for the full privacy story.
+      </p>
+      <button type="button" id="v-report-btn" class="v-report-btn">
+        Report this practice
+      </button>
+    </section>
+
+    <footer class="v-footer">
+      <a href="https://homefit.studio" class="v-footer-link">
+        <span class="v-footer-preamble">powered by</span>
+        <span class="v-footer-brand">homefit.studio</span>
+      </a>
+    </footer>
+  </main>
+
+  <!-- Report modal -->
+  <div id="v-report-modal" class="v-modal" hidden role="dialog" aria-modal="true" aria-labelledby="v-report-title">
+    <div class="v-modal-backdrop" id="v-report-dismiss"></div>
+    <div class="v-modal-card">
+      <h2 id="v-report-title" class="v-modal-title">Report this practice</h2>
+      <p class="v-modal-body">
+        Briefly describe the issue. Reports go directly to the
+        homefit.studio team for review.
+      </p>
+      <label class="v-modal-row">
+        <span>Premises (optional)</span>
+        <select id="v-report-premises" class="v-modal-input"></select>
+      </label>
+      <label class="v-modal-row">
+        <span>Reason</span>
+        <textarea
+          id="v-report-reason"
+          class="v-modal-input v-modal-textarea"
+          rows="4"
+          maxlength="500"
+          placeholder="What's the issue?"
+        ></textarea>
+      </label>
+      <div class="v-modal-error" id="v-report-error" hidden></div>
+      <div class="v-modal-actions">
+        <button type="button" class="v-modal-cancel" id="v-report-cancel">Cancel</button>
+        <button type="button" class="v-modal-submit" id="v-report-submit">Send report</button>
+      </div>
+    </div>
+  </div>
+
+  <noscript>
+    <div style="text-align:center;padding:48px 24px;color:#9CA3AF;font-family:Inter,sans-serif;">
+      This profile requires JavaScript.
+    </div>
+  </noscript>
+
+  <script src="/config.js"></script>
+  <script src="/api.js"></script>
+  <script src="/v.js"></script>
+</body>
+</html>
