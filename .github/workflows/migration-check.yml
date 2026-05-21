@@ -144,7 +144,12 @@ jobs:
               bucket_id text REFERENCES storage.buckets(id),
               name text,
               owner uuid,
-              created_at timestamptz DEFAULT now()
+              created_at timestamptz DEFAULT now(),
+              -- metadata jsonb mirrors Supabase Storage's real schema —
+              -- migrations under supabase/migrations/ reference
+              -- `metadata->>'mimetype'` for server-side MIME validation
+              -- (see 20260521170000_branding_storage_policies.sql).
+              metadata jsonb DEFAULT '{}'::jsonb
             );
 
             -- storage.foldername is Supabase's path-split utility, used in
