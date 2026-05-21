@@ -36,7 +36,14 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        # `postgis/postgis:17-3.5` is the upstream PostGIS team's image —
+        # bare `postgres:17` plus pre-installed PostGIS 3.5. We need
+        # PostGIS for the Safe Mode migration (`20260521120000_safe_mode.sql`)
+        # which declares `extensions.geometry(Polygon, 4326)` columns and
+        # calls `extensions.ST_*` helpers. Bare postgres:17 ships without
+        # any geo extension on disk, so `CREATE EXTENSION postgis` would
+        # fail with "could not open file ... postgis.control".
+        image: postgis/postgis:17-3.5
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: homefit_test

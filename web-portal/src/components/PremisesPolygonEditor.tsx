@@ -83,7 +83,7 @@ export function PremisesPolygonEditor({
       const start = vertices.length > 0
         ? centroid(vertices)
         : defaultCenter ?? FALLBACK_CENTER;
-      const zoom = start && 'zoom' in start ? start.zoom ?? 16 : 16;
+      const zoom: number = (defaultCenter?.zoom ?? FALLBACK_CENTER.zoom) ?? 16;
 
       const map = L.map(containerRef.current, {
         center: [start.lat, start.lng] as LatLngExpression,
