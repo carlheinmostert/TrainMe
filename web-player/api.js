@@ -627,8 +627,88 @@
     }
   }
 
+  /**
+   * `get_practice_profile(p_slug)` — anonymous SECURITY DEFINER RPC that
+   * returns the public profile + non-deleted premises for a directory-
+   * listed practice. Used by the `/v/{slug}` page.
+   *
+   * Returns `null` when the slug is not found OR the practice has not
+   * opted into the directory (public_profile_listed=false). The page
+   * surfaces that as a 404-equivalent message — Supabase deliberately
+   * doesn't distinguish "no such slug" from "not listed" so we don't
+   * leak the existence of unlisted slugs.
+   */
+  async function getPracticeProfile(slug) {
+    if (!slug || typeof slug !== 'string') return null;
+    if (isLocalSurface()) return null; // No local equivalent.
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_practice_profile`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_slug: slug }),
+        },
+      );
+      if (!response.ok) return null;
+      const rows = await response.json();
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      const row = rows[0];
+      return {
+        practiceId: row.practice_id,
+        practiceName: row.practice_name,
+        slug: row.slug,
+        logoUrl: row.logo_url || null,
+        blurb: row.blurb || null,
+        premises: Array.isArray(row.premises) ? row.premises : [],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * `report_premises(p_premises_id, p_reason)` — anonymous SECURITY
+   * DEFINER RPC. Lands in `premises_reports` for Carl to triage.
+   *
+   * Returns the new report id on success, null on failure (the caller
+   * just renders a toast either way — no point distinguishing).
+   */
+  async function reportPremises(premisesId, reason) {
+    if (!premisesId || !reason) return null;
+    if (isLocalSurface()) return null;
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/report_premises`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_premises_id: premisesId,
+            p_reason: String(reason).slice(0, 500),
+          }),
+        },
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      return typeof data === 'string' ? data : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   window.HomefitApi = Object.freeze({
     getPlanFull,
+    getPracticeProfile,
+    reportPremises,
     recordPlanOpened,
     startAnalyticsSession,
     logAnalyticsEvent,

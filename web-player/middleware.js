@@ -22,8 +22,9 @@
 
 export default async function middleware(request) {
   const url = new URL(request.url);
-  const match = url.pathname.match(/^\/p\/([a-zA-Z0-9_-]+)/);
-  if (!match) return; // Not a plan URL, pass through
+  const planMatch = url.pathname.match(/^\/p\/([a-zA-Z0-9_-]+)/);
+  const profileMatch = url.pathname.match(/^\/v\/([a-z0-9-]+)/);
+  if (!planMatch && !profileMatch) return; // Not a known surface, pass through
 
   const ua = request.headers.get('user-agent') || '';
   const isBot = /WhatsApp|facebookexternalhit|Twitterbot|LinkedInBot|Slackbot|TelegramBot/i.test(ua);
@@ -46,8 +47,6 @@ export default async function middleware(request) {
     return; // Pass through; SPA handles the request.
   }
 
-  const planId = match[1];
-
   // Derive the OG `og:url` from the incoming request origin so staging
   // unfurls show `staging.session.homefit.studio/...` instead of the
   // prod host. Falls back to the full URL if origin can't be parsed.
@@ -57,6 +56,67 @@ export default async function middleware(request) {
   } catch (_) {
     originHost = 'https://session.homefit.studio';
   }
+
+  // Practice public profile (`/v/{slug}`) — separate RPC, different OG copy.
+  if (profileMatch) {
+    const slug = profileMatch[1];
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_practice_profile`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_slug: slug }),
+        },
+      );
+      if (!response.ok) return new Response('Not found', { status: 404 });
+      const rows = await response.json();
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return new Response('Not found', { status: 404 });
+      }
+      const row = rows[0];
+      const title = row.practice_name || 'Practice';
+      const premises = Array.isArray(row.premises) ? row.premises : [];
+      const enforced = premises.filter((p) => p && p.safe_mode_enforced).length;
+      const description = row.blurb
+        || (premises.length > 0
+              ? `${premises.length} ${premises.length === 1 ? 'premises' : 'premises'} · ${enforced} enforcing Safe Mode`
+              : 'A practice profile on homefit.studio');
+      const image = row.logo_url || '';
+      const profileUrl = `${originHost}/v/${slug}`;
+      const safeProfileUrl = escapeHtml(profileUrl);
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' https: data:;">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${escapeHtml(title)} — homefit.studio">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:image" content="${escapeHtml(image)}">
+  <meta property="og:url" content="${safeProfileUrl}">
+  <meta property="og:site_name" content="homefit.studio">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${escapeHtml(title)} — homefit.studio">
+  <meta name="twitter:description" content="${escapeHtml(description)}">
+  <meta http-equiv="refresh" content="0;url=${safeProfileUrl}">
+  <title>${escapeHtml(title)} — homefit.studio</title>
+</head>
+<body><p>Loading…</p></body>
+</html>`;
+      return new Response(html, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    } catch (_) {
+      return; // Pass through on error.
+    }
+  }
+
+  const planId = planMatch[1];
 
   try {
     // Anon-safe read via SECURITY DEFINER RPC (param name is p_plan_id,
@@ -146,5 +206,5 @@ function escapeHtml(str) {
 }
 
 export const config = {
-  matcher: '/p/:path*',
+  matcher: ['/p/:path*', '/v/:slug*'],
 };

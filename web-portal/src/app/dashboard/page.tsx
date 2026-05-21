@@ -98,6 +98,7 @@ export default async function DashboardPage({
     members,
     allBalances,
     auditPreview,
+    premises,
   ] = await Promise.all([
     api.getCurrentUserRole(selected.id, user.id),
     api.listPracticeClients(selected.id),
@@ -113,6 +114,7 @@ export default async function DashboardPage({
     // is for triage. Replaces the pre-Wave-40 `getLastIssuanceAt` single-
     // line "Last publish · 2 days ago" tile which surfaced no row payload.
     auditApi.listAudit(selected.id, { limit: 5 }),
+    api.listPracticePremises(selected.id),
   ]);
   const isOwner = role === 'owner';
 
@@ -175,6 +177,22 @@ export default async function DashboardPage({
   const membersHeadline = `${memberCount} ${memberCount === 1 ? 'practitioner' : 'practitioners'}`;
   const membersSubtitle = memberCount === 1 ? 'Invite more' : 'Manage team';
 
+  // Premises — count + Safe Mode coverage. "Registered only" sites that
+  // have safe_mode_enforced=false still count for the directory but not
+  // for capture-time enforcement.
+  const premisesCount = premises.length;
+  const enforcedCount = premises.filter((p) => p.safeModeEnforced).length;
+  const premisesHeadline =
+    premisesCount === 0
+      ? 'No premises'
+      : `${premisesCount} ${premisesCount === 1 ? 'site' : 'sites'}`;
+  const premisesSubtitle =
+    premisesCount === 0
+      ? 'Add a site to enable Safe Mode'
+      : enforcedCount === 0
+        ? 'None enforce Safe Mode'
+        : `${enforcedCount} enforce Safe Mode`;
+
   return (
     <main className="flex min-h-screen flex-col">
       <BrandHeader
@@ -236,6 +254,13 @@ export default async function DashboardPage({
             href={`/audit${qs}`}
             rows={auditPreview.rows}
             error={auditPreview.error}
+          />
+
+          <DashboardTile
+            href={`/premises${qs}`}
+            label="Premises"
+            headline={premisesHeadline}
+            subtitle={premisesSubtitle}
           />
 
           {isOwner && (
