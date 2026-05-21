@@ -101,9 +101,21 @@ export function PremisesPolygonEditor({
         : defaultCenter ?? FALLBACK_CENTER;
       const zoom: number = (defaultCenter?.zoom ?? FALLBACK_CENTER.zoom) ?? 16;
 
+      // Pin the map's max zoom explicitly so swapping base layers never
+      // re-clamps the zoom mid-session (Carl flagged: zoom level shifts
+      // when toggling Street ↔ Satellite). All three tile layers also get
+      // the same `maxZoom` so Leaflet never has a reason to re-evaluate.
+      // maxNativeZoom on satellite + labels caps tile fetches at the
+      // highest zoom Esri actually has imagery for in most regions;
+      // beyond that, Leaflet upscales the highest available tile rather
+      // than fetching 404s or downsampling the view.
+      const MAP_MAX_ZOOM = 19;
+      const ESRI_MAX_NATIVE = 18;
+
       const map = L.map(containerRef.current, {
         center: [start.lat, start.lng] as LatLngExpression,
         zoom,
+        maxZoom: MAP_MAX_ZOOM,
         zoomControl: true,
         attributionControl: true,
       });
@@ -121,12 +133,13 @@ export function PremisesPolygonEditor({
       // (all three Esri layers share the same host).
       const street = L.tileLayer(
         'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        { maxZoom: 19, attribution: '© OpenStreetMap contributors' },
+        { maxZoom: MAP_MAX_ZOOM, attribution: '© OpenStreetMap contributors' },
       );
       const satellite = L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         {
-          maxZoom: 19,
+          maxZoom: MAP_MAX_ZOOM,
+          maxNativeZoom: ESRI_MAX_NATIVE,
           attribution:
             'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
         },
@@ -134,7 +147,8 @@ export function PremisesPolygonEditor({
       const labels = L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
         {
-          maxZoom: 19,
+          maxZoom: MAP_MAX_ZOOM,
+          maxNativeZoom: ESRI_MAX_NATIVE,
           attribution: 'Labels © Esri',
         },
       );
