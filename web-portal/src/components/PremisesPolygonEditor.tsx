@@ -78,6 +78,12 @@ export function PremisesPolygonEditor({
     if (!initial) return [];
     return latLngsFromGeoJson(initial);
   });
+  // True once the async Leaflet init resolves and mapRef.current is set.
+  // The polygon-render effect depends on this so it re-runs once the map
+  // is ready — without it, an existing polygon (Edit mode) would never
+  // render because the first effect pass happens before the dynamic
+  // leaflet import completes. Carl flagged 2026-05-21.
+  const [mapReady, setMapReady] = useState(false);
 
   const stats = useMemo(() => computeStats(vertices, maxVertices, maxAreaM2), [vertices, maxVertices, maxAreaM2]);
 
@@ -150,6 +156,7 @@ export function PremisesPolygonEditor({
       });
 
       mapRef.current = map;
+      setMapReady(true);
 
       // Leaflet caches container dimensions on the first paint. Inside a
       // modal that animates in (or measures 0×0 even briefly), tiles
@@ -238,7 +245,11 @@ export function PremisesPolygonEditor({
       marker.addTo(map);
       markerLayersRef.current.push(marker);
     });
-  }, [vertices]);
+    // mapReady ensures this re-runs once the async leaflet init completes.
+    // Without it, the first pass happens with mapRef.current === null and
+    // an existing polygon (Edit mode) silently never renders until the
+    // user clicks somewhere and forces a vertices change.
+  }, [vertices, mapReady]);
 
   // Pan the map when the address-search picks a result. Keyed on the
   // whole `centerTrigger` reference (nonce included) so the same lat/lng
