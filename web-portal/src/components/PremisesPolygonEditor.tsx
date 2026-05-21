@@ -102,10 +102,25 @@ export function PremisesPolygonEditor({
         attributionControl: true,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap contributors',
-      }).addTo(map);
+      // Two tile sources with a Leaflet layer-switcher control. Street is
+      // the default (faster, better road labels). Satellite uses Esri's
+      // free World Imagery — no API key, decent SA coverage. CSP needs
+      // both *.tile.openstreetmap.org (img-src) and server.arcgisonline.com
+      // (img-src) for tiles to load.
+      const street = L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        { maxZoom: 19, attribution: '© OpenStreetMap contributors' },
+      );
+      const satellite = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {
+          maxZoom: 19,
+          attribution:
+            'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+        },
+      );
+      street.addTo(map);
+      L.control.layers({ Street: street, Satellite: satellite }).addTo(map);
 
       map.on('click', (ev: LeafletMouseEvent) => {
         const next = { lat: ev.latlng.lat, lng: ev.latlng.lng };
