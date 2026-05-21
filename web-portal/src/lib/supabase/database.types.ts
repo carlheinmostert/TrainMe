@@ -597,6 +597,10 @@ export type Database = {
       }
       practices: {
         Row: {
+          brand_color: string | null
+          contact_email: string | null
+          contact_whatsapp: string | null
+          contact_website: string | null
           created_at: string
           id: string
           name: string
@@ -606,8 +610,14 @@ export type Database = {
           public_profile_listed: boolean
           public_profile_updated_at: string | null
           public_slug: string | null
+          specialties: string[] | null
+          tagline: string | null
         }
         Insert: {
+          brand_color?: string | null
+          contact_email?: string | null
+          contact_whatsapp?: string | null
+          contact_website?: string | null
           created_at?: string
           id?: string
           name: string
@@ -617,8 +627,14 @@ export type Database = {
           public_profile_listed?: boolean
           public_profile_updated_at?: string | null
           public_slug?: string | null
+          specialties?: string[] | null
+          tagline?: string | null
         }
         Update: {
+          brand_color?: string | null
+          contact_email?: string | null
+          contact_whatsapp?: string | null
+          contact_website?: string | null
           created_at?: string
           id?: string
           name?: string
@@ -628,6 +644,8 @@ export type Database = {
           public_profile_listed?: boolean
           public_profile_updated_at?: string | null
           public_slug?: string | null
+          specialties?: string[] | null
+          tagline?: string | null
         }
         Relationships: []
       }
@@ -1208,8 +1226,32 @@ export type Database = {
           p_logo_url: string | null
           p_blurb: string | null
           p_listed: boolean
+          p_brand_color?: string | null
+          p_tagline?: string | null
+          p_specialties?: string[] | null
+          p_contact_email?: string | null
+          p_contact_whatsapp?: string | null
+          p_contact_website?: string | null
         }
         Returns: undefined
+      }
+      get_practice_profile_owner: {
+        Args: { p_practice_id: string }
+        Returns: {
+          practice_id: string
+          practice_name: string
+          slug: string | null
+          logo_url: string | null
+          blurb: string | null
+          premises: Json
+          brand_color: string | null
+          tagline: string | null
+          specialties: string[] | null
+          contact_email: string | null
+          contact_whatsapp: string | null
+          contact_website: string | null
+          listed: boolean
+        }[]
       }
       find_premises_at: {
         Args: { p_lat: number; p_lng: number }
@@ -1229,6 +1271,12 @@ export type Database = {
           logo_url: string | null
           blurb: string | null
           premises: Json
+          brand_color: string | null
+          tagline: string | null
+          specialties: string[] | null
+          contact_email: string | null
+          contact_whatsapp: string | null
+          contact_website: string | null
         }[]
       }
       report_premises: {

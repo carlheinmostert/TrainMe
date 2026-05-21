@@ -93,6 +93,12 @@ export default async function PremisesPage({
               logoUrl: null,
               blurb: null,
               listed: false,
+              brandColor: null,
+              tagline: null,
+              specialties: null,
+              contactEmail: null,
+              contactWhatsapp: null,
+              contactWebsite: null,
             }
           }
         />

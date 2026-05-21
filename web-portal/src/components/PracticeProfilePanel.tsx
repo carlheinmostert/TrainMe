@@ -83,6 +83,13 @@ export function PracticeProfilePanel({
         logoUrl: logoUrl.trim() === '' ? null : logoUrl.trim(),
         blurb: blurb.trim() === '' ? null : blurb.trim(),
         listed,
+        // V2 fields — preserved through the V1 panel (it doesn't edit them).
+        brandColor: initial.brandColor ?? null,
+        tagline: initial.tagline ?? null,
+        specialties: initial.specialties ?? null,
+        contactEmail: initial.contactEmail ?? null,
+        contactWhatsapp: initial.contactWhatsapp ?? null,
+        contactWebsite: initial.contactWebsite ?? null,
       });
       setSavedTick((t) => t + 1);
     } catch (e) {

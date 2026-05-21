@@ -775,16 +775,31 @@ export class PortalApi {
       p_logo_url: input.logoUrl,
       p_blurb: input.blurb,
       p_listed: input.listed,
+      p_brand_color: input.brandColor,
+      p_tagline: input.tagline,
+      p_specialties: input.specialties,
+      p_contact_email: input.contactEmail,
+      p_contact_whatsapp: input.contactWhatsapp,
+      p_contact_website: input.contactWebsite,
     });
     if (!error) return;
     const code = (error as { code?: string }).code ?? '';
     const message = error.message ?? '';
     if (code === '23505') throw new PublicProfileError('slug-taken', message);
     if (code === '42501') throw new PublicProfileError('not-owner', message);
+    if (code === '23514') {
+      // CHECK-constraint violation — narrower than the 22023 RAISE bucket.
+      if (/brand_color_hex/i.test(message)) throw new PublicProfileError('brand-color-invalid', message);
+      if (/tagline_length/i.test(message)) throw new PublicProfileError('tagline-too-long', message);
+      if (/specialties_max/i.test(message)) throw new PublicProfileError('specialties-too-many', message);
+      if (/contact_/i.test(message)) throw new PublicProfileError('contact-too-long', message);
+      throw new PublicProfileError('invalid-input', message);
+    }
     if (code === '22023') {
       if (/slug must be/i.test(message)) throw new PublicProfileError('slug-invalid', message);
       if (/blurb max/i.test(message)) throw new PublicProfileError('blurb-too-long', message);
       if (/cannot list practice/i.test(message)) throw new PublicProfileError('listed-without-slug', message);
+      if (/website must start/i.test(message)) throw new PublicProfileError('website-invalid', message);
       throw new PublicProfileError('invalid-input', message);
     }
     throw new Error(message);
@@ -792,26 +807,35 @@ export class PortalApi {
 
   /**
    * Returns the current `practices` row including the public profile
-   * columns (slug + logo + blurb + listed) for the settings form.
+   * columns (slug + logo + blurb + listed + V2 branding fields) for
+   * the settings form.
+   *
+   * Reads through the `get_practice_profile_owner` SECURITY DEFINER RPC
+   * — the practice-membership check lives inside the RPC, and direct
+   * SELECTs on `practices` are forbidden by the no-direct-DB-access rule.
    */
   async getPracticePublicProfile(
     practiceId: string,
   ): Promise<PracticePublicProfile | null> {
-    const { data, error } = await this.supabase
-      .from('practices')
-      .select(
-        'id, name, public_slug, public_logo_url, public_blurb, public_profile_listed',
-      )
-      .eq('id', practiceId)
-      .maybeSingle();
+    const { data, error } = await this.supabase.rpc('get_practice_profile_owner', {
+      p_practice_id: practiceId,
+    });
     if (error || !data) return null;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
     return {
-      practiceId: data.id,
-      practiceName: data.name,
-      slug: data.public_slug,
-      logoUrl: data.public_logo_url,
-      blurb: data.public_blurb,
-      listed: data.public_profile_listed ?? false,
+      practiceId: row.practice_id,
+      practiceName: row.practice_name,
+      slug: row.slug ?? null,
+      logoUrl: row.logo_url ?? null,
+      blurb: row.blurb ?? null,
+      listed: row.listed ?? false,
+      brandColor: row.brand_color ?? null,
+      tagline: row.tagline ?? null,
+      specialties: (row.specialties as string[] | null) ?? null,
+      contactEmail: row.contact_email ?? null,
+      contactWhatsapp: row.contact_whatsapp ?? null,
+      contactWebsite: row.contact_website ?? null,
     };
   }
 
@@ -954,6 +978,16 @@ export type SetPracticePublicProfileInput = {
   logoUrl: string | null;
   blurb: string | null;
   listed: boolean;
+  /** Hex `#RRGGBB`, or null = default coral. */
+  brandColor: string | null;
+  /** ≤ 60 chars; null to clear. */
+  tagline: string | null;
+  /** 0–8 entries; null to clear. */
+  specialties: string[] | null;
+  contactEmail: string | null;
+  contactWhatsapp: string | null;
+  /** Must start with https:// when set. */
+  contactWebsite: string | null;
 };
 
 export type PracticePublicProfile = {
@@ -963,6 +997,12 @@ export type PracticePublicProfile = {
   logoUrl: string | null;
   blurb: string | null;
   listed: boolean;
+  brandColor: string | null;
+  tagline: string | null;
+  specialties: string[] | null;
+  contactEmail: string | null;
+  contactWhatsapp: string | null;
+  contactWebsite: string | null;
 };
 
 export type PublicProfileErrorKind =
@@ -971,6 +1011,11 @@ export type PublicProfileErrorKind =
   | 'slug-invalid'
   | 'blurb-too-long'
   | 'listed-without-slug'
+  | 'brand-color-invalid'
+  | 'tagline-too-long'
+  | 'specialties-too-many'
+  | 'contact-too-long'
+  | 'website-invalid'
   | 'invalid-input';
 
 export class PublicProfileError extends Error {
