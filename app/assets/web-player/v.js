@@ -215,6 +215,10 @@
       elLogo.innerHTML = '';
       elLogo.appendChild(img);
       elLogo.classList.add('v-logo--has-image');
+      // Image carries semantic meaning via the surrounding heading; the
+      // logo container itself is decorative.
+      elLogo.setAttribute('aria-hidden', 'true');
+      elLogo.removeAttribute('aria-label');
     } else {
       // Fallback: render initials in a coral square.
       const initials = (profile.practiceName || 'H')
@@ -226,6 +230,13 @@
         .toUpperCase();
       elLogo.textContent = initials || 'H';
       elLogo.classList.remove('v-logo--has-image');
+      // F-H5 fix (synthesis 2026-05-21): the initials fallback is the
+      // only visual identification when there's no logo asset. Tag it
+      // for screen readers so users on AT don't hit two opaque letters.
+      const labelName = profile.practiceName || 'Practice';
+      elLogo.setAttribute('aria-label', labelName + ' logo');
+      elLogo.setAttribute('aria-hidden', 'false');
+      elLogo.setAttribute('role', 'img');
     }
 
     elPremisesList.innerHTML = '';
