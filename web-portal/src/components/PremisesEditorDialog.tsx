@@ -8,6 +8,7 @@ import {
   type PracticePremises,
   PremisesError,
 } from '@/lib/supabase/api';
+import { AddressSearchInput, type AddressMatch } from './AddressSearchInput';
 import type { PolygonGeoJSON, PolygonStats } from './PremisesPolygonEditor';
 
 // Leaflet writes to `window` at import time, so the editor must be SSR-skipped.
@@ -59,6 +60,12 @@ export function PremisesEditorDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
+  // Bumped each time the user picks an address-search result so the map
+  // pans to the new centre. The `nonce` lets the editor's effect
+  // re-trigger even if the user picks the same result twice.
+  const [centerTrigger, setCenterTrigger] = useState<
+    { lat: number; lng: number; zoom?: number; nonce: number } | null
+  >(null);
 
   // Geolocate on open so the map starts somewhere useful. Failure is fine —
   // the editor falls back to a default centre.
@@ -167,12 +174,17 @@ export function PremisesEditorDialog({
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-ink">Address (optional)</span>
-            <input
-              type="text"
+            <AddressSearchInput
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Maude St, Sandton, 2196"
-              className="rounded-md border border-surface-border bg-surface-bg px-3 py-2 text-ink placeholder:text-ink-muted focus:border-brand focus:outline-none"
+              onChange={setAddress}
+              onSelect={(match: AddressMatch) =>
+                setCenterTrigger({
+                  lat: match.lat,
+                  lng: match.lng,
+                  zoom: 17,
+                  nonce: Date.now(),
+                })
+              }
             />
           </label>
         </div>
@@ -184,6 +196,7 @@ export function PremisesEditorDialog({
               geo ? { lat: geo.lat, lng: geo.lng, zoom: 17 } : undefined
             }
             onChange={handleChange}
+            centerTrigger={centerTrigger}
           />
         </div>
 
@@ -212,7 +225,14 @@ export function PremisesEditorDialog({
           </div>
         )}
 
-        <div className="flex justify-end gap-3">
+        <div className="flex items-center justify-end gap-3">
+          {(() => {
+            const reason = disableReason(name, stats);
+            if (!reason || saving) return null;
+            return (
+              <span className="mr-auto text-xs text-ink-muted">{reason}</span>
+            );
+          })()}
           <button
             type="button"
             onClick={onClose}
@@ -233,6 +253,26 @@ export function PremisesEditorDialog({
       </div>
     </div>
   );
+}
+
+// Inline-explains why the Save / Create button is disabled. Returns null
+// when the form is ready to submit so the hint disappears. Surfaced
+// alongside the button so the user doesn't have to guess.
+function disableReason(name: string, stats: PolygonStats): string | null {
+  if (name.trim().length === 0) return 'Add a name to enable Save.';
+  if (stats.vertexCount < 3) {
+    return `Place at least 3 vertices (currently ${stats.vertexCount}).`;
+  }
+  if (stats.vertexCount > 12) return 'Too many vertices (max 12).';
+  if (stats.areaM2 < 25) {
+    const rounded = Math.round(stats.areaM2);
+    return `Polygon too small (need ≥ 25 m², currently ${rounded} m²).`;
+  }
+  if (stats.areaM2 > 1_000_000) {
+    const km2 = (stats.areaM2 / 1_000_000).toFixed(3);
+    return `Polygon too large (max 1 km², currently ${km2} km²).`;
+  }
+  return null;
 }
 
 function messageForKind(err: PremisesError): string {

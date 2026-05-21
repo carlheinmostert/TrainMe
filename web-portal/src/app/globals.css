@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Leaflet must be imported here (not from the dynamic editor component)
+   because Next.js App Router loads CSS from dynamic(ssr:false) chunks
+   asynchronously — the JS runs before the stylesheet does, leaving
+   `.leaflet-tile-pane` unstyled and tiles invisible. Importing at the
+   global layer guarantees CSS is present before any Leaflet code runs. */
+@import 'leaflet/dist/leaflet.css';
+
 :root {
   color-scheme: dark;
   /* Shared loading rhythm — matrix-mark spinner + skeleton sweep. 1.2.0. */

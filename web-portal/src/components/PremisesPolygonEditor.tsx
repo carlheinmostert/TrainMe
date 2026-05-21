@@ -1,6 +1,8 @@
 'use client';
 
-import 'leaflet/dist/leaflet.css';
+// Leaflet's stylesheet is imported in web-portal/src/app/globals.css —
+// importing here would land in the dynamic(ssr:false) chunk and load
+// async after Leaflet's JS runs, leaving tiles unstyled and invisible.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   LatLngExpression,
@@ -40,6 +42,12 @@ type Props = {
   maxVertices?: number;
   /** Max area in m². Default 1,000,000 (1 km²). */
   maxAreaM2?: number;
+  /**
+   * Fly the map to a new centre when this value changes. Use a `nonce`
+   * (e.g. `Date.now()`) to re-trigger panning to the same point — the
+   * effect keys on object identity, not lat/lng equality.
+   */
+  centerTrigger?: { lat: number; lng: number; zoom?: number; nonce: number } | null;
 };
 
 export type PolygonStats = {
@@ -57,12 +65,14 @@ export function PremisesPolygonEditor({
   onChange,
   maxVertices = 12,
   maxAreaM2 = 1_000_000,
+  centerTrigger,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const polygonLayerRef = useRef<LeafletPolygon | null>(null);
   const markerLayersRef = useRef<LeafletMarker[]>([]);
   const leafletRef = useRef<typeof import('leaflet') | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   const [vertices, setVertices] = useState<LatLng[]>(() => {
     if (!initial) return [];
@@ -106,9 +116,28 @@ export function PremisesPolygonEditor({
       });
 
       mapRef.current = map;
+
+      // Leaflet caches container dimensions on the first paint. Inside a
+      // modal that animates in (or measures 0×0 even briefly), tiles
+      // never recompute and the map looks blank under the vertex pins.
+      // invalidateSize on the next microtask + on window resize covers
+      // both cases.
+      requestAnimationFrame(() => {
+        if (!cancelled && mapRef.current) mapRef.current.invalidateSize();
+      });
+      const handleResize = () => {
+        if (mapRef.current) mapRef.current.invalidateSize();
+      };
+      window.addEventListener('resize', handleResize);
+      resizeCleanupRef.current = () =>
+        window.removeEventListener('resize', handleResize);
     })();
     return () => {
       cancelled = true;
+      if (resizeCleanupRef.current) {
+        resizeCleanupRef.current();
+        resizeCleanupRef.current = null;
+      }
       const map = mapRef.current;
       if (map) {
         map.remove();
@@ -176,6 +205,18 @@ export function PremisesPolygonEditor({
       markerLayersRef.current.push(marker);
     });
   }, [vertices]);
+
+  // Pan the map when the address-search picks a result. Keyed on the
+  // whole `centerTrigger` reference (nonce included) so the same lat/lng
+  // re-triggers panning if the user picks it twice.
+  useEffect(() => {
+    if (!centerTrigger) return;
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo([centerTrigger.lat, centerTrigger.lng], centerTrigger.zoom ?? 17, {
+      duration: 0.6,
+    });
+  }, [centerTrigger]);
 
   // Raise onChange whenever the polygon settles into a new state.
   useEffect(() => {
