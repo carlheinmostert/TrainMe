@@ -66,12 +66,19 @@ export function BrandingPanel({
       });
       setSavedAt(Date.now());
     } catch (e) {
+      // F-H3 fix (synthesis 2026-05-21): only toast typed
+      // PublicProfileError (a domain-level rejection we expect — slug
+      // taken, blurb too long, etc.). Anything else is a programmer
+      // error or infrastructure failure that the user can't action;
+      // log it and re-throw so it lands in Sentry / the dev console
+      // instead of being silently mapped to a misleading toast string.
       if (e instanceof PublicProfileError) {
         setError(messageForKind(e));
-      } else if (e instanceof Error) {
-        setError(e.message);
       } else {
-        setError('Save failed.');
+        // eslint-disable-next-line no-console
+        console.error('[BrandingPanel] unexpected save error:', e);
+        setError('Something went wrong saving — please try again.');
+        throw e;
       }
     } finally {
       setPending(false);

@@ -111,12 +111,18 @@ export function IdentityPanel({
       });
       setSavedAt(Date.now());
     } catch (e) {
+      // F-H3 fix (synthesis 2026-05-21): only toast typed
+      // PublicProfileError. Anything else is a programmer error or
+      // infrastructure failure — log + re-throw so it surfaces in
+      // Sentry / the dev console instead of being silently flattened
+      // into a misleading toast.
       if (e instanceof PublicProfileError) {
         setError(messageForKind(e));
-      } else if (e instanceof Error) {
-        setError(e.message);
       } else {
-        setError('Save failed.');
+        // eslint-disable-next-line no-console
+        console.error('[IdentityPanel] unexpected save error:', e);
+        setError('Something went wrong saving — please try again.');
+        throw e;
       }
     } finally {
       setPending(false);
