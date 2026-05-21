@@ -18,7 +18,11 @@ type Props = {
   defaultOpen?: boolean;
 };
 
-const SLUG_RX = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
+// F-H1 fix (synthesis 2026-05-21): the hint promises a 3-40 char slug
+// but the previous regex `^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$`
+// permitted single-character slugs (the whole tail group was optional).
+// Require head + body (>=1) + tail — minimum length 3, maximum 40.
+const SLUG_RX = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 const BLURB_MAX = 280;
 const TAGLINE_MAX = 60;
 
@@ -107,12 +111,18 @@ export function IdentityPanel({
       });
       setSavedAt(Date.now());
     } catch (e) {
+      // F-H3 fix (synthesis 2026-05-21): only toast typed
+      // PublicProfileError. Anything else is a programmer error or
+      // infrastructure failure — log + re-throw so it surfaces in
+      // Sentry / the dev console instead of being silently flattened
+      // into a misleading toast.
       if (e instanceof PublicProfileError) {
         setError(messageForKind(e));
-      } else if (e instanceof Error) {
-        setError(e.message);
       } else {
-        setError('Save failed.');
+        // eslint-disable-next-line no-console
+        console.error('[IdentityPanel] unexpected save error:', e);
+        setError('Something went wrong saving — please try again.');
+        throw e;
       }
     } finally {
       setPending(false);

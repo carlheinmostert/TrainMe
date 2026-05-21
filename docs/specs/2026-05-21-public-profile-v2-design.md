@@ -263,6 +263,7 @@ A new section J appended to the active wave's test script (`docs/test-scripts/20
 - **Logo upload bucket policy** — `media` is public-read but path-scoped on write. Confirm the new `branding/{practice_id}/` prefix is covered by the existing INSERT policy before merging; add a clause if not.
 - **Brand color contrast** — practitioners can pick low-contrast colors. We surface a tip but do not block. If a practice's player looks broken, we have one direction to point them.
 - **Existing `set_practice_public_profile` RPC** — already in production. Renaming parameters or reordering would break the portal. New params append to the end of the signature; existing params keep their position.
+- **Public-member surface is capped at 50 rows** — `get_practice_public_members(p_practice_id)` returns at most 50 rows by design (no pagination on the public-profile team grid; a pathological practice with hundreds of members shouldn't dump them all to anon callers). Server-enforced via `LIMIT 50` in the RPC body. If a practice exceeds this we display the first 50 sorted owners-first then alphabetical — see Q-H1 in `docs/reviews/2026-05-21-synthesis.md` for the rationale.
 
 ## Out of scope for V1
 

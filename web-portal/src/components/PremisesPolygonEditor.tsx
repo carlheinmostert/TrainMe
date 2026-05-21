@@ -78,6 +78,16 @@ export function PremisesPolygonEditor({
     if (!initial) return [];
     return latLngsFromGeoJson(initial);
   });
+  // F-H6 fix (synthesis 2026-05-21): the marker `drag` handler closes
+  // over `vertices` at handler-creation time. While the effect re-runs
+  // when state changes, mid-gesture mutations (Clear / Undo /
+  // programmatic centring) would leave the closure pointing at the
+  // pre-mutation snapshot — the polygon would visibly desync. Mirror
+  // the state into a ref + read from the ref inside `drag`.
+  const verticesRef = useRef<LatLng[]>(vertices);
+  useEffect(() => {
+    verticesRef.current = vertices;
+  }, [vertices]);
   // True once the async Leaflet init resolves and mapRef.current is set.
   // The polygon-render effect depends on this so it re-runs once the map
   // is ready — without it, an existing polygon (Edit mode) would never
@@ -256,7 +266,10 @@ export function PremisesPolygonEditor({
       // on item 10). State is committed once on `dragend`.
       marker.on('drag', () => {
         const next = marker.getLatLng();
-        const live = vertices.map((p, i) =>
+        // Read from the ref, not the captured closure — see verticesRef
+        // declaration. Without this, mid-gesture mutations (Clear /
+        // Undo) leave the closure pointing at a stale snapshot.
+        const live = verticesRef.current.map((p, i) =>
           i === idx ? [next.lat, next.lng] : [p.lat, p.lng],
         ) as LatLngExpression[];
         if (polygonLayerRef.current) {

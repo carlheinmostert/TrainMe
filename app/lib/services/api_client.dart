@@ -1510,13 +1510,16 @@ class ApiClient {
       final row = result.first;
       if (row is! Map) return null;
       final id = row['premises_id'];
-      final practiceId = row['practice_id'];
       final name = row['premises_name'];
       final enforced = row['safe_mode_enforced'];
-      if (id is! String || practiceId is! String) return null;
+      if (id is! String) return null;
+      // S-H1 fix (synthesis 2026-05-21): the anon RPC no longer returns
+      // practice_id (anti-enumeration). Mobile doesn't use it — Safe
+      // Mode only needs the premises id + name + enforcement boolean.
+      // If a caller needs the practice context, look it up via
+      // cached_practices keyed by the active session.
       return SafeModeMatch(
         premisesId: id,
-        practiceId: practiceId,
         premisesName: name is String ? name : '',
         safeModeEnforced: enforced is bool ? enforced : false,
       );
@@ -1526,12 +1529,20 @@ class ApiClient {
     }
   }
 
-  /// `report_premises(p_premises_id, p_reason)` — anon-callable RPC.
-  /// Surfaces a report to the homefit team (Carl triages manually for
-  /// MVP). Returns the new report row id on success, null on failure.
+  /// `report_premises(p_premises_id, p_reason, p_reporter_fingerprint)` —
+  /// anon-callable RPC. Surfaces a report to the homefit team (Carl
+  /// triages manually for MVP). Returns the new report row id on
+  /// success, null on failure.
+  ///
+  /// `reporterFingerprint` should be a stable device-scoped string so the
+  /// server-side per-hour rate-limit (S-H2) caps duplicate reports per
+  /// (premises, device). Callers typically pass a SharedPreferences
+  /// `device_id`; empty string means "anonymous" and shares a single
+  /// rate-limit bucket.
   Future<String?> reportPremises({
     required String premisesId,
     required String reason,
+    String reporterFingerprint = '',
   }) async {
     try {
       final dynamic result = await _guardAuth(
@@ -1540,6 +1551,7 @@ class ApiClient {
           params: {
             'p_premises_id': premisesId,
             'p_reason': reason,
+            'p_reporter_fingerprint': reporterFingerprint,
           },
         ),
       );
@@ -1557,13 +1569,11 @@ class ApiClient {
 @immutable
 class SafeModeMatch {
   final String premisesId;
-  final String practiceId;
   final String premisesName;
   final bool safeModeEnforced;
 
   const SafeModeMatch({
     required this.premisesId,
-    required this.practiceId,
     required this.premisesName,
     required this.safeModeEnforced,
   });

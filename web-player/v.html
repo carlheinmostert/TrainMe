@@ -51,6 +51,22 @@
     </div>
   </div>
 
+  <!-- Transient error state (network / 5xx) — distinct from not-found so
+       the user knows to retry rather than assuming the practice is gone. -->
+  <div id="v-load-error" class="error-screen" hidden>
+    <div class="error-content">
+      <div class="error-icon">!</div>
+      <h2 class="error-title">Couldn't load</h2>
+      <p class="error-text">
+        We couldn't reach homefit.studio just now. Check your connection
+        and try again.
+      </p>
+      <button type="button" id="v-load-retry" class="v-report-btn" style="margin-top:1rem;">
+        Retry
+      </button>
+    </div>
+  </div>
+
   <!-- Profile state -->
   <main id="v-profile" class="v-profile" hidden>
     <header class="v-header">
@@ -84,8 +100,8 @@
     <section class="v-section v-meta-section">
       <p class="v-fine-print">
         Practitioners capturing exercises inside an enforced premises
-        have bystanders automatically obscured. See{' '}
-        <a href="/what-we-share" class="v-link">what we share</a>{' '}
+        have bystanders automatically obscured. See
+        <a href="/what-we-share" class="v-link">what we share</a>
         for the full privacy story.
       </p>
       <button type="button" id="v-report-btn" class="v-report-btn">

@@ -641,8 +641,16 @@
   async function getPracticeProfile(slug) {
     if (!slug || typeof slug !== 'string') return null;
     if (isLocalSurface()) return null; // No local equivalent.
+    // Q-H3 fix (synthesis 2026-05-21): distinguish "not found" (HTTP 200
+    // + empty rows OR 404) from transient failures (5xx, network, JSON
+    // parse). Both used to collapse into `return null`, and v.js mapped
+    // every null to the "Practice not found" page — misleading when the
+    // real cause was offline / Supabase down. Now: return null only for
+    // genuine not-found, throw a typed Error for transient failures so
+    // the caller can show a retry UI.
+    let response;
     try {
-      const response = await fetch(
+      response = await fetch(
         `${SUPABASE_URL}/rest/v1/rpc/get_practice_profile`,
         {
           method: 'POST',
@@ -654,28 +662,50 @@
           body: JSON.stringify({ p_slug: slug }),
         },
       );
-      if (!response.ok) return null;
-      const rows = await response.json();
-      if (!Array.isArray(rows) || rows.length === 0) return null;
-      const row = rows[0];
-      return {
-        practiceId: row.practice_id,
-        practiceName: row.practice_name,
-        slug: row.slug,
-        logoUrl: row.logo_url || null,
-        blurb: row.blurb || null,
-        premises: Array.isArray(row.premises) ? row.premises : [],
-        // Public Profile v2 — branding + advertising fields.
-        brandColor: row.brand_color || null,
-        tagline: row.tagline || null,
-        specialties: Array.isArray(row.specialties) ? row.specialties : [],
-        contactEmail: row.contact_email || null,
-        contactWhatsapp: row.contact_whatsapp || null,
-        contactWebsite: row.contact_website || null,
-      };
-    } catch (_) {
-      return null;
+    } catch (e) {
+      // Network drop / DNS / CORS preflight failure — never reached the
+      // server. Tag the error so the caller can branch on it.
+      const err = new Error('Network unreachable: ' + (e && e.message ? e.message : String(e)));
+      err.transient = true;
+      err.status = 0;
+      throw err;
     }
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      // 4xx that isn't 404, or any 5xx — treat as transient. Anon
+      // contract shouldn't 401/403 here; if it does, that's a server
+      // misconfiguration worth retrying after a redeploy.
+      const err = new Error('Profile RPC failed: HTTP ' + response.status);
+      err.transient = response.status >= 500 || response.status === 429;
+      err.status = response.status;
+      throw err;
+    }
+    let rows;
+    try {
+      rows = await response.json();
+    } catch (e) {
+      const err = new Error('Profile RPC JSON parse failed: ' + (e && e.message ? e.message : String(e)));
+      err.transient = true;
+      err.status = response.status;
+      throw err;
+    }
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      practiceId: row.practice_id,
+      practiceName: row.practice_name,
+      slug: row.slug,
+      logoUrl: row.logo_url || null,
+      blurb: row.blurb || null,
+      premises: Array.isArray(row.premises) ? row.premises : [],
+      // Public Profile v2 — branding + advertising fields.
+      brandColor: row.brand_color || null,
+      tagline: row.tagline || null,
+      specialties: Array.isArray(row.specialties) ? row.specialties : [],
+      contactEmail: row.contact_email || null,
+      contactWhatsapp: row.contact_whatsapp || null,
+      contactWebsite: row.contact_website || null,
+    };
   }
 
   /**
@@ -723,10 +753,45 @@
    * Returns the new report id on success, null on failure (the caller
    * just renders a toast either way — no point distinguishing).
    */
+  // S-H2 fix (synthesis 2026-05-21): derive a stable browser-side
+  // fingerprint for rate-limiting report_premises. The hash is a
+  // best-effort identifier (UA + viewport rounded to 200px buckets +
+  // language + timezone offset) — not a tracking primitive. Stored only
+  // server-side in premises_reports, used by the trailing-hour
+  // rate-limit check inside the RPC.
+  async function _reporterFingerprint() {
+    try {
+      const parts = [
+        navigator.userAgent || '',
+        navigator.language || '',
+        String(new Date().getTimezoneOffset()),
+        String(Math.round((screen && screen.width) || 0 / 200) * 200),
+        String(Math.round((screen && screen.height) || 0 / 200) * 200),
+      ].join('|');
+      // SubtleCrypto SHA-256 — available everywhere we care about.
+      if (window.crypto && window.crypto.subtle) {
+        const buf = new TextEncoder().encode(parts);
+        const hashBuf = await window.crypto.subtle.digest('SHA-256', buf);
+        return Array.from(new Uint8Array(hashBuf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')
+          .slice(0, 32);
+      }
+      // Defensive fallback — non-crypto hash, still distinguishes
+      // unrelated browsers.
+      let h = 0;
+      for (let i = 0; i < parts.length; i++) h = ((h << 5) - h + parts.charCodeAt(i)) | 0;
+      return 'fb:' + Math.abs(h).toString(16);
+    } catch (_) {
+      return '';
+    }
+  }
+
   async function reportPremises(premisesId, reason) {
     if (!premisesId || !reason) return null;
     if (isLocalSurface()) return null;
     try {
+      const fingerprint = await _reporterFingerprint();
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/rpc/report_premises`,
         {
@@ -739,6 +804,7 @@
           body: JSON.stringify({
             p_premises_id: premisesId,
             p_reason: String(reason).slice(0, 500),
+            p_reporter_fingerprint: fingerprint,
           }),
         },
       );

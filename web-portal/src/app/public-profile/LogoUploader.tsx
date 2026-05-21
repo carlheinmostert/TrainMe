@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getBrowserClient } from '@/lib/supabase-browser';
 
 type Props = {
@@ -12,8 +12,12 @@ type Props = {
 };
 
 const MAX_BYTES = 1_048_576; // 1 MB
-const ACCEPT = 'image/png,image/jpeg,image/svg+xml';
-const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg', 'image/svg+xml']);
+// SVG is intentionally excluded — SVG can carry inline <script>/<foreignObject>
+// payloads that render in any surface that draws the logo via <img src=>.
+// The storage policy (20260521170000_branding_storage_policies.sql) also blocks
+// SVG at the bucket layer; this is the matching client-side gate.
+const ACCEPT = 'image/png,image/jpeg';
+const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg']);
 
 /**
  * Uploads the practice logo to the public `media` bucket under
@@ -36,6 +40,22 @@ export function LogoUploader({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // F-H2 / Q-H4 fix (synthesis 2026-05-21): track the most recent upload
+  // via a monotonic token so a slow first pick can't clobber a fast
+  // second pick's state. The latest token wins; older completions are
+  // ignored (storage state still mutates, but `onUploaded` + UI flag
+  // only fire for the winning token).
+  const inflightToken = useRef<number>(0);
+  // Inline "Uploaded" pill, mirrors the SaveBar pattern in BrandingPanel.
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Auto-dismiss the success pill after 3s so the panel doesn't keep
+  // shouting at the user once they're done.
+  useEffect(() => {
+    if (savedAt == null) return;
+    const id = window.setTimeout(() => setSavedAt(null), 3000);
+    return () => window.clearTimeout(id);
+  }, [savedAt]);
 
   const handleFile = async (file: File) => {
     setError(null);
@@ -46,27 +66,49 @@ export function LogoUploader({
       return;
     }
     if (!ALLOWED_MIMES.has(file.type)) {
-      setError('Logo must be PNG, JPG, or SVG.');
+      setError('Logo must be PNG or JPG.');
       return;
     }
+    const token = Date.now();
+    inflightToken.current = token;
     setUploading(true);
     try {
       const ext = file.name.split('.').pop()?.toLowerCase() ?? 'png';
       const path = `branding/${practiceId}/logo.${ext}`;
       const supabase = getBrowserClient();
+      // F-H2: wrap in try/catch — `supabase.storage.upload` can reject
+      // (network drop, AbortError, CORS) and that rejection used to land
+      // in no catch, leaving the spinner stuck + no message for the user.
       const { error: uploadError } = await supabase.storage
         .from('media')
         .upload(path, file, { upsert: true, contentType: file.type });
+      // Q-H4: stale-token check — a newer pick has started, abandon
+      // this completion entirely.
+      if (inflightToken.current !== token) return;
       if (uploadError) {
         setError(uploadError.message || 'Upload failed.');
+        // eslint-disable-next-line no-console
+        console.error('[LogoUploader] upload error:', uploadError);
         return;
       }
       const { data: pub } = supabase.storage.from('media').getPublicUrl(path);
       // Cache-bust so the browser fetches the new bytes immediately.
-      const url = `${pub.publicUrl}?v=${Date.now()}`;
+      const url = `${pub.publicUrl}?v=${token}`;
       onUploaded(url);
+      setSavedAt(token);
+    } catch (e) {
+      // Stale-token check on the throw path too — a newer pick that's
+      // already finished shouldn't be undone by a late rejection.
+      if (inflightToken.current !== token) return;
+      const msg = e instanceof Error ? e.message : 'Upload failed.';
+      setError(msg);
+      // eslint-disable-next-line no-console
+      console.error('[LogoUploader]', e);
     } finally {
-      setUploading(false);
+      // Only the winning token clears the spinner — older completions
+      // would otherwise turn it off prematurely while a newer upload
+      // is still in flight.
+      if (inflightToken.current === token) setUploading(false);
     }
   };
 
@@ -130,7 +172,7 @@ export function LogoUploader({
             {currentUrl ? 'Replace logo' : 'Upload a logo'}
           </div>
           <div className="text-xs text-ink-muted">
-            PNG, JPG, or SVG · ≤ 1 MB · square or landscape works
+            PNG or JPG · ≤ 1 MB · square or landscape works
           </div>
         </div>
         {currentUrl && isOwner && (
@@ -147,7 +189,16 @@ export function LogoUploader({
         )}
       </div>
       {uploading && <p className="text-xs text-ink-muted">Uploading…</p>}
-      {error && <p className="text-xs text-error">{error}</p>}
+      {!uploading && savedAt != null && (
+        <p className="text-xs text-emerald-500" role="status" aria-live="polite">
+          Uploaded ✓
+        </p>
+      )}
+      {error && (
+        <p className="text-xs text-error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
