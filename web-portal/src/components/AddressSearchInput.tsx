@@ -51,6 +51,18 @@ export function AddressSearchInput({
   const [results, setResults] = useState<Result[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Visible diagnostic state so failures are obvious without DevTools.
+  // Kinds: 'idle' (typing nothing yet), 'too-short' (under MIN_QUERY chars),
+  // 'searching', 'no-results' (fetched but ZA-bias filtered everything),
+  // 'error' (fetch threw or non-2xx), 'ok' (≥1 result).
+  type SearchStatus =
+    | { kind: 'idle' }
+    | { kind: 'too-short' }
+    | { kind: 'searching' }
+    | { kind: 'no-results' }
+    | { kind: 'error'; message: string }
+    | { kind: 'ok'; count: number };
+  const [status, setStatus] = useState<SearchStatus>({ kind: 'idle' });
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // True when the user just picked a result — suppresses the next debounce
@@ -59,39 +71,64 @@ export function AddressSearchInput({
 
   const runSearch = useCallback(async (query: string) => {
     const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setResults([]);
+      setOpen(false);
+      setStatus({ kind: 'idle' });
+      return;
+    }
     if (trimmed.length < MIN_QUERY) {
       setResults([]);
       setOpen(false);
+      setStatus({ kind: 'too-short' });
       return;
     }
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
+    setStatus({ kind: 'searching' });
+    const params = new URLSearchParams({
+      q: trimmed,
+      format: 'json',
+      limit: String(LIMIT),
+      countrycodes: COUNTRY_BIAS,
+      addressdetails: '0',
+    });
+    const url = `${NOMINATIM_URL}?${params.toString()}`;
+    // eslint-disable-next-line no-console
+    console.debug('[Nominatim] →', url);
     try {
-      const params = new URLSearchParams({
-        q: trimmed,
-        format: 'json',
-        limit: String(LIMIT),
-        countrycodes: COUNTRY_BIAS,
-        addressdetails: '0',
-      });
-      const r = await fetch(`${NOMINATIM_URL}?${params.toString()}`, {
-        signal: controller.signal,
-      });
+      const r = await fetch(url, { signal: controller.signal });
       if (!r.ok) {
+        // eslint-disable-next-line no-console
+        console.warn('[Nominatim] non-2xx', r.status, r.statusText);
         setResults([]);
         setOpen(false);
+        setStatus({ kind: 'error', message: `Search failed (${r.status})` });
         return;
       }
       const json = (await r.json()) as Result[];
+      // eslint-disable-next-line no-console
+      console.debug('[Nominatim] ←', json.length, 'result(s)');
       setResults(json);
       setOpen(json.length > 0);
+      setStatus(
+        json.length > 0
+          ? { kind: 'ok', count: json.length }
+          : { kind: 'no-results' },
+      );
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setResults([]);
-        setOpen(false);
-      }
+      if ((err as Error).name === 'AbortError') return;
+      // eslint-disable-next-line no-console
+      console.error('[Nominatim] fetch failed', err);
+      setResults([]);
+      setOpen(false);
+      setStatus({
+        kind: 'error',
+        message:
+          err instanceof Error ? err.message : 'Network error reaching Nominatim',
+      });
     } finally {
       if (abortRef.current === controller) setLoading(false);
     }
@@ -145,7 +182,9 @@ export function AddressSearchInput({
       {open && results.length > 0 && (
         <ul
           role="listbox"
-          className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-md border border-surface-border bg-surface-raised shadow-2xl"
+          // z-50 lifts above Leaflet panes (which use z-index 400+ inside
+          // their map container; same stacking context inside the dialog).
+          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-md border border-surface-border bg-surface-raised shadow-2xl"
         >
           {results.map((r) => (
             <li key={r.place_id} role="option" aria-selected="false">
@@ -161,6 +200,27 @@ export function AddressSearchInput({
             </li>
           ))}
         </ul>
+      )}
+      {/* Visible status — surfaces "no results", "searching", and error
+          conditions on-screen so failures don't require DevTools. */}
+      {status.kind === 'searching' && (
+        <p className="mt-1 text-xs text-ink-muted">Searching…</p>
+      )}
+      {status.kind === 'no-results' && (
+        <p className="mt-1 text-xs text-ink-muted">
+          No South African matches. Try a different spelling, or place the
+          polygon manually on the map.
+        </p>
+      )}
+      {status.kind === 'error' && (
+        <p className="mt-1 text-xs text-error">
+          {status.message}. Check DevTools → Network for the failing request.
+        </p>
+      )}
+      {status.kind === 'too-short' && (
+        <p className="mt-1 text-xs text-ink-muted">
+          Keep typing ({MIN_QUERY}+ characters to search).
+        </p>
       )}
       <p className="mt-1 text-xs text-ink-muted">
         Search powered by{' '}

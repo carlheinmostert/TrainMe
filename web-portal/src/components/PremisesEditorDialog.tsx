@@ -69,10 +69,29 @@ export function PremisesEditorDialog({
 
   // Geolocate on open so the map starts somewhere useful. Failure is fine —
   // the editor falls back to a default centre.
+  //
+  // On success we ALSO fire centerTrigger so the already-mounted map flies
+  // there. The polygon editor's init effect runs once at mount with
+  // defaultCenter, which is undefined before getCurrentPosition resolves;
+  // without this second pan the map stays on the Cape Town fallback even
+  // after geo permission is granted. Permissions-Policy on the portal must
+  // include `geolocation=(self)` for the browser to even prompt the user
+  // — `geolocation=()` blocks the API silently and our error callback
+  // never sees it.
   useEffect(() => {
     if (initial || !('geolocation' in navigator)) return;
     navigator.geolocation.getCurrentPosition(
-      (pos) => setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => {
+        const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setGeo(next);
+        setCenterTrigger((prev) =>
+          // Only auto-pan if the user hasn't already moved the map via
+          // address search — don't clobber their intent.
+          prev === null
+            ? { lat: next.lat, lng: next.lng, zoom: 17, nonce: Date.now() }
+            : prev,
+        );
+      },
       () => {},
       { enableHighAccuracy: false, timeout: 5_000, maximumAge: 60_000 },
     );
