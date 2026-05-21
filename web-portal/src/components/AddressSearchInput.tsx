@@ -26,11 +26,15 @@ export type AddressMatch = {
   displayName: string;
 };
 
+type Source = 'nominatim' | 'photon';
+
 type Result = {
-  display_name: string;
-  lat: string;
-  lon: string;
-  place_id: number;
+  source: Source;
+  displayName: string;
+  lat: number;
+  lng: number;
+  // Stable identity per source for React keys + dedupe across providers.
+  key: string;
 };
 
 type Props = {
@@ -41,9 +45,14 @@ type Props = {
 };
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+const PHOTON_URL = 'https://photon.komoot.io/api/';
 const DEBOUNCE_MS = 400;
 const MIN_QUERY = 3;
 const LIMIT = 8;
+// Two coordinates are "the same place" if within ~50 metres at this latitude
+// (0.0005° ≈ 55 m). Used to dedupe when Nominatim + Photon both return the
+// same hit.
+const DEDUPE_DEG = 0.0005;
 
 export function AddressSearchInput({
   value,
@@ -91,49 +100,55 @@ export function AddressSearchInput({
     abortRef.current = controller;
     setLoading(true);
     setStatus({ kind: 'searching' });
-    const params = new URLSearchParams({
-      q: trimmed,
-      format: 'json',
-      limit: String(LIMIT),
-      addressdetails: '0',
-    });
-    const url = `${NOMINATIM_URL}?${params.toString()}`;
-    // eslint-disable-next-line no-console
-    console.debug('[Nominatim] →', url);
-    try {
-      const r = await fetch(url, { signal: controller.signal });
-      if (!r.ok) {
-        // eslint-disable-next-line no-console
-        console.warn('[Nominatim] non-2xx', r.status, r.statusText);
-        setResults([]);
-        setOpen(false);
-        setStatus({ kind: 'error', message: `Search failed (${r.status})` });
-        return;
-      }
-      const json = (await r.json()) as Result[];
-      // eslint-disable-next-line no-console
-      console.debug('[Nominatim] ←', json.length, 'result(s)');
-      setResults(json);
-      setOpen(json.length > 0);
-      setStatus(
-        json.length > 0
-          ? { kind: 'ok', count: json.length }
-          : { kind: 'no-results' },
-      );
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      // eslint-disable-next-line no-console
-      console.error('[Nominatim] fetch failed', err);
+
+    // Fire BOTH geocoders in parallel. Nominatim is strict full-text;
+    // Photon (komoot's OSM-based geocoder) has better fuzzy matching and
+    // address-tokenisation. OSM's own website uses Photon for the
+    // autocomplete dropdown — addresses that "show on osm.org but not
+    // via the Nominatim API" usually surface in Photon.
+    const [nominatimResults, photonResults] = await Promise.all([
+      fetchNominatim(trimmed, controller.signal),
+      fetchPhoton(trimmed, controller.signal),
+    ]);
+
+    if (controller.signal.aborted) return;
+
+    // If both failed, surface error. If one failed, we still show the
+    // other's results — Photon stays valuable when Nominatim 429s and
+    // vice versa.
+    if (nominatimResults.kind === 'error' && photonResults.kind === 'error') {
       setResults([]);
       setOpen(false);
       setStatus({
         kind: 'error',
-        message:
-          err instanceof Error ? err.message : 'Network error reaching Nominatim',
+        message: `Both geocoders failed (${nominatimResults.message}; ${photonResults.message})`,
       });
-    } finally {
       if (abortRef.current === controller) setLoading(false);
+      return;
     }
+
+    const combined: Result[] = [
+      ...(nominatimResults.kind === 'ok' ? nominatimResults.results : []),
+      ...(photonResults.kind === 'ok' ? photonResults.results : []),
+    ];
+    const deduped = dedupeByLatLng(combined).slice(0, LIMIT);
+
+    // eslint-disable-next-line no-console
+    console.debug(
+      '[Geocoder] combined',
+      `nominatim=${nominatimResults.kind === 'ok' ? nominatimResults.results.length : 'err'}`,
+      `photon=${photonResults.kind === 'ok' ? photonResults.results.length : 'err'}`,
+      `→ ${deduped.length} after dedupe`,
+    );
+
+    setResults(deduped);
+    setOpen(deduped.length > 0);
+    setStatus(
+      deduped.length > 0
+        ? { kind: 'ok', count: deduped.length }
+        : { kind: 'no-results' },
+    );
+    if (abortRef.current === controller) setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -151,11 +166,11 @@ export function AddressSearchInput({
   const handlePick = (r: Result) => {
     skipNextSearchRef.current = true;
     onSelect({
-      lat: parseFloat(r.lat),
-      lng: parseFloat(r.lon),
-      displayName: r.display_name,
+      lat: r.lat,
+      lng: r.lng,
+      displayName: r.displayName,
     });
-    onChange(r.display_name);
+    onChange(r.displayName);
     setOpen(false);
   };
 
@@ -189,7 +204,7 @@ export function AddressSearchInput({
           className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-md border border-surface-border bg-surface-raised shadow-2xl"
         >
           {results.map((r) => (
-            <li key={r.place_id} role="option" aria-selected="false">
+            <li key={r.key} role="option" aria-selected="false">
               <button
                 type="button"
                 // Prevent input blur firing before the click.
@@ -197,7 +212,10 @@ export function AddressSearchInput({
                 onClick={() => handlePick(r)}
                 className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-surface-bg"
               >
-                {r.display_name}
+                <span>{r.displayName}</span>
+                <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-muted">
+                  {r.source}
+                </span>
               </button>
             </li>
           ))}
@@ -232,10 +250,171 @@ export function AddressSearchInput({
           rel="noopener noreferrer"
           className="underline decoration-dotted hover:no-underline"
         >
-          Nominatim / OpenStreetMap
+          Nominatim
+        </a>{' '}
+        +{' '}
+        <a
+          href="https://photon.komoot.io/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline decoration-dotted hover:no-underline"
+        >
+          Photon
         </a>
-        . Pick a result to pan the map there.
+        . Pick a result to pan the map.
       </p>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Geocoder fetches
+// ---------------------------------------------------------------------------
+
+type FetchResult =
+  | { kind: 'ok'; results: Result[] }
+  | { kind: 'error'; message: string };
+
+async function fetchNominatim(
+  query: string,
+  signal: AbortSignal,
+): Promise<FetchResult> {
+  const params = new URLSearchParams({
+    q: query,
+    format: 'json',
+    limit: String(LIMIT),
+    addressdetails: '0',
+  });
+  const url = `${NOMINATIM_URL}?${params.toString()}`;
+  // eslint-disable-next-line no-console
+  console.debug('[Nominatim] →', url);
+  try {
+    const r = await fetch(url, { signal });
+    if (!r.ok) {
+      // eslint-disable-next-line no-console
+      console.warn('[Nominatim] non-2xx', r.status);
+      return { kind: 'error', message: `Nominatim ${r.status}` };
+    }
+    const json = (await r.json()) as Array<{
+      display_name: string;
+      lat: string;
+      lon: string;
+      place_id: number;
+    }>;
+    // eslint-disable-next-line no-console
+    console.debug('[Nominatim] ←', json.length, 'result(s)');
+    return {
+      kind: 'ok',
+      results: json.map((j) => ({
+        source: 'nominatim' as const,
+        displayName: j.display_name,
+        lat: parseFloat(j.lat),
+        lng: parseFloat(j.lon),
+        key: `n-${j.place_id}`,
+      })),
+    };
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      return { kind: 'ok', results: [] };
+    }
+    // eslint-disable-next-line no-console
+    console.error('[Nominatim] fetch failed', err);
+    return {
+      kind: 'error',
+      message: err instanceof Error ? err.message : 'Nominatim unreachable',
+    };
+  }
+}
+
+async function fetchPhoton(
+  query: string,
+  signal: AbortSignal,
+): Promise<FetchResult> {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(LIMIT),
+  });
+  const url = `${PHOTON_URL}?${params.toString()}`;
+  // eslint-disable-next-line no-console
+  console.debug('[Photon] →', url);
+  try {
+    const r = await fetch(url, { signal });
+    if (!r.ok) {
+      // eslint-disable-next-line no-console
+      console.warn('[Photon] non-2xx', r.status);
+      return { kind: 'error', message: `Photon ${r.status}` };
+    }
+    const json = (await r.json()) as {
+      features?: Array<{
+        properties?: {
+          name?: string;
+          street?: string;
+          housenumber?: string;
+          city?: string;
+          state?: string;
+          country?: string;
+          postcode?: string;
+          osm_id?: number | string;
+        };
+        geometry?: { coordinates?: [number, number] };
+      }>;
+    };
+    const features = json.features ?? [];
+    // eslint-disable-next-line no-console
+    console.debug('[Photon] ←', features.length, 'result(s)');
+    return {
+      kind: 'ok',
+      results: features
+        .filter((f) => Array.isArray(f.geometry?.coordinates))
+        .map((f, i) => {
+          const p = f.properties ?? {};
+          const coords = f.geometry!.coordinates!;
+          // Photon returns [lng, lat] (GeoJSON order).
+          const [lng, lat] = coords;
+          const parts = [
+            p.housenumber ? `${p.housenumber} ${p.street ?? ''}`.trim() : p.street,
+            p.name && p.name !== p.street ? p.name : undefined,
+            p.city,
+            p.state,
+            p.postcode,
+            p.country,
+          ].filter((s): s is string => Boolean(s));
+          const displayName = parts.join(', ') || p.name || 'Unnamed place';
+          return {
+            source: 'photon' as const,
+            displayName,
+            lat,
+            lng,
+            key: `p-${p.osm_id ?? i}-${lat.toFixed(5)}-${lng.toFixed(5)}`,
+          };
+        }),
+    };
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      return { kind: 'ok', results: [] };
+    }
+    // eslint-disable-next-line no-console
+    console.error('[Photon] fetch failed', err);
+    return {
+      kind: 'error',
+      message: err instanceof Error ? err.message : 'Photon unreachable',
+    };
+  }
+}
+
+// Two candidates within ~50m collapse to one. We keep the FIRST occurrence
+// in the iteration order — since the combined array is [...nominatim,
+// ...photon], Nominatim wins ties, which preserves stable behaviour for
+// users who've been using the search since PR #390.
+function dedupeByLatLng(results: Result[]): Result[] {
+  const out: Result[] = [];
+  for (const r of results) {
+    const dup = out.some(
+      (o) =>
+        Math.abs(o.lat - r.lat) < DEDUPE_DEG &&
+        Math.abs(o.lng - r.lng) < DEDUPE_DEG,
+    );
+    if (!dup) out.push(r);
+  }
+  return out;
 }
