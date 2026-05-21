@@ -104,9 +104,15 @@ export function PremisesPolygonEditor({
 
       // Two tile sources with a Leaflet layer-switcher control. Street is
       // the default (faster, better road labels). Satellite uses Esri's
-      // free World Imagery — no API key, decent SA coverage. CSP needs
-      // both *.tile.openstreetmap.org (img-src) and server.arcgisonline.com
-      // (img-src) for tiles to load.
+      // free World Imagery — no API key, decent SA coverage. Plus a
+      // transparent reference overlay (place names + admin boundaries)
+      // so satellite view can show labels Google-Maps-Hybrid-style.
+      //
+      // Base layers (radio, mutually exclusive): Street | Satellite
+      // Overlays (checkbox, additive): Labels
+      //
+      // CSP allows *.tile.openstreetmap.org + server.arcgisonline.com
+      // (all three Esri layers share the same host).
       const street = L.tileLayer(
         'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
         { maxZoom: 19, attribution: '© OpenStreetMap contributors' },
@@ -119,8 +125,21 @@ export function PremisesPolygonEditor({
             'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
         },
       );
+      const labels = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        {
+          maxZoom: 19,
+          attribution: 'Labels © Esri',
+        },
+      );
       street.addTo(map);
-      L.control.layers({ Street: street, Satellite: satellite }).addTo(map);
+      L.control
+        .layers(
+          { Street: street, Satellite: satellite },
+          { Labels: labels },
+          { collapsed: false },
+        )
+        .addTo(map);
 
       map.on('click', (ev: LeafletMouseEvent) => {
         const next = { lat: ev.latlng.lat, lng: ev.latlng.lng };
