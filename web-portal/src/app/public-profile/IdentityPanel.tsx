@@ -18,7 +18,11 @@ type Props = {
   defaultOpen?: boolean;
 };
 
-const SLUG_RX = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
+// F-H1 fix (synthesis 2026-05-21): the hint promises a 3-40 char slug
+// but the previous regex `^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$`
+// permitted single-character slugs (the whole tail group was optional).
+// Require head + body (>=1) + tail — minimum length 3, maximum 40.
+const SLUG_RX = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 const BLURB_MAX = 280;
 const TAGLINE_MAX = 60;
 
