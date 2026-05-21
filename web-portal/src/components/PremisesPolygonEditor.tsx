@@ -1,6 +1,8 @@
 'use client';
 
-import 'leaflet/dist/leaflet.css';
+// Leaflet's stylesheet is imported in web-portal/src/app/globals.css —
+// importing here would land in the dynamic(ssr:false) chunk and load
+// async after Leaflet's JS runs, leaving tiles unstyled and invisible.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   LatLngExpression,
@@ -63,6 +65,7 @@ export function PremisesPolygonEditor({
   const polygonLayerRef = useRef<LeafletPolygon | null>(null);
   const markerLayersRef = useRef<LeafletMarker[]>([]);
   const leafletRef = useRef<typeof import('leaflet') | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   const [vertices, setVertices] = useState<LatLng[]>(() => {
     if (!initial) return [];
@@ -106,9 +109,28 @@ export function PremisesPolygonEditor({
       });
 
       mapRef.current = map;
+
+      // Leaflet caches container dimensions on the first paint. Inside a
+      // modal that animates in (or measures 0×0 even briefly), tiles
+      // never recompute and the map looks blank under the vertex pins.
+      // invalidateSize on the next microtask + on window resize covers
+      // both cases.
+      requestAnimationFrame(() => {
+        if (!cancelled && mapRef.current) mapRef.current.invalidateSize();
+      });
+      const handleResize = () => {
+        if (mapRef.current) mapRef.current.invalidateSize();
+      };
+      window.addEventListener('resize', handleResize);
+      resizeCleanupRef.current = () =>
+        window.removeEventListener('resize', handleResize);
     })();
     return () => {
       cancelled = true;
+      if (resizeCleanupRef.current) {
+        resizeCleanupRef.current();
+        resizeCleanupRef.current = null;
+      }
       const map = mapRef.current;
       if (map) {
         map.remove();
