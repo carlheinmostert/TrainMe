@@ -99,6 +99,7 @@ export default async function DashboardPage({
     allBalances,
     auditPreview,
     premises,
+    publicProfile,
   ] = await Promise.all([
     api.getCurrentUserRole(selected.id, user.id),
     api.listPracticeClients(selected.id),
@@ -115,6 +116,11 @@ export default async function DashboardPage({
     // line "Last publish · 2 days ago" tile which surfaced no row payload.
     auditApi.listAudit(selected.id, { limit: 5 }),
     api.listPracticePremises(selected.id),
+    // Public Profile v2 — surface the practice's branding + directory
+    // readiness in the dashboard. Returns null when no row exists yet
+    // (pre-v2 practices); the tile handles that with a "Not set up"
+    // copy + warning tone.
+    api.getPracticePublicProfile(selected.id),
   ]);
   const isOwner = role === 'owner';
 
@@ -193,6 +199,25 @@ export default async function DashboardPage({
         ? 'None enforce Safe Mode'
         : `${enforcedCount} enforce Safe Mode`;
 
+  // Public profile — directory listing + brand cascade readiness.
+  // States:
+  //   - no row OR no slug → "Not set up" + warning tone (the client
+  //     plan URL still works, but cascade defaults to homefit coral
+  //     and no /v/{slug} directory page exists).
+  //   - slug + listed     → headline = slug, subtitle = "Listed in directory".
+  //   - slug + !listed    → headline = slug, subtitle = "Hidden from directory".
+  const profileSlug = publicProfile?.slug ?? null;
+  const profileListed = publicProfile?.listed ?? false;
+  const profileReady = Boolean(profileSlug);
+  const publicProfileHeadline = profileReady
+    ? (profileSlug as string)
+    : 'Not set up';
+  const publicProfileSubtitle = !profileReady
+    ? 'Add a slug to claim your /v/ page'
+    : profileListed
+      ? 'Listed in directory'
+      : 'Hidden from directory';
+
   return (
     <main className="flex min-h-screen flex-col">
       <BrandHeader
@@ -261,6 +286,20 @@ export default async function DashboardPage({
             label="Premises"
             headline={premisesHeadline}
             subtitle={premisesSubtitle}
+          />
+
+          {/*
+            Public profile (v2) — branding + directory listing entry.
+            Warning tone when no slug claimed: the client-plan URL still
+            renders, but cascades fall back to homefit coral and there's
+            no /v/{slug} page in the directory yet.
+          */}
+          <DashboardTile
+            href={`/public-profile${qs}`}
+            label="Public profile"
+            headline={publicProfileHeadline}
+            subtitle={publicProfileSubtitle}
+            tone={profileReady ? 'default' : 'warning'}
           />
 
           {isOwner && (
