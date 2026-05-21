@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * TopProgressBar — a thin coral progress bar fixed to the top of the
@@ -21,6 +21,13 @@ export function TopProgressBar() {
   const pathname = usePathname();
   const [visible, setVisible] = useState(false);
   const [width, setWidth] = useState(0);
+  // F-H4 fix (synthesis 2026-05-21): the click handler primes the bar
+  // to 40% for instant feedback; on instant-paint routes the pathname
+  // effect fires the same tick and snaps width back to 0 before the
+  // animation can play, producing a visible flicker. Track whether
+  // the click already primed the bar so the pathname effect can pick
+  // up at 70% instead of resetting.
+  const primedByClickRef = useRef(false);
 
   // Instant feedback: catch internal anchor clicks before navigation.
   useEffect(() => {
@@ -33,6 +40,7 @@ export function TopProgressBar() {
       if (/^[a-z]+:\/\//i.test(href) && !href.startsWith(location.origin)) return;
       setVisible(true);
       setWidth(40);
+      primedByClickRef.current = true;
     }
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);
@@ -41,8 +49,14 @@ export function TopProgressBar() {
   // Run the animate-to-completion sequence on every pathname change.
   useEffect(() => {
     setVisible(true);
-    setWidth(0);
-    const toMid = setTimeout(() => setWidth(70), 16);
+    // If the click handler already primed the bar (visible + width=40),
+    // skip the reset-to-0 and jump straight to 70% so the animation
+    // continues smoothly. Otherwise (programmatic router.push, back/
+    // forward), do the full 0 -> 70 -> 100 ramp.
+    const wasPrimed = primedByClickRef.current;
+    primedByClickRef.current = false;
+    if (!wasPrimed) setWidth(0);
+    const toMid = setTimeout(() => setWidth(70), wasPrimed ? 0 : 16);
     const toFull = setTimeout(() => setWidth(100), 500);
     const toHide = setTimeout(() => {
       setVisible(false);
