@@ -4112,3 +4112,365 @@ html.is-exporting .lobby-import-card { display: none; }
 }
 
 .lobby-toast[hidden] { display: none; }
+
+/* ============================================================================
+   Public profile page (/v/{slug}) — Safe Mode directory
+   ============================================================================
+   Standalone surface (v.html) that lists a practice's public profile +
+   premises. Dark theme, coral accents, minimal chrome. Reuses the token
+   palette + the loading-screen / error-screen classes from the player.
+*/
+
+.v-body {
+  background: var(--c-surface-bg);
+  color: var(--c-ink-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.v-profile {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.v-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.v-logo {
+  width: 88px;
+  height: 88px;
+  border-radius: 18px;
+  background: var(--c-brand);
+  color: var(--c-surface-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Montserrat', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 32px;
+  letter-spacing: -0.5px;
+  overflow: hidden;
+  box-shadow: 0 12px 24px rgba(255, 107, 53, 0.18);
+}
+
+.v-logo--has-image {
+  background: var(--c-surface-base);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.v-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.v-name {
+  font-family: 'Montserrat', system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+.v-blurb {
+  color: var(--c-ink-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 480px;
+}
+
+.v-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.v-section-title {
+  font-family: 'Montserrat', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--c-ink-secondary);
+  margin: 0;
+}
+
+.v-premises-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.v-premises-item {
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.v-premises-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.v-premises-name {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--c-ink-primary);
+}
+
+.v-safe-badge {
+  background: var(--c-brand-tint-bg);
+  border: 1px solid var(--c-brand-tint-border);
+  color: var(--c-brand);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+
+.v-premises-address {
+  color: var(--c-ink-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.v-premises-map {
+  color: var(--c-brand);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.v-premises-map:hover {
+  text-decoration: underline;
+}
+
+.v-premises-empty {
+  color: var(--c-ink-muted);
+  font-size: 13px;
+  font-style: italic;
+  padding: 12px 0;
+}
+
+.v-meta-section {
+  margin-top: 8px;
+  padding-top: 24px;
+  border-top: 1px solid var(--c-surface-border);
+  gap: 16px;
+}
+
+.v-fine-print {
+  color: var(--c-ink-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.v-link {
+  color: var(--c-brand);
+  text-decoration: none;
+}
+
+.v-link:hover {
+  text-decoration: underline;
+}
+
+.v-report-btn {
+  background: transparent;
+  border: 1px solid var(--c-surface-border);
+  color: var(--c-ink-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.v-report-btn:hover:not([disabled]) {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+}
+
+.v-report-btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.v-footer {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.v-footer-link {
+  color: var(--c-ink-muted);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.v-footer-preamble {
+  opacity: 0.6;
+}
+
+.v-footer-brand {
+  font-weight: 600;
+  color: var(--c-ink-secondary);
+}
+
+/* Report modal */
+.v-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.v-modal[hidden] { display: none; }
+
+.v-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 17, 23, 0.85);
+  backdrop-filter: blur(4px);
+}
+
+.v-modal-card {
+  position: relative;
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.v-modal-title {
+  font-family: 'Montserrat', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.v-modal-body {
+  color: var(--c-ink-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.v-modal-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-ink-secondary);
+}
+
+.v-modal-input {
+  background: var(--c-surface-bg);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--c-ink-primary);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.v-modal-input:focus {
+  outline: none;
+  border-color: var(--c-brand);
+}
+
+.v-modal-textarea {
+  resize: vertical;
+  min-height: 84px;
+  line-height: 1.5;
+}
+
+.v-modal-error {
+  color: #EF4444;
+  font-size: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.v-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.v-modal-cancel,
+.v-modal-submit {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+}
+
+.v-modal-cancel {
+  background: transparent;
+  border: 1px solid var(--c-surface-border);
+  color: var(--c-ink-primary);
+}
+
+.v-modal-cancel:hover {
+  background: var(--c-surface-raised);
+}
+
+.v-modal-submit {
+  background: var(--c-brand);
+  color: var(--c-surface-bg);
+}
+
+.v-modal-submit:hover {
+  background: var(--c-brand-light);
+}
+
+.v-modal-submit[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
