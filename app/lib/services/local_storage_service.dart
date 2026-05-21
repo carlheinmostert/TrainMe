@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 43;
+  static const _dbVersion = 44;
 
   Database? _db;
 
@@ -133,6 +133,9 @@ class LocalStorageService {
         focus_frame_offset_ms INTEGER,
         hero_crop_offset REAL,
         thumbnails_dirty INTEGER NOT NULL DEFAULT 0,
+        safe_mode_active INTEGER NOT NULL DEFAULT 0,
+        captured_in_premises_id TEXT,
+        safe_raw_file_path TEXT,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -1242,6 +1245,41 @@ class LocalStorageService {
         db,
         'cached_practices',
         'public_logo_url',
+        'TEXT',
+      );
+    }
+
+    if (oldVersion < 44) {
+      // 2026-05-21 — Safe Mode completion.
+      //
+      // Cloud schema already carries `exercises.safe_mode_active boolean
+      // NOT NULL DEFAULT false` + `exercises.captured_in_premises_id uuid`
+      // since PR #389. Mirror locally so the publish path can plumb both
+      // values through `replace_plan_exercises` (and so SyncService can
+      // round-trip them on later pulls).
+      //
+      // `safe_raw_file_path` is local-only — the relative path to the
+      // composited safe.mp4 (or safe.jpg) produced by the native pipeline
+      // when Safe Mode was active during this capture. UploadService
+      // swaps it in place of the raw file when uploading to the private
+      // `raw-archive` bucket. NULL means "no safe variant" (Safe Mode
+      // was off, or capture pre-dates this column).
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'safe_mode_active',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'captured_in_premises_id',
+        'TEXT',
+      );
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'safe_raw_file_path',
         'TEXT',
       );
     }
