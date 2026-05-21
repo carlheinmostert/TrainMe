@@ -374,6 +374,11 @@ class SyncService {
               role: m.role,
               joinedAt: joinedAtByPracticeId[m.id] ?? nowMs,
               syncedAt: nowMs,
+              // Public Profile v2 — listMyPractices() now carries the
+              // V2 branding columns. Mirror them into the cache so the
+              // embedded Preview can resolve practice branding offline.
+              brandColor: m.brandColor,
+              publicLogoUrl: m.publicLogoUrl,
             ),
           )
           .toList(growable: false);

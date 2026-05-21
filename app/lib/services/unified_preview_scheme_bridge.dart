@@ -111,6 +111,37 @@ class UnifiedPreviewSchemeBridge {
     for (final e in session.exercises) {
       exercisesJson.add(_exerciseToPayload(e, consent));
     }
+
+    // Public Profile v2 (2026-05-21, R-10 mobile twin) — surface the
+    // practice's brand color + logo URL in the plan payload so the
+    // embedded web player can run applyPracticeBranding() on first
+    // paint, matching what the cloud `/p/{plan}` surface gets from
+    // get_plan_full's widened return. Sourced from the local cache so
+    // the preview is parity-clean offline.
+    //
+    // Lookup is best-effort: any storage error or missing row falls
+    // through to null (player falls back to homefit coral defaults).
+    String? brandColor;
+    String? publicLogoUrl;
+    final practiceId = session.practiceId;
+    if (practiceId != null && practiceId.isNotEmpty) {
+      try {
+        final practices = await storage.getCachedPractices();
+        for (final p in practices) {
+          if (p.id == practiceId) {
+            brandColor = p.brandColor;
+            publicLogoUrl = p.publicLogoUrl;
+            break;
+          }
+        }
+      } catch (e) {
+        dev.log(
+          'UnifiedPreviewSchemeBridge: cached_practices lookup failed: $e',
+          name: 'unified_preview_scheme_bridge',
+        );
+      }
+    }
+
     final planJson = <String, dynamic>{
       'id': session.id,
       'client_name': session.clientName,
@@ -128,6 +159,10 @@ class UnifiedPreviewSchemeBridge {
       'sent_at': session.sentAt?.toIso8601String(),
       'crossfade_lead_ms': session.crossfadeLeadMs,
       'crossfade_fade_ms': session.crossfadeFadeMs,
+      // Public Profile v2 — the web player reads these from the same
+      // keys regardless of host (cloud or embedded).
+      'brand_color': brandColor,
+      'public_logo_url': publicLogoUrl,
     };
     return jsonEncode({'plan': planJson, 'exercises': exercisesJson});
   }

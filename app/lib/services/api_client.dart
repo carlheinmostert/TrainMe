@@ -314,7 +314,10 @@ class ApiClient {
       final dynamic response = await _guardAuth(
         () => raw
             .from('practice_members')
-            .select('role, practice_id, practices:practice_id ( id, name )')
+            .select(
+              'role, practice_id, '
+              'practices:practice_id ( id, name, brand_color, public_logo_url )',
+            )
             .eq('trainer_id', userId)
             .order('joined_at', ascending: true),
       );
@@ -333,12 +336,19 @@ class ApiClient {
             final role = r['role'] is String
                 ? r['role'] as String
                 : 'practitioner';
+            // Public Profile v2 — both fields are nullable on the
+            // practices table; defensive `is String` checks so the
+            // map() can never explode on a malformed payload.
+            final brandColorRaw = practice['brand_color'];
+            final logoRaw = practice['public_logo_url'];
             return PracticeMembership(
               id: id,
               name: name,
               role: role == 'owner'
                   ? PracticeRole.owner
                   : PracticeRole.practitioner,
+              brandColor: brandColorRaw is String ? brandColorRaw : null,
+              publicLogoUrl: logoRaw is String ? logoRaw : null,
             );
           })
           .whereType<PracticeMembership>()
@@ -1672,16 +1682,25 @@ enum PracticeRole { owner, practitioner }
 
 /// One membership row: the practice id + its display name + the caller's
 /// role in it. Returned by [ApiClient.listMyPractices].
+///
+/// Public Profile v2 (2026-05-21) — also carries the practice-level
+/// branding columns (`brand_color`, `public_logo_url`) so the embedded
+/// Preview can cascade them into the WebView without a second cloud
+/// round-trip. Both nullable; null means "fall back to homefit defaults".
 @immutable
 class PracticeMembership {
   final String id;
   final String name;
   final PracticeRole role;
+  final String? brandColor;
+  final String? publicLogoUrl;
 
   const PracticeMembership({
     required this.id,
     required this.name,
     required this.role,
+    this.brandColor,
+    this.publicLogoUrl,
   });
 }
 
