@@ -390,6 +390,61 @@ class VideoConverterChannel {
                 }
             }
 
+        case "processPhotoSafeMode":
+            // Safe Mode completion wave (2026-05-21) — single-frame
+            // Safe Mode pass for exercise photos. Mirrors the per-frame
+            // shape of the video pipeline: run Vision person
+            // segmentation + VNDetectHumanRectangles, then use
+            // `SafeModeProcessor.processFrame` to coral-paint every
+            // segmented pixel that falls OUTSIDE the largest detected
+            // human bbox. Result writes JPG at `destPath`. iOS 15+ only.
+            //
+            // Returns `safeFramesProcessed` (0 or 1) +
+            // `safeFramesMissedRate` (0.0 or 1.0) so the Dart side can
+            // apply the same 5%-miss fail-closed threshold as videos.
+            guard let args = call.arguments as? [String: Any],
+                  let srcPath = args["srcPath"] as? String,
+                  let destPath = args["destPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing srcPath/destPath for processPhotoSafeMode",
+                    details: nil
+                ))
+                return
+            }
+            processingQueue.async {
+                if #available(iOS 15.0, *) {
+                    let outcome = Self.applySafeModeToPhoto(
+                        srcPath: srcPath,
+                        destPath: destPath
+                    )
+                    DispatchQueue.main.async {
+                        switch outcome {
+                        case .success(let processed, let missRate):
+                            result([
+                                "destPath": destPath,
+                                "safeFramesProcessed": processed,
+                                "safeFramesMissedRate": missRate,
+                            ])
+                        case .failure(let err):
+                            result(FlutterError(
+                                code: "PHOTO_SAFE_FAILED",
+                                message: err,
+                                details: nil
+                            ))
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UNSUPPORTED_OS",
+                            message: "Photo Safe Mode requires iOS 15+",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
         case "processPhotoBodyFocus":
             // Wave 36 — body-focus segmented variant for exercise photos.
             // Reuses the same `ClientAvatarProcessor` pipeline (Vision
@@ -1672,6 +1727,12 @@ class VideoConverterChannel {
                     if let safePath = safeSuccessPath {
                         payload["safeOutputPath"] = safePath
                         payload["safeFramesProcessed"] = safeFramesProcessed
+                        // Vision miss-rate surfaced for the Dart side's
+                        // fail-closed threshold check (Safe Mode
+                        // completion wave, 2026-05-21). Zero when no
+                        // safe processor ran; otherwise [0, 1].
+                        payload["safeFramesMissedRate"] =
+                            safeProcessor?.missRate ?? 0.0
                     }
                     result(payload)
                     endBackgroundTask()
@@ -2474,6 +2535,179 @@ class VideoConverterChannel {
             image: finalImage,
             centroidOffset: centroidOffset
         )
+    }
+
+    // MARK: - Photo Safe Mode
+
+    /// Outcome of [applySafeModeToPhoto]. `success(processed,
+    /// missRate)` mirrors the video path's payload — `processed` is
+    /// 0 or 1 (single frame); `missRate` is 0.0 when Vision found a
+    /// human, 1.0 when it didn't (single-frame can only be all-or-
+    /// nothing). Failure carries a string so the channel layer can
+    /// route it as a FlutterError.
+    enum SafeModePhotoOutcome {
+        case success(processed: Int, missRate: Double)
+        case failure(String)
+    }
+
+    /// Apply the Safe Mode coral-silhouette composite to a single
+    /// JPG photo. Mirrors the per-frame Vision + segmentation +
+    /// `SafeModeProcessor.processFrame` shape used by the video path
+    /// so the same compositing rules apply (largest detected human
+    /// stays untouched; every other segmented person becomes coral).
+    ///
+    /// Input: a JPG at `srcPath` (the practitioner's raw colour
+    /// photo). Output: a JPG at `destPath` whose bystander pixels are
+    /// coral. iOS 15+ only — the caller gates with `@available`.
+    @available(iOS 15.0, *)
+    static func applySafeModeToPhoto(
+        srcPath: String,
+        destPath: String
+    ) -> SafeModePhotoOutcome {
+        guard FileManager.default.fileExists(atPath: srcPath) else {
+            return .failure("Source photo not found: \(srcPath)")
+        }
+        guard let uiImage = UIImage(contentsOfFile: srcPath),
+              let cgImage = uiImage.cgImage else {
+            return .failure("Could not decode source photo: \(srcPath)")
+        }
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else {
+            return .failure("Source photo has zero dimensions")
+        }
+
+        // --- Render source CGImage into a BGRA CVPixelBuffer so Vision can read it. ---
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+        ]
+        var srcBufOut: CVPixelBuffer?
+        let srcStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            attrs as CFDictionary,
+            &srcBufOut
+        )
+        guard srcStatus == kCVReturnSuccess, let srcBuf = srcBufOut else {
+            return .failure("CVPixelBufferCreate failed (src) status=\(srcStatus)")
+        }
+        CVPixelBufferLockBaseAddress(srcBuf, [])
+        guard let srcBase = CVPixelBufferGetBaseAddress(srcBuf) else {
+            CVPixelBufferUnlockBaseAddress(srcBuf, [])
+            return .failure("CVPixelBufferGetBaseAddress failed (src)")
+        }
+        let srcRowBytes = CVPixelBufferGetBytesPerRow(srcBuf)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo: UInt32 =
+            CGBitmapInfo.byteOrder32Little.rawValue |
+            CGImageAlphaInfo.premultipliedFirst.rawValue
+        guard let srcCtx = CGContext(
+            data: srcBase,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: srcRowBytes,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            CVPixelBufferUnlockBaseAddress(srcBuf, [])
+            return .failure("CGContext init failed (src)")
+        }
+        srcCtx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        CVPixelBufferUnlockBaseAddress(srcBuf, [])
+
+        // --- Destination buffer the SafeModeProcessor writes into. ---
+        var dstBufOut: CVPixelBuffer?
+        let dstStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            attrs as CFDictionary,
+            &dstBufOut
+        )
+        guard dstStatus == kCVReturnSuccess, let dstBuf = dstBufOut else {
+            return .failure("CVPixelBufferCreate failed (dst) status=\(dstStatus)")
+        }
+
+        // --- Person segmentation mask (best-effort — SafeModeProcessor
+        // tolerates a nil mask by passing the frame through; that
+        // path is also counted as a Vision hit if rectangles found a
+        // person). ---
+        let segmenter = PersonSegmenter(width: width, height: height)
+        let maskPtr = segmenter.generateMaskOneShot(for: srcBuf)
+
+        // --- Composite ---
+        let processor = SafeModeProcessor(width: width, height: height)
+        let ok = processor.processFrame(
+            source: srcBuf,
+            mask: maskPtr,
+            into: dstBuf
+        )
+
+        // missRate is 0.0 if processor's single processFrame call
+        // succeeded (Vision found a human); 1.0 otherwise.
+        let missRate = processor.missRate
+        let processed = ok ? 1 : 0
+
+        if !ok {
+            // Vision found nobody — write the source bytes verbatim
+            // to dest so the caller still has a file to look at.
+            // Dart side compares missRate against the threshold and
+            // discards if too high.
+            CVPixelBufferLockBaseAddress(srcBuf, .readOnly)
+            CVPixelBufferLockBaseAddress(dstBuf, [])
+            defer {
+                CVPixelBufferUnlockBaseAddress(srcBuf, .readOnly)
+                CVPixelBufferUnlockBaseAddress(dstBuf, [])
+            }
+            if let s = CVPixelBufferGetBaseAddress(srcBuf),
+               let d = CVPixelBufferGetBaseAddress(dstBuf) {
+                let dstRowBytes = CVPixelBufferGetBytesPerRow(dstBuf)
+                let sPtr = s.assumingMemoryBound(to: UInt8.self)
+                let dPtr = d.assumingMemoryBound(to: UInt8.self)
+                for y in 0..<height {
+                    memcpy(dPtr + y * dstRowBytes,
+                           sPtr + y * srcRowBytes,
+                           width * 4)
+                }
+            }
+        }
+
+        // --- Encode dst buffer to JPG at destPath. ---
+        CVPixelBufferLockBaseAddress(dstBuf, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(dstBuf, .readOnly) }
+        guard let dstBase = CVPixelBufferGetBaseAddress(dstBuf) else {
+            return .failure("CVPixelBufferGetBaseAddress failed (dst)")
+        }
+        let dstRowBytes = CVPixelBufferGetBytesPerRow(dstBuf)
+        guard let outCtx = CGContext(
+            data: dstBase,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: dstRowBytes,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return .failure("CGContext init failed (dst)")
+        }
+        guard let outCG = outCtx.makeImage() else {
+            return .failure("makeImage failed (dst)")
+        }
+        let outUI = UIImage(cgImage: outCG, scale: uiImage.scale, orientation: uiImage.imageOrientation)
+        guard let jpgData = outUI.jpegData(compressionQuality: 0.9) else {
+            return .failure("jpegData encoding failed")
+        }
+        do {
+            try jpgData.write(to: URL(fileURLWithPath: destPath))
+        } catch {
+            return .failure("write failed: \(error.localizedDescription)")
+        }
+        return .success(processed: processed, missRate: missRate)
     }
 
     // MARK: - Grayscale Fallback
@@ -3694,6 +3928,19 @@ private class SafeModeProcessor {
     private let coralR: UInt8 = 0xFF
     private let coralA: UInt8 = 0xFF
 
+    // Vision miss-rate tracking (Safe Mode completion wave,
+    // 2026-05-21). `framesTotal` counts every frame the processor was
+    // asked to handle; `framesMissed` counts frames where Vision
+    // either threw, returned no observations, or yielded a degenerate
+    // (zero-area) largest bbox. `missRate` is the ratio — used by the
+    // Dart side to decide whether the capture should be rejected
+    // (>5% threshold) or kept (gap frames soft-skipped).
+    private(set) var framesTotal: Int = 0
+    private(set) var framesMissed: Int = 0
+    var missRate: Double {
+        framesTotal == 0 ? 0.0 : Double(framesMissed) / Double(framesTotal)
+    }
+
     init(width: Int, height: Int) {
         self.width = width
         self.height = height
@@ -3710,6 +3957,13 @@ private class SafeModeProcessor {
         mask: UnsafePointer<UInt8>?,
         into outBuffer: CVPixelBuffer
     ) -> Bool {
+        // Every frame the caller asks us to handle counts toward the
+        // total. A "miss" is any path that returns false — Vision threw,
+        // returned no observations, or yielded a zero-area bbox. The
+        // Dart side compares missRate against kSafeModeMaxMissRate to
+        // decide whether to keep or reject the capture.
+        framesTotal += 1
+
         // --- Find the largest human bbox via Vision ---
         // Skip processing if Vision fails — caller will retry on the
         // next frame. The pump's progress doesn't depend on safe output
@@ -3717,10 +3971,12 @@ private class SafeModeProcessor {
         do {
             try sequenceHandler.perform([humanRequest], on: source)
         } catch {
+            framesMissed += 1
             return false
         }
         let observations = humanRequest.results ?? []
         if observations.isEmpty {
+            framesMissed += 1
             return false
         }
 
@@ -3737,6 +3993,7 @@ private class SafeModeProcessor {
             }
         }
         if bestArea <= 0 {
+            framesMissed += 1
             return false
         }
 
