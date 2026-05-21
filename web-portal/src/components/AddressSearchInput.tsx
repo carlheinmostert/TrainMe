@@ -175,54 +175,87 @@ export function AddressSearchInput({
   };
 
   return (
-    <div className="relative">
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => results.length > 0 && setOpen(true)}
-        // Delay blur so the click on a result button registers first.
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder}
-        className="w-full rounded-md border border-surface-border bg-surface-bg px-3 py-2 text-ink placeholder:text-ink-muted focus:border-brand focus:outline-none"
-        aria-autocomplete="list"
-        aria-expanded={open}
-      />
-      {loading && (
-        <div
-          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-muted"
-          aria-hidden="true"
-        >
-          …
-        </div>
-      )}
-      {open && results.length > 0 && (
-        <ul
-          role="listbox"
-          // z-50 lifts above Leaflet panes (which use z-index 400+ inside
-          // their map container; same stacking context inside the dialog).
-          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-md border border-surface-border bg-surface-raised shadow-2xl"
-        >
-          {results.map((r) => (
-            <li key={r.key} role="option" aria-selected="false">
-              <button
-                type="button"
-                // Prevent input blur firing before the click.
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handlePick(r)}
-                className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-surface-bg"
+    <div>
+      {/* Inner relative wrapper anchors the absolute dropdown directly
+          below the INPUT, not below all the surrounding helper text.
+          Without this, top-full positioned the list at the bottom of
+          the whole helper block (Carl flagged 2026-05-21). */}
+      <div className="relative">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          // Delay blur so the click on a result button registers first.
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={placeholder}
+          className="w-full rounded-md border border-surface-border bg-surface-bg px-3 py-2 text-ink placeholder:text-ink-muted focus:border-brand focus:outline-none"
+          aria-autocomplete="list"
+          aria-expanded={open}
+        />
+        {loading && (
+          <div
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-muted"
+            aria-hidden="true"
+          >
+            …
+          </div>
+        )}
+        {open && results.length > 0 && (
+          <ul
+            role="listbox"
+            // z-50 lifts above Leaflet panes (which use z-index 400+ inside
+            // their map container; same stacking context inside the dialog).
+            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-md border border-surface-border bg-surface-raised shadow-2xl"
+          >
+            {results.map((r) => (
+              <li key={r.key} role="option" aria-selected="false">
+                <button
+                  type="button"
+                  // Prevent input blur firing before the click.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handlePick(r)}
+                  className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-surface-bg"
+                >
+                  <span>{r.displayName}</span>
+                  <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-muted">
+                    {r.source}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {/* Attribution lives inside the dropdown footer so it only
+                appears when there are results to attribute. Keeps the
+                input area clean otherwise. */}
+            <li
+              className="border-t border-surface-border px-3 py-1.5 text-[10px] text-ink-muted"
+              aria-hidden="true"
+            >
+              Search powered by{' '}
+              <a
+                href="https://nominatim.openstreetmap.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-dotted hover:no-underline"
               >
-                <span>{r.displayName}</span>
-                <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-muted">
-                  {r.source}
-                </span>
-              </button>
+                Nominatim
+              </a>{' '}
+              +{' '}
+              <a
+                href="https://photon.komoot.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-dotted hover:no-underline"
+              >
+                Photon
+              </a>
             </li>
-          ))}
-        </ul>
-      )}
-      {/* Visible status — surfaces "no results", "searching", and error
-          conditions on-screen so failures don't require DevTools. */}
+          </ul>
+        )}
+      </div>
+      {/* Status messages — only the relevant one renders. Tight, single
+          line, lives under the input but never competes with the dropdown
+          for vertical space (dropdown overlays). */}
       {status.kind === 'searching' && (
         <p className="mt-1 text-xs text-ink-muted">Searching…</p>
       )}
@@ -242,27 +275,6 @@ export function AddressSearchInput({
           Keep typing ({MIN_QUERY}+ characters to search).
         </p>
       )}
-      <p className="mt-1 text-xs text-ink-muted">
-        Search powered by{' '}
-        <a
-          href="https://nominatim.openstreetmap.org/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline decoration-dotted hover:no-underline"
-        >
-          Nominatim
-        </a>{' '}
-        +{' '}
-        <a
-          href="https://photon.komoot.io/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline decoration-dotted hover:no-underline"
-        >
-          Photon
-        </a>
-        . Pick a result to pan the map.
-      </p>
     </div>
   );
 }
