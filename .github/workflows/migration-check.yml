@@ -189,6 +189,21 @@ jobs:
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA extensions;
             CREATE EXTENSION IF NOT EXISTS "citext";
 
+            -- The postgis/postgis:17-3.5 Docker image auto-installs PostGIS
+            -- into 'public' by default, but Supabase puts it in 'extensions'.
+            -- The Safe Mode migration references extensions.geometry +
+            -- extensions.ST_* — those don't resolve when PostGIS lives in
+            -- public. Drop + reinstall so the migration's
+            -- `CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA extensions`
+            -- finds it where it expects. Safe at preseed time: no migrations
+            -- have applied yet, so nothing depends on PostGIS.
+            DO $$ BEGIN
+              IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') THEN
+                DROP EXTENSION postgis CASCADE;
+              END IF;
+            END $$;
+            CREATE EXTENSION postgis SCHEMA extensions;
+
             -- Stub pgjwt's `extensions.sign` so any callsite resolves at
             -- migration time. We don't need real JWT output for the apply
             -- check — just a callable signature.
