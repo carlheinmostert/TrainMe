@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { BuildInfo } from '@/components/BuildInfo';
+import { TopProgressBar } from '@/components/TopProgressBar';
 
 export const metadata: Metadata = {
   title: 'homefit.studio — Practice portal',
@@ -32,6 +33,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-surface-bg text-ink">
+        <TopProgressBar />
         {children}
         {/* Discreet build-marker chip — git SHA + branch at 35% opacity
             in the fixed bottom-right corner. Mirrors the Flutter mobile
