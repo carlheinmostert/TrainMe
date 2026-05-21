@@ -2435,9 +2435,22 @@ class UploadService {
       final rawRel =
           useSafeVariant ? exercise.safeRawFilePath! : exercise.rawFilePath;
       if (rawRel.isEmpty) continue;
-      final absRaw = useSafeVariant
-          ? (exercise.absoluteSafeRawFilePath ?? exercise.absoluteRawFilePath)
+      // Q-C1 fix (synthesis 2026-05-21): drop the `?? absoluteRawFilePath`
+      // fallback. When Safe Mode is active and the safe variant is
+      // missing on disk (iCloud-offloaded, manual prune, converter wrote
+      // DB but failed to flush), the fallback would silently upload the
+      // un-blurred original. Mirror the video branch — null/missing
+      // means SKIP, never substitute the raw.
+      final String? absRaw = useSafeVariant
+          ? exercise.absoluteSafeRawFilePath
           : exercise.absoluteRawFilePath;
+      if (absRaw == null) {
+        debugPrint(
+          'UploadService: raw photo path null for exercise ${exercise.id} '
+          '(variant=${useSafeVariant ? "safe" : "raw"}) — skipping.',
+        );
+        continue;
+      }
       final rawFile = File(absRaw);
       if (!rawFile.existsSync()) {
         debugPrint(
