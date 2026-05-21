@@ -157,8 +157,28 @@
 
   async function hydrateTeam(practiceId) {
     if (!practiceId) return;
-    const members = await window.HomefitApi.getPracticePublicMembers(practiceId);
-    if (!Array.isArray(members) || members.length === 0) return;
+    // Q-H2 fix (synthesis 2026-05-21): wrap the RPC call in try/catch so a
+    // network drop / 5xx / RPC contract break doesn't propagate and kill
+    // the whole /v/{slug} page (which gets caught by the outer catch and
+    // mis-rendered as "Practice not found" — see Q-H3 too). The team
+    // section is hideable; if hydration fails we keep it hidden and log
+    // for diagnosis, rather than showing a broken / empty grid or
+    // misrepresenting the whole profile.
+    let members;
+    try {
+      members = await window.HomefitApi.getPracticePublicMembers(practiceId);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[hydrateTeam] RPC failed:', e);
+      const section = document.getElementById('team-section');
+      if (section) section.hidden = true;
+      return;
+    }
+    if (!Array.isArray(members) || members.length === 0) {
+      const section = document.getElementById('team-section');
+      if (section) section.hidden = true;
+      return;
+    }
     const grid = document.getElementById('team-grid');
     grid.innerHTML = '';
     members.forEach((m) => {
@@ -360,6 +380,13 @@
     }
   }
 
+  function showLoadError() {
+    hide(elLoading);
+    hide(elNotFound);
+    const el = document.getElementById('v-load-error');
+    if (el) el.hidden = false;
+  }
+
   async function init() {
     const slug = getSlug();
     if (!slug) {
@@ -371,6 +398,7 @@
     try {
       const profile = await window.HomefitApi.getPracticeProfile(slug);
       if (!profile) {
+        // True not-found — 404 from server or empty rows.
         hide(elLoading);
         show(elNotFound);
         return;
@@ -387,10 +415,33 @@
       // main profile is visible the moment its data lands. The Team
       // section stays hidden until rows arrive.
       hydrateTeam(profile.practiceId);
-    } catch (_) {
-      hide(elLoading);
-      show(elNotFound);
+    } catch (e) {
+      // Q-H3 fix (synthesis 2026-05-21): distinguish transient errors
+      // (network / 5xx / parse) from genuine not-found. Transient gets
+      // a retry UI; not-found (null return) was already handled above.
+      // eslint-disable-next-line no-console
+      console.error('[v/init] profile load failed:', e, 'status=', e && e.status);
+      if (e && e.transient) {
+        showLoadError();
+      } else {
+        // Unknown / non-transient error (auth misconfig, malformed
+        // slug accepted by regex, etc.) — fall through to not-found
+        // rather than retry, since retrying won't help.
+        hide(elLoading);
+        show(elNotFound);
+      }
     }
+  }
+
+  // Wire up the retry button on the load-error UI.
+  const elLoadRetry = document.getElementById('v-load-retry');
+  if (elLoadRetry) {
+    elLoadRetry.addEventListener('click', function () {
+      const el = document.getElementById('v-load-error');
+      if (el) el.hidden = true;
+      show(elLoading);
+      init();
+    });
   }
 
   elReportBtn.addEventListener('click', openReportModal);
