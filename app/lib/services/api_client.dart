@@ -1464,6 +1464,99 @@ class ApiClient {
       debugPrint('ApiClient.logShareEvent($channel/$eventKind) failed: $e');
     }
   }
+
+  // ==========================================================================
+  // Safe Mode — premises lookup
+  // ==========================================================================
+
+  /// `find_premises_at(p_lat, p_lng)` — anon-callable RPC that returns
+  /// the most-restrictive Safe-Mode-enforcing premises containing the
+  /// supplied point. Returns `null` when no enforced polygon contains
+  /// the point — in which case Safe Mode stays off for the session.
+  ///
+  /// "Most restrictive wins" semantics (smallest polygon area first) are
+  /// implemented server-side; the client just consumes the single row.
+  ///
+  /// Anyone-inside-the-polygon binding: the RPC does NOT check practice
+  /// membership. A practitioner from Practice A inside Practice B's
+  /// polygon gets Practice B's Safe Mode applied to their captures.
+  Future<SafeModeMatch?> findPremisesAt({
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      // anon-callable, but _guardAuth is still safe — it just no-ops
+      // when there's no session, since this RPC doesn't read auth.uid().
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'find_premises_at',
+          params: {
+            'p_lat': latitude,
+            'p_lng': longitude,
+          },
+        ),
+      );
+      if (result is! List || result.isEmpty) return null;
+      final row = result.first;
+      if (row is! Map) return null;
+      final id = row['premises_id'];
+      final practiceId = row['practice_id'];
+      final name = row['premises_name'];
+      final enforced = row['safe_mode_enforced'];
+      if (id is! String || practiceId is! String) return null;
+      return SafeModeMatch(
+        premisesId: id,
+        practiceId: practiceId,
+        premisesName: name is String ? name : '',
+        safeModeEnforced: enforced is bool ? enforced : false,
+      );
+    } catch (e) {
+      debugPrint('ApiClient.findPremisesAt failed: $e');
+      return null;
+    }
+  }
+
+  /// `report_premises(p_premises_id, p_reason)` — anon-callable RPC.
+  /// Surfaces a report to the homefit team (Carl triages manually for
+  /// MVP). Returns the new report row id on success, null on failure.
+  Future<String?> reportPremises({
+    required String premisesId,
+    required String reason,
+  }) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'report_premises',
+          params: {
+            'p_premises_id': premisesId,
+            'p_reason': reason,
+          },
+        ),
+      );
+      return result is String ? result : null;
+    } catch (e) {
+      debugPrint('ApiClient.reportPremises failed: $e');
+      return null;
+    }
+  }
+}
+
+/// Outcome of a [ApiClient.findPremisesAt] call. Returned when the
+/// geolocation point sits inside at least one Safe-Mode-enforcing
+/// polygon — null otherwise.
+@immutable
+class SafeModeMatch {
+  final String premisesId;
+  final String practiceId;
+  final String premisesName;
+  final bool safeModeEnforced;
+
+  const SafeModeMatch({
+    required this.premisesId,
+    required this.practiceId,
+    required this.premisesName,
+    required this.safeModeEnforced,
+  });
 }
 
 /// Aggregate stats for a practice's referral network.

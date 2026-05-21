@@ -66,6 +66,8 @@
 	<string>homefit.studio needs access to your photo library to import existing videos or photos of exercises into client plans.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>homefit.studio saves the original photo or video of every exercise you capture into your Photos library so you keep a personal copy. You can turn this off in Settings → Session capture.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>homefit.studio checks your location once at the start of a capture session so it can apply Safe Mode (automatic bystander blur) when you're inside a registered practice premises. The location is never recorded — it's only used to look up which premises you're in.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

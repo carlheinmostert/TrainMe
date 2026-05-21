@@ -13,6 +13,7 @@ import '../models/exercise_capture.dart';
 import 'local_storage_service.dart';
 import 'loud_swallow.dart';
 import 'path_resolver.dart';
+import 'safe_mode_service.dart';
 
 /// Background line drawing conversion service.
 ///
@@ -809,18 +810,33 @@ class ConversionService extends ChangeNotifier {
       // it has no consumer (insurance for future playback-time compositing).
       final maskOutputPath =
           p.join(convertedDir, '${exercise.id}_mask.mp4');
+      // Safe Mode (2026-05-21) — when the session is inside an
+      // enforcing premises the native pipeline writes a 4th output with
+      // coral silhouettes baked over bystanders. Bypassed if Safe Mode
+      // is off (most sessions); the file simply isn't produced.
+      String? safeOutputPath;
+      try {
+        if (SafeModeService.instance.isActive) {
+          safeOutputPath = p.join(convertedDir, '${exercise.id}_safe.mp4');
+        }
+      } catch (_) {
+        // Service not initialised (e.g. tests). Fall through with no
+        // Safe Mode pass — line drawing + segmented still happen.
+      }
       try {
         final segResult = await _convertVideo(
           exercise.absoluteRawFilePath,
           videoOutputPath,
           segmentedOutputPath: segmentedOutputPath,
           maskOutputPath: maskOutputPath,
+          safeOutputPath: safeOutputPath,
           includeAudio: AppConfig.audioMuxEnabled,
         );
         return _ConvertResult(
           convertedPath: videoOutputPath,
           segmentedPath: segResult.segmentedPath,
           maskPath: segResult.maskPath,
+          safePath: segResult.safePath,
         );
       } catch (e, stack) {
         debugPrint(
@@ -1230,6 +1246,7 @@ class ConversionService extends ChangeNotifier {
     String outputPath, {
     String? segmentedOutputPath,
     String? maskOutputPath,
+    String? safeOutputPath,
     bool includeAudio = true,
   }) async {
     // --- Attempt 1: Native iOS platform channel ---
@@ -1247,6 +1264,15 @@ class ConversionService extends ChangeNotifier {
       }
       if (maskOutputPath != null) {
         args['maskOutputPath'] = maskOutputPath;
+      }
+      // Safe Mode (2026-05-21) — when set, the native side runs a 4th
+      // output pass that composites a coral silhouette over every
+      // segmented person OTHER than the largest one (identified via
+      // VNDetectHumanRectanglesRequest). Failures inside that pass are
+      // non-fatal — the line drawing + segmented outputs still ship.
+      if (safeOutputPath != null) {
+        args['safeOutputPath'] = safeOutputPath;
+        args['safeModeEnabled'] = true;
       }
       // Hard ceiling — if the native side stalls (AVAssetWriter drain
        // deadlock, disk backpressure, etc.) we'd otherwise wedge the entire
@@ -1267,16 +1293,19 @@ class ConversionService extends ChangeNotifier {
       if (result != null && result['success'] == true) {
         final segPath = result['segmentedOutputPath'] as String?;
         final maskPath = result['maskOutputPath'] as String?;
+        final safePath = result['safeOutputPath'] as String?;
         debugPrint(
             'Native video conversion complete: '
             '${result["framesProcessed"]} frames '
             '(audioSamplesWritten=${result["audioSamplesWritten"]}, '
             'audioMuxEnabled=${AppConfig.audioMuxEnabled}, '
             'segFrames=${result["segFramesProcessed"] ?? 0}, '
-            'maskFrames=${result["maskFramesProcessed"] ?? 0}) -> $outputPath');
+            'maskFrames=${result["maskFramesProcessed"] ?? 0}, '
+            'safeFrames=${result["safeFramesProcessed"] ?? 0}) -> $outputPath');
         return _NativeVideoResult(
           segmentedPath: segPath,
           maskPath: maskPath,
+          safePath: safePath,
         );
       }
     } on PlatformException catch (e) {
@@ -2016,24 +2045,32 @@ class _ConvertResult {
   final String convertedPath;
   final String? segmentedPath;
   final String? maskPath;
+  final String? safePath;
 
   const _ConvertResult({
     required this.convertedPath,
     this.segmentedPath,
     this.maskPath,
+    this.safePath,
   });
 }
 
 /// Result of the native-side `convertVideo` platform channel call.
-/// Plain value object — carries the two optional sidecar paths the
-/// caller needs to thread back onto [ExerciseCapture].
+/// Plain value object — carries the optional sidecar paths the caller
+/// needs to thread back onto [ExerciseCapture]. The `safePath` is the
+/// Safe Mode raw archive (bystander-blurred), present only when the
+/// native pipeline was given a `safeOutputPath` AND the compositing
+/// pass produced a non-empty file. Failure of the safe pass never
+/// blocks the line drawing.
 class _NativeVideoResult {
   final String? segmentedPath;
   final String? maskPath;
+  final String? safePath;
 
   const _NativeVideoResult({
     this.segmentedPath,
     this.maskPath,
+    this.safePath,
   });
 }
 

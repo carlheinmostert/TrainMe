@@ -5,6 +5,7 @@ import '../config.dart';
 import '../models/session.dart';
 import '../services/api_client.dart';
 import '../services/local_storage_service.dart';
+import '../services/safe_mode_service.dart';
 import '../theme.dart';
 import 'capture_mode_screen.dart';
 import 'studio_mode_screen.dart';
@@ -70,6 +71,13 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     // published. Studio then renders the share button as dim. Reconcile
     // here so the bio gets their share link back without re-publishing.
     unawaited(_reconcileWithCloudIfUnpublished());
+
+    // Safe Mode — one-shot geolocation check at session start. Result
+    // is cached on `SafeModeService.instance` for the rest of the
+    // session ("session-sticky grace"). Failures (no permission, no
+    // GPS, outside every polygon) silently leave Safe Mode off — the
+    // capture flow is unchanged. No await: capture isn't blocked.
+    unawaited(SafeModeService.instance.checkLocation());
   }
 
   void _handlePageScroll() {

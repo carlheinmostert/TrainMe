@@ -16,6 +16,7 @@ import '../services/homefit_haptics.dart';
 import '../services/local_storage_service.dart';
 import '../services/original_video_service.dart';
 import '../services/path_resolver.dart';
+import '../services/safe_mode_service.dart';
 import '../services/sticky_defaults.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -1225,7 +1226,23 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
             right: 0,
             child: SafeArea(
               bottom: false,
-              child: _buildTopBar(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildTopBar(),
+                  // Safe Mode banner — only renders when the singleton
+                  // says we're inside an enforcing premises. Coral
+                  // strip below the top bar, ~28pt tall.
+                  ListenableBuilder(
+                    listenable: SafeModeService.instance,
+                    builder: (context, _) {
+                      final svc = SafeModeService.instance;
+                      if (!svc.isActive) return const SizedBox.shrink();
+                      return _SafeModeBanner(premisesName: svc.premisesName);
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
 
@@ -2057,6 +2074,49 @@ class _PulsingDotState extends State<_PulsingDot>
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Thin coral strip below the top bar that announces Safe Mode is on.
+/// Visible only when [SafeModeService.isActive] is true. Self-contained
+/// — pulls its content from the service singleton.
+class _SafeModeBanner extends StatelessWidget {
+  const _SafeModeBanner({required this.premisesName});
+
+  final String premisesName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: const Color(0xFFFF6B35),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.shield_outlined,
+            size: 14,
+            color: Color(0xFF0F1117),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              'Safe Mode active · $premisesName',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF0F1117),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
