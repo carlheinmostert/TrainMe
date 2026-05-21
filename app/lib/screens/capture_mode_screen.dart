@@ -1066,6 +1066,24 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // back to B&W treatment + body-focus off (2026-05-12).
       exercise = StickyDefaults.applyGlobalCaptureDefaults(exercise);
 
+      // Safe Mode stamp (Safe Mode completion wave, 2026-05-21). When
+      // the session is inside an enforcing premises polygon at the
+      // moment of capture, persist that state on the exercise row so
+      // the publish flow can stamp the cloud audit fields + the
+      // upload swap knows which captures are eligible. SafeModeService
+      // is a singleton initialised at app start; bail silently in
+      // tests where it's never initialised.
+      try {
+        if (SafeModeService.instance.isActive) {
+          exercise = exercise.copyWith(
+            safeModeActive: true,
+            capturedInPremisesId: SafeModeService.instance.premisesId,
+          );
+        }
+      } catch (_) {
+        // Service not initialised — Safe Mode off.
+      }
+
       await widget.storage.saveExercise(exercise);
       ConversionService.instance.queueConversion(exercise);
       return exercise;

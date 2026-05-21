@@ -15,6 +15,38 @@ import 'loud_swallow.dart';
 import 'path_resolver.dart';
 import 'safe_mode_service.dart';
 
+/// Maximum tolerated Vision miss-rate (0.0–1.0) for a Safe Mode
+/// capture before [ConversionService] rejects it with
+/// [SafeModeRejection] (Safe Mode completion wave, 2026-05-21).
+///
+/// Below the threshold the capture is kept; gap frames in the safe
+/// variant are soft-skipped (the underlying converter pumps through
+/// without Safe Mode compositing on misses). Above the threshold the
+/// converter discards both the safe variant and the line drawing —
+/// the user-facing surface treats this as a failed capture and
+/// removes the row.
+const double kSafeModeMaxMissRate = 0.05;
+
+/// Thrown by [ConversionService] when Safe Mode was active for a
+/// capture but the native Vision pass missed more than
+/// [kSafeModeMaxMissRate] of frames. The capture screen listens for
+/// this exception via the conversion update stream and removes the
+/// exercise row + shows an inline coral-bordered toast.
+///
+/// Not a control-flow shortcut — this is a real bubble for an error
+/// condition the user must be told about. Per
+/// `feedback_no_exception_control_flow`, the upstream catch must
+/// surface the rejection to the user, NOT swallow it as "success".
+class SafeModeRejection implements Exception {
+  final String exerciseId;
+  final double missRate;
+  const SafeModeRejection(this.exerciseId, this.missRate);
+  @override
+  String toString() =>
+      'SafeModeRejection($exerciseId, missRate='
+      '${(missRate * 100).toStringAsFixed(1)}%)';
+}
+
 /// Background line drawing conversion service.
 ///
 /// Architecture: Layer 2 of the three decoupled async layers.
@@ -69,6 +101,21 @@ class ConversionService extends ChangeNotifier {
 
   /// Fires each time an exercise's conversion status changes.
   Stream<ExerciseCapture> get onConversionUpdate => _updateController.stream;
+
+  /// Stream controller for Safe Mode rejections (Safe Mode completion
+  /// wave, 2026-05-21). Captures whose Vision miss-rate exceeded
+  /// [kSafeModeMaxMissRate] emit here AFTER the row has been deleted
+  /// from SQLite. Listeners (the capture screen) show a coral toast.
+  /// Separate stream so a `Stream<ExerciseCapture>` typing doesn't
+  /// need to carry exception sentinels.
+  final _rejectionController =
+      StreamController<SafeModeRejection>.broadcast();
+
+  /// Fires when a Safe Mode capture was rejected (>5% Vision miss-rate)
+  /// and the exercise row was removed. Listeners show the inline
+  /// rejection toast on the capture screen.
+  Stream<SafeModeRejection> get onSafeModeRejection =>
+      _rejectionController.stream;
 
   ConversionService._({required LocalStorageService storage})
       : _storage = storage {
@@ -176,6 +223,26 @@ class ConversionService extends ChangeNotifier {
       try {
         final result = await _convert(converting);
 
+        // Safe Mode fail-closed (Safe Mode completion wave,
+        // 2026-05-21). If a safe variant was produced AND the Vision
+        // miss-rate exceeded the threshold, throw [SafeModeRejection]
+        // so the capture screen can discard the row + show a coral
+        // toast. Best-effort delete of the partial output files
+        // beforehand so we don't leave bytes around for a capture the
+        // user will be told was rejected. The outer try/catch
+        // re-throws — the per-item failure handler treats this as a
+        // real error path (no exception-driven control flow:
+        // [SafeModeRejection] is a genuine bubble, not a "treat as
+        // success" sentinel).
+        if (result.safePath != null &&
+            result.safeMissRate > kSafeModeMaxMissRate) {
+          await _deleteSafely(result.safePath);
+          await _deleteSafely(result.convertedPath);
+          await _deleteSafely(result.segmentedPath);
+          await _deleteSafely(result.maskPath);
+          throw SafeModeRejection(exercise.id, result.safeMissRate);
+        }
+
         // Re-read from the database to pick up intermediate updates
         // (e.g. thumbnailPath set during video thumbnail extraction inside
         // _convert). Without this, the copyWith below would use
@@ -193,6 +260,12 @@ class ConversionService extends ChangeNotifier {
               : null,
           maskFilePath: result.maskPath != null
               ? PathResolver.toRelative(result.maskPath!)
+              : null,
+          // Safe Mode: stamp the safe variant path so UploadService
+          // can swap it for the raw file in the cloud raw-archive
+          // bucket. Local-only column — not mirrored to Supabase.
+          safeRawFilePath: result.safePath != null
+              ? PathResolver.toRelative(result.safePath!)
               : null,
         );
 
@@ -492,6 +565,28 @@ class ConversionService extends ChangeNotifier {
         // line-drawing filters against the original footage later. A failure
         // here must not disturb the main conversion flow.
         unawaited(_archiveRawVideo(done));
+      } on SafeModeRejection catch (rejection) {
+        // Safe Mode fail-closed (Safe Mode completion wave,
+        // 2026-05-21). The capture exceeded the Vision miss-rate
+        // threshold — delete the row from SQLite and broadcast on the
+        // rejection stream so the capture screen can show the toast.
+        // Best-effort SQLite delete; failure logs but doesn't
+        // re-throw (the row will become an orphan but the user gets
+        // the toast either way).
+        debugPrint(
+            'Safe Mode rejected ${rejection.exerciseId}: '
+            'missRate=${(rejection.missRate * 100).toStringAsFixed(1)}%');
+        try {
+          await _storage.deleteExercise(rejection.exerciseId);
+        } catch (e) {
+          debugPrint(
+              'Safe Mode rejection: deleteExercise failed for '
+              '${rejection.exerciseId}: $e');
+        }
+        if (!_rejectionController.isClosed) {
+          _rejectionController.add(rejection);
+        }
+        notifyListeners();
       } catch (e, stack) {
         // Write error to a log file for debugging (readable from simulator filesystem)
         try {
@@ -837,6 +932,7 @@ class ConversionService extends ChangeNotifier {
           segmentedPath: segResult.segmentedPath,
           maskPath: segResult.maskPath,
           safePath: segResult.safePath,
+          safeMissRate: segResult.safeMissRate,
         );
       } catch (e, stack) {
         debugPrint(
@@ -911,9 +1007,66 @@ class ConversionService extends ChangeNotifier {
         }
       }
 
+      // Safe Mode photo pass (Safe Mode completion wave, 2026-05-21).
+      // Mirrors the per-frame compositing the video pipeline does, but
+      // on a single still. Result file lives alongside the line +
+      // segmented JPGs. NOT best-effort like body-focus — if the
+      // native pass succeeds with `safeFramesMissedRate > kSafeModeMaxMissRate`
+      // the convert call throws SafeModeRejection so the queue can
+      // discard the row. A native error (not a Vision miss — an actual
+      // failure) is logged and treated as "no safe variant" so the
+      // line drawing still publishes; that's the same shape as the
+      // body-focus pass above.
+      String? safePhotoPath;
+      double safePhotoMissRate = 0.0;
+      bool safePhotoActive = false;
+      try {
+        safePhotoActive = SafeModeService.instance.isActive;
+      } catch (_) {
+        // Service not initialised (tests) — Safe Mode off.
+      }
+      if (safePhotoActive) {
+        try {
+          final candidate =
+              p.join(convertedDir, '${exercise.id}_safe.jpg');
+          final resp = await _videoChannel
+              .invokeMethod<Map<dynamic, dynamic>>('processPhotoSafeMode', {
+            'srcPath': exercise.absoluteRawFilePath,
+            'destPath': candidate,
+          }).timeout(const Duration(seconds: 30));
+          if (resp == null) {
+            throw StateError('processPhotoSafeMode returned null');
+          }
+          final missRate =
+              (resp['safeFramesMissedRate'] as num?)?.toDouble() ?? 0.0;
+          if (await File(candidate).exists()) {
+            safePhotoPath = candidate;
+            safePhotoMissRate = missRate;
+          }
+        } catch (e, stack) {
+          debugPrint(
+            'Photo Safe Mode pass failed for ${exercise.id}: $e — '
+            'line drawing already produced; falling through with safe=null',
+          );
+          try {
+            final logDir = await getApplicationDocumentsDirectory();
+            final logFile =
+                File(p.join(logDir.path, 'conversion_error.log'));
+            await logFile.writeAsString(
+              '${DateTime.now()} [processPhotoSafeMode failed]\n$e\n$stack\n\n',
+              mode: FileMode.append,
+            );
+          } catch (_) {
+            // Sanctioned log-of-log swallow.
+          }
+        }
+      }
+
       return _ConvertResult(
         convertedPath: convertedPath,
         segmentedPath: segmentedPhotoPath,
+        safePath: safePhotoPath,
+        safeMissRate: safePhotoMissRate,
       );
     }
   }
@@ -1294,6 +1447,8 @@ class ConversionService extends ChangeNotifier {
         final segPath = result['segmentedOutputPath'] as String?;
         final maskPath = result['maskOutputPath'] as String?;
         final safePath = result['safeOutputPath'] as String?;
+        final safeMiss =
+            (result['safeFramesMissedRate'] as num?)?.toDouble() ?? 0.0;
         debugPrint(
             'Native video conversion complete: '
             '${result["framesProcessed"]} frames '
@@ -1301,11 +1456,13 @@ class ConversionService extends ChangeNotifier {
             'audioMuxEnabled=${AppConfig.audioMuxEnabled}, '
             'segFrames=${result["segFramesProcessed"] ?? 0}, '
             'maskFrames=${result["maskFramesProcessed"] ?? 0}, '
-            'safeFrames=${result["safeFramesProcessed"] ?? 0}) -> $outputPath');
+            'safeFrames=${result["safeFramesProcessed"] ?? 0}, '
+            'safeMissRate=${safeMiss.toStringAsFixed(3)}) -> $outputPath');
         return _NativeVideoResult(
           segmentedPath: segPath,
           maskPath: maskPath,
           safePath: safePath,
+          safeMissRate: safeMiss,
         );
       }
     } on PlatformException catch (e) {
@@ -1682,6 +1839,22 @@ class ConversionService extends ChangeNotifier {
   /// failure mode is "documents dir unwritable".
   ///
   /// [contextKind] is an optional discriminator (e.g. `regen`, `backfill`,
+  /// Best-effort delete of a file at an absolute path. Swallows
+  /// every error — used by the Safe Mode rejection path to tidy
+  /// up partial outputs before throwing [SafeModeRejection]. Skips
+  /// silently when [path] is null or the file doesn't exist.
+  Future<void> _deleteSafely(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      final f = File(path);
+      if (await f.exists()) {
+        await f.delete();
+      }
+    } catch (e) {
+      debugPrint('_deleteSafely($path) ignored: $e');
+    }
+  }
+
   /// `regen_no_source`) so the same `variant` shows up with different
   /// context labels in the log without needing a separate log-writer per
   /// caller.
@@ -2046,12 +2219,18 @@ class _ConvertResult {
   final String? segmentedPath;
   final String? maskPath;
   final String? safePath;
+  // Vision miss-rate from the Safe Mode pass when one ran. 0.0 when
+  // no Safe Mode pass happened or every frame found a human. Used by
+  // the conversion success branch to decide whether to keep the
+  // capture (<= kSafeModeMaxMissRate) or throw [SafeModeRejection].
+  final double safeMissRate;
 
   const _ConvertResult({
     required this.convertedPath,
     this.segmentedPath,
     this.maskPath,
     this.safePath,
+    this.safeMissRate = 0.0,
   });
 }
 
@@ -2066,11 +2245,16 @@ class _NativeVideoResult {
   final String? segmentedPath;
   final String? maskPath;
   final String? safePath;
+  // Vision miss-rate the native `SafeModeProcessor` accumulated over
+  // the conversion run. 0.0 when no Safe Mode pass ran (no
+  // `safeOutputPath` passed in); otherwise [0, 1].
+  final double safeMissRate;
 
   const _NativeVideoResult({
     this.segmentedPath,
     this.maskPath,
     this.safePath,
+    this.safeMissRate = 0.0,
   });
 }
 
