@@ -5,25 +5,19 @@ import { getBrowserClient } from '@/lib/supabase-browser';
 import {
   createPortalApi,
   type PracticePremises,
-  type PracticePublicProfile,
 } from '@/lib/supabase/api';
 import { PremisesEditorDialog } from './PremisesEditorDialog';
-import { PracticeProfilePanel } from './PracticeProfilePanel';
 
 type Props = {
   practiceId: string;
-  practiceName: string;
   isOwner: boolean;
   initialPremises: PracticePremises[];
-  initialProfile: PracticePublicProfile;
 };
 
 export function PremisesListPanel({
   practiceId,
-  practiceName,
   isOwner,
   initialPremises,
-  initialProfile,
 }: Props) {
   const [premises, setPremises] = useState<PracticePremises[]>(initialPremises);
   const [editing, setEditing] = useState<PracticePremises | null>(null);
@@ -137,12 +131,15 @@ export function PremisesListPanel({
         )}
       </section>
 
-      <PracticeProfilePanel
-        practiceId={practiceId}
-        practiceName={practiceName}
-        isOwner={isOwner}
-        initial={initialProfile}
-      />
+      {/*
+        Public-profile editor moved to its own /public-profile route in
+        Public Profile v2. The v1 in-page block lived here behind a
+        <details> accordion; surfacing branding + slug + directory opt-in
+        on /premises mixed two surfaces (physical sites vs marketing /
+        directory). The dashboard tile + dedicated route is the entry
+        point now. PracticeProfilePanel.tsx is currently orphaned —
+        retained for backport reference until the next cleanup wave.
+      */}
 
       {(creating || editing) && (
         <PremisesEditorDialog

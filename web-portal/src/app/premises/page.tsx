@@ -47,10 +47,12 @@ export default async function PremisesPage({
   const selected = practices.find((p) => p.id === selectedId) ?? practices[0];
   const qs = `?practice=${selected.id}`;
 
-  const [role, premises, profile] = await Promise.all([
+  // Public-profile data no longer fetched here — moved to its own
+  // /public-profile route in v2. /premises is now site-management
+  // only (physical premises + Safe Mode enforcement).
+  const [role, premises] = await Promise.all([
     api.getCurrentUserRole(selected.id, user.id),
     api.listPracticePremises(selected.id),
-    api.getPracticePublicProfile(selected.id),
   ]);
   const isOwner = role === 'owner';
 
@@ -82,25 +84,8 @@ export default async function PremisesPage({
 
         <PremisesListPanel
           practiceId={selected.id}
-          practiceName={selected.name}
           isOwner={isOwner}
           initialPremises={premises}
-          initialProfile={
-            profile ?? {
-              practiceId: selected.id,
-              practiceName: selected.name,
-              slug: null,
-              logoUrl: null,
-              blurb: null,
-              listed: false,
-              brandColor: null,
-              tagline: null,
-              specialties: null,
-              contactEmail: null,
-              contactWhatsapp: null,
-              contactWebsite: null,
-            }
-          }
         />
       </div>
     </main>
