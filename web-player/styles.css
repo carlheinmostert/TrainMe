@@ -260,11 +260,38 @@ body {
   background: var(--c-surface-bg);
 }
 
+/* Plan-bar left cluster — Public Profile v2 turned this into a
+   horizontal flex container so the practice-logo slot (if set) can
+   sit beside the plan-title + client-subtitle stack. Without a logo
+   (.plan-bar-logo[hidden]) the layout reads identically to the
+   pre-v2 column-only stack. */
 .plan-bar-left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.plan-bar-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+/* Practice logo slot. Square 36px, contain-fit so portrait and
+   landscape logos both work. Hidden via the [hidden] attribute when
+   no plan.public_logo_url is set — defaults to the homefit footer
+   logo carrying brand presence on those plans. */
+.plan-bar-logo {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 6px;
+  background: transparent;
 }
 
 .plan-title {

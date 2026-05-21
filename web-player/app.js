@@ -898,6 +898,10 @@ const $error = document.getElementById('error');
 const $app = document.getElementById('app');
 const $clientName = document.getElementById('client-name');
 const $planTitle = document.getElementById('plan-title');
+// Public Profile v2 — practice logo slot in the plan-bar (Task 12).
+// Populated by applyPracticeBranding() from plan.public_logo_url;
+// stays [hidden] when no logo is set.
+const $planBarLogo = document.getElementById('plan-bar-logo');
 const $progress = document.getElementById('progress');
 const $cardViewport = document.getElementById('card-viewport');
 const $cardTrack = document.getElementById('card-track');
@@ -1069,18 +1073,39 @@ function applyPracticeBranding(planObj) {
     root.style.removeProperty('--c-brand-soft');
     root.style.removeProperty('--c-brand-tint-bg');
     root.style.removeProperty('--c-brand-tint-border');
-    return;
+  } else {
+    const hex = raw.toUpperCase();
+    const rgb = _hexToRgb(hex);
+    const triplet = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
+
+    root.style.setProperty('--c-brand', hex);
+    root.style.setProperty('--c-brand-strong', hex);
+    root.style.setProperty('--c-brand-soft', `rgba(${triplet}, 0.12)`);
+    root.style.setProperty('--c-brand-tint-bg', `rgba(${triplet}, 0.12)`);
+    root.style.setProperty('--c-brand-tint-border', `rgba(${triplet}, 0.30)`);
   }
 
-  const hex = raw.toUpperCase();
-  const rgb = _hexToRgb(hex);
-  const triplet = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
-
-  root.style.setProperty('--c-brand', hex);
-  root.style.setProperty('--c-brand-strong', hex);
-  root.style.setProperty('--c-brand-soft', `rgba(${triplet}, 0.12)`);
-  root.style.setProperty('--c-brand-tint-bg', `rgba(${triplet}, 0.12)`);
-  root.style.setProperty('--c-brand-tint-border', `rgba(${triplet}, 0.30)`);
+  // Task 12 — practice logo slot in the plan-bar. Driven by the same
+  // plan payload so a single applyPracticeBranding(plan) call sets
+  // both colour cascade + leading brand mark together.
+  // Schema: plan.public_logo_url is a public CDN URL (Supabase storage
+  // public bucket). The img stays [hidden] until both:
+  //   - the URL is a non-empty string, AND
+  //   - it survives a minimal sanity check (http/https origin).
+  // Anything else falls through to the homefit footer wordmark.
+  if ($planBarLogo) {
+    const logo = planObj && typeof planObj === 'object' ? planObj.public_logo_url : null;
+    const looksUrl = typeof logo === 'string' && /^https?:\/\//.test(logo);
+    if (looksUrl) {
+      // alt left empty (decorative) — the practice name already lives
+      // in plan.client_name + plan.title; the logo is brand reinforcement.
+      $planBarLogo.src = logo;
+      $planBarLogo.hidden = false;
+    } else {
+      $planBarLogo.removeAttribute('src');
+      $planBarLogo.hidden = true;
+    }
+  }
 }
 
 async function fetchPlan(planId) {
