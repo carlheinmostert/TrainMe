@@ -5,9 +5,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /**
  * Address autocomplete backed by Nominatim (OpenStreetMap's free
  * geocoder). 400ms debounce + AbortController so rapid typing doesn't
- * 429 us under the public 1-req/sec fair-use policy. South Africa-biased
- * via `countrycodes=za` since this is what every practice we have today
- * needs; loosen if we add international practices later.
+ * 429 us under the public 1-req/sec fair-use policy.
+ *
+ * No hard country filter — `countrycodes=za` was too aggressive: Carl
+ * could find his real ZA home address on the OpenStreetMap website but
+ * Nominatim's API silently dropped it from results because of how that
+ * address's country attribution is indexed. `display_name` includes the
+ * country so the user can disambiguate which result they want.
  *
  * Browsers forbid setting User-Agent on fetch, so identification falls
  * back to the page's Referer header + the inherently low call volume
@@ -37,10 +41,9 @@ type Props = {
 };
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-const COUNTRY_BIAS = 'za';
 const DEBOUNCE_MS = 400;
 const MIN_QUERY = 3;
-const LIMIT = 5;
+const LIMIT = 8;
 
 export function AddressSearchInput({
   value,
@@ -53,7 +56,7 @@ export function AddressSearchInput({
   const [loading, setLoading] = useState(false);
   // Visible diagnostic state so failures are obvious without DevTools.
   // Kinds: 'idle' (typing nothing yet), 'too-short' (under MIN_QUERY chars),
-  // 'searching', 'no-results' (fetched but ZA-bias filtered everything),
+  // 'searching', 'no-results' (Nominatim returned 0 matches),
   // 'error' (fetch threw or non-2xx), 'ok' (≥1 result).
   type SearchStatus =
     | { kind: 'idle' }
@@ -92,7 +95,6 @@ export function AddressSearchInput({
       q: trimmed,
       format: 'json',
       limit: String(LIMIT),
-      countrycodes: COUNTRY_BIAS,
       addressdetails: '0',
     });
     const url = `${NOMINATIM_URL}?${params.toString()}`;
@@ -208,8 +210,8 @@ export function AddressSearchInput({
       )}
       {status.kind === 'no-results' && (
         <p className="mt-1 text-xs text-ink-muted">
-          No South African matches. Try a different spelling, or place the
-          polygon manually on the map.
+          No matches. Try a different spelling (street + suburb works better
+          than full address), or place the polygon manually on the map.
         </p>
       )}
       {status.kind === 'error' && (
