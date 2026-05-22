@@ -1517,6 +1517,43 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                 ),
               ),
             ),
+
+          // Safe Mode debug HUD (added 2026-05-22 to chase "Banner B
+          // not rendering on iPhone despite being inside the polygon").
+          // ALWAYS renders — that's the point: if the banner is invisible
+          // because the service is `notInZone`, this HUD shows the exact
+          // state + GPS + match data so we can tell whether GPS missed,
+          // the polygon's `enforced` flag is off, or the RPC simply
+          // didn't return a row.
+          //
+          // Outside the existing SafeArea Column so the HUD survives any
+          // layout collapse on the banner side. Lives in the Stack at
+          // top-right under the iOS status bar.
+          //
+          // Follow-up: gate behind `kDebugMode` or rip it out once the
+          // root cause is fixed. Tracked in the PR body.
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              left: false,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8, right: 8),
+                child: IgnorePointer(
+                  child: ListenableBuilder(
+                    listenable: SafeModeService.instance,
+                    builder: (context, _) {
+                      return _SafeModeDebugHud(
+                        svc: SafeModeService.instance,
+                        locationGate: _locationGateStatus,
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
       ),
@@ -2352,6 +2389,149 @@ class _SafeModeBanner extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Safe Mode debug HUD (added 2026-05-22).
+///
+/// Always-visible diagnostic chip in the top-right corner of the
+/// viewfinder. Surfaces the live `SafeModeService` state, the most
+/// recent GPS fix it queried with, and what the `find_premises_at`
+/// RPC returned. This is the instrument that closes the loop on the
+/// "Banner B not rendering despite being inside the polygon" report —
+/// when the banner is invisible because the service is not `active`,
+/// the HUD tells us WHY in one glance.
+///
+/// Renders unconditionally on the camera surface — gating it behind
+/// `isActive` would defeat the purpose. Wrapped in `IgnorePointer` by
+/// the caller so it never steals taps from the lens column or other
+/// chrome on the right edge.
+///
+/// Visual: ~10pt monospace, white text on dark translucent fill,
+/// 6pt rounded corners, small. Comfortably narrower than the lens
+/// column (44pt) so they stack without overlap on tall phones.
+///
+/// Follow-up: this widget is intentionally shipped on the staging
+/// build behind PR `fix/safe-mode-banner-not-rendering`. Once the root
+/// cause is understood and fixed, gate it behind `kDebugMode` or
+/// delete it outright.
+class _SafeModeDebugHud extends StatelessWidget {
+  const _SafeModeDebugHud({
+    required this.svc,
+    required this.locationGate,
+  });
+
+  final SafeModeService svc;
+  final _LocationGateStatus locationGate;
+
+  String _fmtCoord(double? v) {
+    if (v == null) return '—';
+    return v.toStringAsFixed(5);
+  }
+
+  String _fmtMatch() {
+    final enforced = svc.lastMatchEnforced;
+    if (enforced == null) return 'no match';
+    return enforced ? 'enforced' : 'not enforced';
+  }
+
+  String _fmtStatus() {
+    switch (svc.status) {
+      case SafeModeCheckStatus.unchecked:
+        return 'unchecked';
+      case SafeModeCheckStatus.checking:
+        return 'checking';
+      case SafeModeCheckStatus.unavailable:
+        return 'unavailable';
+      case SafeModeCheckStatus.notInZone:
+        return 'notInZone';
+      case SafeModeCheckStatus.active:
+        return 'active';
+      case SafeModeCheckStatus.manual:
+        return 'manual';
+    }
+  }
+
+  String _fmtGate() {
+    switch (locationGate) {
+      case _LocationGateStatus.pending:
+        return 'pending';
+      case _LocationGateStatus.granted:
+        return 'granted';
+      case _LocationGateStatus.denied:
+        return 'denied';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final premises = svc.lastMatchName?.isNotEmpty == true
+        ? svc.lastMatchName!
+        : '—';
+    final lat = _fmtCoord(svc.lastLatitude);
+    final lng = _fmtCoord(svc.lastLongitude);
+    // Coral when active so it pops next to the banner; otherwise white.
+    final accent = svc.isActive
+        ? const Color(0xFFFF6B35)
+        : Colors.white;
+    const labelStyle = TextStyle(
+      fontFamily: 'Menlo',
+      fontSize: 9,
+      color: Colors.white70,
+      height: 1.25,
+    );
+    final valueStyle = TextStyle(
+      fontFamily: 'Menlo',
+      fontSize: 10,
+      color: accent,
+      fontWeight: FontWeight.w600,
+      height: 1.25,
+    );
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.12),
+          width: 0.5,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('SAFE MODE HUD', style: TextStyle(
+            fontFamily: 'Menlo',
+            fontSize: 9,
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+            height: 1.25,
+          )),
+          const SizedBox(height: 2),
+          Text(_fmtStatus(), style: valueStyle),
+          const SizedBox(height: 2),
+          const Text('gate', style: labelStyle),
+          Text(_fmtGate(), style: valueStyle),
+          const SizedBox(height: 2),
+          const Text('fix', style: labelStyle),
+          Text('$lat, $lng', style: valueStyle),
+          const SizedBox(height: 2),
+          const Text('match', style: labelStyle),
+          Text(_fmtMatch(), style: valueStyle),
+          const SizedBox(height: 2),
+          const Text('premises', style: labelStyle),
+          Text(
+            premises,
+            style: valueStyle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }
