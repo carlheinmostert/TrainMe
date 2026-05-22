@@ -91,6 +91,29 @@ class SafeModeService extends ChangeNotifier {
   /// or the "permission denied" fallback in the capture screen.
   SafeModeCheckStatus get status => _state.status;
 
+  /// Diagnostic fields (added 2026-05-22 to debug the "banner-not-rendering
+  /// despite being inside the polygon" report). Populated by [checkLocation]
+  /// right before the state transition. Cleared on [reset]. These are NOT
+  /// part of the service's contract — UI consumers should treat them as
+  /// best-effort breadcrumbs for the HUD overlay, not load-bearing data.
+  ///
+  /// `lastLatitude` / `lastLongitude` — the GPS fix the RPC was asked
+  /// about, or null if no fix has landed since reset.
+  /// `lastMatchEnforced` — whether the most recent RPC response carried
+  /// `safe_mode_enforced=true`. Null if the RPC has not run since reset,
+  /// returned no match (point outside every polygon), or failed.
+  /// `lastMatchName` — display name of the most recent polygon match,
+  /// or null if no match.
+  double? get lastLatitude => _lastLatitude;
+  double? get lastLongitude => _lastLongitude;
+  bool? get lastMatchEnforced => _lastMatchEnforced;
+  String? get lastMatchName => _lastMatchName;
+
+  double? _lastLatitude;
+  double? _lastLongitude;
+  bool? _lastMatchEnforced;
+  String? _lastMatchName;
+
   _SafeModeState _state = const _SafeModeState.unchecked();
 
   /// One-shot query: get a GPS fix, ask the server which (if any)
@@ -156,15 +179,27 @@ class SafeModeService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('SafeModeService.getCurrentPosition failed: $e');
+      _lastLatitude = null;
+      _lastLongitude = null;
+      _lastMatchEnforced = null;
+      _lastMatchName = null;
       _setState(const _SafeModeState.unavailable());
       _scheduleRetry();
       return;
     }
 
+    // Stamp diagnostic breadcrumbs BEFORE the RPC so a slow/failing RPC
+    // still leaves a fix visible in the HUD.
+    _lastLatitude = position.latitude;
+    _lastLongitude = position.longitude;
+
     final match = await _api.findPremisesAt(
       latitude: position.latitude,
       longitude: position.longitude,
     );
+
+    _lastMatchEnforced = match?.safeModeEnforced;
+    _lastMatchName = match?.premisesName;
 
     if (match == null || !match.safeModeEnforced) {
       _setState(const _SafeModeState.notInZone());
@@ -198,6 +233,10 @@ class SafeModeService extends ChangeNotifier {
   /// the next mount starts from `unchecked` and re-queries.
   void reset() {
     cancelRetry();
+    _lastLatitude = null;
+    _lastLongitude = null;
+    _lastMatchEnforced = null;
+    _lastMatchName = null;
     _setState(const _SafeModeState.unchecked());
   }
 
