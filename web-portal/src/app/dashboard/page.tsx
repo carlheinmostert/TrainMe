@@ -20,6 +20,7 @@ import {
   Settings,
   Building2,
   Globe2,
+  Layers,
 } from 'lucide-react';
 
 type SearchParams = { practice?: string };
@@ -251,6 +252,24 @@ export default async function DashboardPage({
           this page is now PURE TILE GRID.
         */}
         <DashboardTooltipProvider>
+          {/*
+            Tile order is load-bearing (locked in the 2026-05-22 portal
+            cosmetics stack, item C-10):
+              1. Credits        — what you have to spend
+              2. Network        — what you can EARN to spend
+              3. Clients        — the core work surface
+              4. Members        — (owner only; non-owners see the row reflow)
+              5. Public profile — your directory + branding face
+              6. Premises       — Safe Mode geofence sites
+              7. Account        — email, password, practice name
+              8. Audit          — append-only history of everything above
+              9. Classes        — coming-soon teaser; non-clickable
+
+            C-7: each tile owns two Tooltip.Roots (main + touch info) so
+            popovers anchor to the hovered tile, not viewport (0,0).
+            C-8: every tile carries `h-full` so row-mates equalise to the
+            tallest card (usually Audit).
+          */}
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <DashboardTile
               href={`/credits${qs}`}
@@ -280,22 +299,16 @@ export default async function DashboardPage({
               description="All clients across your practice. Drill in to see their plans, consent, and analytics."
             />
 
-            <DashboardAuditCard
-              href={`/audit${qs}`}
-              rows={auditPreview.rows}
-              error={auditPreview.error}
-              icon={<ScrollText size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="Append-only log of every publish, purchase, and consent change in your practice."
-            />
-
-            <DashboardTile
-              href={`/premises${qs}`}
-              label="Premises"
-              headline={premisesHeadline}
-              subtitle={premisesSubtitle}
-              icon={<Building2 size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="Sites you train at. Enforcing Safe Mode at a site automatically blurs bystanders when you capture there."
-            />
+            {isOwner && (
+              <DashboardTile
+                href={`/members${qs}`}
+                label="Members"
+                headline={membersHeadline}
+                subtitle={membersSubtitle}
+                icon={<UsersRound size={24} strokeWidth={1.75} aria-hidden="true" />}
+                description="Add or remove practitioners in your practice. Owners can also rename the practice."
+              />
+            )}
 
             {/*
               Public profile (v2) — branding + directory listing entry.
@@ -314,6 +327,15 @@ export default async function DashboardPage({
             />
 
             <DashboardTile
+              href={`/premises${qs}`}
+              label="Premises"
+              headline={premisesHeadline}
+              subtitle={premisesSubtitle}
+              icon={<Building2 size={24} strokeWidth={1.75} aria-hidden="true" />}
+              description="Sites you train at. Enforcing Safe Mode at a site automatically blurs bystanders when you capture there."
+            />
+
+            <DashboardTile
               href={`/account${qs}`}
               label="Account"
               headline="Settings"
@@ -322,16 +344,31 @@ export default async function DashboardPage({
               description="Your email, password, and the active practice's name."
             />
 
-            {isOwner && (
-              <DashboardTile
-                href={`/members${qs}`}
-                label="Members"
-                headline={membersHeadline}
-                subtitle={membersSubtitle}
-                icon={<UsersRound size={24} strokeWidth={1.75} aria-hidden="true" />}
-                description="Add or remove practitioners in your practice. Owners can also rename the practice."
-              />
-            )}
+            <DashboardAuditCard
+              href={`/audit${qs}`}
+              rows={auditPreview.rows}
+              error={auditPreview.error}
+              icon={<ScrollText size={24} strokeWidth={1.75} aria-hidden="true" />}
+              description="Append-only log of every publish, purchase, and consent change in your practice."
+            />
+
+            {/*
+              C-9: Classes coming-soon teaser. Mirrors the mobile app's
+              coming-soon pattern (see app/lib/widgets/classes_coming_soon_view.dart).
+              Non-clickable, no chevron, dimmed icon. The Radix Tooltip still
+              works so practitioners can read what's coming on hover or tap.
+              Visible to ALL practitioners (owners + non-owners) — not
+              gated like Members.
+            */}
+            <DashboardTile
+              href="#"
+              label="Classes"
+              headline="Coming soon"
+              subtitle="Build once, share with everyone who enrolls"
+              icon={<Layers size={24} strokeWidth={1.75} aria-hidden="true" />}
+              description="A subscription/class library — practitioners build a programme once and enrollees subscribe to follow it. Coming after MVP ships."
+              comingSoon
+            />
           </div>
         </DashboardTooltipProvider>
       </div>

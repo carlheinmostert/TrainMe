@@ -31,6 +31,17 @@ type Props = {
  * audit events. Cosmetic pass (2026-05-22) mirrors the DashboardTile
  * upgrades: left 40px icon slot + Radix Tooltip on hover with a touch-
  * viewport info glyph.
+ *
+ * Polish bundle (2026-05-22, C-7/C-8):
+ *   - C-7: split into TWO independent `Tooltip.Root` instances — one
+ *     for the main Link, one for the touch info button. Sharing a
+ *     single Root caused Radix to anchor the popover at viewport (0,0)
+ *     because two `Trigger asChild` siblings violate Radix's one-anchor
+ *     model. Each Root now owns its own Trigger + Portal + Content.
+ *   - C-8: wrapper div + Link both carry `h-full` so the audit card
+ *     stretches to match the tallest sibling in its grid row (and lets
+ *     its row-mates match THIS card when it's the tallest — which it
+ *     usually is with 5 preview rows in flight).
  */
 export function DashboardAuditCard({
   href,
@@ -52,12 +63,12 @@ export function DashboardAuditCard({
       : 'Publish from mobile to fill this';
 
   return (
-    <Tooltip.Root>
-      <div className="relative sm:col-span-2">
+    <div className="relative h-full sm:col-span-2">
+      <Tooltip.Root>
         <Tooltip.Trigger asChild>
           <Link
             href={href}
-            className="group relative flex items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
+            className="group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-muted transition group-hover:text-brand group-focus-visible:text-brand">
               {icon}
@@ -87,8 +98,40 @@ export function DashboardAuditCard({
           </Link>
         </Tooltip.Trigger>
 
-        <TouchInfoTrigger />
-      </div>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="top"
+            sideOffset={6}
+            collisionPadding={12}
+            className="z-50 max-w-[280px] rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-xs leading-snug text-ink shadow-[0_8px_24px_rgba(0,0,0,0.35)] animate-[fadeSlideUp_120ms_ease-out]"
+          >
+            {description}
+            <Tooltip.Arrow className="fill-surface-raised" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+
+      <TouchInfoTooltip description={description} />
+    </div>
+  );
+}
+
+function TouchInfoTooltip({ description }: { description: string }) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          aria-label="What is this?"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className="pointer-events-auto absolute right-3 top-3 hidden h-6 w-6 items-center justify-center rounded-full text-ink-dim hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(hover:none)]:flex"
+        >
+          <Info size={14} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      </Tooltip.Trigger>
 
       <Tooltip.Portal>
         <Tooltip.Content
@@ -102,24 +145,6 @@ export function DashboardAuditCard({
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
-  );
-}
-
-function TouchInfoTrigger() {
-  return (
-    <Tooltip.Trigger asChild>
-      <button
-        type="button"
-        aria-label="What is this?"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        className="pointer-events-auto absolute right-3 top-3 hidden h-6 w-6 items-center justify-center rounded-full text-ink-dim hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(hover:none)]:flex"
-      >
-        <Info size={14} strokeWidth={1.75} aria-hidden="true" />
-      </button>
-    </Tooltip.Trigger>
   );
 }
 
