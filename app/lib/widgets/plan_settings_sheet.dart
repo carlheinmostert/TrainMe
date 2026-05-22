@@ -471,11 +471,15 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
   // plumbing needed. The toggle reflects:
   //   * Off     → GPS check said `notInZone` / `unavailable`.
   //   * Auto    → GPS check resolved active for an enforcing premises.
-  //   * Manual  → practitioner toggled this row ON.
+  //                Toggle is DISABLED in this state (privacy hardening
+  //                2026-05-22 — practitioner can't briefly disable the
+  //                privacy promise inside an enforced polygon).
+  //   * Manual  → practitioner toggled this row ON; OFF is allowed.
   //
-  // Toggling ON calls `forceActive(premisesName: 'Manual')`. Toggling
-  // OFF re-runs the auto check (`checkLocation(skipIfChecked: false)`)
-  // which may flip back to Auto if we're inside a polygon, or to Off.
+  // Toggling ON (from Off) calls `forceActive(premisesName: 'Manual')`.
+  // Toggling OFF (from Manual) re-runs the auto check
+  // (`checkLocation(skipIfChecked: false)`) which may flip back to Auto
+  // if we're inside a polygon, or land on Off.
   // ---------------------------------------------------------------------------
 
   Widget _buildSafeModeSection() {
@@ -488,11 +492,14 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
             final svc = SafeModeService.instance;
             final isActive = svc.isActive;
             final isManual = svc.isManual;
+            // Auto = active but NOT manual (i.e. enforced by polygon).
+            final isAuto = isActive && !isManual;
             final subLine = !isActive
                 ? 'Off — capture as-is.'
                 : (isManual
                     ? 'Manual — bystanders obscured.'
-                    : 'Auto (${svc.premisesName}) — bystanders obscured.');
+                    : 'Auto (${svc.premisesName}) — enforced by your '
+                        'premises, cannot be disabled here.');
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
@@ -531,18 +538,27 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
                   Switch(
                     value: isActive,
                     activeThumbColor: AppColors.primary,
-                    onChanged: (v) {
-                      HapticFeedback.selectionClick();
-                      if (v) {
-                        SafeModeService.instance.forceActive();
-                      } else {
-                        SafeModeService.instance.reset();
-                        // Re-run the auto check so an enforced polygon
-                        // re-activates immediately rather than waiting
-                        // 30s for the retry. Fire-and-forget.
-                        SafeModeService.instance.checkLocation();
-                      }
-                    },
+                    // When Auto is active (polygon-enforced), the
+                    // toggle is disabled — the practitioner cannot
+                    // briefly disable Safe Mode inside an enforced
+                    // premises. Auto re-engages within ~1s on
+                    // `reset()` anyway, but closing that gap is a
+                    // privacy promise we hold tight.
+                    onChanged: isAuto
+                        ? null
+                        : (v) {
+                            HapticFeedback.selectionClick();
+                            if (v) {
+                              SafeModeService.instance.forceActive();
+                            } else {
+                              SafeModeService.instance.reset();
+                              // Re-run the auto check so an enforced
+                              // polygon re-activates immediately
+                              // rather than waiting 30s for the retry.
+                              // Fire-and-forget.
+                              SafeModeService.instance.checkLocation();
+                            }
+                          },
                   ),
                 ],
               ),

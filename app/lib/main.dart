@@ -16,6 +16,7 @@ import 'services/sync_service.dart';
 import 'services/unified_preview_scheme_bridge.dart';
 import 'screens/auth_gate.dart';
 import 'widgets/orientation_lock_guard.dart';
+import 'widgets/persistent_safe_mode_banner.dart';
 
 /// App-root ScaffoldMessenger — used when destructive actions pop the
 /// current route before the undo SnackBar can mount on the local
@@ -132,6 +133,49 @@ class TrainMeApp extends StatelessWidget {
       theme: kEnableLightTheme ? AppTheme.light : AppTheme.dark,
       darkTheme: AppTheme.dark,
       themeMode: kEnableLightTheme ? ThemeMode.system : ThemeMode.dark,
+      // Persistent Safe Mode banner — top-of-app privacy promise.
+      // Renders ABOVE every route when SafeModeService.isActive (auto
+      // or manual). The Navigator (`child`) fills the remaining space.
+      // We wrap in a top-only SafeArea so the banner clears the iOS
+      // status bar; individual Scaffolds inside routes keep their own
+      // bottom-inset handling unchanged.
+      builder: (context, child) {
+        return Material(
+          color: AppTheme.dark.scaffoldBackgroundColor,
+          child: SafeArea(
+            top: true,
+            bottom: false,
+            left: false,
+            right: false,
+            child: Column(
+              children: [
+                PersistentSafeModeBanner(
+                  onTap: () {
+                    // Surface a SnackBar via the root messenger so the
+                    // practitioner is reminded where to manage Safe
+                    // Mode without needing route plumbing into the
+                    // active session shell. The Studio settings sheet
+                    // is the canonical place to toggle off manual mode.
+                    final messenger = rootScaffoldMessengerKey.currentState;
+                    if (messenger == null) return;
+                    messenger.hideCurrentSnackBar();
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Safe Mode is active. Manage from Studio → '
+                          'settings → Safe Mode.',
+                        ),
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                  },
+                ),
+                Expanded(child: child ?? const SizedBox.shrink()),
+              ],
+            ),
+          ),
+        );
+      },
       // AuthGate is the root router: unauthenticated → SignInScreen,
       // authenticated → HomeScreen. Session persistence is handled by
       // Supabase's default secure storage (Keychain on iOS).
