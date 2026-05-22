@@ -128,18 +128,30 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--c-surface-bg);
+  color: var(--c-ink-primary);
+}
+
+/* Workout-player surface (index.html — `<html class="player-html">` +
+   `<body class="player-body">`) fakes fullscreen via `position: fixed` so
+   the pill matrix + chrome can pin to the viewport. Everything else
+   sharing styles.css (e.g. v.html with `<body class="v-body">`) needs a
+   natural document scroll, so the lock rules are scoped to the player
+   surface only — global html/body rules above stay scroll-safe. */
+html.player-html {
   overflow: hidden;
   height: 100%;
 }
 
-body {
+body.player-body {
   height: 100%;
   overflow: hidden;
   position: fixed;
   width: 100%;
   touch-action: pan-y;
-  background: var(--c-surface-bg);
-  color: var(--c-ink-primary);
 }
 
 /* === Loading Screen === */
