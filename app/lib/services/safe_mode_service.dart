@@ -23,11 +23,28 @@ import 'api_client.dart';
 ///   4. On session end (the camera surface is torn down entirely),
 ///      [reset] returns to `unchecked`.
 ///
+/// Deactivation hysteresis (2026-05-22):
+///   GPS fixes near the polygon edge can drift; a single "no match"
+///   reply does NOT immediately drop the active state. Instead, once
+///   [SafeModeCheckStatus.active] has been entered, a miss starts a
+///   trailing window:
+///     * The state stays `active` and [isTrailing] flips to true.
+///     * Retries accelerate to [kTrailingRetryInterval] (15s).
+///     * After [kDeactivationMissThreshold] consecutive misses (i.e. ~60s
+///       of "no match" replies), the state finally transitions to
+///       `notInZone`. A single in-zone match anywhere during the trailing
+///       window resets the miss counter back to zero.
+///   Transient errors (RPC failure, GPS timeout, permission revocation
+///   mid-session) explicitly do NOT count toward the miss threshold —
+///   only an explicit RPC reply of "no enforcing match" does. This
+///   prevents flaky network from triggering a false deactivation.
+///
 /// Manual override:
 ///   * [forceActive] flips the service into `active` with a synthetic
 ///     `premisesName: 'Manual'` (and `premisesId: null`). Used by the
 ///     Studio "Safe Mode" toggle row so the practitioner can opt in
-///     without a GPS match. Cancels any pending retry.
+///     without a GPS match. Cancels any pending retry. Manual mode
+///     bypasses the deactivation hysteresis entirely.
 ///
 /// Consumers (one each, no recursion):
 ///   * Capture UI (banner display via [isActive] / [premisesName]).
@@ -41,6 +58,22 @@ import 'api_client.dart';
 /// noisy. `SafeModeService.instance` is set up in `main()`.
 class SafeModeService extends ChangeNotifier {
   SafeModeService._(this._api);
+
+  /// Number of CONSECUTIVE no-match replies while already active that
+  /// must accumulate before the state actually transitions to
+  /// `notInZone`. At [kTrailingRetryInterval] = 15s per retry, this
+  /// translates to a ~60s grace window for GPS drift at the polygon
+  /// edge before the banner is dropped.
+  static const int kDeactivationMissThreshold = 4;
+
+  /// Retry cadence during the trailing window (consecutive misses
+  /// observed while still active). Tighter than the normal cadence so
+  /// the threshold resolves within ~60s rather than ~2 minutes.
+  static const Duration kTrailingRetryInterval = Duration(seconds: 15);
+
+  /// Default retry cadence — used while NOT in the trailing window
+  /// (e.g. waiting for the first match after a fresh camera mount).
+  static const Duration kNormalRetryInterval = Duration(seconds: 30);
 
   static SafeModeService? _instance;
   static SafeModeService get instance {
@@ -91,6 +124,34 @@ class SafeModeService extends ChangeNotifier {
   /// or the "permission denied" fallback in the capture screen.
   SafeModeCheckStatus get status => _state.status;
 
+  /// True iff at least one consecutive miss has been observed while
+  /// still in the active state, but the threshold has not yet been
+  /// reached. Manual mode never enters the trailing window.
+  ///
+  /// The banner uses this to swap its sub-line to a "Leaving …"
+  /// countdown so the practitioner sees that the banner is about to
+  /// drop.
+  bool get isTrailing =>
+      _consecutiveMissesWhileActive > 0
+          && _state.isActive
+          && !_state.isManual;
+
+  /// Approximate seconds remaining in the trailing window. Zero if
+  /// not currently trailing. Decreases from
+  /// [kDeactivationMissThreshold] × [kTrailingRetryInterval] toward 0
+  /// across the window and clamps so it never goes negative.
+  ///
+  /// This is a wall-clock estimate, not the precise time-to-next-RPC —
+  /// the banner uses it for a per-second visible countdown so the
+  /// number feels alive.
+  int get remainingTrailingSeconds {
+    if (!isTrailing || _trailingStartedAt == null) return 0;
+    final elapsed = DateTime.now().difference(_trailingStartedAt!).inSeconds;
+    final total =
+        kDeactivationMissThreshold * kTrailingRetryInterval.inSeconds;
+    return (total - elapsed).clamp(0, total).toInt();
+  }
+
   /// Diagnostic fields (added 2026-05-22 to debug the "banner-not-rendering
   /// despite being inside the polygon" report). Populated by [checkLocation]
   /// right before the state transition. Cleared on [reset]. These are NOT
@@ -114,6 +175,16 @@ class SafeModeService extends ChangeNotifier {
   bool? _lastMatchEnforced;
   String? _lastMatchName;
 
+  /// Consecutive `no-enforcing-match` RPC replies observed while the
+  /// service is still in the active state. Resets to 0 on any clean
+  /// match or on a hard transition to `notInZone`. Transient errors
+  /// (RPC failure, GPS timeout, etc.) do NOT increment this counter.
+  int _consecutiveMissesWhileActive = 0;
+
+  /// Wall-clock moment when the trailing window opened (the first
+  /// miss while still active). Null when not trailing.
+  DateTime? _trailingStartedAt;
+
   _SafeModeState _state = const _SafeModeState.unchecked();
 
   /// One-shot query: get a GPS fix, ask the server which (if any)
@@ -124,9 +195,9 @@ class SafeModeService extends ChangeNotifier {
   /// the caller can decide whether to re-query. Default is `false` so
   /// explicit caller intent is required to skip.
   ///
-  /// When the check returns anything other than `active`, a one-shot
-  /// retry is scheduled 30s later. The retry passes
-  /// `skipIfChecked: false` so it actually re-runs.
+  /// When the check returns anything other than `active`, a retry is
+  /// scheduled — at [kTrailingRetryInterval] if we're inside the
+  /// deactivation hysteresis window, otherwise [kNormalRetryInterval].
   ///
   /// Manual mode (set via [forceActive]) is preserved — [checkLocation]
   /// no-ops while manual is engaged. Call [reset] first if you need
@@ -135,10 +206,14 @@ class SafeModeService extends ChangeNotifier {
   /// Failure modes are NOT errors — they're outcomes:
   ///   - permission denied / restricted → Safe Mode stays off, banner
   ///     shows nothing (silent — practitioner doesn't need to know).
-  ///   - location unavailable / timed out → Safe Mode stays off.
-  ///   - point lies outside every enforcing polygon → Safe Mode off.
+  ///   - location unavailable / timed out → Safe Mode stays off
+  ///     UNLESS we were already active; in that case the trailing
+  ///     window does not progress (transient error, not a miss).
+  ///   - point lies outside every enforcing polygon → counts as a
+  ///     miss; the hysteresis window decides whether to deactivate.
   ///   - point lies inside ≥1 enforcing polygon → Safe Mode on,
-  ///     state stamped with the smallest matching premises.
+  ///     state stamped with the smallest matching premises, miss
+  ///     counter reset to zero.
   Future<void> checkLocation({bool skipIfChecked = false}) async {
     // Don't override an explicit manual toggle.
     if (_state.isManual) {
@@ -148,12 +223,19 @@ class SafeModeService extends ChangeNotifier {
       return;
     }
 
-    _setState(const _SafeModeState.checking());
+    final wasActive = _state.status == SafeModeCheckStatus.active;
+
+    // Only emit the transient `checking` state when we're NOT already
+    // active. Flipping an active state to `checking` would drop the
+    // banner mid-check — exactly the kind of flicker the hysteresis
+    // contract forbids.
+    if (!wasActive) {
+      _setState(const _SafeModeState.checking());
+    }
 
     final hasService = await Geolocator.isLocationServiceEnabled();
     if (!hasService) {
-      _setState(const _SafeModeState.unavailable());
-      _scheduleRetry();
+      _handleTransientError(wasActive);
       return;
     }
 
@@ -164,8 +246,12 @@ class SafeModeService extends ChangeNotifier {
     }
     if (permission == LocationPermission.denied
         || permission == LocationPermission.deniedForever) {
+      // Permission revocation is a hard transition (it won't fix
+      // itself) — drop state immediately even if we were active.
+      _consecutiveMissesWhileActive = 0;
+      _trailingStartedAt = null;
       _setState(const _SafeModeState.unavailable());
-      // No retry — permission won't change by itself.
+      cancelRetry();
       return;
     }
 
@@ -183,8 +269,7 @@ class SafeModeService extends ChangeNotifier {
       _lastLongitude = null;
       _lastMatchEnforced = null;
       _lastMatchName = null;
-      _setState(const _SafeModeState.unavailable());
-      _scheduleRetry();
+      _handleTransientError(wasActive);
       return;
     }
 
@@ -193,26 +278,91 @@ class SafeModeService extends ChangeNotifier {
     _lastLatitude = position.latitude;
     _lastLongitude = position.longitude;
 
-    final match = await _api.findPremisesAt(
+    // NOTE: `ApiClient.findPremisesAt` already catches its own
+    // exceptions and returns null. That means at this layer we cannot
+    // distinguish a transient RPC failure from a clean "no enforcing
+    // match" reply — both arrive as `null`. We treat both as a miss;
+    // the only transient-error paths the hysteresis explicitly
+    // excludes are GPS-fix failures and location-service-off, which
+    // are detected BEFORE we ever call the RPC.
+    final SafeModeMatch? match = await _api.findPremisesAt(
       latitude: position.latitude,
       longitude: position.longitude,
     );
-
     _lastMatchEnforced = match?.safeModeEnforced;
     _lastMatchName = match?.premisesName;
 
-    if (match == null || !match.safeModeEnforced) {
-      _setState(const _SafeModeState.notInZone());
-      _scheduleRetry();
+    final isMatch = match != null && match.safeModeEnforced;
+
+    if (isMatch) {
+      // Clean match — reset the miss counter, end any trailing window,
+      // schedule no further retry.
+      _consecutiveMissesWhileActive = 0;
+      _trailingStartedAt = null;
+      _setState(_SafeModeState.active(
+        premisesId: match.premisesId,
+        premisesName: match.premisesName,
+      ));
+      cancelRetry();
       return;
     }
 
-    _setState(_SafeModeState.active(
-      premisesId: match.premisesId,
-      premisesName: match.premisesName,
-    ));
-    // We're active — no retry needed.
-    cancelRetry();
+    // No-match RPC reply. Branch on prior state.
+    if (wasActive) {
+      _consecutiveMissesWhileActive += 1;
+      _trailingStartedAt ??= DateTime.now();
+
+      if (_consecutiveMissesWhileActive < kDeactivationMissThreshold) {
+        // Still inside the hysteresis window — keep the banner up,
+        // notify listeners so the trailing sub-line / countdown
+        // re-renders, schedule the aggressive retry.
+        _setState(_state, forceNotify: true);
+        _scheduleRetry(interval: kTrailingRetryInterval);
+        return;
+      }
+
+      // Threshold hit — actually transition out.
+      _consecutiveMissesWhileActive = 0;
+      _trailingStartedAt = null;
+      _setState(const _SafeModeState.notInZone());
+      _scheduleRetry(interval: kNormalRetryInterval);
+      return;
+    }
+
+    // Fresh miss while not already active — normal cadence.
+    _consecutiveMissesWhileActive = 0;
+    _trailingStartedAt = null;
+    _setState(const _SafeModeState.notInZone());
+    _scheduleRetry(interval: kNormalRetryInterval);
+  }
+
+  /// Handle outcomes that are NEITHER a clean match NOR an explicit
+  /// no-match RPC reply. Examples: location services off, GPS timed
+  /// out. (RPC failures arrive as null from [ApiClient.findPremisesAt]
+  /// and are indistinguishable from "no match" at this layer — see
+  /// the note in [checkLocation].) The contract here is "do not
+  /// progress the trailing window" — transient errors must not
+  /// falsely deactivate.
+  ///
+  /// If we were already active, we keep the active state visible
+  /// (banner stays up) and schedule a retry at whichever cadence
+  /// matches the trailing window (aggressive if already mid-trail,
+  /// normal otherwise). If we were not already active, we land on
+  /// `unavailable` so the HUD reflects the failure mode.
+  void _handleTransientError(bool wasActive) {
+    if (wasActive) {
+      // Don't increment misses; don't move state. Notify so the HUD
+      // can rerender with the failure breadcrumbs, then keep retrying
+      // at whichever cadence applies.
+      _setState(_state, forceNotify: true);
+      final interval = _consecutiveMissesWhileActive > 0
+          ? kTrailingRetryInterval
+          : kNormalRetryInterval;
+      _scheduleRetry(interval: interval);
+      return;
+    }
+    _setState(const _SafeModeState.unavailable());
+    _scheduleRetry(interval: kNormalRetryInterval);
   }
 
   /// Manually engage Safe Mode. Used by the Studio "Safe Mode" toggle
@@ -223,9 +373,13 @@ class SafeModeService extends ChangeNotifier {
   /// Cancels any pending retry timer and stamps the state with
   /// `premisesId: null` (audit row will show NULL for
   /// `captured_in_premises_id` — the RPC's S-H3 validation handles
-  /// NULL gracefully) + the supplied display label.
+  /// NULL gracefully) + the supplied display label. Resets the
+  /// deactivation hysteresis counters so a subsequent Auto switch
+  /// starts clean.
   void forceActive({String premisesName = 'Manual'}) {
     cancelRetry();
+    _consecutiveMissesWhileActive = 0;
+    _trailingStartedAt = null;
     _setState(_SafeModeState.manual(premisesName: premisesName));
   }
 
@@ -237,19 +391,21 @@ class SafeModeService extends ChangeNotifier {
     _lastLongitude = null;
     _lastMatchEnforced = null;
     _lastMatchName = null;
+    _consecutiveMissesWhileActive = 0;
+    _trailingStartedAt = null;
     _setState(const _SafeModeState.unchecked());
   }
 
-  /// Cancel any pending one-shot retry. Called from camera dispose so
-  /// the timer doesn't fire after the screen is gone.
+  /// Cancel any pending retry. Called from camera dispose so the timer
+  /// doesn't fire after the screen is gone.
   void cancelRetry() {
     _retryTimer?.cancel();
     _retryTimer = null;
   }
 
-  void _scheduleRetry() {
+  void _scheduleRetry({Duration interval = kNormalRetryInterval}) {
     cancelRetry();
-    _retryTimer = Timer(const Duration(seconds: 30), () {
+    _retryTimer = Timer(interval, () {
       _retryTimer = null;
       // No await — fire-and-forget. checkLocation handles its own
       // state transitions.
@@ -257,10 +413,12 @@ class SafeModeService extends ChangeNotifier {
     });
   }
 
-  void _setState(_SafeModeState next) {
-    if (_state == next) return;
+  void _setState(_SafeModeState next, {bool forceNotify = false}) {
+    final identical = _state == next;
     _state = next;
-    notifyListeners();
+    if (!identical || forceNotify) {
+      notifyListeners();
+    }
   }
 
   @override
