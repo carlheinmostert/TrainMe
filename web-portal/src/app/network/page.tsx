@@ -125,10 +125,10 @@ export default async function NetworkPage({
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link
-            href={`/dashboard?practice=${practiceId}`}
+            href={`/credits?practice=${practiceId}`}
             className="hover:text-brand"
           >
-            ← Home
+            ← Credits
           </Link>
         </nav>
 
