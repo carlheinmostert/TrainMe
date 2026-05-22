@@ -2998,7 +2998,11 @@
     count.textContent = `Page ${pageIndex + 1} of ${pageCount}`;
     const brand = document.createElement('span');
     brand.className = 'lobby-export-page-brand';
-    brand.textContent = 'Visual plans clients follow. · homefit.studio';
+    // Brand rule (2026-05-22): `.studio` is coral, `homefit` light.
+    // Use innerHTML so the paired spans render with their colour classes.
+    brand.innerHTML = 'Visual plans clients follow. · '
+      + '<span class="homefit-logo-wordmark-name">homefit</span>'
+      + '<span class="homefit-logo-wordmark-studio">.studio</span>';
     footer.appendChild(count);
     footer.appendChild(brand);
     inner.appendChild(footer);
