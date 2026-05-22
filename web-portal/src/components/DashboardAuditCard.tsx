@@ -1,4 +1,8 @@
+'use client';
+
 import Link from 'next/link';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { Info, type LucideIcon } from 'lucide-react';
 import {
   auditChipTone,
   type AuditChipTone,
@@ -12,24 +16,26 @@ type Props = {
   /** Set when the underlying RPC failed; surfaced inline so the tile
    *  doesn't pretend "no events" when really the call errored. */
   error?: string | null;
+  /** lucide-react icon for the left slot — same affordance pattern as
+   *  DashboardTile so the dashboard grid reads consistently. */
+  icon: LucideIcon;
+  /** Tooltip copy. Plain English, one sentence. */
+  description: string;
 };
 
 /**
- * DashboardAuditCard — Wave 40 P4. Dashboard tile that previews the 5
- * most-recent audit events for the active practice. Replaces the old
- * single-line "Last publish" tile (which rendered a relative timestamp
- * but no row payload).
- *
- * Each row: kind chip (auditChipTone palette) + actor email (or "Client"
- * for anon plan.opened) + `<ClientTime>` relative timestamp. The whole
- * card is a `<Link>` to `/audit?practice=…` so it follows R-12.5 (single
- * affordance style — every tile clickable). No inline interaction.
- *
- * Empty state: "No events yet — publish from mobile to fill this." Same
- * tone as the old subtitle copy so practitioners with empty practices
- * see consistent guidance.
+ * DashboardAuditCard — Wave 40 P4 tile that previews the 5 most-recent
+ * audit events. Cosmetic pass (2026-05-22) mirrors the DashboardTile
+ * upgrades: left 40px icon slot + Radix Tooltip on hover with a touch-
+ * viewport info glyph.
  */
-export function DashboardAuditCard({ href, rows, error }: Props) {
+export function DashboardAuditCard({
+  href,
+  rows,
+  error,
+  icon: Icon,
+  description,
+}: Props) {
   const hasRows = rows.length > 0 && !error;
   const headline = error
     ? 'Audit unavailable'
@@ -43,40 +49,81 @@ export function DashboardAuditCard({ href, rows, error }: Props) {
       : 'Publish from mobile to fill this';
 
   return (
-    <Link
-      href={href}
-      className="group relative flex flex-col rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring sm:col-span-2"
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
-          Audit
-        </p>
-        <p className="flex items-center gap-1 text-xs text-ink-muted">
-          <span>{subtitle}</span>
-          <ChevronRight />
-        </p>
-      </div>
-      <p className="mt-1 font-heading text-2xl font-bold leading-tight text-brand">
-        {headline}
-      </p>
+    <Tooltip.Root>
+      <div className="relative sm:col-span-2">
+        <Tooltip.Trigger asChild>
+          <Link
+            href={href}
+            className="group relative flex items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-muted transition group-hover:text-brand group-focus-visible:text-brand">
+              <Icon size={24} strokeWidth={1.75} aria-hidden="true" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
+                  Audit
+                </p>
+                <p className="flex items-center gap-1 text-xs text-ink-muted">
+                  <span>{subtitle}</span>
+                  <ChevronRight />
+                </p>
+              </div>
+              <p className="mt-1 font-heading text-2xl font-bold leading-tight text-brand">
+                {headline}
+              </p>
 
-      {hasRows && (
-        <ul className="mt-4 flex flex-col divide-y divide-surface-border/60">
-          {rows.map((r, idx) => (
-            <AuditPreviewRow key={`${r.ts}-${r.kind}-${idx}`} row={r} />
-          ))}
-        </ul>
-      )}
-    </Link>
+              {hasRows && (
+                <ul className="mt-4 flex flex-col divide-y divide-surface-border/60">
+                  {rows.map((r, idx) => (
+                    <AuditPreviewRow key={`${r.ts}-${r.kind}-${idx}`} row={r} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Link>
+        </Tooltip.Trigger>
+
+        <TouchInfoTrigger />
+      </div>
+
+      <Tooltip.Portal>
+        <Tooltip.Content
+          side="top"
+          sideOffset={6}
+          collisionPadding={12}
+          className="z-50 max-w-[280px] rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-xs leading-snug text-ink shadow-[0_8px_24px_rgba(0,0,0,0.35)] animate-[fadeSlideUp_120ms_ease-out]"
+        >
+          {description}
+          <Tooltip.Arrow className="fill-surface-raised" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   );
 }
 
+function TouchInfoTrigger() {
+  return (
+    <Tooltip.Trigger asChild>
+      <button
+        type="button"
+        aria-label="What is this?"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        className="pointer-events-auto absolute right-3 top-3 hidden h-6 w-6 items-center justify-center rounded-full text-ink-dim hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(hover:none)]:flex"
+      >
+        <Info size={14} strokeWidth={1.75} aria-hidden="true" />
+      </button>
+    </Tooltip.Trigger>
+  );
+}
+
+/* AuditPreviewRow rendered inside a parent Link → use <span>s, not
+   list items with anchors, to avoid nested-interactive markup. */
 function AuditPreviewRow({ row }: { row: AuditRow }) {
   const tone = auditChipTone(row.kind);
-  // Wave 40.1 — `plan.opened` actor now resolves to the plan owner via
-  // list_practice_audit (latest plan_issuances.trainer_id). NULL paths
-  // remaining (credit_ledger system rows, referral.rebate, …) render as
-  // "—". The "Client" magic-string is retired.
   const actorLabel = row.email ?? '—';
   const actorTooltip =
     row.kind === 'plan.opened' && row.email
@@ -86,7 +133,10 @@ function AuditPreviewRow({ row }: { row: AuditRow }) {
   return (
     <li className="flex items-center gap-3 py-2 text-xs">
       <KindChip kind={row.kind} tone={tone} />
-      <span className="min-w-0 flex-1 truncate text-ink-muted" title={actorTooltip}>
+      <span
+        className="min-w-0 flex-1 truncate text-ink-muted"
+        title={actorTooltip}
+      >
         {actorLabel}
       </span>
       <span className="shrink-0 whitespace-nowrap text-ink-dim">
@@ -119,11 +169,6 @@ function chipClass(tone: AuditChipTone): string {
   }
 }
 
-/**
- * Short label for the dashboard preview — drops the namespace prefix so
- * the chip stays compact (the audit page already shows the full label).
- * "plan.publish" → "publish", "credit.consumption" → "consumption", etc.
- */
 function kindShortLabel(kind: string): string {
   const dot = kind.indexOf('.');
   const tail = dot >= 0 ? kind.slice(dot + 1) : kind;

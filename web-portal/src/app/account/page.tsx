@@ -83,7 +83,7 @@ export default async function AccountPage({
             href={practiceId ? `/dashboard?practice=${practiceId}` : '/dashboard'}
             className="hover:text-brand"
           >
-            ← Dashboard
+            ← Home
           </Link>
         </nav>
 

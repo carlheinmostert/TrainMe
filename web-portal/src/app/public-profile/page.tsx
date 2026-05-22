@@ -76,7 +76,7 @@ export default async function PublicProfilePage({
       <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link href={`/dashboard${qs}`} className="hover:text-brand">
-            ← Dashboard
+            ← Home
           </Link>
         </nav>
 

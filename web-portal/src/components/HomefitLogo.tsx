@@ -88,7 +88,12 @@ export function HomefitLogoLockup({
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden={ariaHidden}
     >
-      {/* Wordmark — Montserrat 600, stretched to match matrix width. */}
+      {/* Wordmark — Montserrat 600, stretched to match matrix width.
+          The `.studio` segment (dot included) is coral so the wordmark
+          carries the brand accent without an extra mark. textLength="48"
+          + lengthAdjust="spacingAndGlyphs" distributes the stretch across
+          BOTH tspans together — WebKit + Blink both honour this when the
+          tspans are direct children of the parent <text>. */}
       <text
         x="24"
         y="4.6"
@@ -98,10 +103,10 @@ export function HomefitLogoLockup({
         fontFamily="Montserrat, sans-serif"
         fontWeight="600"
         fontSize="6.5"
-        fill="#F0F0F5"
         letterSpacing="-0.1"
       >
-        homefit.studio
+        <tspan fill="#F0F0F5">homefit</tspan>
+        <tspan fill="#FF6B35">.studio</tspan>
       </text>
 
       {/* Matrix — identical geometry to HomefitLogo, translated +4.5 on Y. */}

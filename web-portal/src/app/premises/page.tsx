@@ -68,7 +68,7 @@ export default async function PremisesPage({
       <div className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link href={`/dashboard${qs}`} className="hover:text-brand">
-            ← Dashboard
+            ← Home
           </Link>
         </nav>
 

@@ -150,7 +150,7 @@ export default async function AuditPage({
             href={`/dashboard?${practiceQs}`}
             className="hover:text-brand"
           >
-            &larr; Dashboard
+            &larr; Home
           </Link>
         </nav>
 
