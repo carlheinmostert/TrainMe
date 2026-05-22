@@ -164,9 +164,65 @@ class ConversionService extends ChangeNotifier {
   }
 
   /// On app restart, reload any unfinished conversions and re-queue them.
+  ///
+  /// Crash-recovery guard (2026-05-22): a row in `converting` state at app
+  /// launch means the previous process died mid-conversion. Re-running it
+  /// on the same code path will almost certainly crash again (the original
+  /// trigger for this guard was the Safe Mode `CIFilter` force-unwrap that
+  /// boot-looped the app in PR #423). Before re-enqueuing we demote every
+  /// `converting` row to `failed` so the user sees the "N failed" pill and
+  /// can manually retry from a known-good state. Only rows still in
+  /// `pending` are re-enqueued for automatic processing.
+  ///
+  /// The error is appended to the existing `{Documents}/conversion_error.log`
+  /// sink (long-press-on-failed-pill surfaces it via PR #213) — we don't
+  /// have a per-row error column in SQLite so the log file is the
+  /// canonical diagnostic trail.
   Future<void> restoreQueue() async {
     final unconverted = await _storage.getUnconvertedExercises();
+    final recoveredFromCrash = <ExerciseCapture>[];
+    final pendingOnly = <ExerciseCapture>[];
     for (final exercise in unconverted) {
+      if (exercise.conversionStatus == ConversionStatus.converting) {
+        recoveredFromCrash.add(exercise);
+      } else {
+        pendingOnly.add(exercise);
+      }
+    }
+
+    for (final stuck in recoveredFromCrash) {
+      final demoted = stuck.copyWith(
+        conversionStatus: ConversionStatus.failed,
+      );
+      try {
+        await _storage.saveExercise(demoted);
+      } catch (e) {
+        debugPrint('restoreQueue: saveExercise(failed) for ${stuck.id} '
+            'failed: $e');
+      }
+      if (!_updateController.isClosed) {
+        _updateController.add(demoted);
+      }
+      // Append a single-line entry to the conversion error log so the
+      // long-press-on-failed-pill log reader surfaces the recovery to
+      // the practitioner.
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        final ts = DateTime.now().toIso8601String();
+        await logFile.writeAsString(
+          '$ts [RECOVERY ${stuck.id}] Aborted by prior crash on init\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {
+        // Best-effort; the demote already happened.
+      }
+    }
+    if (recoveredFromCrash.isNotEmpty) {
+      notifyListeners();
+    }
+
+    for (final exercise in pendingOnly) {
       _queue.add(exercise);
     }
     if (_queue.isNotEmpty) {
