@@ -3,9 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../config.dart';
 import '../models/session.dart';
-import '../services/safe_mode_service.dart';
 import '../theme.dart';
-import 'safe_mode_icon.dart';
 import 'studio_bottom_bar.dart' show resolveStudioStatsLines, StudioLockTone;
 
 /// Default fallback for the per-plan rest-between-exercises stepper when
@@ -451,121 +449,21 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
   }
 
   Widget _buildNowTab(ScrollController scrollController) {
+    // S-14 (2026-05-22) — the Safe Mode toggle row that used to live
+    // here was promoted to a first-class citizen on the Clients screen
+    // header (see `SafeModeToggleButton`). The Now tab now hosts the
+    // pacing section only; the per-exercise SafeModeIcon audit
+    // indicator in the editor sheet remains untouched (that's a
+    // capture-time read-out, not a toggle).
     return SingleChildScrollView(
       controller: scrollController,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildPacingSection(),
-          _buildSafeModeSection(),
           const SizedBox(height: 8),
         ],
       ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Section: Safe Mode (S-8) — manual toggle.
-  //
-  // Reads/writes against the SafeModeService singleton — no callback
-  // plumbing needed. The toggle reflects:
-  //   * Off     → GPS check said `notInZone` / `unavailable`.
-  //   * Auto    → GPS check resolved active for an enforcing premises.
-  //                Toggle is DISABLED in this state (privacy hardening
-  //                2026-05-22 — practitioner can't briefly disable the
-  //                privacy promise inside an enforced polygon).
-  //   * Manual  → practitioner toggled this row ON; OFF is allowed.
-  //
-  // Toggling ON (from Off) calls `forceActive(premisesName: 'Manual')`.
-  // Toggling OFF (from Manual) re-runs the auto check
-  // (`checkLocation(skipIfChecked: false)`) which may flip back to Auto
-  // if we're inside a polygon, or land on Off.
-  // ---------------------------------------------------------------------------
-
-  Widget _buildSafeModeSection() {
-    return _Section(
-      label: 'Safe Mode',
-      children: [
-        ListenableBuilder(
-          listenable: SafeModeService.instance,
-          builder: (context, _) {
-            final svc = SafeModeService.instance;
-            final isActive = svc.isActive;
-            final isManual = svc.isManual;
-            // Auto = active but NOT manual (i.e. enforced by polygon).
-            final isAuto = isActive && !isManual;
-            final subLine = !isActive
-                ? 'Off — capture as-is.'
-                : (isManual
-                    ? 'Manual — bystanders obscured.'
-                    : 'Auto (${svc.premisesName}) — enforced by your '
-                        'premises, cannot be disabled here.');
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(right: 16),
-                    child: SafeModeIcon(size: 44),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Safe Mode',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textOnDark,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subLine,
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 12,
-                            color: AppColors.textSecondaryOnDark,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch(
-                    value: isActive,
-                    activeThumbColor: AppColors.primary,
-                    // When Auto is active (polygon-enforced), the
-                    // toggle is disabled — the practitioner cannot
-                    // briefly disable Safe Mode inside an enforced
-                    // premises. Auto re-engages within ~1s on
-                    // `reset()` anyway, but closing that gap is a
-                    // privacy promise we hold tight.
-                    onChanged: isAuto
-                        ? null
-                        : (v) {
-                            HapticFeedback.selectionClick();
-                            if (v) {
-                              SafeModeService.instance.forceActive();
-                            } else {
-                              SafeModeService.instance.reset();
-                              // Re-run the auto check so an enforced
-                              // polygon re-activates immediately
-                              // rather than waiting 30s for the retry.
-                              // Fire-and-forget.
-                              SafeModeService.instance.checkLocation();
-                            }
-                          },
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
     );
   }
 

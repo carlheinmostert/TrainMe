@@ -16,13 +16,11 @@ import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
 import '../widgets/classes_coming_soon_view.dart';
 import '../widgets/client_avatar_glyph.dart';
-import '../widgets/home_credits_chip.dart';
 import '../widgets/home_scope_segmented.dart';
 import '../widgets/homefit_logo.dart';
 import '../widgets/network_share_sheet.dart';
-import '../widgets/offline_sync_chip.dart';
 import '../widgets/orientation_lock_guard.dart';
-import '../widgets/practice_chip.dart';
+import '../widgets/safe_mode_toggle_button.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/undo_snackbar.dart';
 import '../widgets/workouts_coming_soon_view.dart';
@@ -606,42 +604,11 @@ class _HomeScreenState extends State<HomeScreen> {
               selected: _scope,
               onChanged: _setScope,
             ),
-            // Identity row anchored UNDER the Practice capsule. Practice
-            // chip + Credits chip belong to Practice mode; on Workouts
-            // (consumer mode) the entire row collapses with an
-            // [AnimatedSize] ease so the body slides up cleanly.
-            //
-            // Per-scope render rules:
-            //   Clients  → Practice chip + Offline chip + Credits chip
-            //   Classes  → Practice chip + Offline chip only
-            //              (credits are irrelevant — classes monetize
-            //               via subscription, not credits)
-            //   Workouts → row collapsed entirely
-            AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              alignment: Alignment.topCenter,
-              child: _scope == HomeScope.workouts
-                  ? const SizedBox.shrink()
-                  : Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                      child: Row(
-                        children: [
-                          const PracticeChip(),
-                          const SizedBox(width: 8),
-                          const OfflineSyncChip(),
-                          const Spacer(),
-                          // Apple Reader-App compliance: chip is
-                          // informational only; never opens a payment
-                          // page. See [HomeCreditsChip] for the
-                          // rationale. Hidden on Classes scope because
-                          // class monetization is subscription-based.
-                          if (_scope == HomeScope.clients)
-                            const HomeCreditsChip(),
-                        ],
-                      ),
-                    ),
-            ),
+            // Identity row retired (2026-05-22). The practice picker
+            // now lives in Settings → Account; the on-device credits
+            // pill is gone (informational read sits on the dashboard
+            // tile in the portal). The "Updated N min ago" sync hint
+            // below is the only thing that survives in this slot.
             // "Updated N min ago" hint, only when we have a successful
             // sync to report AND the body is the clients list (not
             // loading / error / empty). Suppressed on Classes scope —
@@ -803,6 +770,14 @@ class _HomeScreenState extends State<HomeScreen> {
             // lockup stays uncrowded. Tap opens the NetworkShareSheet
             // (referral code + QR + share button + portal hand-off).
             // Hidden on Workouts scope — referrals are practitioner-only.
+            //
+            // S-14 — Safe Mode toggle promoted to a first-class header
+            // citizen (2026-05-22). Sits immediately RIGHT of the share
+            // icon so the two privacy-adjacent affordances cluster
+            // together in the top-left and Settings/Help stay clear on
+            // the top-right. Three-state visual + lock overlay handled
+            // inside [SafeModeToggleButton] — listens to the singleton
+            // and re-renders in real time.
             if (_scope != HomeScope.workouts)
               Positioned(
                 top: 4,
@@ -816,6 +791,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   tooltip: 'Share with another practitioner',
                 ),
+              ),
+            if (_scope != HomeScope.workouts)
+              const Positioned(
+                top: 4,
+                left: 52,
+                child: SafeModeToggleButton(iconSize: 28),
               ),
           ],
         ),
