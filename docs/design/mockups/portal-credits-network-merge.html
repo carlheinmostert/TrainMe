@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Credits + Network merge — 2026-05-22 mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --coral: #FF6B35;
+    --coral-soft: #FF6B3514;
+    --coral-line: #FF6B3540;
+    --coral-text: #FFB99D;
+    --sage: #86EFAC;
+    --ink: #F0F0F5;
+    --ink-muted: #9CA3AF;
+    --ink-dim: #6B7280;
+    --surface-page: #0A0C12;
+    --surface-base: #14171F;
+    --surface-raised: #1B1F2A;
+    --surface-border: #2A2F3C;
+    --warning: #F59E0B;
+    --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #060810; color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px; line-height: 1.45;
+  }
+  .shell { max-width: 1700px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1.title {
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 24px;
+    margin: 0 0 6px; letter-spacing: -0.01em;
+  }
+  .sub { margin: 0 0 8px; color: var(--ink-muted); font-size: 13px; max-width: 760px; }
+  .sub strong { color: var(--coral); font-weight: 600; }
+  .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: var(--ink-dim); margin: 0 0 36px; letter-spacing: 0.04em; }
+
+  h2.section {
+    font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 14px;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--ink-muted); margin: 0 0 16px;
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  h2.section .tag {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px; color: var(--coral); letter-spacing: 0.06em;
+  }
+
+  /* Grid simulating dashboard cols */
+  .grid {
+    display: grid; gap: 24px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    background: var(--surface-page);
+    border: 1px solid var(--surface-border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 48px;
+  }
+  .grid.before-grid .tile.spacer { background: transparent; border: 1px dashed var(--surface-border); display: flex; align-items: center; justify-content: center; color: var(--ink-dim); font-size: 12px; }
+  .grid.after-grid .tile.spacer { background: transparent; border: 1px dashed var(--coral-line); display: flex; align-items: center; justify-content: center; color: var(--coral-text); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
+
+  /* Base tile (mimics DashboardTile) */
+  .tile {
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex; flex-direction: column;
+    box-shadow: var(--shadow-tile);
+    min-height: 130px;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 120ms ease;
+  }
+  .tile:hover { border-color: #3a4150; }
+  .tile.warning { border-color: rgba(245, 158, 11, 0.32); }
+  .tile .label {
+    font-size: 11px; color: var(--ink-dim);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 8px; font-weight: 600;
+  }
+  .tile .headline {
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 22px;
+    color: var(--ink); letter-spacing: -0.01em;
+  }
+  .tile .subtitle {
+    font-size: 13px; color: var(--ink-muted); margin-top: 4px;
+  }
+  .tile.warning .headline { color: var(--warning); }
+
+  /* ── Variant A: footer band ───────────────────────────── */
+  .tile.var-a { padding-bottom: 0; overflow: hidden; }
+  .tile.var-a .body-wrap { flex: 1; padding-bottom: 14px; }
+  .tile.var-a .earn-band {
+    margin: 0 -20px;
+    padding: 10px 20px;
+    background: var(--coral-soft);
+    border-top: 1px solid var(--coral-line);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12.5px; color: var(--coral-text); font-weight: 500;
+  }
+  .tile.var-a .earn-band .arrow { color: var(--coral); font-weight: 600; }
+  .tile.var-a .earn-band:hover { background: rgba(255, 107, 53, 0.10); }
+
+  /* ── Variant B: corner pill ───────────────────────────── */
+  .tile.var-b .earn-pill {
+    position: absolute; top: 14px; right: 14px;
+    padding: 4px 10px;
+    background: var(--coral-soft);
+    border: 1px solid var(--coral-line);
+    border-radius: 999px;
+    font-size: 11px; color: var(--coral-text); font-weight: 600;
+    letter-spacing: 0.01em;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .tile.var-b .earn-pill:hover { background: rgba(255, 107, 53, 0.16); color: var(--coral); }
+  .tile.var-b .earn-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--coral);
+    box-shadow: 0 0 8px rgba(255, 107, 53, 0.6);
+  }
+
+  /* ── Variant C: dual-headline ─────────────────────────── */
+  .tile.var-c .duo {
+    display: flex; align-items: baseline; gap: 12px;
+    flex-wrap: wrap;
+  }
+  .tile.var-c .duo .free {
+    font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral-text);
+    padding: 3px 8px; border-radius: 6px;
+    background: var(--coral-soft); border: 1px solid var(--coral-line);
+  }
+  .tile.var-c .duo .free .plus { color: var(--coral); margin-right: 3px; }
+  .tile.var-c .subtitle .earn-link {
+    color: var(--coral-text); text-decoration: none; font-weight: 500;
+  }
+  .tile.var-c .subtitle .earn-link:hover { color: var(--coral); }
+  .tile.var-c .subtitle .sep { color: var(--ink-dim); margin: 0 6px; }
+
+  /* ── /credits page top banner (post-merge) ───────────── */
+  .credits-page {
+    background: var(--surface-page);
+    border: 1px solid var(--surface-border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 32px;
+  }
+  .credits-page .crumb {
+    font-size: 12px; color: var(--ink-dim);
+    margin-bottom: 16px;
+  }
+  .credits-page h3 {
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 26px;
+    margin: 0 0 4px; letter-spacing: -0.01em;
+  }
+  .credits-page .balance-line { color: var(--ink-muted); font-size: 13px; margin-bottom: 24px; }
+  .earn-banner {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 18px;
+    background: linear-gradient(90deg, rgba(255,107,53,0.12) 0%, rgba(255,107,53,0.04) 100%);
+    border: 1px solid var(--coral-line);
+    border-radius: 10px;
+    text-decoration: none; color: var(--ink);
+    transition: border-color 120ms ease;
+  }
+  .earn-banner:hover { border-color: var(--coral); }
+  .earn-banner .icon {
+    width: 36px; height: 36px; flex-shrink: 0;
+    border-radius: 8px; background: var(--coral-soft);
+    border: 1px solid var(--coral-line);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--coral); font-size: 18px; font-weight: 700;
+  }
+  .earn-banner .copy { flex: 1; }
+  .earn-banner .copy .top {
+    font-weight: 600; font-size: 14px; color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .earn-banner .copy .bot {
+    font-size: 12.5px; color: var(--ink-muted);
+  }
+  .earn-banner .chev { color: var(--coral); font-size: 18px; font-weight: 700; }
+
+  .bundles-stub {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(3, 1fr);
+    margin-top: 24px;
+  }
+  .bundle {
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .bundle .qty { font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 18px; color: var(--ink); }
+  .bundle .price { color: var(--ink-muted); font-size: 13px; margin-top: 4px; }
+
+  /* Tradeoff table */
+  .tradeoffs {
+    background: var(--surface-base);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 0;
+    overflow: hidden;
+    margin-bottom: 36px;
+  }
+  .tradeoffs table { width: 100%; border-collapse: collapse; }
+  .tradeoffs th, .tradeoffs td {
+    text-align: left; padding: 12px 18px;
+    border-bottom: 1px solid var(--surface-border);
+    font-size: 13px;
+  }
+  .tradeoffs th {
+    background: var(--surface-raised);
+    color: var(--ink-muted); font-weight: 600;
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .tradeoffs td:first-child {
+    font-weight: 600; color: var(--coral-text);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .tradeoffs tr:last-child td { border-bottom: none; }
+  .tradeoffs .good { color: var(--sage); }
+  .tradeoffs .ok { color: var(--ink); }
+  .tradeoffs .meh { color: var(--warning); }
+
+  .legend { font-size: 12px; color: var(--ink-muted); margin-bottom: 20px; }
+  .legend .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    background: var(--surface-raised); margin-right: 4px;
+    color: var(--ink); font-size: 11px;
+  }
+
+  .recommend {
+    margin: 36px 0 0;
+    background: linear-gradient(135deg, rgba(255,107,53,0.08) 0%, rgba(255,107,53,0) 100%);
+    border: 1px solid var(--coral-line);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+  .recommend .label {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px; letter-spacing: 0.1em;
+    color: var(--coral); margin-bottom: 8px;
+  }
+  .recommend p { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.55; }
+  .recommend strong { color: var(--coral-text); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <h1 class="title">Credits + Network merge</h1>
+  <p class="sub">Drop the standalone <strong>Network</strong> tile from the dashboard. Roll the "earn free credits" affordance into the <strong>Credits</strong> tile so the home grid spends less real estate on currency, and the <code>/credits</code> page becomes the single hub for both forms of credit.</p>
+  <p class="meta">docs/design/mockups/portal-credits-network-merge.html · 2026-05-22</p>
+
+  <!-- BEFORE -->
+  <h2 class="section">Before <span class="tag">today, staging</span></h2>
+  <div class="grid before-grid">
+    <div class="tile">
+      <div class="label">Credits</div>
+      <div class="headline">8 credits</div>
+      <div class="subtitle">Buy more</div>
+    </div>
+    <div class="tile">
+      <div class="label">Network</div>
+      <div class="headline">Earn Free Credits</div>
+      <div class="subtitle">Share your code to start</div>
+    </div>
+    <div class="tile">
+      <div class="label">Clients</div>
+      <div class="headline">12 clients</div>
+      <div class="subtitle">3 active this week</div>
+    </div>
+  </div>
+
+  <!-- AFTER variants -->
+  <h2 class="section">After — three merge variants <span class="tag">pick one</span></h2>
+  <p class="legend">Each row drops the Network tile and adds an earn-affordance to Credits. The freed slot can go to <span class="pill">Classes</span> per C-9 / C-10, or stay empty (gives the grid breathing room).</p>
+
+  <!-- Variant A -->
+  <h2 class="section" style="margin-top: 16px;">Variant A — coral footer band <span class="tag">recommended</span></h2>
+  <div class="grid after-grid">
+    <div class="tile var-a warning">
+      <div class="body-wrap">
+        <div class="label">Credits</div>
+        <div class="headline">8 credits</div>
+        <div class="subtitle">Buy more</div>
+      </div>
+      <div class="earn-band">
+        <span>+ 0.4 free earned from your network</span>
+        <span class="arrow">Earn more →</span>
+      </div>
+    </div>
+    <div class="tile spacer">(freed slot → Classes / Workouts / empty)</div>
+    <div class="tile">
+      <div class="label">Clients</div>
+      <div class="headline">12 clients</div>
+      <div class="subtitle">3 active this week</div>
+    </div>
+  </div>
+
+  <!-- Variant B -->
+  <h2 class="section">Variant B — corner pill adornment <span class="tag">most subtle</span></h2>
+  <div class="grid after-grid">
+    <div class="tile var-b">
+      <div class="earn-pill"><span class="dot"></span>Earn free →</div>
+      <div class="label">Credits</div>
+      <div class="headline">8 credits</div>
+      <div class="subtitle">Buy more</div>
+    </div>
+    <div class="tile spacer">(freed slot → Classes / Workouts / empty)</div>
+    <div class="tile">
+      <div class="label">Clients</div>
+      <div class="headline">12 clients</div>
+      <div class="subtitle">3 active this week</div>
+    </div>
+  </div>
+
+  <!-- Variant C -->
+  <h2 class="section">Variant C — dual-headline inline <span class="tag">densest</span></h2>
+  <div class="grid after-grid">
+    <div class="tile var-c">
+      <div class="label">Credits</div>
+      <div class="duo">
+        <span class="headline">8 credits</span>
+        <span class="free"><span class="plus">+</span>0.4 free</span>
+      </div>
+      <div class="subtitle">Buy more <span class="sep">·</span> <a class="earn-link" href="#">Earn free credits →</a></div>
+    </div>
+    <div class="tile spacer">(freed slot → Classes / Workouts / empty)</div>
+    <div class="tile">
+      <div class="label">Clients</div>
+      <div class="headline">12 clients</div>
+      <div class="subtitle">3 active this week</div>
+    </div>
+  </div>
+
+  <!-- Tradeoffs table -->
+  <h2 class="section">Tradeoffs</h2>
+  <div class="tradeoffs">
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 90px;">Variant</th>
+          <th>Visual weight</th>
+          <th>Earn affordance</th>
+          <th>Touch target</th>
+          <th>Risk</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A · band</td>
+          <td class="ok">Medium — coral band is visible without dominating</td>
+          <td class="good">Strong — full-width row with copy + arrow</td>
+          <td class="good">Full-width band, easy to hit</td>
+          <td class="ok">Nested click (band stops propagation to /network; rest of card → /credits)</td>
+        </tr>
+        <tr>
+          <td>B · pill</td>
+          <td class="good">Lightest — sits in negative space</td>
+          <td class="meh">Weakest — small target, easy to miss</td>
+          <td class="meh">~28px pill; tight on mobile, may need 44px hit-area pad</td>
+          <td class="ok">Nested click; same propagation concern</td>
+        </tr>
+        <tr>
+          <td>C · inline</td>
+          <td class="meh">Densest — two figures + two links compete</td>
+          <td class="ok">Decent — inline link is scannable</td>
+          <td class="meh">Inline text link, narrow vertical hit-area</td>
+          <td class="meh">Headline math ambiguity — "8 + 0.4 free" reads as 8.4 to a quick glance</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Credits page top -->
+  <h2 class="section">/credits page top — what you see when you click in</h2>
+  <p class="sub" style="margin-bottom: 18px;">Once Network leaves the dashboard, its full UI (rebate balance, network roster, share code, payout history) needs a home. The cleanest move: keep the existing <code>/network</code> page but link to it from a prominent banner at the top of <code>/credits</code>. Practitioners arriving via either path land somewhere coherent.</p>
+
+  <div class="credits-page">
+    <div class="crumb">Dashboard › Credits</div>
+    <h3>8 credits</h3>
+    <div class="balance-line">Plus 0.4 free credits earned · refreshed just now</div>
+
+    <a class="earn-banner" href="#">
+      <div class="icon">+</div>
+      <div class="copy">
+        <div class="top">Earn free credits from your network</div>
+        <div class="bot">5% lifetime rebate on every practitioner you refer · 0 in your network so far</div>
+      </div>
+      <div class="chev">→</div>
+    </a>
+
+    <div class="bundles-stub">
+      <div class="bundle"><div class="qty">10 credits</div><div class="price">R 250</div></div>
+      <div class="bundle"><div class="qty">50 credits</div><div class="price">R 1 125 <span style="color: var(--sage);">· save 10%</span></div></div>
+      <div class="bundle"><div class="qty">200 credits</div><div class="price">R 4 000 <span style="color: var(--sage);">· save 20%</span></div></div>
+    </div>
+  </div>
+
+  <!-- Recommendation -->
+  <div class="recommend">
+    <div class="label">RECOMMENDATION</div>
+    <p>Go with <strong>Variant A</strong> on the dashboard tile + the banner at the top of <code>/credits</code>. The band reads as one coherent "currency widget" (paid + free, one card) while still telegraphing that earning is a separate path. Variant B is too subtle for an under-used feature — Carl already raised that earning needs more presence. Variant C tries to do too much in one headline and risks the 8 + 0.4 = 8.4 misread. The freed dashboard slot becomes the <strong>Classes "Coming soon"</strong> tile per item C-9, restoring the 3-up grid without an awkward hole.</p>
+  </div>
+
+</div>
+</body>
+</html>

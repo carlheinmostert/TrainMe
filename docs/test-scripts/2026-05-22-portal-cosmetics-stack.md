@@ -405,3 +405,36 @@ Recommend (1) — single prop is a smaller diff and keeps the dashboard's tile i
 - Delete uses undo-snackbar, no confirm modal.
 
 **Mobile parity (R-10-ish):** verify the mobile premises management flow doesn't have a modal either. If it does, file as a follow-up (different surface, different PR). Mobile premises capture-time check is GPS-only — the "edit a premises polygon" is portal-only today.
+
+### C-12 — Merge the Network tile into the Credits tile (drop Network from the dashboard grid)
+
+**Source:** Carl, 2026-05-22 (after staging review of the cosmetic pass): "I don't think we need a network badge tag card thing for earn-free credits on the home page. It's taking up a lot of real estate. … For credits, whether you buy them or earn them, we can only give one of these cards at the home page level, I think."
+
+**Design:** approved Variant A from the mockup at [`docs/design/mockups/portal-credits-network-merge.html`](../design/mockups/portal-credits-network-merge.html) — coral footer band on the Credits tile reading "+ {N} free earned from your network" / "Earn more →", nested clickable to `/network`. The Credits tile body (label + headline + subtitle) still clicks through to `/credits` as today.
+
+**Files to change:**
+
+- `web-portal/src/app/dashboard/page.tsx` — remove the `<DashboardTile href="/network" …>` block (~line 221-226). The "Tile order is load-bearing" comment block above the grid (~line 205-211) needs rewriting since the single-currency-mental-model rationale changes: both forms of credit now live ON the Credits tile, not adjacent to it.
+- `web-portal/src/components/DashboardTile.tsx` — add an optional `footerBand?: { copy: string; href: string }` prop that renders the coral band (background `rgba(255,107,53,0.08)`, top border `rgba(255,107,53,0.25)`, inset to bleed flush with the card edges). When the band is present, the parent card's bottom-padding is removed so the band sits at the card's true edge. Most likely the cleanest pattern is the OUTER element being a `<div>` with the card-body clickable area as a child `<Link>` and the band as a sibling `<Link>` — no nested anchors. Pick the cleanest pattern during execution.
+- `web-portal/src/app/dashboard/page.tsx` — wire the footer-band prop on the Credits tile: when `rebateBalance > 0` use `"+ {fmtCredits(rebateBalance)} free earned from your network"`; when 0, use `"Earn free credits from your network"`. Both link to `/network{qs}`.
+- `web-portal/src/app/credits/page.tsx` — add a top banner above the credit-bundle grid: coral-tinted card with `+` icon glyph, two-line copy ("Earn free credits from your network" / "5% lifetime rebate on every practitioner you refer · {N} in your network so far"), chevron, full-card link to `/network`. Exact styling matches the `.earn-banner` rule in the mockup.
+- `web-portal/src/app/credits/page.tsx` — also surface the rebate balance number as a secondary line under the bought-credits balance ("Plus {N} free credits earned").
+
+**Tile slot freed:** the now-empty slot in the 3-up grid is filled by the new Classes "Coming soon" tile per **C-9**. C-12 and C-9 should land in the SAME PR — otherwise the dashboard renders with an awkward gap or a 2-up row for a transitional period.
+
+**Mockup signoff:** Carl approved Variant A on 2026-05-22 ("I will go with your recommendation"). The mockup also includes Variant B (corner pill) and Variant C (dual-headline inline) for reference — DO NOT ship those; they were rejected.
+
+**Test scope:**
+
+- `/dashboard` desktop 3-up: row 1 = Credits (with band) / Classes (coming soon) / Clients. Credits tile has the coral footer band flush with the card's bottom edge.
+- Click the Credits headline area → routes to `/credits`. Click the band → routes to `/network`. No event-propagation leak in either direction.
+- `/credits` page top: balance + "Plus N free earned" subline + coral banner above the bundle grid. Banner is fully clickable, routes to `/network`.
+- Empty state — practice with 0 referees: band copy is "Earn free credits from your network" (no rebate figure). Banner copy is "0 in your network so far".
+- Positive state — practice with rebate > 0: band shows "+ 0.4 free earned from your network". Banner shows "{N} in your network so far".
+- Mobile 1-up grid: Credits tile still renders the band at the card's bottom edge — no broken layout.
+- Hover/focus states: band has its own coral-deepening hover (`rgba(255,107,53,0.10)`), distinct from the card body's border-color hover.
+- Keyboard: tab order goes card-body → band → next tile. Both are real anchor elements (not divs with onclick).
+
+**Coupling:** ships with C-9 (Classes tile in the freed slot). Independent of C-7 (tooltip positioning) and C-8 (per-row tile heights) — those still need to land regardless of this change. If C-8 lands first, verify the band doesn't break the `h-full` stretch — it should be inside the stretched container, not outside.
+
+**Risk:** Network feature discoverability drops. Counter: the `/credits` page banner is more prominent than the old Network tile was, and the dashboard band gives a constant peripheral nudge. Net change is probably positive for engagement; track via plan-issuance vs referral-claim ratio post-merge.
