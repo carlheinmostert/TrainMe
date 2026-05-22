@@ -95,7 +95,7 @@ def render() -> Path:
 
 OLD_HEADER = """<tr>
 <td align="center" style="padding-bottom:40px;">
-<span style="font-size:22px;font-weight:700;letter-spacing:0.01em;color:#FFFFFF;">homefit<span style="color:#FF6B35;">.studio</span></span>
+<span style="font-size:22px;font-weight:700;letter-spacing:0.01em;color:#F0F0F5;">homefit<span style="color:#FF6B35;">.studio</span></span>
 </td>
 </tr>"""
 
@@ -110,7 +110,7 @@ def new_header(b64: str) -> str:
     return (
         '<tr>\n'
         '<td align="center" style="padding-bottom:4px;">\n'
-        '<span style="font-size:22px;font-weight:700;letter-spacing:0.01em;color:#FFFFFF;">'
+        '<span style="font-size:22px;font-weight:700;letter-spacing:0.01em;color:#F0F0F5;">'
         'homefit<span style="color:#FF6B35;">.studio</span></span>\n'
         '</td>\n'
         '</tr>\n'
