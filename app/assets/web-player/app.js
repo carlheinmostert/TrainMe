@@ -5440,7 +5440,10 @@ function buildHomefitLogoLockupSvg() {
     `<text x="24" y="4.6" text-anchor="middle" textLength="48"` +
     ` lengthAdjust="spacingAndGlyphs"` +
     ` font-family="Montserrat, sans-serif" font-weight="600"` +
-    ` font-size="6.5" fill="#F0F0F5" letter-spacing="-0.1">homefit.studio</text>` +
+    ` font-size="6.5" letter-spacing="-0.1">` +
+    `<tspan fill="#F0F0F5">homefit</tspan>` +
+    `<tspan fill="#FF6B35">.studio</tspan>` +
+    `</text>` +
     _homefitMatrixBody(4.5) +
     `</svg>`
   );
