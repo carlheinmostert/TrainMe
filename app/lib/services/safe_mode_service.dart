@@ -1,28 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'api_client.dart';
 
-/// Session-scoped service that tracks whether the current capture
-/// session is operating inside a Safe-Mode-enforcing premises.
+/// Camera-sticky service that tracks whether the camera surface is
+/// operating inside a Safe-Mode-enforcing premises.
 ///
-/// Lifecycle:
-///   1. On session start (camera screen mount / first capture),
-///      [checkLocation] is called. It requests `whenInUse` location
-///      permission (no-op if already granted), gets one GPS fix, and
-///      asks the server's `find_premises_at` RPC if the point lies
-///      inside an enforcing polygon.
-///   2. If a match is returned, [isActive] becomes true and stays true
-///      for the rest of the session — Carl's chosen "session-sticky
-///      grace" semantics. Walking outside the polygon mid-session does
-///      NOT flip Safe Mode off.
-///   3. On explicit [reset] (session end / new session), state clears.
+/// Lifecycle (updated 2026-05-22 — camera-sticky, no longer session-sticky):
+///   1. On camera mount, the screen calls [reset] then [checkLocation].
+///      [checkLocation] requests `whenInUse` location permission, gets one
+///      GPS fix, and asks the server's `find_premises_at` RPC if the
+///      point lies inside an enforcing polygon.
+///   2. If a match is returned, [isActive] becomes true. If not, a
+///      one-shot retry is scheduled 30 seconds later — GPS fixes
+///      improve as the device sits still and the practitioner has
+///      typically only just walked in.
+///   3. On camera dispose, the screen calls [cancelRetry] to stop a
+///      pending retry timer. State is NOT cleared on dispose so a
+///      manual toggle from Studio survives the Camera ↔ Studio swipe.
+///   4. On session end (the camera surface is torn down entirely),
+///      [reset] returns to `unchecked`.
+///
+/// Manual override:
+///   * [forceActive] flips the service into `active` with a synthetic
+///     `premisesName: 'Manual'` (and `premisesId: null`). Used by the
+///     Studio "Safe Mode" toggle row so the practitioner can opt in
+///     without a GPS match. Cancels any pending retry.
 ///
 /// Consumers (one each, no recursion):
 ///   * Capture UI (banner display via [isActive] / [premisesName]).
 ///   * Conversion service (passes `safeModeEnabled` to native channel).
 ///   * Upload service (stamps `safe_mode_active` + `captured_in_premises_id`
-///     on every exercise in the published session).
+///     on every exercise in the published session). `premisesId` is
+///     NULL for manual mode — the RPC handles NULL gracefully.
 ///
 /// Singleton because the active session has at most one Safe Mode
 /// state, and threading the state through every capture pathway is
@@ -49,11 +61,23 @@ class SafeModeService extends ChangeNotifier {
 
   final ApiClient _api;
 
-  /// True iff the active session is inside an enforcing premises.
+  /// One-shot retry scheduled when the initial check returns anything
+  /// other than `active`. Helps when GPS hadn't settled at camera
+  /// mount but a fix lands a few seconds later.
+  Timer? _retryTimer;
+
+  /// True iff the active surface is inside an enforcing premises OR a
+  /// manual toggle has been engaged.
   bool get isActive => _state.isActive;
+
+  /// True iff [forceActive] is the reason we're active. UI can show a
+  /// different sub-line ("Manual" vs the premises name) when needed.
+  bool get isManual => _state.isManual;
 
   /// The premises id stamped on every exercise captured in this
   /// session for the `exercises.captured_in_premises_id` audit column.
+  /// Null in manual mode (the RPC's S-H3 validation NULL-strips
+  /// unknown ids — manual mode reuses that safely).
   String? get premisesId => _state.premisesId;
 
   /// Display name of the enforcing premises (shown in the capture
@@ -70,10 +94,20 @@ class SafeModeService extends ChangeNotifier {
   _SafeModeState _state = const _SafeModeState.unchecked();
 
   /// One-shot query: get a GPS fix, ask the server which (if any)
-  /// premises contains it. Caller passes a [skipIfChecked] flag so
-  /// session-sticky semantics are honoured — once a session has its
-  /// answer (active OR explicitly not active), we don't re-query on
-  /// every capture.
+  /// premises contains it.
+  ///
+  /// Pass [skipIfChecked] = true to honour camera-sticky semantics —
+  /// once a surface has its answer (active OR explicitly not active),
+  /// the caller can decide whether to re-query. Default is `false` so
+  /// explicit caller intent is required to skip.
+  ///
+  /// When the check returns anything other than `active`, a one-shot
+  /// retry is scheduled 30s later. The retry passes
+  /// `skipIfChecked: false` so it actually re-runs.
+  ///
+  /// Manual mode (set via [forceActive]) is preserved — [checkLocation]
+  /// no-ops while manual is engaged. Call [reset] first if you need
+  /// the auto-check to override manual.
   ///
   /// Failure modes are NOT errors — they're outcomes:
   ///   - permission denied / restricted → Safe Mode stays off, banner
@@ -82,7 +116,11 @@ class SafeModeService extends ChangeNotifier {
   ///   - point lies outside every enforcing polygon → Safe Mode off.
   ///   - point lies inside ≥1 enforcing polygon → Safe Mode on,
   ///     state stamped with the smallest matching premises.
-  Future<void> checkLocation({bool skipIfChecked = true}) async {
+  Future<void> checkLocation({bool skipIfChecked = false}) async {
+    // Don't override an explicit manual toggle.
+    if (_state.isManual) {
+      return;
+    }
     if (skipIfChecked && _state.status != SafeModeCheckStatus.unchecked) {
       return;
     }
@@ -92,6 +130,7 @@ class SafeModeService extends ChangeNotifier {
     final hasService = await Geolocator.isLocationServiceEnabled();
     if (!hasService) {
       _setState(const _SafeModeState.unavailable());
+      _scheduleRetry();
       return;
     }
 
@@ -103,6 +142,7 @@ class SafeModeService extends ChangeNotifier {
     if (permission == LocationPermission.denied
         || permission == LocationPermission.deniedForever) {
       _setState(const _SafeModeState.unavailable());
+      // No retry — permission won't change by itself.
       return;
     }
 
@@ -117,6 +157,7 @@ class SafeModeService extends ChangeNotifier {
     } catch (e) {
       debugPrint('SafeModeService.getCurrentPosition failed: $e');
       _setState(const _SafeModeState.unavailable());
+      _scheduleRetry();
       return;
     }
 
@@ -127,6 +168,7 @@ class SafeModeService extends ChangeNotifier {
 
     if (match == null || !match.safeModeEnforced) {
       _setState(const _SafeModeState.notInZone());
+      _scheduleRetry();
       return;
     }
 
@@ -134,18 +176,58 @@ class SafeModeService extends ChangeNotifier {
       premisesId: match.premisesId,
       premisesName: match.premisesName,
     ));
+    // We're active — no retry needed.
+    cancelRetry();
   }
 
-  /// Clear the state. Called when a session ends so the next session
-  /// starts from `unchecked` and re-queries.
+  /// Manually engage Safe Mode. Used by the Studio "Safe Mode" toggle
+  /// row when a practitioner wants the bystander pass without a GPS
+  /// match (e.g. capturing in a busy public space that isn't
+  /// registered as a premises).
+  ///
+  /// Cancels any pending retry timer and stamps the state with
+  /// `premisesId: null` (audit row will show NULL for
+  /// `captured_in_premises_id` — the RPC's S-H3 validation handles
+  /// NULL gracefully) + the supplied display label.
+  void forceActive({String premisesName = 'Manual'}) {
+    cancelRetry();
+    _setState(_SafeModeState.manual(premisesName: premisesName));
+  }
+
+  /// Clear the state. Called when a surface tears down completely so
+  /// the next mount starts from `unchecked` and re-queries.
   void reset() {
+    cancelRetry();
     _setState(const _SafeModeState.unchecked());
+  }
+
+  /// Cancel any pending one-shot retry. Called from camera dispose so
+  /// the timer doesn't fire after the screen is gone.
+  void cancelRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  void _scheduleRetry() {
+    cancelRetry();
+    _retryTimer = Timer(const Duration(seconds: 30), () {
+      _retryTimer = null;
+      // No await — fire-and-forget. checkLocation handles its own
+      // state transitions.
+      checkLocation(skipIfChecked: false);
+    });
   }
 
   void _setState(_SafeModeState next) {
     if (_state == next) return;
     _state = next;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    cancelRetry();
+    super.dispose();
   }
 }
 
@@ -167,8 +249,12 @@ enum SafeModeCheckStatus {
   notInZone,
 
   /// Got a fix, server returned an enforcing premises. Safe Mode is
-  /// on for the rest of the session.
+  /// on for the surface (camera-sticky).
   active,
+
+  /// Practitioner explicitly engaged Safe Mode from Studio settings.
+  /// `premisesId` is null; audit stamps NULL on `captured_in_premises_id`.
+  manual,
 }
 
 @immutable
@@ -195,8 +281,17 @@ class _SafeModeState {
           premisesId: premisesId,
           premisesName: premisesName,
         );
+  const _SafeModeState.manual({required String premisesName})
+      : this._(
+          status: SafeModeCheckStatus.manual,
+          premisesId: null,
+          premisesName: premisesName,
+        );
 
-  bool get isActive => status == SafeModeCheckStatus.active;
+  bool get isActive =>
+      status == SafeModeCheckStatus.active
+          || status == SafeModeCheckStatus.manual;
+  bool get isManual => status == SafeModeCheckStatus.manual;
 
   @override
   bool operator ==(Object other) =>

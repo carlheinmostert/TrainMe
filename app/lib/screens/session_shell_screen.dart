@@ -72,12 +72,12 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     // here so the bio gets their share link back without re-publishing.
     unawaited(_reconcileWithCloudIfUnpublished());
 
-    // Safe Mode — one-shot geolocation check at session start. Result
-    // is cached on `SafeModeService.instance` for the rest of the
-    // session ("session-sticky grace"). Failures (no permission, no
-    // GPS, outside every polygon) silently leave Safe Mode off — the
-    // capture flow is unchanged. No await: capture isn't blocked.
-    unawaited(SafeModeService.instance.checkLocation());
+    // Safe Mode (camera-sticky, post 2026-05-22) — the geolocation
+    // check is now owned by `CaptureModeScreen.initState`. Studio
+    // doesn't need a fix (no capture happens here). Wipe any stale
+    // state from a prior session so manual overrides don't bleed
+    // across session boundaries.
+    SafeModeService.instance.reset();
   }
 
   void _handlePageScroll() {

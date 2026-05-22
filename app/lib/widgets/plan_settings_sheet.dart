@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 
 import '../config.dart';
 import '../models/session.dart';
+import '../services/safe_mode_service.dart';
 import '../theme.dart';
+import 'safe_mode_icon.dart';
 import 'studio_bottom_bar.dart' show resolveStudioStatsLines, StudioLockTone;
 
 /// Default fallback for the per-plan rest-between-exercises stepper when
@@ -455,9 +457,99 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildPacingSection(),
+          _buildSafeModeSection(),
           const SizedBox(height: 8),
         ],
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section: Safe Mode (S-8) — manual toggle.
+  //
+  // Reads/writes against the SafeModeService singleton — no callback
+  // plumbing needed. The toggle reflects:
+  //   * Off     → GPS check said `notInZone` / `unavailable`.
+  //   * Auto    → GPS check resolved active for an enforcing premises.
+  //   * Manual  → practitioner toggled this row ON.
+  //
+  // Toggling ON calls `forceActive(premisesName: 'Manual')`. Toggling
+  // OFF re-runs the auto check (`checkLocation(skipIfChecked: false)`)
+  // which may flip back to Auto if we're inside a polygon, or to Off.
+  // ---------------------------------------------------------------------------
+
+  Widget _buildSafeModeSection() {
+    return _Section(
+      label: 'Safe Mode',
+      children: [
+        ListenableBuilder(
+          listenable: SafeModeService.instance,
+          builder: (context, _) {
+            final svc = SafeModeService.instance;
+            final isActive = svc.isActive;
+            final isManual = svc.isManual;
+            final subLine = !isActive
+                ? 'Off — capture as-is.'
+                : (isManual
+                    ? 'Manual — bystanders obscured.'
+                    : 'Auto (${svc.premisesName}) — bystanders obscured.');
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(right: 12),
+                    child: SafeModeIcon(size: 22),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Safe Mode',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textOnDark,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subLine,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: AppColors.textSecondaryOnDark,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: isActive,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: (v) {
+                      HapticFeedback.selectionClick();
+                      if (v) {
+                        SafeModeService.instance.forceActive();
+                      } else {
+                        SafeModeService.instance.reset();
+                        // Re-run the auto check so an enforced polygon
+                        // re-activates immediately rather than waiting
+                        // 30s for the retry. Fire-and-forget.
+                        SafeModeService.instance.checkLocation();
+                      }
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
