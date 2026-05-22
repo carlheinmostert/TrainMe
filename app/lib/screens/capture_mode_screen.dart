@@ -2309,8 +2309,9 @@ class _SafeModeBanner extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             const SafeModeIcon(
-              size: 22,
-              knockoutColor: Color(0xFF0F1117),
+              size: 36,
+              fillColor: Color(0xFF0F1117),
+              knockoutColor: Color(0xFFFF6B35),
             ),
             const SizedBox(width: 10),
             Flexible(
