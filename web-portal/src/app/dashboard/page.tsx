@@ -258,7 +258,7 @@ export default async function DashboardPage({
               headline={creditsHeadline}
               subtitle={creditsSubtitle}
               tone={creditsLow ? 'warning' : 'default'}
-              icon={Coins}
+              icon={<Coins size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Buy publishing credits and see what's left. One credit publishes one plan."
             />
 
@@ -267,7 +267,7 @@ export default async function DashboardPage({
               label="Network"
               headline={networkHeadline}
               subtitle={networkSubtitle}
-              icon={Share2}
+              icon={<Share2 size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Invite other practitioners with your referral link. You earn 5% back in free credits on everything they buy."
             />
 
@@ -276,7 +276,7 @@ export default async function DashboardPage({
               label="Clients"
               headline={clientsHeadline}
               subtitle={clientsSubtitle}
-              icon={UserRound}
+              icon={<UserRound size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="All clients across your practice. Drill in to see their plans, consent, and analytics."
             />
 
@@ -284,7 +284,7 @@ export default async function DashboardPage({
               href={`/audit${qs}`}
               rows={auditPreview.rows}
               error={auditPreview.error}
-              icon={ScrollText}
+              icon={<ScrollText size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Append-only log of every publish, purchase, and consent change in your practice."
             />
 
@@ -293,7 +293,7 @@ export default async function DashboardPage({
               label="Premises"
               headline={premisesHeadline}
               subtitle={premisesSubtitle}
-              icon={Building2}
+              icon={<Building2 size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Sites you train at. Enforcing Safe Mode at a site automatically blurs bystanders when you capture there."
             />
 
@@ -309,7 +309,7 @@ export default async function DashboardPage({
               headline={publicProfileHeadline}
               subtitle={publicProfileSubtitle}
               tone={profileReady ? 'default' : 'warning'}
-              icon={Globe2}
+              icon={<Globe2 size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Your /v/{slug} directory page — branding, cover, and whether prospective clients can find you."
             />
 
@@ -318,7 +318,7 @@ export default async function DashboardPage({
               label="Account"
               headline="Settings"
               subtitle="Email, password, practice name"
-              icon={Settings}
+              icon={<Settings size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Your email, password, and the active practice's name."
             />
 
@@ -328,7 +328,7 @@ export default async function DashboardPage({
                 label="Members"
                 headline={membersHeadline}
                 subtitle={membersSubtitle}
-                icon={UsersRound}
+                icon={<UsersRound size={24} strokeWidth={1.75} aria-hidden="true" />}
                 description="Add or remove practitioners in your practice. Owners can also rename the practice."
               />
             )}

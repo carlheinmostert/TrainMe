@@ -1,8 +1,9 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Info, type LucideIcon } from 'lucide-react';
+import { Info } from 'lucide-react';
 
 type Props = {
   /** Destination URL. R-12.1: every tile has a destination. */
@@ -15,10 +16,12 @@ type Props = {
   subtitle: string;
   /** `warning` swaps the accent to the amber warning token (e.g. low credits). */
   tone?: 'default' | 'warning';
-  /** lucide-react icon component rendered in the left icon slot. The
-   *  cosmetic pass made icons mandatory — every tile carries one so the
-   *  grid reads as a glyph row at a glance. */
-  icon: LucideIcon;
+  /** Rendered icon JSX for the left icon slot — the cosmetic pass made
+   *  icons mandatory so the grid reads as a glyph row at a glance.
+   *  Pass a JSX element (e.g. `<Coins size={24} strokeWidth={1.75} />`)
+   *  rather than a component reference, because component references
+   *  cannot cross the RSC server→client boundary as plain props. */
+  icon: ReactNode;
   /** Plain-English description surfaced in the hover/tap tooltip. One
    *  sentence; keep it scannable. */
   description: string;
@@ -56,7 +59,7 @@ export function DashboardTile({
   headline,
   subtitle,
   tone = 'default',
-  icon: Icon,
+  icon,
   description,
 }: Props) {
   const accent = tone === 'warning' ? 'text-warning' : 'text-brand';
@@ -70,7 +73,7 @@ export function DashboardTile({
             className="group relative flex items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-muted transition group-hover:text-brand group-focus-visible:text-brand">
-              <Icon size={24} strokeWidth={1.75} aria-hidden="true" />
+              {icon}
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">

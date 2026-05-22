@@ -1,8 +1,9 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Info, type LucideIcon } from 'lucide-react';
+import { Info } from 'lucide-react';
 import {
   auditChipTone,
   type AuditChipTone,
@@ -16,9 +17,11 @@ type Props = {
   /** Set when the underlying RPC failed; surfaced inline so the tile
    *  doesn't pretend "no events" when really the call errored. */
   error?: string | null;
-  /** lucide-react icon for the left slot — same affordance pattern as
-   *  DashboardTile so the dashboard grid reads consistently. */
-  icon: LucideIcon;
+  /** Rendered icon JSX for the left slot — same affordance pattern as
+   *  DashboardTile so the dashboard grid reads consistently. Pass a
+   *  JSX element, not a component reference (RSC boundary forbids
+   *  passing function refs as props to client components). */
+  icon: ReactNode;
   /** Tooltip copy. Plain English, one sentence. */
   description: string;
 };
@@ -33,7 +36,7 @@ export function DashboardAuditCard({
   href,
   rows,
   error,
-  icon: Icon,
+  icon,
   description,
 }: Props) {
   const hasRows = rows.length > 0 && !error;
@@ -57,7 +60,7 @@ export function DashboardAuditCard({
             className="group relative flex items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-muted transition group-hover:text-brand group-focus-visible:text-brand">
-              <Icon size={24} strokeWidth={1.75} aria-hidden="true" />
+              {icon}
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex items-baseline justify-between gap-3">
