@@ -36,13 +36,26 @@ class PoweredByFooter extends StatelessWidget {
                 children: [
                   const HomefitLogo(size: 28),
                   const SizedBox(width: 6),
-                  const Text(
-                    'homefit.studio',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textOnDark,
-                      letterSpacing: -0.2,
+                  // Brand rule (2026-05-22): `.studio` (with the dot)
+                  // renders coral; `homefit` stays light. Mirrors the
+                  // canonical lockup split applied across all surfaces.
+                  const Text.rich(
+                    TextSpan(
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: 'homefit',
+                          style: TextStyle(color: AppColors.textOnDark),
+                        ),
+                        TextSpan(
+                          text: '.studio',
+                          style: TextStyle(color: AppColors.primary),
+                        ),
+                      ],
                     ),
                   ),
                 ],
