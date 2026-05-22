@@ -2,7 +2,10 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
-import { createPortalApi } from '@/lib/supabase/api';
+import {
+  createPortalApi,
+  PortalReferralApi,
+} from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { BUNDLES, zar } from '@/lib/bundles';
 import { BuyBundleButton } from '@/components/BuyBundleButton';
@@ -38,14 +41,30 @@ export default async function CreditsPage({
   // Owner-only gate. Per CLAUDE.md tenancy model: owners buy credits,
   // practitioners consume them. The /credits/purchase API route also
   // enforces this as defence-in-depth.
+  //
+  // Dashboard rework (C-12): also pull the network rebate stats so the
+  // page can surface the secondary balance line ("Plus N free earned")
+  // + the coral "Earn free credits from your network" banner above the
+  // bundle grid. Both replace the standalone Network dashboard tile.
   const portal = createPortalApi(supabase);
-  const [role, practices] = await Promise.all([
+  const referrals = new PortalReferralApi(supabase);
+  const [role, practices, referralStats] = await Promise.all([
     practiceId
       ? portal.getCurrentUserRole(practiceId, user.id)
       : Promise.resolve(null),
     portal.listMyPractices(),
+    practiceId
+      ? referrals.dashboardStats(practiceId)
+      : Promise.resolve({
+          rebate_balance_credits: 0,
+          lifetime_rebate_credits: 0,
+          referee_count: 0,
+          qualifying_spend_total_zar: 0,
+        }),
   ]);
   const isOwner = role === 'owner';
+  const rebateBalance = referralStats.rebate_balance_credits;
+  const refereeCount = referralStats.referee_count;
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -71,6 +90,45 @@ export default async function CreditsPage({
           One credit is charged each time you publish a plan to a client.
           Payments are processed securely by PayFast (ZAR).
         </p>
+        {rebateBalance > 0 && (
+          <p className="mt-1 text-sm text-brand-light">
+            Plus {fmtCredits(rebateBalance)} free credits earned from
+            your network.
+          </p>
+        )}
+
+        {/* C-12: earn-free-credits banner above the bundle grid.
+            Replaces the discoverability the standalone Network
+            dashboard tile used to provide. Full-card link to /network. */}
+        <Link
+          href={`/network?practice=${practiceId}`}
+          className="mt-6 flex items-center gap-4 rounded-lg border border-brand-tint-border bg-[linear-gradient(90deg,rgba(255,107,53,0.12)_0%,rgba(255,107,53,0.04)_100%)] px-5 py-3.5 transition hover:border-brand focus:outline-none focus-visible:border-brand"
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-brand-tint-border bg-brand-tint-bg text-lg font-bold text-brand"
+          >
+            +
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold text-ink">
+              Earn free credits from your network
+            </span>
+            <span className="mt-0.5 text-[12.5px] text-ink-muted">
+              5% lifetime rebate on every practitioner you refer
+              {' · '}
+              {refereeCount === 0
+                ? '0 in your network so far'
+                : `${refereeCount} ${refereeCount === 1 ? 'practitioner' : 'practitioners'} in your network so far`}
+            </span>
+          </span>
+          <span
+            aria-hidden="true"
+            className="text-lg font-bold text-brand"
+          >
+            &rarr;
+          </span>
+        </Link>
 
         {!isOwner ? (
           <div className="mt-8 rounded-lg border border-surface-border bg-surface-base p-6">
@@ -116,4 +174,11 @@ export default async function CreditsPage({
       </div>
     </main>
   );
+}
+
+function fmtCredits(n: number): string {
+  const rounded = Math.round(n * 10) / 10;
+  return Number.isInteger(rounded)
+    ? String(Math.round(rounded))
+    : rounded.toFixed(1);
 }

@@ -10,6 +10,8 @@ import {
   type PracticeSession,
 } from '@/lib/supabase/api';
 import { ClientAvatar } from './ClientAvatar';
+import { AppStoreBadge } from './AppStoreBadge';
+import { APP_STORE_URL, APP_STORE_LABEL } from '@/lib/links';
 
 type Props = {
   clients: PracticeClient[];
@@ -261,8 +263,9 @@ export function ClientsList({
 
   if (clients.length === 0) {
     return (
-      <div className="mt-10 rounded-lg border border-surface-border bg-surface-base p-8 text-center text-ink-muted">
-        You&rsquo;ll see clients here once you publish a plan for them.
+      <div className="mt-10 flex flex-col items-center gap-4 rounded-lg border border-surface-border bg-surface-base p-8 text-center text-ink-muted">
+        <p>No clients yet. Capture your first session in the iOS app.</p>
+        <AppStoreBadge href={APP_STORE_URL} label={APP_STORE_LABEL} />
       </div>
     );
   }

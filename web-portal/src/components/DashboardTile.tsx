@@ -29,6 +29,20 @@ type Props = {
    *  no coral hover border, dimmed icon. The tooltip still works so
    *  practitioners can learn what's coming. */
   comingSoon?: boolean;
+  /** Coral footer band flush with the card's bottom edge. The band is
+   *  its own Link so the body click target and the band click target
+   *  route independently — no nested anchors. C-12 of the 2026-05-22
+   *  portal cosmetics stack: lets the Credits tile carry the network
+   *  "earn free credits" affordance without consuming its own grid slot. */
+  footerBand?: { copy: string; href: string };
+  /** Renders a small `iOS` chip in the label row. C-13 of the 2026-05-22
+   *  portal cosmetics stack: signals that the tile's content lives in
+   *  the iOS app, not the portal. */
+  requiresApp?: boolean;
+  /** Small badge text rendered in the top-right corner — currently used
+   *  by coming-soon tiles to surface "Soon" without consuming the
+   *  headline row. */
+  badge?: string;
 };
 
 /**
@@ -59,6 +73,18 @@ type Props = {
  *     dimmed icon. The Radix Tooltip still anchors correctly via the
  *     same Root-per-trigger pattern.
  *
+ * Dashboard rework (2026-05-22, C-12 + C-13):
+ *   - `footerBand`: optional coral band flush with the card's bottom
+ *     edge. Used by the Credits tile to surface the "earn free
+ *     credits" affordance that used to live on the now-removed Network
+ *     tile. The band is its own `<Link>`, sibling to the card body
+ *     `<Link>` — no nested anchors.
+ *   - `requiresApp`: optional `iOS` chip in the label row. Used by the
+ *     Clients + Classes tiles to signal that their content lives in
+ *     the iOS app.
+ *   - `badge`: optional top-right corner badge (e.g. "Soon" on the
+ *     Classes coming-soon tile).
+ *
  * Accessibility:
  *   - Tile body remains a single Link — keyboard focus + Enter works,
  *     one focus ring per card.
@@ -75,6 +101,9 @@ export function DashboardTile({
   icon,
   description,
   comingSoon = false,
+  footerBand,
+  requiresApp = false,
+  badge,
 }: Props) {
   const accent = tone === 'warning' ? 'text-warning' : 'text-brand';
 
@@ -93,9 +122,12 @@ export function DashboardTile({
         {icon}
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
-          {label}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
+            {label}
+          </p>
+          {requiresApp && <IosChip />}
+        </div>
         <p
           className={`mt-2 font-heading text-3xl font-bold leading-tight ${
             comingSoon ? 'text-ink-muted' : accent
@@ -111,25 +143,49 @@ export function DashboardTile({
     </>
   );
 
+  // Card chrome shared between the interactive (`<Link>`) and
+  // coming-soon (`<div>`) branches. When `footerBand` is present we
+  // drop the bottom padding so the band sits flush with the card edge.
+  const cardBaseClasses =
+    'group relative flex items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5';
+  const cardInteractiveClasses =
+    ' transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring';
+  // When a footer band is rendered we drop the card body's bottom
+  // padding so the band can bleed flush with the card edge. The full
+  // card still stretches `h-full` via the outer wrapper; only the
+  // body's padding changes.
+  const cardBodyClasses = footerBand
+    ? `${cardBaseClasses} pb-3${comingSoon ? '' : cardInteractiveClasses}`
+    : `${cardBaseClasses} h-full${comingSoon ? '' : cardInteractiveClasses}`;
+
+  // The outer wrapper handles the row-equalising stretch (`h-full`) and
+  // the `overflow-hidden` rounding so the footer band's coral fill
+  // doesn't bleed past the card's rounded corners.
+  const outerClasses = footerBand
+    ? 'relative flex h-full flex-col overflow-hidden rounded-lg'
+    : 'relative h-full';
+
   return (
-    <div className="relative h-full">
+    <div className={outerClasses}>
+      {/* Top-right Soon/badge label — sits above both the Tooltip Root
+          and the touch-info button via z-stacking. */}
+      {badge && (
+        <span className="pointer-events-none absolute right-3 top-3 z-10 rounded border border-surface-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest text-ink-dim">
+          {badge}
+        </span>
+      )}
+
       {/* C-7: main Trigger gets its own Root so the popover anchors to
           THIS Trigger and not the touch info button (which lives in a
           sibling Root below). */}
       <Tooltip.Root>
         <Tooltip.Trigger asChild>
           {comingSoon ? (
-            <div
-              className="group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5"
-              aria-disabled="true"
-            >
+            <div className={cardBodyClasses} aria-disabled="true">
               {body}
             </div>
           ) : (
-            <Link
-              href={href}
-              className="group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
-            >
+            <Link href={href} className={cardBodyClasses}>
               {body}
             </Link>
           )}
@@ -152,6 +208,18 @@ export function DashboardTile({
           anchors to the (i) button, not the parent tile. Hidden on
           hover-capable devices via `[@media(hover:hover)]:hidden`. */}
       <TouchInfoTooltip description={description} />
+
+      {footerBand && (
+        <Link
+          href={footerBand.href}
+          className="group/band flex items-center justify-between border-t border-[rgba(255,107,53,0.25)] bg-[rgba(255,107,53,0.08)] px-5 py-2.5 text-xs font-medium text-brand-light transition hover:bg-[rgba(255,107,53,0.10)] focus:outline-none focus-visible:bg-[rgba(255,107,53,0.10)]"
+        >
+          <span>{footerBand.copy}</span>
+          <span className="font-semibold text-brand transition group-hover/band:translate-x-0.5">
+            Earn more &rarr;
+          </span>
+        </Link>
+      )}
     </div>
   );
 }
@@ -192,6 +260,28 @@ function TouchInfoTooltip({ description }: { description: string }) {
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
+  );
+}
+
+/**
+ * IosChip — small "iOS" chip rendered in the label row of tiles whose
+ * functional content lives in the iOS app. Mirrors `.tile .ios-chip.with-icon`
+ * in `docs/design/mockups/portal-get-the-app.html`: 9.5px font, 700 weight,
+ * coral text on coral-soft background with a coral-line border, prefixed
+ * by a 7px coral square glyph.
+ */
+function IosChip() {
+  return (
+    <span
+      aria-label="iOS app required"
+      className="inline-flex items-center gap-1 rounded-sm border border-brand-tint-border bg-brand-tint-bg px-1.5 py-px text-[9.5px] font-bold uppercase tracking-wider text-brand-light"
+    >
+      <span
+        aria-hidden="true"
+        className="inline-block h-[7px] w-[7px] rounded-[2px] bg-brand"
+      />
+      iOS
+    </span>
   );
 }
 
