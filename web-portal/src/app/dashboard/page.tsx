@@ -254,16 +254,17 @@ export default async function DashboardPage({
         <DashboardTooltipProvider>
           {/*
             Tile order is load-bearing (locked in the 2026-05-22 portal
-            cosmetics stack, item C-10):
+            cosmetics stack, item C-10 + Carl's same-day follow-up that
+            moved Classes adjacent to Clients):
               1. Credits        — what you have to spend
               2. Network        — what you can EARN to spend
-              3. Clients        — the core work surface
-              4. Members        — (owner only; non-owners see the row reflow)
-              5. Public profile — your directory + branding face
-              6. Premises       — Safe Mode geofence sites
-              7. Account        — email, password, practice name
-              8. Audit          — append-only history of everything above
-              9. Classes        — coming-soon teaser; non-clickable
+              3. Clients        — the core work surface (1:1 relationship)
+              4. Classes        — coming-soon teaser (1:many relationship)
+              5. Members        — (owner only; non-owners see the row reflow)
+              6. Public profile — your directory + branding face
+              7. Premises       — Safe Mode geofence sites
+              8. Account        — email, password, practice name
+              9. Audit          — append-only history of everything above
 
             C-7: each tile owns two Tooltip.Roots (main + touch info) so
             popovers anchor to the hovered tile, not viewport (0,0).
@@ -297,6 +298,27 @@ export default async function DashboardPage({
               subtitle={clientsSubtitle}
               icon={<UserRound size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="All clients across your practice. Drill in to see their plans, consent, and analytics."
+            />
+
+            {/*
+              Classes coming-soon teaser. Mirrors the mobile app's
+              coming-soon pattern (see app/lib/widgets/classes_coming_soon_view.dart).
+              Non-clickable, no chevron, dimmed icon. The Radix Tooltip still
+              works so practitioners can read what's coming on hover or tap.
+              Visible to ALL practitioners (owners + non-owners) — not
+              gated like Members. Sits adjacent to Clients per Carl's
+              2026-05-22 follow-up: classes are a multi-client construct
+              (one programme, many enrollees), so the pairing reads as
+              "Clients (singular relationship) → Classes (group relationship)".
+            */}
+            <DashboardTile
+              href="#"
+              label="Classes"
+              headline="Coming soon"
+              subtitle="Build once, share with everyone who enrolls"
+              icon={<Layers size={24} strokeWidth={1.75} aria-hidden="true" />}
+              description="A subscription/class library — practitioners build a programme once and enrollees subscribe to follow it. Coming after MVP ships."
+              comingSoon
             />
 
             {isOwner && (
@@ -350,24 +372,6 @@ export default async function DashboardPage({
               error={auditPreview.error}
               icon={<ScrollText size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Append-only log of every publish, purchase, and consent change in your practice."
-            />
-
-            {/*
-              C-9: Classes coming-soon teaser. Mirrors the mobile app's
-              coming-soon pattern (see app/lib/widgets/classes_coming_soon_view.dart).
-              Non-clickable, no chevron, dimmed icon. The Radix Tooltip still
-              works so practitioners can read what's coming on hover or tap.
-              Visible to ALL practitioners (owners + non-owners) — not
-              gated like Members.
-            */}
-            <DashboardTile
-              href="#"
-              label="Classes"
-              headline="Coming soon"
-              subtitle="Build once, share with everyone who enrolls"
-              icon={<Layers size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="A subscription/class library — practitioners build a programme once and enrollees subscribe to follow it. Coming after MVP ships."
-              comingSoon
             />
           </div>
         </DashboardTooltipProvider>
