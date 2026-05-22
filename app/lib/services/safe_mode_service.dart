@@ -175,6 +175,43 @@ class SafeModeService extends ChangeNotifier {
   bool? _lastMatchEnforced;
   String? _lastMatchName;
 
+  /// Safe Mode Transparency — Phase A (2026-05-22).
+  /// Snapshot of the most recent six-point gate result. Set by
+  /// [refreshProfileGate]. When non-null and not-ok, callers should
+  /// route the practitioner to the gate screen INSTEAD of any
+  /// auto-enabled banner — Safe Mode cannot engage until the missing
+  /// items are filled in.
+  ///
+  /// `null` means "never checked" — treat as permissive (don't block).
+  /// Empty `missing` list with `ok = true` means cleared.
+  SafeModeGateResult? _gate;
+
+  /// Practice id this gate result was fetched against. Cleared on
+  /// [reset]. Used to invalidate stale gate snapshots when the active
+  /// practice changes.
+  String? _gatePracticeId;
+
+  /// Latest cached gate snapshot. Null = not yet queried; consumers
+  /// treat null as "unknown, allow optimistic operation". Non-null
+  /// + `!ok` = the six-point gate failed and Safe Mode must NOT
+  /// engage (auto or manual) until [missingGateItems] is empty.
+  SafeModeGateResult? get gate => _gate;
+
+  /// Practice id the cached gate result corresponds to. UI should
+  /// re-query [refreshProfileGate] whenever the active practice
+  /// changes.
+  String? get gatePracticeId => _gatePracticeId;
+
+  /// True iff the cached gate snapshot says the practitioner is
+  /// blocked from Safe Mode for the active practice. False when
+  /// the gate has not been queried OR when it explicitly cleared.
+  bool get isProfileBlocked => _gate?.ok == false;
+
+  /// Stable identifier strings naming the missing gate items, or
+  /// empty if the gate has not been queried / is clear.
+  List<String> get missingGateItems =>
+      _gate?.missing ?? const <String>[];
+
   /// Consecutive `no-enforcing-match` RPC replies observed while the
   /// service is still in the active state. Resets to 0 on any clean
   /// match or on a hard transition to `notInZone`. Transient errors
@@ -299,10 +336,18 @@ class SafeModeService extends ChangeNotifier {
       // schedule no further retry.
       _consecutiveMissesWhileActive = 0;
       _trailingStartedAt = null;
-      _setState(_SafeModeState.active(
-        premisesId: match.premisesId,
-        premisesName: match.premisesName,
-      ));
+      // Safe Mode Transparency Phase A: if the profile gate is failed,
+      // we still know we're in the polygon but cannot engage Safe Mode.
+      // Surface as `blocked` so the camera UI shows the identity-gate
+      // screen instead of the regular banner.
+      if (isProfileBlocked) {
+        _setState(const _SafeModeState.blocked());
+      } else {
+        _setState(_SafeModeState.active(
+          premisesId: match.premisesId,
+          premisesName: match.premisesName,
+        ));
+      }
       cancelRetry();
       return;
     }
@@ -376,11 +421,79 @@ class SafeModeService extends ChangeNotifier {
   /// NULL gracefully) + the supplied display label. Resets the
   /// deactivation hysteresis counters so a subsequent Auto switch
   /// starts clean.
+  ///
+  /// Safe Mode Transparency Phase A: when the cached profile gate
+  /// says the practitioner is blocked, [forceActive] transitions to
+  /// [SafeModeCheckStatus.blocked] instead of `manual`. The camera
+  /// surface watches for that status and shows the identity-gate
+  /// screen, preventing manual capture in any space until the
+  /// missing items are filled in.
   void forceActive({String premisesName = 'Manual'}) {
     cancelRetry();
     _consecutiveMissesWhileActive = 0;
     _trailingStartedAt = null;
+    if (isProfileBlocked) {
+      _setState(const _SafeModeState.blocked());
+      return;
+    }
     _setState(_SafeModeState.manual(premisesName: premisesName));
+  }
+
+  /// Safe Mode Transparency — Phase A (2026-05-22).
+  /// Query the six-point identity gate for the supplied (trainer,
+  /// practice) pair and cache the result. Callers should run this
+  /// from any surface that may engage Safe Mode — typically the
+  /// camera screen on mount + whenever the active practice changes.
+  ///
+  /// Returns the cached snapshot; null on RPC failure. A null result
+  /// is permissive (don't block) because we don't want a flaky
+  /// network to suppress Safe Mode for a fully compliant trainer.
+  ///
+  /// When the gate returns `ok = false` AND the current state is
+  /// `active` or `manual`, the state transitions to `blocked` so
+  /// the camera UI swaps to the gate screen on the next frame.
+  Future<SafeModeGateResult?> refreshProfileGate({
+    required String trainerId,
+    required String practiceId,
+  }) async {
+    final result = await _api.canUseSafeMode(
+      trainerId: trainerId,
+      practiceId: practiceId,
+    );
+    _gate = result;
+    _gatePracticeId = practiceId;
+
+    if (result != null && !result.ok) {
+      // Force-transition out of any optimistic active/manual state.
+      // We don't touch `notInZone` or `unavailable` — the gate is a
+      // SEPARATE concern from "are you geographically inside a
+      // polygon"; a not-in-zone trainer with a missing avatar is
+      // still not-in-zone, and the camera surface can suppress the
+      // banner uniformly when isProfileBlocked is true.
+      if (_state.status == SafeModeCheckStatus.active
+          || _state.status == SafeModeCheckStatus.manual) {
+        cancelRetry();
+        _consecutiveMissesWhileActive = 0;
+        _trailingStartedAt = null;
+        _setState(const _SafeModeState.blocked());
+      } else {
+        // Notify so UI consumers that only watch isProfileBlocked /
+        // missingGateItems can re-render even if the status enum
+        // didn't change.
+        _setState(_state, forceNotify: true);
+      }
+    } else if (result != null && result.ok) {
+      // Gate just cleared. If we're currently in the `blocked` state
+      // (left over from a previous run), drop back to `unchecked` so
+      // the next checkLocation can re-evaluate cleanly.
+      if (_state.status == SafeModeCheckStatus.blocked) {
+        _setState(const _SafeModeState.unchecked());
+      } else {
+        _setState(_state, forceNotify: true);
+      }
+    }
+
+    return result;
   }
 
   /// Clear the state. Called when a surface tears down completely so
@@ -393,6 +506,8 @@ class SafeModeService extends ChangeNotifier {
     _lastMatchName = null;
     _consecutiveMissesWhileActive = 0;
     _trailingStartedAt = null;
+    _gate = null;
+    _gatePracticeId = null;
     _setState(const _SafeModeState.unchecked());
   }
 
@@ -452,6 +567,13 @@ enum SafeModeCheckStatus {
   /// Practitioner explicitly engaged Safe Mode from Studio settings.
   /// `premisesId` is null; audit stamps NULL on `captured_in_premises_id`.
   manual,
+
+  /// Safe Mode Transparency — Phase A (2026-05-22).
+  /// The six-point identity gate failed. `missingGateItems` lists the
+  /// stable identifier strings the camera surface maps to UI copy
+  /// + a deep link into Settings (practitioner-level gaps) or the
+  /// portal (practice-level gaps).
+  blocked,
 }
 
 @immutable
@@ -484,6 +606,8 @@ class _SafeModeState {
           premisesId: null,
           premisesName: premisesName,
         );
+  const _SafeModeState.blocked()
+      : this._(status: SafeModeCheckStatus.blocked);
 
   bool get isActive =>
       status == SafeModeCheckStatus.active
