@@ -25,6 +25,10 @@ type Props = {
   /** Plain-English description surfaced in the hover/tap tooltip. One
    *  sentence; keep it scannable. */
   description: string;
+  /** Coming-soon tiles render as non-clickable `<div>` cards: no chevron,
+   *  no coral hover border, dimmed icon. The tooltip still works so
+   *  practitioners can learn what's coming. */
+  comingSoon?: boolean;
 };
 
 /**
@@ -41,17 +45,26 @@ type Props = {
  *     popover; touch viewports get an "i" info glyph in the top-right
  *     corner that taps to open the same tooltip.
  *
- * Touch-viewport pattern: the info glyph is hidden on hover-capable
- * devices via `[@media(hover:hover)]:hidden`. On touch it taps the same
- * Radix Tooltip via a controlled-state effect (`disableHoverableContent`
- * is on at the provider level so tooltips don't latch open after tap).
+ * Polish bundle (2026-05-22, C-7/C-8/C-9):
+ *   - C-7: split into TWO independent `Tooltip.Root` instances — one
+ *     anchored to the Link (desktop hover) and one anchored to the
+ *     touch info button. Sharing one Root caused Radix to anchor at
+ *     viewport (0,0) because two `Trigger asChild` siblings confuse
+ *     its single-anchor model.
+ *   - C-8: wrapper div + Link both carry `h-full` so the tile stretches
+ *     to match the tallest sibling in its grid row. The Link's
+ *     `items-start` keeps content top-aligned; only the card grows.
+ *   - C-9: `comingSoon` opt-out renders the card as a non-interactive
+ *     `<div>` (no Link, no chevron, no coral hover border) with a
+ *     dimmed icon. The Radix Tooltip still anchors correctly via the
+ *     same Root-per-trigger pattern.
  *
  * Accessibility:
  *   - Tile body remains a single Link — keyboard focus + Enter works,
  *     one focus ring per card.
  *   - Tooltip content is aria-described via Radix's default plumbing.
- *   - Info glyph is its own button so the tooltip-on-tap doesn't
- *     intercept the Link click on touch.
+ *   - Info glyph is its own button under its own Tooltip.Root so the
+ *     tap doesn't intercept the Link click on touch.
  */
 export function DashboardTile({
   href,
@@ -61,42 +74,111 @@ export function DashboardTile({
   tone = 'default',
   icon,
   description,
+  comingSoon = false,
 }: Props) {
   const accent = tone === 'warning' ? 'text-warning' : 'text-brand';
 
+  // Body content is identical between the interactive Link variant and
+  // the coming-soon div variant — extracted so both branches stay in
+  // sync without copy-paste drift.
+  const body = (
+    <>
+      <div
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition ${
+          comingSoon
+            ? 'text-ink-dim/70'
+            : 'text-ink-muted group-hover:text-brand group-focus-visible:text-brand'
+        }`}
+      >
+        {icon}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
+          {label}
+        </p>
+        <p
+          className={`mt-2 font-heading text-3xl font-bold leading-tight ${
+            comingSoon ? 'text-ink-muted' : accent
+          }`}
+        >
+          {headline}
+        </p>
+        <p className="mt-1 flex items-center gap-1 text-sm text-ink-muted">
+          <span>{subtitle}</span>
+          {!comingSoon && <ChevronRight />}
+        </p>
+      </div>
+    </>
+  );
+
   return (
-    <Tooltip.Root>
-      <div className="relative">
+    <div className="relative h-full">
+      {/* C-7: main Trigger gets its own Root so the popover anchors to
+          THIS Trigger and not the touch info button (which lives in a
+          sibling Root below). */}
+      <Tooltip.Root>
         <Tooltip.Trigger asChild>
-          <Link
-            href={href}
-            className="group relative flex items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-muted transition group-hover:text-brand group-focus-visible:text-brand">
-              {icon}
+          {comingSoon ? (
+            <div
+              className="group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5"
+              aria-disabled="true"
+            >
+              {body}
             </div>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
-                {label}
-              </p>
-              <p
-                className={`mt-2 font-heading text-3xl font-bold leading-tight ${accent}`}
-              >
-                {headline}
-              </p>
-              <p className="mt-1 flex items-center gap-1 text-sm text-ink-muted">
-                <span>{subtitle}</span>
-                <ChevronRight />
-              </p>
-            </div>
-          </Link>
+          ) : (
+            <Link
+              href={href}
+              className="group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
+            >
+              {body}
+            </Link>
+          )}
         </Tooltip.Trigger>
 
-        {/* Touch-viewport info glyph — hidden on hover-capable devices.
-            Tap surfaces the same Radix Tooltip the desktop hover does.
-            Positioned absolute so it doesn't shove the tile content. */}
-        <TouchInfoTrigger />
-      </div>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="top"
+            sideOffset={6}
+            collisionPadding={12}
+            className="z-50 max-w-[280px] rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-xs leading-snug text-ink shadow-[0_8px_24px_rgba(0,0,0,0.35)] animate-[fadeSlideUp_120ms_ease-out]"
+          >
+            {description}
+            <Tooltip.Arrow className="fill-surface-raised" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+
+      {/* Touch-viewport info glyph — own Tooltip.Root so its popover
+          anchors to the (i) button, not the parent tile. Hidden on
+          hover-capable devices via `[@media(hover:hover)]:hidden`. */}
+      <TouchInfoTooltip description={description} />
+    </div>
+  );
+}
+
+/**
+ * Info glyph for touch viewports — only renders on `(hover: none)`
+ * devices. Wrapped in its OWN Tooltip.Root so the anchor stays on the
+ * button. Tap opens the same description string the desktop hover does.
+ */
+function TouchInfoTooltip({ description }: { description: string }) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          aria-label="What is this?"
+          onClick={(e) => {
+            // Prevent the surrounding Link from navigating when the info
+            // glyph is tapped on touch viewports.
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className="pointer-events-auto absolute right-3 top-3 hidden h-6 w-6 items-center justify-center rounded-full text-ink-dim hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(hover:none)]:flex"
+        >
+          <Info size={14} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      </Tooltip.Trigger>
 
       <Tooltip.Portal>
         <Tooltip.Content
@@ -110,32 +192,6 @@ export function DashboardTile({
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
-  );
-}
-
-/**
- * Info glyph for touch viewports — only renders on `(hover: none)`
- * devices. Tapping opens the parent Radix Tooltip via the same Trigger
- * pathway; we use a separate Trigger asChild on a button so the tap
- * doesn't bubble up to the surrounding Link and navigate.
- */
-function TouchInfoTrigger() {
-  return (
-    <Tooltip.Trigger asChild>
-      <button
-        type="button"
-        aria-label="What is this?"
-        onClick={(e) => {
-          // Prevent the surrounding Link from navigating when the info
-          // glyph is tapped on touch viewports.
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        className="pointer-events-auto absolute right-3 top-3 hidden h-6 w-6 items-center justify-center rounded-full text-ink-dim hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(hover:none)]:flex"
-      >
-        <Info size={14} strokeWidth={1.75} aria-hidden="true" />
-      </button>
-    </Tooltip.Trigger>
   );
 }
 
