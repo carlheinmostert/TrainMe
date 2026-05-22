@@ -299,7 +299,10 @@ File? _pickVideoPosterFile(ExerciseCapture exercise, Treatment treatment) {
   return null;
 }
 
-File? _pickPhotoPosterFile(ExerciseCapture exercise, Treatment treatment) {
+File? _pickPhotoPosterFile(
+  ExerciseCapture exercise,
+  Treatment treatment,
+) {
   switch (treatment) {
     case Treatment.line:
       final conv = exercise.absoluteConvertedFilePath;
@@ -309,6 +312,13 @@ File? _pickPhotoPosterFile(ExerciseCapture exercise, Treatment treatment) {
       return null;
     case Treatment.grayscale:
     case Treatment.original:
+      // Safe-Mode photo: always prefer the obscured variant when
+      // present. There is no opt-out — showing the un-obscured
+      // original on a Safe-Mode capture is a privacy breach.
+      final safe = exercise.absoluteSafeRawFilePath;
+      if (safe != null && safe.isNotEmpty && File(safe).existsSync()) {
+        return File(safe);
+      }
       final raw = exercise.absoluteRawFilePath;
       if (raw.isNotEmpty && File(raw).existsSync()) return File(raw);
       return null;
@@ -339,9 +349,19 @@ File? _pickVideoPlaybackFile(
     return null;
   }
 
-  // grayscale / original — try the segmented body-pop variant first
-  // when body-focus is ON, then the raw archive. NO fallback to the
-  // line drawing — that's a cross-treatment substitution.
+  // grayscale / original — when the capture was taken in Safe Mode and
+  // a safe variant exists on disk, always prefer it. There is no
+  // opt-out: showing the un-obscured raw on a Safe-Mode capture is a
+  // privacy breach. Line treatment is unaffected — line drawings are
+  // already de-identified by the converter pipeline.
+  final safe = exercise.absoluteSafeRawFilePath;
+  if (safe != null && safe.isNotEmpty && File(safe).existsSync()) {
+    return File(safe);
+  }
+
+  // Try the segmented body-pop variant first when body-focus is ON,
+  // then the raw archive. NO fallback to the line drawing — that's a
+  // cross-treatment substitution.
   if (bodyFocus) {
     final seg = exercise.absoluteSegmentedRawFilePath;
     if (seg != null && seg.isNotEmpty && File(seg).existsSync()) {
@@ -408,7 +428,11 @@ ExerciseHero resolveExerciseHero({
   // MediaViewer + video — return the playable file
   // ---------------------------------------------------------------
   if (surface == HeroSurface.mediaViewer && !isPhoto) {
-    final video = _pickVideoPlaybackFile(exercise, treatment, bodyFocus);
+    final video = _pickVideoPlaybackFile(
+      exercise,
+      treatment,
+      bodyFocus,
+    );
     // For grayscale we apply the matrix filter on top of the raw mp4
     // since the raw mp4 is colour. For line + original the bytes are
     // already the target colour space (line drawing OR raw colour).
@@ -446,7 +470,10 @@ ExerciseHero resolveExerciseHero({
   ColorFilter? filter;
 
   if (isPhoto) {
-    poster = _pickPhotoPosterFile(exercise, treatment);
+    poster = _pickPhotoPosterFile(
+      exercise,
+      treatment,
+    );
     // Photo grayscale is realised via ColorFilter on the raw JPG.
     // Photo line renders the converted line-drawing JPG directly (no
     // filter). Photo original = raw, no filter.

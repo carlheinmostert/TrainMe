@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -22,6 +23,7 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import '../widgets/orientation_lock_guard.dart';
+import '../widgets/safe_mode_icon.dart';
 import '../widgets/shell_pull_tab.dart';
 
 /// In-session camera mode.
@@ -75,7 +77,13 @@ const Set<DeviceOrientation> _kCameraDefaultOrientations = {
 };
 
 class _CaptureModeScreenState extends State<CaptureModeScreen>
-    with WidgetsBindingObserver, TickerProviderStateMixin {
+    with
+        WidgetsBindingObserver,
+        TickerProviderStateMixin,
+        AutomaticKeepAliveClientMixin<CaptureModeScreen> {
+  @override
+  bool get wantKeepAlive => true;
+
   // Wave 40 (M3) — the auto-fading "Hold for video" hint (Wave 8) has
   // been retired in favour of a PERMANENT caption beneath the shutter
   // with three states: idle / pressed-recording / locked. The
@@ -201,6 +209,20 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   String? _safeToastMessage;
   Timer? _safeToastClearTimer;
 
+  /// S-6 — Location is a mandatory permission for the camera surface
+  /// from 2026-05-22 onwards. When false, the viewfinder is replaced
+  /// by an in-app permission gate that explains why we need it and
+  /// surfaces "Open Settings" + "Retry" CTAs. Re-checked on app
+  /// resume so granting the permission outside the app and returning
+  /// auto-clears the gate.
+  ///
+  /// `_locationGateStatus` mirrors the outcome of [_evaluateLocationGate]:
+  ///   * pending → check still in flight (initial paint).
+  ///   * granted → permission + services OK; render viewfinder.
+  ///   * denied  → at least one of the conditions failed; render gate.
+  _LocationGateStatus _locationGateStatus = _LocationGateStatus.pending;
+  bool _retryingLocationGate = false;
+
 
   @override
   void initState() {
@@ -230,7 +252,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (!mounted) return;
       _showSafeRejectionToast();
     });
-    _initCamera();
+    // Camera-sticky Safe Mode (post 2026-05-22): reset any prior state
+    // and re-query the moment the camera mounts. GPS is now a
+    // mandatory permission — _evaluateLocationGate runs first so we
+    // don't kick off a camera init when the gate is going to swallow
+    // the viewfinder anyway.
+    SafeModeService.instance.reset();
+    unawaited(_evaluateLocationGate(initial: true));
   }
 
   @override
@@ -255,6 +283,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _safeRejectionSub = null;
     _safeToastClearTimer?.cancel();
     _safeToastClearTimer = null;
+    // Camera-sticky: stop any pending Safe Mode retry so the timer
+    // can't fire after the screen is gone. State itself is NOT
+    // cleared on dispose — a manual override engaged from Studio
+    // (`forceActive`) must survive the Camera ↔ Studio page swipe.
+    // Full reset happens at session boundary (SessionShell.initState).
+    SafeModeService.instance.cancelRetry();
     _cameraController?.dispose();
     _flyController.dispose();
     _lockTargetController.dispose();
@@ -324,10 +358,19 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
       unawaited(_teardownController(controller, salvageRecording: wasRecording));
     } else if (state == AppLifecycleState.resumed) {
+      // Re-evaluate the location permission gate. If the practitioner
+      // popped out to Settings → Location → enabled it, this lifecycle
+      // hook is our trigger to flip the gate off and bring the
+      // viewfinder up. _evaluateLocationGate calls _initCamera once
+      // the gate clears so we don't double-init.
+      unawaited(_evaluateLocationGate());
       // Re-initialise if the controller was torn down (or never came up
       // cleanly). _initCamera() has its own guard against double-init.
-      if (_cameraController == null ||
-          !(_cameraController?.value.isInitialized ?? false)) {
+      // Only runs when the gate is already clear; otherwise the gate
+      // re-check above will kick the init.
+      if (_locationGateStatus == _LocationGateStatus.granted &&
+          (_cameraController == null ||
+              !(_cameraController?.value.isInitialized ?? false))) {
         _initCamera();
       }
       if (_wasRecordingOnBackground && mounted) {
@@ -336,6 +379,54 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           const SnackBar(content: Text('Recording interrupted')),
         );
       }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // S-6 — Location-permission gate (mandatory from 2026-05-22)
+  // ---------------------------------------------------------------------------
+  //
+  // Safe Mode is now a core capture promise: clients trust that any
+  // bystander caught in a polygon gets obscured. That promise needs
+  // GPS to know which polygon (if any) we're inside, so granting
+  // location is no longer optional for the camera surface.
+  //
+  // [_evaluateLocationGate] re-checks permission + services. When both
+  // pass, the gate clears and we boot the camera + run the Safe Mode
+  // check. When either fails, the viewfinder is replaced by a
+  // permission gate widget.
+
+  Future<void> _evaluateLocationGate({bool initial = false}) async {
+    if (_retryingLocationGate) return;
+    _retryingLocationGate = true;
+    try {
+      final hasService = await Geolocator.isLocationServiceEnabled();
+      LocationPermission permission = await Geolocator.checkPermission();
+      // Only prompt on the FIRST mount — afterwards the practitioner
+      // has either accepted, denied, or made the iOS decision sticky.
+      // Spamming prompts from a Retry tap would feel broken.
+      if (initial && permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      final granted = hasService &&
+          (permission == LocationPermission.whileInUse
+              || permission == LocationPermission.always);
+      if (!mounted) return;
+      setState(() {
+        _locationGateStatus = granted
+            ? _LocationGateStatus.granted
+            : _LocationGateStatus.denied;
+      });
+      if (granted) {
+        // Boot the camera (idempotent) + Safe Mode check.
+        if (_cameraController == null ||
+            !(_cameraController?.value.isInitialized ?? false)) {
+          unawaited(_initCamera());
+        }
+        unawaited(SafeModeService.instance.checkLocation());
+      }
+    } finally {
+      _retryingLocationGate = false;
     }
   }
 
@@ -1270,6 +1361,22 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin
+    // S-6 — gate the viewfinder behind the location permission. The
+    // gate handles its own retry CTA + "Open Settings" path; until
+    // it clears we don't render the camera, peek box, lens pills, or
+    // any of the camera chrome.
+    if (_locationGateStatus != _LocationGateStatus.granted) {
+      return OrientationLockGuard(
+        allowed: const {DeviceOrientation.portraitUp},
+        child: _LocationPermissionGate(
+          status: _locationGateStatus,
+          onOpenSettings: () => Geolocator.openAppSettings(),
+          onRetry: () => _evaluateLocationGate(),
+          onExitToStudio: widget.onExitToStudio,
+        ),
+      );
+    }
     return OrientationLockGuard(
       allowed: _allowedOrientations,
       child: Container(
@@ -2145,9 +2252,24 @@ class _PulsingDotState extends State<_PulsingDot>
   }
 }
 
-/// Thin coral strip below the top bar that announces Safe Mode is on.
-/// Visible only when [SafeModeService.isActive] is true. Self-contained
-/// — pulls its content from the service singleton.
+/// Banner B — the redesigned Safe Mode banner (2026-05-22).
+///
+/// Solid coral pill with the combined shield+two-figures icon and a
+/// two-line label. Replaces the thin coral strip with a full coral-fill
+/// pill that reads as a strong promise to the practitioner. Visual
+/// contract: `docs/design/mockups/safe-mode-banner.html`.
+///
+/// Geometry locked at:
+///   * Background: solid `AppColors.primary` (#FF6B35).
+///   * Padding: 10px vertical, 14px horizontal.
+///   * BorderRadius: 14px.
+///   * Drop shadow: `0 6px 18px rgba(255,107,53,0.4)`.
+///   * Icon: [SafeModeIcon] at 22px, knockout in [AppColors.surfaceBg].
+///   * Main line: Montserrat 700, 13px, letter-spacing 0.4, surfaceBg.
+///   * Sub-line: Inter 600, 10px, 78% opacity over surfaceBg.
+///   * Sub-line copy:
+///       * with name → "{premisesName} · bystanders obscured"
+///       * without   → "bystanders obscured"
 class _SafeModeBanner extends StatelessWidget {
   const _SafeModeBanner({required this.premisesName});
 
@@ -2155,34 +2277,81 @@ class _SafeModeBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      color: const Color(0xFFFF6B35),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.shield_outlined,
-            size: 14,
-            color: Color(0xFF0F1117),
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              'Safe Mode active · $premisesName',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF0F1117),
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.2,
+    // Sub-line copy: drop the leading "{name} · " when the name is
+    // empty / the manual-mode "Manual" sentinel. Manual mode reuses
+    // the same banner shape so the practitioner sees the same promise
+    // whether they engaged it via GPS or via the Studio toggle.
+    final trimmed = premisesName.trim();
+    final hasName = trimmed.isNotEmpty
+        && trimmed.toLowerCase() != 'this venue';
+    final subLine = hasName
+        ? '$trimmed · bystanders obscured'
+        : 'bystanders obscured';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF6B35),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFF6B35).withValues(alpha: 0.40),
+              offset: const Offset(0, 6),
+              blurRadius: 18,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const SafeModeIcon(
+              size: 22,
+              knockoutColor: Color(0xFF0F1117),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'SAFE MODE ACTIVE',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Montserrat',
+                      color: Color(0xFF0F1117),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Opacity(
+                    opacity: 0.78,
+                    child: Text(
+                      subLine,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: Color(0xFF0F1117),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2241,6 +2410,183 @@ class _SafeModeRejectionToast extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// S-6 — Location-permission gate (mandatory permission for the camera)
+// =============================================================================
+
+enum _LocationGateStatus { pending, granted, denied }
+
+/// Full-screen replacement for the camera viewfinder when location
+/// permission OR location services are missing. Shows the Safe Mode
+/// icon, an explanation, and the two CTAs — Open Settings (primary)
+/// + Retry (secondary).
+///
+/// Brand surface: dark `AppColors.surfaceBg` background, coral CTA,
+/// no chrome competing with the message. Practitioner can still escape
+/// back to Studio via the left-pull tab visual (rendered by the
+/// outer shell PageView).
+class _LocationPermissionGate extends StatelessWidget {
+  const _LocationPermissionGate({
+    required this.status,
+    required this.onOpenSettings,
+    required this.onRetry,
+    required this.onExitToStudio,
+  });
+
+  final _LocationGateStatus status;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onRetry;
+  final VoidCallback onExitToStudio;
+
+  @override
+  Widget build(BuildContext context) {
+    if (status == _LocationGateStatus.pending) {
+      return Container(
+        color: const Color(0xFF0F1117),
+        alignment: Alignment.center,
+        child: const CircularProgressIndicator(
+          color: Color(0xFFFF6B35),
+          strokeWidth: 2,
+        ),
+      );
+    }
+    return Container(
+      color: const Color(0xFF0F1117),
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Positioned(
+              top: 8,
+              left: 4,
+              child: IconButton(
+                onPressed: onExitToStudio,
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Color(0xFFF0F0F5),
+                  size: 22,
+                ),
+                tooltip: 'Back to Studio',
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: SafeModeIcon(
+                        size: 64,
+                        fillColor: const Color(0xFFFF6B35),
+                        knockoutColor: const Color(0xFF0F1117),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    const Text(
+                      'Location access required',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFF0F0F5),
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'homefit.studio needs your location so Safe Mode can '
+                      'obscure bystanders inside enforced premises. '
+                      'We never use location for anything else.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: const Color(0xFFF0F0F5).withValues(alpha: 0.78),
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    _GateButton(
+                      label: 'Open Settings',
+                      onPressed: onOpenSettings,
+                      primary: true,
+                    ),
+                    const SizedBox(height: 10),
+                    _GateButton(
+                      label: 'Retry',
+                      onPressed: onRetry,
+                      primary: false,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GateButton extends StatelessWidget {
+  const _GateButton({
+    required this.label,
+    required this.onPressed,
+    required this.primary,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: primary
+          ? ElevatedButton(
+              onPressed: onPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                foregroundColor: const Color(0xFF0F1117),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                textStyle: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              child: Text(label),
+            )
+          : OutlinedButton(
+              onPressed: onPressed,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFF0F0F5),
+                side: BorderSide(
+                  color: const Color(0xFFF0F0F5).withValues(alpha: 0.35),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                textStyle: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              child: Text(label),
+            ),
     );
   }
 }

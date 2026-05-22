@@ -38,6 +38,7 @@ import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
 import '../widgets/preset_chip_row.dart';
 import '../widgets/publish_progress_sheet.dart';
+import '../widgets/safe_mode_icon.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_bottom_bar.dart';
@@ -5092,6 +5093,35 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                               ),
                             ),
                           ),
+
+                  // S-7 — Safe Mode indicator next to the treatment
+                  // selector. Visible only when the current exercise's
+                  // safe variant is the active source AND the active
+                  // treatment isn't Line. The un-obscured original is
+                  // never surfaced — privacy rule, no opt-out.
+                  if (!_current.isRest &&
+                      _current.safeRawFilePath != null &&
+                      _treatment != Treatment.line)
+                    Positioned(
+                      left: isLandscape ? null : 18,
+                      top: isLandscape
+                          ? MediaQuery.of(context).padding.top + 56
+                          : (widget.embeddedInSheet
+                              ? MediaQuery.of(context).padding.top + 220
+                              : MediaQuery.of(context).size.height * 0.5 + 110),
+                      right: isLandscape ? 18 : null,
+                      child: Tooltip(
+                        message: 'Bystanders obscured for privacy',
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const SafeModeIcon(size: 16),
+                        ),
+                      ),
+                    ),
 
                   // Exercise-name pill — top-centered in both orientations.
                   // Hidden when embedded in the editor sheet: the sheet's
