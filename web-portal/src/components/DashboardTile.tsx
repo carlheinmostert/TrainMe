@@ -143,26 +143,26 @@ export function DashboardTile({
     </>
   );
 
-  // Card chrome shared between the interactive (`<Link>`) and
-  // coming-soon (`<div>`) branches. When `footerBand` is present we
-  // drop the bottom padding so the band sits flush with the card edge.
-  const cardBaseClasses =
-    'group relative flex items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5';
-  const cardInteractiveClasses =
+  // Card chrome. When `footerBand` is present the border + rounded
+  // corners + bg + hover affordance move to the OUTER wrapper so the
+  // card body and band read as one continuous surface. Without this,
+  // the body's own rounded-lg corners expose the page background
+  // between body and band (the gap Carl flagged on the 2026-05-22
+  // staging deploy of PR #428).
+  const cardInteractiveOnBody =
     ' transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring';
-  // When a footer band is rendered we drop the card body's bottom
-  // padding so the band can bleed flush with the card edge. The full
-  // card still stretches `h-full` via the outer wrapper; only the
-  // body's padding changes.
-  const cardBodyClasses = footerBand
-    ? `${cardBaseClasses} pb-3${comingSoon ? '' : cardInteractiveClasses}`
-    : `${cardBaseClasses} h-full${comingSoon ? '' : cardInteractiveClasses}`;
+  const cardInteractiveOnOuter =
+    ' transition hover:border-brand hover:shadow-focus-ring focus-within:border-brand focus-within:shadow-focus-ring';
 
-  // The outer wrapper handles the row-equalising stretch (`h-full`) and
-  // the `overflow-hidden` rounding so the footer band's coral fill
-  // doesn't bleed past the card's rounded corners.
+  const cardBodyClasses = footerBand
+    ? `group relative flex items-start gap-4 p-5 pb-3${comingSoon ? '' : ' focus:outline-none'}`
+    : `group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5${comingSoon ? '' : cardInteractiveOnBody}`;
+
+  // Outer wrapper carries the visible chrome (border + rounded + bg)
+  // ONLY when a footer band is present. Otherwise the body owns it
+  // (today's behaviour for every non-Credits tile).
   const outerClasses = footerBand
-    ? 'relative flex h-full flex-col overflow-hidden rounded-lg'
+    ? `relative flex h-full flex-col overflow-hidden rounded-lg border border-surface-border bg-surface-base${comingSoon ? '' : cardInteractiveOnOuter}`
     : 'relative h-full';
 
   return (
