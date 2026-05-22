@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'api_client.dart';
+import 'auth_service.dart';
 
 /// Camera-sticky service that tracks whether the camera surface is
 /// operating inside a Safe-Mode-enforcing premises.
@@ -75,6 +76,13 @@ class SafeModeService extends ChangeNotifier {
   /// (e.g. waiting for the first match after a fresh camera mount).
   static const Duration kNormalRetryInterval = Duration(seconds: 30);
 
+  /// Safe Mode Transparency — Phase B (2026-05-22).
+  /// Cadence at which `heartbeat_capture_session` is called while a
+  /// live capture session is active. The server filters out sessions
+  /// whose last heartbeat is older than 60s, so this gives roughly
+  /// 3 chances to land in any one 60s window.
+  static const Duration kHeartbeatInterval = Duration(seconds: 20);
+
   static SafeModeService? _instance;
   static SafeModeService get instance {
     final svc = _instance;
@@ -98,6 +106,25 @@ class SafeModeService extends ChangeNotifier {
   /// other than `active`. Helps when GPS hadn't settled at camera
   /// mount but a fix lands a few seconds later.
   Timer? _retryTimer;
+
+  /// Safe Mode Transparency — Phase B (2026-05-22).
+  /// Live-capture-session id returned by `start_capture_session`. Set
+  /// the moment Safe Mode goes active; cleared when the session ends.
+  /// Survives the Camera ↔ Studio swipe so swiping back doesn't open
+  /// a fresh row in active_capture_sessions.
+  String? _liveSessionId;
+
+  /// 20s heartbeat ticker. Only runs while [_liveSessionId] is set.
+  Timer? _heartbeatTimer;
+
+  /// Last GPS fix seen during a heartbeat tick — used as the position
+  /// payload on each beat. Updated by [checkLocation] whenever a fresh
+  /// fix lands. Falls back to the most recent [_lastLatitude] /
+  /// [_lastLongitude] when unset.
+  ///
+  /// Public read so the live-page integration tests can sanity-check
+  /// the position lineage; never expected to be set directly.
+  String? get liveSessionId => _liveSessionId;
 
   /// True iff the active surface is inside an enforcing premises OR a
   /// manual toggle has been engaged.
@@ -508,6 +535,8 @@ class SafeModeService extends ChangeNotifier {
     _trailingStartedAt = null;
     _gate = null;
     _gatePracticeId = null;
+    // _setState transitions out of active → triggers _closeLiveSession
+    // automatically. No need to call it directly here.
     _setState(const _SafeModeState.unchecked());
   }
 
@@ -530,15 +559,90 @@ class SafeModeService extends ChangeNotifier {
 
   void _setState(_SafeModeState next, {bool forceNotify = false}) {
     final identical = _state == next;
+    final wasActive = _state.isActive;
     _state = next;
+    final nowActive = next.isActive;
+    if (!identical) {
+      if (!wasActive && nowActive) {
+        // Transitioning INTO an active state — open a live capture
+        // session + start the heartbeat ticker. Fire-and-forget; the
+        // session id lands a few hundred ms later, no need to block UI.
+        unawaited(_openLiveSession());
+      } else if (wasActive && !nowActive) {
+        // Transitioning OUT — close the row + cancel the ticker.
+        unawaited(_closeLiveSession());
+      }
+    }
     if (!identical || forceNotify) {
       notifyListeners();
     }
   }
 
+  /// Safe Mode Transparency — Phase B (2026-05-22).
+  /// Open a live capture session for the current trainer + practice.
+  /// Idempotent — if one is already open, this is a no-op so a
+  /// re-entrant transition (e.g. notifyListeners in flight) doesn't
+  /// duplicate the DB row.
+  Future<void> _openLiveSession() async {
+    if (_liveSessionId != null) return;
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    if (practiceId == null) {
+      debugPrint('SafeModeService: cannot open live session — no practice');
+      return;
+    }
+    try {
+      final id = await _api.startCaptureSession(
+        practiceId: practiceId,
+        premisesId: _state.premisesId,
+        latitude: _lastLatitude,
+        longitude: _lastLongitude,
+        manual: _state.isManual,
+      );
+      if (id == null) return;
+      _liveSessionId = id;
+      _startHeartbeatTimer();
+    } catch (e) {
+      debugPrint('SafeModeService._openLiveSession failed: $e');
+    }
+  }
+
+  /// Stamp ended_at on the live session row + cancel the ticker.
+  Future<void> _closeLiveSession() async {
+    final id = _liveSessionId;
+    _liveSessionId = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    if (id == null) return;
+    try {
+      await _api.endCaptureSession(sessionId: id);
+    } catch (e) {
+      debugPrint('SafeModeService._closeLiveSession failed: $e');
+    }
+  }
+
+  void _startHeartbeatTimer() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(kHeartbeatInterval, (_) {
+      final id = _liveSessionId;
+      if (id == null) return;
+      unawaited(_api.heartbeatCaptureSession(
+        sessionId: id,
+        latitude: _lastLatitude,
+        longitude: _lastLongitude,
+      ));
+    });
+  }
+
   @override
   void dispose() {
     cancelRetry();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    final id = _liveSessionId;
+    _liveSessionId = null;
+    if (id != null) {
+      unawaited(_api.endCaptureSession(sessionId: id));
+    }
     super.dispose();
   }
 }

@@ -816,6 +816,67 @@
     }
   }
 
+  // -------------------------------------------------------------------
+  // Safe Mode Transparency — Phase B (2026-05-22)
+  // -------------------------------------------------------------------
+  async function getLiveSessions(slug) {
+    if (!slug || isLocalSurface()) return null;
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_live_sessions`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_slug: String(slug).toLowerCase() }),
+        },
+      );
+      if (!response.ok) return null;
+      const rows = await response.json();
+      if (!Array.isArray(rows)) return null;
+      // The RPC returns one row per premises (kind === 'premises')
+      // plus one row per active session (kind === 'session'); the
+      // practice metadata (name, slug) is duplicated on every row, so
+      // we sample it from the first available row.
+      const head = rows[0] || {};
+      return {
+        practiceId: head.practice_id || null,
+        practiceName: head.practice_name || null,
+        practiceSlug: head.practice_slug || slug,
+        premises: rows
+          .filter((r) => r && r.kind === 'premises')
+          .map((r) => ({
+            id: r.premises_id,
+            name: r.premises_name,
+            polygon: Array.isArray(r.premises_polygon)
+              ? r.premises_polygon
+              : [],
+          })),
+        sessions: rows
+          .filter((r) => r && r.kind === 'session')
+          .map((r) => ({
+            sessionId: r.session_id,
+            trainerId: r.trainer_id,
+            firstName: r.first_name,
+            lastName: r.last_name,
+            avatarUrl: r.avatar_url,
+            startedAt: r.started_at,
+            heartbeatAt: r.last_heartbeat_at,
+            latitude: r.last_latitude,
+            longitude: r.last_longitude,
+            manualMode: r.manual_mode === true,
+            premisesId: r.premises_id,
+            premisesName: r.premises_name,
+          })),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   window.HomefitApi = Object.freeze({
     getPlanFull,
     getPracticeProfile,
@@ -828,6 +889,7 @@
     revokeAnalyticsConsent,
     getPlanSharingContext,
     clientSelfGrantConsent,
+    getLiveSessions,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,

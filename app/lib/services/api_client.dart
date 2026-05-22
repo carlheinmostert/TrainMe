@@ -1660,6 +1660,77 @@ class ApiClient {
     }
   }
 
+  // ==========================================================================
+  // Safe Mode Transparency — Phase B (2026-05-22)
+  // ==========================================================================
+
+  /// `start_capture_session(p_practice_id, p_premises_id, p_lat, p_lng, p_manual)`.
+  /// Returns the new session id, or null on failure.
+  Future<String?> startCaptureSession({
+    required String practiceId,
+    String? premisesId,
+    double? latitude,
+    double? longitude,
+    bool manual = false,
+  }) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'start_capture_session',
+          params: {
+            'p_practice_id': practiceId,
+            'p_premises_id': premisesId,
+            'p_lat': latitude,
+            'p_lng': longitude,
+            'p_manual': manual,
+          },
+        ),
+      );
+      return result is String ? result : null;
+    } catch (e) {
+      debugPrint('ApiClient.startCaptureSession failed: $e');
+      return null;
+    }
+  }
+
+  /// `heartbeat_capture_session(p_session_id, p_lat, p_lng)`.
+  /// Fire-and-forget — caller should not block on the response. Errors
+  /// are swallowed; a missed heartbeat is recovered by the next tick.
+  Future<void> heartbeatCaptureSession({
+    required String sessionId,
+    double? latitude,
+    double? longitude,
+  }) async {
+    try {
+      await _guardAuth(
+        () => raw.rpc(
+          'heartbeat_capture_session',
+          params: {
+            'p_session_id': sessionId,
+            'p_lat': latitude,
+            'p_lng': longitude,
+          },
+        ),
+      );
+    } catch (e) {
+      debugPrint('ApiClient.heartbeatCaptureSession failed: $e');
+    }
+  }
+
+  /// `end_capture_session(p_session_id)`. Idempotent. Stamps ended_at.
+  Future<void> endCaptureSession({required String sessionId}) async {
+    try {
+      await _guardAuth(
+        () => raw.rpc(
+          'end_capture_session',
+          params: {'p_session_id': sessionId},
+        ),
+      );
+    } catch (e) {
+      debugPrint('ApiClient.endCaptureSession failed: $e');
+    }
+  }
+
   /// Upload an avatar JPEG to the public `media` bucket at
   /// `avatars/{trainer_id}.jpg`. Returns the public URL on success,
   /// null on failure. Uses upsert so re-uploads overwrite.
