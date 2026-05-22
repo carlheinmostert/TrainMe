@@ -11,6 +11,14 @@ type Props = {
   isOwner: boolean;
   initial: PracticePublicProfile | null;
   initialSection?: 'branding' | 'identity';
+  /**
+   * Hostname-only label for the player surface this portal is paired
+   * with (e.g. `session.homefit.studio` on prod,
+   * `staging.session.homefit.studio` on staging). Derived server-side
+   * from the request `host` header so the inline `<code>` previews
+   * reflect the deploy ring the practitioner is looking at.
+   */
+  playerHostLabel: string;
 };
 
 /**
@@ -26,6 +34,7 @@ export function PublicProfileEditor({
   isOwner,
   initial,
   initialSection,
+  playerHostLabel,
 }: Props) {
   // Build a defaults-shaped profile when the practice hasn't saved one
   // yet, so panel reads never have to null-check every field.
@@ -66,6 +75,7 @@ export function PublicProfileEditor({
         profile={profile}
         onSaved={setProfile}
         defaultOpen={initialSection === 'identity'}
+        playerHostLabel={playerHostLabel}
       />
     </div>
   );

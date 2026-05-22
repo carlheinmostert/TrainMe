@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getBrowserClient } from '@/lib/supabase-browser';
+import { playerOriginFromHost } from '@/lib/env';
 import {
   createPortalApi,
   PublicProfileError,
@@ -23,7 +24,6 @@ type Props = {
   initial: PracticePublicProfile;
 };
 
-const PUBLIC_BASE = 'https://session.homefit.studio/v/';
 const BLURB_MAX = 280;
 
 export function PracticeProfilePanel({
@@ -39,6 +39,19 @@ export function PracticeProfilePanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedTick, setSavedTick] = useState(0);
+  // Derive the player host from the portal host so this surface (if
+  // ever revived; currently orphaned) reflects the deploy ring instead
+  // of always hardcoding prod. Defaults to prod-session for SSR + first
+  // paint, then resolves via window.location once mounted.
+  const [publicBase, setPublicBase] = useState<string>(
+    'https://session.homefit.studio/v/',
+  );
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setPublicBase(`${playerOriginFromHost(window.location.hostname)}/v/`);
+    }
+  }, []);
+  const PUBLIC_BASE = publicBase;
 
   // Auto-suggest a slug on first edit if the field is blank.
   useEffect(() => {
