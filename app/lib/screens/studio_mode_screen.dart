@@ -5094,21 +5094,40 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                             ),
                           ),
 
-                  // S-7 — Safe Mode indicator next to the treatment
+                  // S-7 — Safe Mode indicator beside the treatment
                   // selector. Visible only when the current exercise's
                   // safe variant is the active source AND the active
                   // treatment isn't Line. The un-obscured original is
                   // never surfaced — privacy rule, no opt-out.
+                  //
+                  // S-12 (2026-05-22) — moved out from under the
+                  // Colour (Original) pill on the bottom of the
+                  // vertical treatment strip. In portrait the
+                  // treatment pill is at left:12 and ~44pt wide; the
+                  // icon now anchors at left:60 (clears the pill +
+                  // breathing room) and sits just above the strip so
+                  // it reads as "applies to this whole selector"
+                  // rather than overlapping a single segment. In
+                  // landscape the strip is horizontal at top-center
+                  // so the top-right corner placement stays.
                   if (!_current.isRest &&
                       _current.safeRawFilePath != null &&
                       _treatment != Treatment.line)
                     Positioned(
-                      left: isLandscape ? null : 18,
+                      // Portrait: anchor 60pt from the left so the icon
+                      // clears the ~46pt-wide vertical treatment pill
+                      // (left:12, ~34pt body + 6pt margin per segment).
+                      // The vertical offset puts the icon beside the
+                      // Colour segment — the bottom of the strip — so
+                      // the visual association is "this whole strip
+                      // operates under Safe Mode" without obscuring any
+                      // segment.
+                      left: isLandscape ? null : 60,
                       top: isLandscape
                           ? MediaQuery.of(context).padding.top + 56
                           : (widget.embeddedInSheet
-                              ? MediaQuery.of(context).padding.top + 220
-                              : MediaQuery.of(context).size.height * 0.5 + 110),
+                              ? MediaQuery.of(context).padding.top + 198
+                              : MediaQuery.of(context).size.height * 0.5 + 69),
                       right: isLandscape ? 18 : null,
                       child: Tooltip(
                         message: 'Bystanders obscured for privacy',
@@ -5785,12 +5804,36 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   Widget _buildPhotoFrame(ExerciseCapture ex, {required bool isCurrent}) {
     String resolvedPath = ex.displayFilePath;
     if (isCurrent && _treatment != Treatment.line) {
+      // S-11 (2026-05-22) — Safe Mode privacy contract. When a safe
+      // variant exists for this exercise (capture was inside an
+      // enforcing premises polygon at the moment of capture), the
+      // un-obscured raw is NEVER displayed on B&W or Colour treatments.
+      // The safe JPG has bystanders painted coral; that's the only
+      // pixels allowed downstream of Line treatment. Line drawings are
+      // already de-identified by the converter pipeline and stay on
+      // the converted file path.
+      final safeAbs = ex.absoluteSafeRawFilePath;
+      if (safeAbs != null && safeAbs.isNotEmpty) {
+        final safeExt = safeAbs.toLowerCase();
+        final safeIsImage =
+            safeExt.endsWith('.jpg') ||
+            safeExt.endsWith('.jpeg') ||
+            safeExt.endsWith('.png');
+        if (safeIsImage && File(safeAbs).existsSync()) {
+          resolvedPath = safeAbs;
+        }
+      }
       // Wave 36 — when body focus is on, prefer the segmented JPG
       // produced by the on-device Vision pipeline. The local file lives
       // alongside the raw colour JPG at `<exerciseId>.segmented.jpg`.
       // Mobile preview plays local files only (standing rule) so we
       // never reach for the cloud signed URL.
-      if (_enhancedBackground) {
+      //
+      // Skipped when a safe variant has already claimed `resolvedPath` —
+      // the privacy rule outranks body-focus styling. (The segmented
+      // variant is built off the same raw bytes that Safe Mode would
+      // leak, so falling through to it would re-introduce the breach.)
+      if (resolvedPath == ex.displayFilePath && _enhancedBackground) {
         final segAbs = ex.absoluteSegmentedRawFilePath;
         if (segAbs != null && segAbs.isNotEmpty) {
           final segExt = segAbs.toLowerCase();
@@ -5806,6 +5849,9 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       // Fallback when body focus is off OR the segmented file is
       // missing — play the untouched raw colour JPG. Same rule as
       // pre-Wave-36 (this branch was the only path before).
+      //
+      // Also skipped when a safe variant has claimed `resolvedPath`;
+      // see comment above.
       if (resolvedPath == ex.displayFilePath) {
         final raw = ex.absoluteRawFilePath;
         // Only switch source when the raw file is itself an image. The
