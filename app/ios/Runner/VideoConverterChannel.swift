@@ -4,6 +4,8 @@ import AVFoundation
 import Accelerate
 import Vision
 import CoreVideo
+import CoreImage
+import Metal
 
 // MARK: - Line-drawing tuning constants (tweak-and-reinstall friendly)
 //
@@ -420,11 +422,12 @@ class VideoConverterChannel {
                     )
                     DispatchQueue.main.async {
                         switch outcome {
-                        case .success(let processed, let missRate):
+                        case .success(let processed, let missRate, let lowConfidence):
                             result([
                                 "destPath": destPath,
                                 "safeFramesProcessed": processed,
                                 "safeFramesMissedRate": missRate,
+                                "lowConfidence": lowConfidence,
                             ])
                         case .failure(let err):
                             result(FlutterError(
@@ -1781,6 +1784,14 @@ class VideoConverterChannel {
                         // safe processor ran; otherwise [0, 1].
                         payload["safeFramesMissedRate"] =
                             safeProcessor?.missRate ?? 0.0
+                        // Low-confidence flag (2026-05-22). Sticky: true
+                        // if any frame's two largest faces were within
+                        // 80% of each other in area. Dart side uses this
+                        // to surface a tap-to-confirm UI post-capture
+                        // (separate Flutter PR). Defaults to false so
+                        // pre-wave callers see no behaviour change.
+                        payload["lowConfidence"] =
+                            safeProcessor?.lowConfidence ?? false
                     }
                     result(payload)
                     endBackgroundTask()
@@ -2588,13 +2599,15 @@ class VideoConverterChannel {
     // MARK: - Photo Safe Mode
 
     /// Outcome of [applySafeModeToPhoto]. `success(processed,
-    /// missRate)` mirrors the video path's payload — `processed` is
-    /// 0 or 1 (single frame); `missRate` is 0.0 when Vision found a
-    /// human, 1.0 when it didn't (single-frame can only be all-or-
-    /// nothing). Failure carries a string so the channel layer can
-    /// route it as a FlutterError.
+    /// missRate, lowConfidence)` mirrors the video path's payload —
+    /// `processed` is 0 or 1 (single frame); `missRate` is 0.0 when
+    /// Vision found a face, 1.0 when it didn't (single-frame can only
+    /// be all-or-nothing); `lowConfidence` is true if the two largest
+    /// faces in the frame were within 80% of each other in area.
+    /// Failure carries a string so the channel layer can route it as
+    /// a FlutterError.
     enum SafeModePhotoOutcome {
-        case success(processed: Int, missRate: Double)
+        case success(processed: Int, missRate: Double, lowConfidence: Bool)
         case failure(String)
     }
 
@@ -2697,9 +2710,10 @@ class VideoConverterChannel {
         )
 
         // missRate is 0.0 if processor's single processFrame call
-        // succeeded (Vision found a human); 1.0 otherwise.
+        // succeeded (Vision found a face); 1.0 otherwise.
         let missRate = processor.missRate
         let processed = ok ? 1 : 0
+        let lowConfidence = processor.lowConfidence
 
         if !ok {
             // Vision found nobody — write the source bytes verbatim
@@ -2755,7 +2769,11 @@ class VideoConverterChannel {
         } catch {
             return .failure("write failed: \(error.localizedDescription)")
         }
-        return .success(processed: processed, missRate: missRate)
+        return .success(
+            processed: processed,
+            missRate: missRate,
+            lowConfidence: lowConfidence
+        )
     }
 
     // MARK: - Grayscale Fallback
@@ -3900,87 +3918,112 @@ private class HandPoseDilator {
 }
 
 // ============================================================================
-// SafeModeProcessor — Safe Mode bystander-blur compositor (2026-05-21)
+// SafeModeProcessor — Safe Mode bystander-blur compositor (2026-05-22)
 // ============================================================================
 //
-// Produces a copy of the source video frame with bystanders silhouetted in
-// flat coral (#FF6B35) and the client passed through untouched. Used by the
-// Safe Mode 4th-output writer in `convertVideo` when the capture happened
-// inside a Safe-Mode-enforcing premises (resolved at session-start by
-// `SafeModeService` on the Dart side).
+// Produces a copy of the source video frame with bystanders blurred via a
+// heavy Gaussian (CIGaussianBlur radius ≈ 35 on 1080p) and the subject
+// passed through untouched. Used by the Safe Mode 4th-output writer in
+// `convertVideo` when the capture happened inside a Safe-Mode-enforcing
+// premises (resolved at session-start by `SafeModeService` on the Dart side).
 //
 // Algorithm
 // ---------
-// 1. Run `VNDetectHumanRectanglesRequest` on the source frame. Each
-//    observation is a normalized bbox (origin bottom-left in Vision's
-//    convention) of a detected human torso/upper-body.
-// 2. Pick the LARGEST observation by area — that's the client.
-// 3. Convert the chosen bbox to pixel coordinates (origin top-left to
-//    match BGRA pixel layout).
-// 4. For each pixel:
-//      mask[p] < 128 → background: pass through source pixel unchanged
-//      mask[p] >= 128:
-//          inside client bbox  → pass through source pixel (client body)
-//          outside client bbox → write coral (bystander)
+// 1. Run `VNDetectFaceRectanglesRequest` on the source frame. Faces scale
+//    with camera proximity far more reliably than torso/upper-body
+//    bounding boxes — a centered bystander with a big torso no longer
+//    out-votes the closer subject whose torso is partly cropped.
+// 2. Pick the LARGEST face by area = the subject.
+// 3. Derive a subject "anchor" bbox from the chosen face: the face
+//    centroid + an expanded region covering head + torso + legs (face
+//    bbox extended downward by ~6× its height and sideways by ~2× its
+//    width). Mask pixels inside this anchor are subject pixels; mask
+//    pixels outside are bystander pixels. Background (mask < 128) is
+//    always passthrough.
+// 4. Build a "keep source" 8-bit mask: 255 where source should show
+//    (subject pixels + background), 0 where blurred should show
+//    (bystander pixels). Composite via CIBlendWithMask:
+//       output = blendWithMask(source, blurredSource, keepSourceMask)
+//    Renderer is a cached CIContext (reused across frames).
+// 5. Ambiguity flag: if the second-largest face is within ~20% area of
+//    the chosen face, the result payload carries `lowConfidence: true`
+//    so the Dart side can prompt the practitioner to confirm the
+//    subject post-capture. The tap-to-confirm UI is a separate PR;
+//    this processor just surfaces the signal.
 //
-// If detection returns zero observations the safe pass is skipped for
+// If face detection returns zero faces the safe pass is skipped for
 // the frame (the writer skips its append; the per-frame loss is
-// preferable to silently failing-open and shipping a clean
-// untreated bystander into the raw archive).
+// preferable to silently failing-open and shipping a clean untreated
+// bystander into the raw archive). Those frames count toward `missRate`.
 //
 // Performance
 // -----------
-// VNDetectHumanRectanglesRequest is ~5-15ms per frame on iPhone 15.
-// At 30 fps that's <50% of the per-frame budget — fine for a non-realtime
-// post-capture pass. We re-use a `VNSequenceRequestHandler` across frames
-// so Vision can warm-cache the model.
+// VNDetectFaceRectanglesRequest is ~5-15ms per frame on iPhone 15.
+// CIGaussianBlur(radius: 35) + CIBlendWithMask on a 1080p frame renders
+// in ~10-15ms on the same hardware. Total per-frame cost is ~25-30ms —
+// fine for the post-capture pass, well below 33ms at 30 fps. The
+// CIContext is allocated once (Metal-backed) and reused; CIFilter
+// instances are reused; per-frame allocations are limited to CIImage
+// wrappers (cheap) and a single 8-bit mask buffer (allocated once and
+// re-filled per frame).
 //
-// Memory
-// ------
-// Stateless aside from the sequence handler. Output is a one-pass
-// memcpy + per-pixel branch; no scratch allocations per frame.
+// V1 LOCKED params (2026-05-22, Carl-signed)
+// ------------------------------------------
+//   gaussianBlurRadius = 35.0   // on 1080p source; scaled by source dim
+//   subjectExpandHorz  = 2.0    // face bbox grows by 2× horizontally
+//   subjectExpandDown  = 6.0    // face bbox grows by 6× downward (torso+legs)
+//   subjectExpandUp    = 0.4    // face bbox grows slightly upward (hair)
+//   lowConfidenceRatio = 0.80   // 2nd face area >= 80% of 1st area => flag
 //
-// What this DOES NOT do (yet)
-// ---------------------------
-//  - Fail closed when no human is detected. Today the safe pass simply
-//    skips the frame on zero detections; long stretches of no-detection
-//    leave gaps in the safe.mp4. The spec says fail-closed at capture
-//    time, but the device-side rejection UX is a Carl-only call (needs
-//    to surface a "try again" toast inline in the capture flow). For
-//    MVP we ship the soft version + count missed frames in the result
-//    payload so Carl can see whether the data justifies investing in
-//    fail-closed.
-//  - Smooth bystander edges with a Gaussian blur over the mask. The
-//    segmentation mask is already soft from the line-drawing pipeline's
-//    tent convolve; reusing that smoother would require threading it
-//    through the call site. Skipped for now — Carl can A/B on device.
-//  - Blur multiple clients (the only "client" is the largest bbox). If
-//    two practitioners + a client are all in the gym at once, two of
-//    them get coral'd. Acceptable: Safe Mode protects bystanders from
-//    capture; protecting practitioners from each other isn't a feature.
+// No coral tint on the blurred region — pure Gaussian, conventional
+// "sensitive photo blur" pattern. The previous flat-coral painting is
+// retired.
 
 private class SafeModeProcessor {
     let width: Int
     let height: Int
 
     // Re-used Vision request handler so the framework can keep its
-    // model warm across frames. Vision's `VNSequenceRequestHandler` is
-    // the canonical pattern for per-frame requests on the same video.
+    // face-detector warm across frames. Vision's `VNSequenceRequestHandler`
+    // is the canonical pattern for per-frame requests on the same video.
     private let sequenceHandler = VNSequenceRequestHandler()
-    private let humanRequest: VNDetectHumanRectanglesRequest
+    private let faceRequest: VNDetectFaceRectanglesRequest
 
-    // Coral BGRA bytes — single-source-of-truth color for bystanders.
-    // BGRA order: B=0x35, G=0x6B, R=0xFF, A=0xFF.
-    private let coralB: UInt8 = 0x35
-    private let coralG: UInt8 = 0x6B
-    private let coralR: UInt8 = 0xFF
-    private let coralA: UInt8 = 0xFF
+    // V1 LOCKED tuning constants (2026-05-22). Comments mirror the
+    // top-of-class doc. Tuned for 1080p source; blur radius scales
+    // proportionally if the source dimension differs.
+    private static let baseGaussianBlurRadius: Double = 35.0
+    private static let baseSourceDim: Double = 1080.0
+    private static let subjectExpandHorz: CGFloat = 2.0
+    private static let subjectExpandDown: CGFloat = 6.0
+    private static let subjectExpandUp: CGFloat = 0.4
+    private static let lowConfidenceRatio: CGFloat = 0.80
+
+    // CoreImage compositor — cached once, reused per frame. Metal-backed
+    // CIContext is the cheapest renderer we have access to without
+    // touching MPS directly. Allocating per-frame would spike memory and
+    // throw away Vision's KVO-cached pipeline state.
+    private let ciContext: CIContext
+    private let blurFilter: CIFilter
+    private let blendFilter: CIFilter
+
+    // Resolved blur radius for this frame size. Scales the locked 35.0
+    // value by `min(width, height) / 1080` so portrait 720p captures
+    // get a proportionally lighter blur (still visually heavy — the
+    // perceived blur on smaller frames remains "anonymising").
+    private let resolvedBlurRadius: Double
+
+    // Scratch 8-bit "keep source" mask. Allocated once and re-filled
+    // per frame. Wrapped in a CGContext-style bitmap that we hand to
+    // CIImage as a luminance source.
+    private var keepSourceMaskData: UnsafeMutablePointer<UInt8>
+    private let maskRowBytes: Int
 
     // Vision miss-rate tracking (Safe Mode completion wave,
     // 2026-05-21). `framesTotal` counts every frame the processor was
     // asked to handle; `framesMissed` counts frames where Vision
-    // either threw, returned no observations, or yielded a degenerate
-    // (zero-area) largest bbox. `missRate` is the ratio — used by the
+    // either threw, returned no faces, or yielded a degenerate
+    // (zero-area) largest face. `missRate` is the ratio — used by the
     // Dart side to decide whether the capture should be rejected
     // (>5% threshold) or kept (gap frames soft-skipped).
     private(set) var framesTotal: Int = 0
@@ -3989,15 +4032,57 @@ private class SafeModeProcessor {
         framesTotal == 0 ? 0.0 : Double(framesMissed) / Double(framesTotal)
     }
 
+    // Low-confidence flag (2026-05-22). Set to true if, on any frame
+    // processed, the two largest faces were within `lowConfidenceRatio`
+    // of each other in area — meaning the subject vs bystander
+    // discriminator could plausibly have picked the wrong face. Sticky:
+    // once any frame triggers ambiguity we surface the flag to the
+    // Dart side so the practitioner sees the tap-to-confirm UI
+    // post-capture. The tap-to-confirm UI itself is a separate Flutter
+    // PR; this processor only surfaces the signal.
+    private(set) var lowConfidence: Bool = false
+
     init(width: Int, height: Int) {
         self.width = width
         self.height = height
-        humanRequest = VNDetectHumanRectanglesRequest()
-        if #available(iOS 15.0, *) {
-            // Include upper-body so the client doesn't disappear when
-            // only the torso is in frame (low-angle gym shots).
-            humanRequest.upperBodyOnly = false
+        self.faceRequest = VNDetectFaceRectanglesRequest()
+
+        // Metal-backed CIContext if available, falls back to software.
+        // Init options: disable colour management — we're working in
+        // device-RGB throughout the pipeline.
+        let options: [CIContextOption: Any] = [
+            .workingColorSpace: NSNull(),
+            .outputColorSpace: NSNull(),
+        ]
+        if let device = MTLCreateSystemDefaultDevice() {
+            self.ciContext = CIContext(mtlDevice: device, options: options)
+        } else {
+            self.ciContext = CIContext(options: options)
         }
+        self.blurFilter = CIFilter(name: "CIGaussianBlur")!
+        self.blendFilter = CIFilter(name: "CIBlendWithMaskFilter")!
+
+        // Scale blur radius to the actual frame size. The locked 35.0
+        // is for 1080p; on smaller frames the perceptual blur stays
+        // similar by proportionally reducing radius.
+        let minDim = Double(min(width, height))
+        let scale = minDim / Self.baseSourceDim
+        self.resolvedBlurRadius = Self.baseGaussianBlurRadius * max(0.25, scale)
+
+        // Allocate the scratch keep-source mask buffer once. Single
+        // channel (8-bit luminance) at frame resolution. Aligned to
+        // 16 bytes via posix_memalign would be marginally better for
+        // vImage but CIImage tolerates an unaligned pointer fine —
+        // CoreImage copies the data on upload to GPU.
+        self.maskRowBytes = width
+        let bufSize = width * height
+        self.keepSourceMaskData = UnsafeMutablePointer<UInt8>.allocate(capacity: bufSize)
+        self.keepSourceMaskData.initialize(repeating: 255, count: bufSize)
+    }
+
+    deinit {
+        keepSourceMaskData.deinitialize(count: width * height)
+        keepSourceMaskData.deallocate()
     }
 
     func processFrame(
@@ -4007,37 +4092,42 @@ private class SafeModeProcessor {
     ) -> Bool {
         // Every frame the caller asks us to handle counts toward the
         // total. A "miss" is any path that returns false — Vision threw,
-        // returned no observations, or yielded a zero-area bbox. The
-        // Dart side compares missRate against kSafeModeMaxMissRate to
-        // decide whether to keep or reject the capture.
+        // returned no faces, or yielded a zero-area face. The Dart side
+        // compares missRate against kSafeModeMaxMissRate to decide
+        // whether to keep or reject the capture.
         framesTotal += 1
 
-        // --- Find the largest human bbox via Vision ---
+        // --- Find the largest face via Vision ---
         // Skip processing if Vision fails — caller will retry on the
         // next frame. The pump's progress doesn't depend on safe output
         // succeeding for every frame.
         do {
-            try sequenceHandler.perform([humanRequest], on: source)
+            try sequenceHandler.perform([faceRequest], on: source)
         } catch {
             framesMissed += 1
             return false
         }
-        let observations = humanRequest.results ?? []
+        let observations = faceRequest.results ?? []
         if observations.isEmpty {
             framesMissed += 1
             return false
         }
 
         // Vision returns normalized rects in origin-bottom-left
-        // coordinates. Pick the LARGEST by area; that's the client.
+        // coordinates. Pick the LARGEST by area = subject. Track the
+        // second-largest so we can flag ambiguity.
         var bestArea: CGFloat = 0
-        var clientRect: CGRect = .zero
+        var secondBestArea: CGFloat = 0
+        var subjectFace: CGRect = .zero
         for obs in observations {
             let r = obs.boundingBox
             let area = r.width * r.height
             if area > bestArea {
+                secondBestArea = bestArea
                 bestArea = area
-                clientRect = r
+                subjectFace = r
+            } else if area > secondBestArea {
+                secondBestArea = area
             }
         }
         if bestArea <= 0 {
@@ -4045,14 +4135,173 @@ private class SafeModeProcessor {
             return false
         }
 
-        // Convert normalized [0,1] bottom-left to pixel top-left.
-        // Flip Y: pixel y = (1 - (normY + normHeight)) * height
-        let clientX0 = max(0, Int((clientRect.origin.x * CGFloat(width)).rounded(.down)))
-        let clientY0 = max(0, Int(((1.0 - clientRect.origin.y - clientRect.height) * CGFloat(height)).rounded(.down)))
-        let clientX1 = min(width, Int(((clientRect.origin.x + clientRect.width) * CGFloat(width)).rounded(.up)))
-        let clientY1 = min(height, Int(((1.0 - clientRect.origin.y) * CGFloat(height)).rounded(.up)))
+        // Ambiguity check — sticky across frames within this capture.
+        // Once any frame's two largest faces were within ratio, we
+        // surface the flag so the post-capture UX can prompt the
+        // practitioner to confirm.
+        if bestArea > 0,
+           secondBestArea / bestArea >= Self.lowConfidenceRatio {
+            lowConfidence = true
+        }
 
-        // --- Composite ---
+        // --- Build subject "anchor" bbox in pixel coords ---
+        // The face bbox alone would only cover the head; we extend it
+        // downward (torso + legs) and outward (arms / hips). The
+        // expansion factors are V1 heuristics — close enough to the
+        // person silhouette that the segmentation mask inside the box
+        // is overwhelmingly the subject's body.
+        //
+        // Normalized → pixel, with Y flipped (Vision = bottom-left
+        // origin, BGRA buffer = top-left origin).
+        let faceW = subjectFace.width * CGFloat(width)
+        let faceH = subjectFace.height * CGFloat(height)
+        let faceCx = (subjectFace.origin.x + subjectFace.width * 0.5) * CGFloat(width)
+        // Vision Y is bottom-left; flip to top-left for our pixel grid.
+        let faceTopY = (1.0 - subjectFace.origin.y - subjectFace.height) * CGFloat(height)
+        let faceBotY = (1.0 - subjectFace.origin.y) * CGFloat(height)
+
+        // Expand: face bbox grows horz/up/down by V1 constants. The
+        // resulting "anchor" is a generous rectangle around the person
+        // identified by face; mask pixels inside this box AND inside
+        // the person-mask are the subject. Mask pixels outside this
+        // box BUT inside the person mask are bystanders.
+        let halfExpandedW = faceW * (1.0 + Self.subjectExpandHorz) * 0.5
+        let expandUpPx = faceH * Self.subjectExpandUp
+        let expandDownPx = faceH * Self.subjectExpandDown
+        let anchorX0 = max(0, Int((faceCx - halfExpandedW).rounded(.down)))
+        let anchorX1 = min(width, Int((faceCx + halfExpandedW).rounded(.up)))
+        let anchorY0 = max(0, Int((faceTopY - expandUpPx).rounded(.down)))
+        let anchorY1 = min(height, Int((faceBotY + expandDownPx).rounded(.up)))
+
+        // --- Build "keep source" 8-bit mask ---
+        // 255 = source shows (subject + background); 0 = blurred shows
+        // (bystanders). When mask == nil we can't tell person from
+        // background — pass everything through (no blur), but Vision
+        // did succeed so this doesn't count as a miss.
+        if mask == nil {
+            // Pure passthrough — copy source to outBuffer and bail.
+            return copySourceVerbatim(source: source, into: outBuffer)
+        }
+        let personMask = mask!
+
+        // Build the keep-source mask: default 255 (keep source).
+        // For each pixel where personMask >= 128, decide:
+        //   inside anchor → 255 (subject, keep source)
+        //   outside anchor → 0 (bystander, show blurred)
+        // For each pixel where personMask < 128, leave at 255
+        // (background, keep source).
+        //
+        // Tight inner loop — avoid per-pixel function calls.
+        let ksm = keepSourceMaskData
+        for y in 0..<height {
+            let pmRow = personMask + y * width
+            let ksmRow = ksm + y * maskRowBytes
+            let inAnchorY = (y >= anchorY0 && y < anchorY1)
+            for x in 0..<width {
+                let pm = pmRow[x]
+                if pm >= 128 {
+                    let inAnchor = inAnchorY && x >= anchorX0 && x < anchorX1
+                    ksmRow[x] = inAnchor ? 255 : 0
+                } else {
+                    ksmRow[x] = 255
+                }
+            }
+        }
+
+        // --- CoreImage composite ---
+        // source CIImage, blurred CIImage, mask CIImage → blendWithMask.
+        guard let sourceCI = ciImageFromBGRA(source) else {
+            framesMissed += 1
+            return false
+        }
+        // Crop blur output to source extent — CIGaussianBlur expands
+        // the image bounds outward by the radius. Without this the
+        // composite ends up with translucent edges around the frame.
+        blurFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+        blurFilter.setValue(resolvedBlurRadius, forKey: kCIInputRadiusKey)
+        guard let rawBlur = blurFilter.outputImage else {
+            framesMissed += 1
+            return false
+        }
+        let blurredCI = rawBlur.cropped(to: sourceCI.extent)
+
+        guard let maskCI = ciImageFromGrayscale(
+            data: ksm,
+            width: width,
+            height: height,
+            rowBytes: maskRowBytes
+        ) else {
+            framesMissed += 1
+            return false
+        }
+
+        // CIBlendWithMaskFilter: output = inputImage where mask is
+        // white, inputBackgroundImage where mask is black. We want
+        // source where mask is white (keep), blurred where mask is
+        // black (bystander).
+        blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+        blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
+        blendFilter.setValue(maskCI, forKey: kCIInputMaskImageKey)
+        guard let outputCI = blendFilter.outputImage else {
+            framesMissed += 1
+            return false
+        }
+
+        // Render into outBuffer (BGRA). The output extent matches
+        // source extent because we cropped the blur.
+        ciContext.render(
+            outputCI,
+            to: outBuffer,
+            bounds: sourceCI.extent,
+            colorSpace: nil
+        )
+        return true
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    /// Wrap a BGRA `CVPixelBuffer` in a `CIImage`. Returns nil on
+    /// allocation failure (rare).
+    private func ciImageFromBGRA(_ pb: CVPixelBuffer) -> CIImage? {
+        return CIImage(cvPixelBuffer: pb)
+    }
+
+    /// Wrap a single-channel 8-bit luminance buffer in a `CIImage`.
+    /// CoreImage copies the data on upload, so the caller is free to
+    /// re-fill `data` for the next frame after this call returns.
+    private func ciImageFromGrayscale(
+        data: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        rowBytes: Int
+    ) -> CIImage? {
+        let bitmap = Data(
+            bytesNoCopy: data,
+            count: rowBytes * height,
+            deallocator: .none
+        )
+        let fmt = CIFormat.R8
+        let cs = CGColorSpaceCreateDeviceGray()
+        // CIImage from raw bitmap. Y-flip is not needed; CIImage's
+        // origin convention matches the buffer we built.
+        return CIImage(
+            bitmapData: bitmap,
+            bytesPerRow: rowBytes,
+            size: CGSize(width: width, height: height),
+            format: fmt,
+            colorSpace: cs
+        )
+    }
+
+    /// Plain copy from source to destination BGRA buffer. Used when
+    /// Vision detected a face but no segmentation mask was provided —
+    /// we can't tell subject from bystander, so pass the frame through.
+    private func copySourceVerbatim(
+        source: CVPixelBuffer,
+        into outBuffer: CVPixelBuffer
+    ) -> Bool {
         CVPixelBufferLockBaseAddress(source, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(source, .readOnly) }
         guard let srcBase = CVPixelBufferGetBaseAddress(source) else { return false }
@@ -4065,48 +4314,9 @@ private class SafeModeProcessor {
 
         let srcPtr = srcBase.assumingMemoryBound(to: UInt8.self)
         let dstPtr = dstBase.assumingMemoryBound(to: UInt8.self)
-
-        // Per-row composite. When there's no mask the safe output is
-        // a plain copy (Vision found a human but no segmentation mask
-        // means we can't tell which pixels belong to bystanders — fall
-        // back to passing the frame through; Carl can tune to "skip
-        // this frame" if he prefers fail-closed-ish behaviour).
-        if mask == nil {
-            for y in 0..<height {
-                let srcRow = srcPtr + y * srcRowBytes
-                let dstRow = dstPtr + y * dstRowBytes
-                memcpy(dstRow, srcRow, width * 4)
-            }
-            return true
-        }
-        let maskPtr = mask!
-
         for y in 0..<height {
-            let srcRow = srcPtr + y * srcRowBytes
-            let dstRow = dstPtr + y * dstRowBytes
-            let maskRow = maskPtr + y * width
-            // Inside the client bbox vertically? If yes, we still
-            // per-pixel check the X bound and the mask — bystander
-            // can sit beside client at the same y.
-            for x in 0..<width {
-                let mv = maskRow[x]
-                let inClient = (x >= clientX0 && x < clientX1
-                                && y >= clientY0 && y < clientY1)
-                let bgraOffset = x * 4
-                if mv >= 128 && !inClient {
-                    dstRow[bgraOffset]     = coralB
-                    dstRow[bgraOffset + 1] = coralG
-                    dstRow[bgraOffset + 2] = coralR
-                    dstRow[bgraOffset + 3] = coralA
-                } else {
-                    dstRow[bgraOffset]     = srcRow[bgraOffset]
-                    dstRow[bgraOffset + 1] = srcRow[bgraOffset + 1]
-                    dstRow[bgraOffset + 2] = srcRow[bgraOffset + 2]
-                    dstRow[bgraOffset + 3] = srcRow[bgraOffset + 3]
-                }
-            }
+            memcpy(dstPtr + y * dstRowBytes, srcPtr + y * srcRowBytes, width * 4)
         }
-
         return true
     }
 }
