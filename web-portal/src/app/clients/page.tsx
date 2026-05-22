@@ -96,7 +96,7 @@ export default async function ClientsPage({
             href={`/dashboard?practice=${practiceId}`}
             className="hover:text-brand"
           >
-            &larr; Dashboard
+            &larr; Home
           </Link>
         </nav>
 

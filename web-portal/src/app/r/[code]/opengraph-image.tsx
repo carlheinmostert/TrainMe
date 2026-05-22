@@ -101,15 +101,21 @@ export default async function OgImage({
             <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill={GHOST_MID} />
             <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill={GHOST_OUTER} />
           </svg>
+          {/* Wordmark — the `.studio` segment (dot included) is coral so
+              the OG card carries the same brand accent as the in-app
+              lockup. @vercel/og can't render multiple text colours inside
+              one element, so we render two adjacent divs. */}
           <div
             style={{
+              display: 'flex',
+              alignItems: 'baseline',
               fontSize: 36,
               fontWeight: 600,
-              color: INK,
               letterSpacing: '-0.01em',
             }}
           >
-            homefit.studio
+            <span style={{ color: INK }}>homefit</span>
+            <span style={{ color: BRAND }}>.studio</span>
           </div>
         </div>
 

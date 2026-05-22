@@ -4,7 +4,10 @@ import { BuildInfo } from '@/components/BuildInfo';
 import { TopProgressBar } from '@/components/TopProgressBar';
 
 export const metadata: Metadata = {
-  title: 'homefit.studio — Practice portal',
+  // Browser tab title intentionally omits "Dashboard" — the dashboard
+  // IS the home page now (cosmetic pass 2026-05-22), and the lockup at
+  // the top of every page already says "homefit.studio".
+  title: 'homefit.studio',
   description:
     'Manage your homefit.studio practice: credits, audit log, and practitioner invites.',
   icons: {

@@ -128,7 +128,7 @@ export default async function NetworkPage({
             href={`/dashboard?practice=${practiceId}`}
             className="hover:text-brand"
           >
-            ← Dashboard
+            ← Home
           </Link>
         </nav>
 

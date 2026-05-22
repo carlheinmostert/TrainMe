@@ -62,7 +62,7 @@ export default async function CreditsPage({
             href={`/dashboard?practice=${practiceId}`}
             className="hover:text-brand"
           >
-            ← Dashboard
+            ← Home
           </Link>
         </nav>
 

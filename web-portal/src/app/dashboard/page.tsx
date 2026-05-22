@@ -7,10 +7,20 @@ import {
   PortalReferralApi,
 } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
-import { PracticeContextLine } from '@/components/PracticeContextLine';
 import { DashboardTile } from '@/components/DashboardTile';
 import { DashboardAuditCard } from '@/components/DashboardAuditCard';
+import { DashboardTooltipProvider } from '@/components/DashboardTooltipProvider';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import {
+  Coins,
+  Share2,
+  UserRound,
+  ScrollText,
+  UsersRound,
+  Settings,
+  Building2,
+  Globe2,
+} from 'lucide-react';
 
 type SearchParams = { practice?: string };
 
@@ -228,89 +238,102 @@ export default async function DashboardPage({
         practices={practices}
       />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-        <div className="mb-8 flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold">Dashboard</h1>
-          <p className="text-sm text-ink-muted">Signed in as {user.email}</p>
-          {/*
-            Practice-context line. Replaces the pre-R-12 native <select>
-            with a prose sentence + inline rename (owner only) + custom
-            popover switcher (only when the caller belongs to >1
-            practice). See PracticeContextLine for the interaction model.
-          */}
-          <PracticeContextLine
-            practices={practices}
-            selectedId={selected.id}
-            isOwner={isOwner}
-            balancesById={balancesById}
-          />
-        </div>
-
         {/*
           Tile order is load-bearing. Network MUST sit next to Credits so
           the two forms of the same currency (bought credits + free
           credits earned from the network) are scannable together. This
           reinforces the single-currency mental model: you BUY credits,
           you EARN free credits on your network's spend.
+
+          Cosmetic pass (2026-05-22): the h1 "Dashboard" + signed-in
+          email + practice-context line all moved into the BrandHeader's
+          identity stack. Practice rename now lives on the Account tile;
+          this page is now PURE TILE GRID.
         */}
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          <DashboardTile
-            href={`/credits${qs}`}
-            label="Credits"
-            headline={creditsHeadline}
-            subtitle={creditsSubtitle}
-            tone={creditsLow ? 'warning' : 'default'}
-          />
-
-          <DashboardTile
-            href={`/network${qs}`}
-            label="Network"
-            headline={networkHeadline}
-            subtitle={networkSubtitle}
-          />
-
-          <DashboardTile
-            href={`/clients${qs}`}
-            label="Clients"
-            headline={clientsHeadline}
-            subtitle={clientsSubtitle}
-          />
-
-          <DashboardAuditCard
-            href={`/audit${qs}`}
-            rows={auditPreview.rows}
-            error={auditPreview.error}
-          />
-
-          <DashboardTile
-            href={`/premises${qs}`}
-            label="Premises"
-            headline={premisesHeadline}
-            subtitle={premisesSubtitle}
-          />
-
-          {/*
-            Public profile (v2) — branding + directory listing entry.
-            Warning tone when no slug claimed: the client-plan URL still
-            renders, but cascades fall back to homefit coral and there's
-            no /v/{slug} page in the directory yet.
-          */}
-          <DashboardTile
-            href={`/public-profile${qs}`}
-            label="Public profile"
-            headline={publicProfileHeadline}
-            subtitle={publicProfileSubtitle}
-            tone={profileReady ? 'default' : 'warning'}
-          />
-
-          {isOwner && (
+        <DashboardTooltipProvider>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <DashboardTile
-              href={`/members${qs}`}
-              label="Members"
-              headline={membersHeadline}
-              subtitle={membersSubtitle}
+              href={`/credits${qs}`}
+              label="Credits"
+              headline={creditsHeadline}
+              subtitle={creditsSubtitle}
+              tone={creditsLow ? 'warning' : 'default'}
+              icon={Coins}
+              description="Buy publishing credits and see what's left. One credit publishes one plan."
             />
-          )}
-        </div>
+
+            <DashboardTile
+              href={`/network${qs}`}
+              label="Network"
+              headline={networkHeadline}
+              subtitle={networkSubtitle}
+              icon={Share2}
+              description="Invite other practitioners with your referral link. You earn 5% back in free credits on everything they buy."
+            />
+
+            <DashboardTile
+              href={`/clients${qs}`}
+              label="Clients"
+              headline={clientsHeadline}
+              subtitle={clientsSubtitle}
+              icon={UserRound}
+              description="All clients across your practice. Drill in to see their plans, consent, and analytics."
+            />
+
+            <DashboardAuditCard
+              href={`/audit${qs}`}
+              rows={auditPreview.rows}
+              error={auditPreview.error}
+              icon={ScrollText}
+              description="Append-only log of every publish, purchase, and consent change in your practice."
+            />
+
+            <DashboardTile
+              href={`/premises${qs}`}
+              label="Premises"
+              headline={premisesHeadline}
+              subtitle={premisesSubtitle}
+              icon={Building2}
+              description="Sites you train at. Enforcing Safe Mode at a site automatically blurs bystanders when you capture there."
+            />
+
+            {/*
+              Public profile (v2) — branding + directory listing entry.
+              Warning tone when no slug claimed: the client-plan URL still
+              renders, but cascades fall back to homefit coral and there's
+              no /v/{slug} page in the directory yet.
+            */}
+            <DashboardTile
+              href={`/public-profile${qs}`}
+              label="Public profile"
+              headline={publicProfileHeadline}
+              subtitle={publicProfileSubtitle}
+              tone={profileReady ? 'default' : 'warning'}
+              icon={Globe2}
+              description="Your /v/{slug} directory page — branding, cover, and whether prospective clients can find you."
+            />
+
+            <DashboardTile
+              href={`/account${qs}`}
+              label="Account"
+              headline="Settings"
+              subtitle="Email, password, practice name"
+              icon={Settings}
+              description="Your email, password, and the active practice's name."
+            />
+
+            {isOwner && (
+              <DashboardTile
+                href={`/members${qs}`}
+                label="Members"
+                headline={membersHeadline}
+                subtitle={membersSubtitle}
+                icon={UsersRound}
+                description="Add or remove practitioners in your practice. Owners can also rename the practice."
+              />
+            )}
+          </div>
+        </DashboardTooltipProvider>
       </div>
     </main>
   );

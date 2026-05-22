@@ -99,7 +99,7 @@ export default async function MembersPage({
             href={`/dashboard?practice=${practiceId}`}
             className="hover:text-brand"
           >
-            ← Dashboard
+            ← Home
           </Link>
         </nav>
 

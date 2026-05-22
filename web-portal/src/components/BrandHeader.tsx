@@ -1,46 +1,46 @@
 import Link from 'next/link';
-import { HomefitLogo } from './HomefitLogo';
-import { HeaderRightCluster } from './HeaderRightCluster';
+import { HomefitLogoLockup } from './HomefitLogo';
+import { HeaderIdentityStack } from './HeaderIdentityStack';
 import type { PracticeWithRole } from '@/lib/supabase/api';
 
 type Props = {
-  /** Show the right-cluster (practice switcher + account menu chip).
-   *  False on auth landing pages where there's no signed-in user yet. */
+  /** Show the right-side identity stack (practitioner email + active
+   *  practice + sign-out link). False on auth landing pages where
+   *  there's no signed-in user yet. */
   showSignOut?: boolean;
   /** Current practice context, passed through so the switcher carries the
    *  selection. Optional because pages without a resolved practice (sign-up,
-   *  some auth states) still want to render the email chip. */
+   *  some auth states) still want to render the email line. */
   practiceId?: string;
   /** True when the caller is an owner of the current practice. Retained
    *  on the prop surface for backwards compatibility with existing callers,
    *  but no longer drives any rendering — Wave 40 P1 retired the nav links
    *  that gated on this flag. The dashboard tiles ARE the menu. */
   isOwner?: boolean;
-  /** Signed-in user's email (Wave 40 P2). Surfaced as the right-cluster
-   *  chip label so the practitioner can confirm-at-a-glance which account
-   *  is active. Empty string when no user is signed in. */
+  /** Signed-in user's email. Rendered on the top line of the identity
+   *  stack so the practitioner can confirm-at-a-glance which account is
+   *  active. Empty string when no user is signed in. */
   userEmail?: string;
-  /** Every practice the caller belongs to (Wave 40 P3). Powers the
-   *  practice-switcher chip in the header right-cluster. Empty array
-   *  when there's no signed-in user or the caller hasn't been bootstrapped
-   *  into a practice yet. */
+  /** Every practice the caller belongs to. Powers the practice-name
+   *  chevron switcher in the identity stack. Empty array when there's
+   *  no signed-in user or the caller hasn't been bootstrapped into a
+   *  practice yet. */
   practices?: PracticeWithRole[];
 };
 
 /**
  * Top-of-page header for the web portal.
  *
- * Wave 40 P1 retires the nav menu (Clients · Credits · Network · Audit ·
- * Members · Account) that previously sat in the header. The dashboard's
- * clickable stat tiles ARE the navigation; duplicating them here was
- * redundant chrome that crowded the right-cluster identity affordances.
- *
- * What's left in the header:
- *   - Logo + wordmark on the left → home link.
- *   - Right cluster: practice switcher chip + account menu chip
- *     (Wave 40 P2 / P3). The chips render on every signed-in surface so
- *     practitioners can switch context or sign out without bouncing
- *     through the dashboard.
+ * Cosmetic pass (2026-05-22):
+ *   - Logo now renders the matrix + wordmark LOCKUP (instead of the
+ *     matrix-only mark + a separate text span). The `.studio` segment
+ *     of the wordmark is coral — single canonical brand mark across
+ *     the portal, web player, OG cards, and email templates.
+ *   - Right cluster is now a two-line identity STACK (email above the
+ *     practice line, sign-out as a tiny text link beneath) instead of
+ *     two pill chips with dropdowns. Account settings moved to a
+ *     dashboard tile, so the account-menu dropdown collapses to a
+ *     plain text link.
  *
  * R-02 (header purity): the only interactive content remains identity
  * + tenant-context. No page titles, breadcrumbs, or action buttons.
@@ -56,30 +56,22 @@ export function BrandHeader({
   userEmail = '',
   practices = [],
 }: Props) {
-  const accountHref = practiceId
-    ? `/account?practice=${practiceId}`
-    : '/account';
-
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
         <Link
           href="/"
-          className="flex items-center gap-3 text-ink hover:text-brand-light transition"
+          className="flex items-center text-ink transition hover:opacity-90"
           aria-label="homefit.studio home"
         >
-          <HomefitLogo className="h-7 w-auto" />
-          <span className="font-heading text-lg font-semibold">
-            homefit.studio
-          </span>
+          <HomefitLogoLockup className="h-10 w-auto" />
         </Link>
 
         {showSignOut && (
-          <HeaderRightCluster
+          <HeaderIdentityStack
             email={userEmail}
             practices={practices}
             selectedId={practiceId ?? null}
-            accountHref={accountHref}
           />
         )}
       </div>
