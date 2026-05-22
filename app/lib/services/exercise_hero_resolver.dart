@@ -301,9 +301,8 @@ File? _pickVideoPosterFile(ExerciseCapture exercise, Treatment treatment) {
 
 File? _pickPhotoPosterFile(
   ExerciseCapture exercise,
-  Treatment treatment, {
-  bool viewOriginal = false,
-}) {
+  Treatment treatment,
+) {
   switch (treatment) {
     case Treatment.line:
       final conv = exercise.absoluteConvertedFilePath;
@@ -313,14 +312,12 @@ File? _pickPhotoPosterFile(
       return null;
     case Treatment.grayscale:
     case Treatment.original:
-      // Safe-Mode photo: prefer the obscured variant unless the
-      // editor sheet has flipped on the long-press "View original"
-      // override.
-      if (!viewOriginal) {
-        final safe = exercise.absoluteSafeRawFilePath;
-        if (safe != null && safe.isNotEmpty && File(safe).existsSync()) {
-          return File(safe);
-        }
+      // Safe-Mode photo: always prefer the obscured variant when
+      // present. There is no opt-out — showing the un-obscured
+      // original on a Safe-Mode capture is a privacy breach.
+      final safe = exercise.absoluteSafeRawFilePath;
+      if (safe != null && safe.isNotEmpty && File(safe).existsSync()) {
+        return File(safe);
       }
       final raw = exercise.absoluteRawFilePath;
       if (raw.isNotEmpty && File(raw).existsSync()) return File(raw);
@@ -340,9 +337,8 @@ File? _pickPhotoPosterFile(
 File? _pickVideoPlaybackFile(
   ExerciseCapture exercise,
   Treatment treatment,
-  bool bodyFocus, {
-  bool viewOriginal = false,
-}) {
+  bool bodyFocus,
+) {
   if (exercise.mediaType != MediaType.video) return null;
 
   if (treatment == Treatment.line) {
@@ -354,16 +350,13 @@ File? _pickVideoPlaybackFile(
   }
 
   // grayscale / original — when the capture was taken in Safe Mode and
-  // a safe variant exists on disk, prefer it by default. The editor
-  // sheet's long-press "View original" override flips [viewOriginal]
-  // to true so the practitioner can momentarily see un-obscured
-  // footage for editing decisions. Line treatment is unaffected —
-  // line drawings are already de-identified by the converter pipeline.
-  if (!viewOriginal) {
-    final safe = exercise.absoluteSafeRawFilePath;
-    if (safe != null && safe.isNotEmpty && File(safe).existsSync()) {
-      return File(safe);
-    }
+  // a safe variant exists on disk, always prefer it. There is no
+  // opt-out: showing the un-obscured raw on a Safe-Mode capture is a
+  // privacy breach. Line treatment is unaffected — line drawings are
+  // already de-identified by the converter pipeline.
+  final safe = exercise.absoluteSafeRawFilePath;
+  if (safe != null && safe.isNotEmpty && File(safe).existsSync()) {
+    return File(safe);
   }
 
   // Try the segmented body-pop variant first when body-focus is ON,
@@ -404,7 +397,6 @@ File? _pickVideoPlaybackFile(
 ExerciseHero resolveExerciseHero({
   required ExerciseCapture exercise,
   required HeroSurface surface,
-  bool viewOriginal = false,
 }) {
   // Rest periods: skeleton.
   if (exercise.isRest) {
@@ -440,7 +432,6 @@ ExerciseHero resolveExerciseHero({
       exercise,
       treatment,
       bodyFocus,
-      viewOriginal: viewOriginal,
     );
     // For grayscale we apply the matrix filter on top of the raw mp4
     // since the raw mp4 is colour. For line + original the bytes are
@@ -482,7 +473,6 @@ ExerciseHero resolveExerciseHero({
     poster = _pickPhotoPosterFile(
       exercise,
       treatment,
-      viewOriginal: viewOriginal,
     );
     // Photo grayscale is realised via ColorFilter on the raw JPG.
     // Photo line renders the converted line-drawing JPG directly (no

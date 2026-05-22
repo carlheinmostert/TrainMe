@@ -4087,16 +4087,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// drags emit one event per pixel; coalesce to one save per 250 ms.
   Timer? _crossfadePersistTimer;
 
-  /// S-7 (2026-05-22) — one-shot "view original" override for the
-  /// editor sheet. When the current exercise has a `safeRawFilePath`
-  /// (Safe Mode was active during capture), the resolver normally
-  /// returns the obscured variant for B&W + Original treatments. A
-  /// long-press on the media display flips this to true for the
-  /// CURRENT viewing of THIS exercise — reverts on page change /
-  /// treatment cycle so the override stays scoped to the practitioner's
-  /// explicit action.
-  bool _viewOriginal = false;
-
   ExerciseCapture get _current => _exercises[_currentIndex];
 
   bool _isVideo(ExerciseCapture e) =>
@@ -4285,7 +4275,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final hero = resolveExerciseHero(
       exercise: e,
       surface: HeroSurface.mediaViewer,
-      viewOriginal: _viewOriginal,
     );
     return hero.videoFile?.path;
   }
@@ -4745,90 +4734,8 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       // exercise doesn't open with a stale coral selection painted on
       // first frame.
       _selectedTrimHandle = null;
-      // S-7 — the "view original" override is scoped to the current
-      // exercise. Reset on page change so each new exercise re-applies
-      // the default (safe variant when a safeRawFilePath exists).
-      _viewOriginal = false;
     });
     _initVideoForCurrent();
-  }
-
-  /// S-7 (2026-05-22) — toggle the long-press "View original" override
-  /// for the current exercise. Only meaningful when [_current] has a
-  /// `safeRawFilePath` AND the active treatment isn't Line (line
-  /// drawings are already de-identified).
-  void _toggleViewOriginal() {
-    if (_current.safeRawFilePath == null) return;
-    if (_treatment == Treatment.line) return;
-    HapticFeedback.selectionClick();
-    setState(() {
-      _viewOriginal = !_viewOriginal;
-    });
-    if (_isVideo(_current)) {
-      _initVideoForCurrent();
-    }
-  }
-
-  /// S-7 — surface a one-shot action sheet on long-press. Only
-  /// shows the "View original" option when the exercise has a
-  /// `safeRawFilePath` and the active treatment can show colour
-  /// (Line is already de-identified). No-op otherwise so the
-  /// long-press feels invisible on non-Safe-Mode captures.
-  void _showViewOriginalActionSheet() {
-    if (_current.safeRawFilePath == null) return;
-    if (_treatment == Treatment.line) return;
-    final viewingOriginal = _viewOriginal;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.surfaceBase,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (sheetCtx) {
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(
-                    Icons.visibility_outlined,
-                    color: AppColors.textOnDark,
-                  ),
-                  title: Text(
-                    viewingOriginal
-                        ? 'Show obscured (Safe Mode)'
-                        : 'View original (un-obscured)',
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textOnDark,
-                    ),
-                  ),
-                  subtitle: Text(
-                    viewingOriginal
-                        ? 'Bystanders re-obscured.'
-                        : 'For your eyes only — resets on page change.',
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      color: AppColors.textSecondaryOnDark,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.of(sheetCtx).pop();
-                    _toggleViewOriginal();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   /// Switch to [next] — caller has already checked availability.
@@ -5049,14 +4956,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                             ? _handleVerticalDragEnd
                             : null,
                         onTap: isCurrent && isVideo ? _togglePlayPause : null,
-                        // S-7 — long-press toggles the "view original"
-                        // override for the current Safe Mode exercise.
-                        // Cheap action sheet via ActionSheet — keeps
-                        // R-01 "no modal confirmations" by being a
-                        // selection menu, not a yes/no prompt.
-                        onLongPress: isCurrent
-                            ? _showViewOriginalActionSheet
-                            : null,
                         behavior: HitTestBehavior.opaque,
                         child: Center(
                           child: isVideo
@@ -5198,13 +5097,11 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                   // S-7 — Safe Mode indicator next to the treatment
                   // selector. Visible only when the current exercise's
                   // safe variant is the active source AND the active
-                  // treatment isn't Line. Tooltip hints at the
-                  // long-press affordance for the "view original"
-                  // override.
+                  // treatment isn't Line. The un-obscured original is
+                  // never surfaced — privacy rule, no opt-out.
                   if (!_current.isRest &&
                       _current.safeRawFilePath != null &&
-                      _treatment != Treatment.line &&
-                      !_viewOriginal)
+                      _treatment != Treatment.line)
                     Positioned(
                       left: isLandscape ? null : 18,
                       top: isLandscape
@@ -5214,8 +5111,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                               : MediaQuery.of(context).size.height * 0.5 + 110),
                       right: isLandscape ? 18 : null,
                       child: Tooltip(
-                        message:
-                            'Bystanders obscured — long-press to view original',
+                        message: 'Bystanders obscured for privacy',
                         child: Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
