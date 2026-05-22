@@ -2187,6 +2187,16 @@ video.is-prep-paused {
   letter-spacing: -0.2px;
   color: var(--c-ink-secondary);
 }
+/* Brand rule (2026-05-22): `.studio` portion is ALWAYS coral; `homefit`
+   stays light. Applied via paired spans wrapping the lockup text on every
+   surface (footer, lobby export, v.html, what-we-share). The SVG lockup
+   in buildHomefitLogoLockupSvg() uses the same colours via <tspan>. */
+.homefit-logo-wordmark-name {
+  color: #F0F0F5;
+}
+.homefit-logo-wordmark-studio {
+  color: #FF6B35;
+}
 
 /* === Fullscreen / ambient mode ===================================
    When the viewport enters fullscreen (document.fullscreenElement is
