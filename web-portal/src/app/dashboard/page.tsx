@@ -293,11 +293,11 @@ export default async function DashboardPage({
 
             <DashboardTile
               href={`/clients${qs}`}
-              label="Clients"
+              label="Clients (private)"
               headline={clientsHeadline}
               subtitle={clientsSubtitle}
               icon={<UserRound size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="All clients across your practice. Drill in to see their plans, consent, and analytics."
+              description="Your private one-on-one clients. Each one gets a custom plan you build for them."
             />
 
             {/*
@@ -313,11 +313,11 @@ export default async function DashboardPage({
             */}
             <DashboardTile
               href="#"
-              label="Classes"
+              label="Classes (group)"
               headline="Coming soon"
               subtitle="Build once, share with everyone who enrolls"
               icon={<Layers size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="A subscription/class library — practitioners build a programme once and enrollees subscribe to follow it. Coming after MVP ships."
+              description="Group classes — build a programme once, many enrollees subscribe to follow it. Coming after MVP ships."
               comingSoon
             />
 
