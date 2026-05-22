@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Portal home cosmetic pass — 2026-05-22 mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --coral: #FF6B35;
+    --coral-dim: #FF6B3526;
+    --sage: #86EFAC;
+    --ink: #F0F0F5;
+    --ink-muted: #9CA3AF;
+    --ink-dim: #6B7280;
+    --surface-page: #0A0C12;
+    --surface-base: #14171F;
+    --surface-raised: #1B1F2A;
+    --surface-border: #2A2F3C;
+    --warning: #F59E0B;
+    --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #060810;
+    color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  /* Mockup page chrome */
+  .mockup-shell {
+    max-width: 1900px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+  .mockup-title {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    margin: 0 0 6px;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .mockup-subtitle {
+    margin: 0 0 32px;
+    color: var(--ink-muted);
+    font-size: 13px;
+    max-width: 720px;
+  }
+  .mockup-subtitle strong { color: var(--coral); font-weight: 600; }
+
+  /* Side-by-side frames */
+  .frames {
+    display: flex;
+    gap: 48px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 48px;
+  }
+  .frame {
+    background: var(--surface-page);
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--surface-border);
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+    flex-shrink: 0;
+  }
+  .frame-desktop { width: 1024px; }
+  .frame-mobile  { width: 375px; }
+
+  .viewport-label {
+    background: #000;
+    color: var(--ink-muted);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .browser-chrome {
+    background: #1a1d24;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--surface-border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .browser-dots {
+    display: flex;
+    gap: 6px;
+  }
+  .browser-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #3a3f4c;
+  }
+  .url-bar {
+    flex: 1;
+    background: #0c0e14;
+    color: var(--ink-muted);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid #2a2f3c;
+  }
+  .url-bar .host { color: var(--ink); }
+
+  /* The actual portal */
+  .portal {
+    background: var(--surface-page);
+  }
+
+  /* Portal HEADER */
+  .portal-header {
+    background: rgba(20, 23, 31, 0.8);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .portal-header-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+  }
+  .header-lockup {
+    display: flex;
+    align-items: center;
+    height: 40px;        /* h-10 */
+    text-decoration: none;
+  }
+  .header-lockup svg {
+    height: 40px;
+    width: auto;
+  }
+  .header-identity {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    font-size: 13px;
+    color: var(--ink-muted);
+  }
+  .header-identity .row { white-space: nowrap; }
+  .header-identity .row.muted { color: var(--ink-muted); }
+  .header-identity .row .label { color: var(--ink-dim); }
+  .header-identity .row .value { color: var(--ink); }
+  .header-identity .row .practice-name {
+    color: var(--ink);
+    border-bottom: 1px dashed transparent;
+  }
+  .header-identity .chevron {
+    display: inline-block;
+    transform: translateY(2px);
+    margin-left: 4px;
+    color: var(--ink-muted);
+  }
+  .header-identity .signout {
+    color: var(--ink-dim);
+    font-size: 12px;
+    text-decoration: none;
+    margin-top: 4px;
+    cursor: pointer;
+  }
+  .header-identity .signout:hover { color: var(--coral); }
+
+  /* Mobile header — same chrome, smaller padding */
+  .frame-mobile .portal-header-inner {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+  .frame-mobile .header-lockup svg { height: 32px; }
+  .frame-mobile .header-identity {
+    font-size: 11px;
+  }
+  .frame-mobile .header-identity .row {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Tile grid */
+  .portal-body {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 28px 60px;
+  }
+  .tile-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .frame-mobile .portal-body { padding: 24px 16px 40px; }
+  .frame-mobile .tile-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  /* Tile */
+  .tile {
+    background: var(--surface-base);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    position: relative;
+    transition: border-color .15s ease, transform .15s ease;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+  }
+  .tile:hover { border-color: var(--coral); }
+  .tile:hover .tile-icon { color: var(--coral); }
+  .tile:hover .tile-chevron { color: var(--coral); transform: translateX(2px); }
+
+  .tile-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-muted);
+    transition: color .15s ease;
+  }
+  .tile-icon svg {
+    width: 24px;
+    height: 24px;
+    stroke-width: 1.75;
+  }
+  .tile-info-glyph {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--ink-dim);
+    color: var(--ink-dim);
+    font-size: 9px;
+    font-weight: 700;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: serif;
+    line-height: 1;
+    cursor: help;
+  }
+  /* Mobile-only: surface the info glyph (since no hover) */
+  .frame-mobile .tile-info-glyph { display: flex; }
+
+  .tile-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .tile-label {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-muted);
+    margin: 0 0 6px;
+    font-weight: 600;
+  }
+  .tile-headline {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .tile-subtitle {
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin: 0;
+  }
+  .tile-chevron {
+    align-self: center;
+    color: var(--ink-dim);
+    transition: color .15s ease, transform .15s ease;
+    flex-shrink: 0;
+  }
+  .tile-chevron svg { width: 16px; height: 16px; stroke-width: 1.75; }
+
+  /* Warning tile state (Credits low) */
+  .tile.warning { border-color: var(--warning); }
+  .tile.warning .tile-headline { color: var(--warning); }
+
+  /* Audit card (taller, with rows) */
+  .tile.audit {
+    grid-column: span 1;
+    align-items: stretch;
+  }
+  .tile.audit .tile-content { display: flex; flex-direction: column; }
+  .audit-rows {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+  }
+  .audit-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+  .audit-row .chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(134, 239, 172, 0.12);
+    color: var(--sage);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+  .audit-row .chip.purchase { background: rgba(255, 107, 53, 0.12); color: var(--coral); }
+  .audit-row .chip.consent { background: rgba(245, 158, 11, 0.12); color: var(--warning); }
+  .audit-row .text { color: var(--ink); }
+  .audit-row .time { color: var(--ink-dim); margin-left: auto; font-size: 11px; }
+
+  /* Popover */
+  .tile-popover {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 260px;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12.5px;
+    color: var(--ink);
+    line-height: 1.5;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+  }
+  .tile-popover::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--surface-raised);
+  }
+  .tile-popover-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--coral);
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+
+  /* Callouts panel below frames */
+  .callouts {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 32px;
+    background: var(--surface-base);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-top: 8px;
+  }
+  .callouts h3 {
+    grid-column: 1 / -1;
+    margin: 0 0 4px;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--coral);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .callout {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .callout-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--coral);
+    color: #000;
+    font-weight: 700;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
+  .callout-text {
+    flex: 1;
+    font-size: 13px;
+    color: var(--ink-muted);
+    line-height: 1.5;
+  }
+  .callout-text strong { color: var(--ink); font-weight: 600; }
+  .callout-text code {
+    background: var(--surface-page);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--coral);
+  }
+
+  /* Variant footer notes */
+  .notes {
+    margin-top: 32px;
+    padding: 20px 24px;
+    background: rgba(255, 107, 53, 0.06);
+    border-left: 3px solid var(--coral);
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    line-height: 1.6;
+  }
+  .notes strong { color: var(--coral); }
+</style>
+</head>
+<body>
+
+<div class="mockup-shell">
+
+  <h1 class="mockup-title">Portal home — cosmetic pass mockup</h1>
+  <p class="mockup-subtitle">
+    Locks the decisions from the 2026-05-22 grilling session. Side-by-side desktop and mobile
+    frames; one tile (Credits) shown with its hover popover. Brand parity sweep
+    (mobile, web player, emails, OG card) is out of scope for this mockup but on-deck for the same wave.
+  </p>
+
+  <div class="frames">
+
+    <!-- ==================== DESKTOP FRAME ==================== -->
+    <div class="frame frame-desktop">
+      <div class="viewport-label">Desktop · 1280px viewport · /dashboard route (URL unchanged)</div>
+      <div class="browser-chrome">
+        <div class="browser-dots">
+          <div class="browser-dot"></div>
+          <div class="browser-dot"></div>
+          <div class="browser-dot"></div>
+        </div>
+        <div class="url-bar"><span class="host">manage.homefit.studio</span>/dashboard</div>
+      </div>
+
+      <div class="portal">
+
+        <!-- Header -->
+        <header class="portal-header">
+          <div class="portal-header-inner">
+            <a class="header-lockup" href="#">
+              <svg viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio">
+                <text x="24" y="4.6" text-anchor="middle" textLength="48" lengthAdjust="spacingAndGlyphs"
+                      font-family="Montserrat, sans-serif" font-weight="600" font-size="6.5" letter-spacing="-0.1">
+                  <tspan fill="#F0F0F5">homefit</tspan><tspan fill="#FF6B35">.studio</tspan>
+                </text>
+                <rect x="0"    y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+                <rect x="4"    y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="9"    y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+                <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="15"   y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="28"   y="6.5"  width="5" height="3" rx="1" fill="#86EFAC"/>
+                <rect x="34.5" y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="40.5" y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="45.5" y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+              </svg>
+            </a>
+
+            <div class="header-identity">
+              <div class="row">
+                <span class="label">Signed in as</span>
+                <span class="value">b4ntr5ztz8@privaterelay.appleid.com</span>
+              </div>
+              <div class="row">
+                <span class="label">In practice</span>
+                <span class="practice-name">Carl &amp; co biokineticists</span>
+                <span class="chevron">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </div>
+              <a class="signout" href="#">Sign out</a>
+            </div>
+          </div>
+        </header>
+
+        <!-- Body / tiles -->
+        <div class="portal-body">
+          <div class="tile-grid">
+
+            <!-- CREDITS — with popover visible -->
+            <a class="tile warning" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"></circle><path d="M18.09 10.37A6 6 0 1 1 10.34 18"></path><path d="M7 6h1v4"></path><path d="m16.71 13.88.7.71-2.82 2.82"></path></svg>
+              </div>
+              <div class="tile-content">
+                <p class="tile-label">Credits</p>
+                <h2 class="tile-headline">3 left</h2>
+                <p class="tile-subtitle">Top up to keep publishing</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+
+              <!-- Popover (hover state shown) -->
+              <div class="tile-popover">
+                <p class="tile-popover-label">On hover · 400ms delay</p>
+                Buy publishing credits and see what's left. One credit publishes one plan.
+              </div>
+            </a>
+
+            <!-- NETWORK -->
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+              </div>
+              <div class="tile-content">
+                <p class="tile-label">Network</p>
+                <h2 class="tile-headline">2 referrals</h2>
+                <p class="tile-subtitle">R 47.50 earned</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+            <!-- CLIENTS -->
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"></circle><path d="M20 21a8 8 0 0 0-16 0"></path></svg>
+              </div>
+              <div class="tile-content">
+                <p class="tile-label">Clients</p>
+                <h2 class="tile-headline">14 active</h2>
+                <p class="tile-subtitle">3 new this week</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+            <!-- AUDIT (rows) -->
+            <a class="tile audit" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4"></path><path d="M19 17V5a2 2 0 0 0-2-2H4"></path><path d="M15 8h-5"></path><path d="M15 12h-5"></path></svg>
+              </div>
+              <div class="tile-content">
+                <p class="tile-label">Audit</p>
+                <h2 class="tile-headline">5 recent</h2>
+                <div class="audit-rows">
+                  <div class="audit-row"><span class="chip">publish</span><span class="text">Knee rehab v3</span><span class="time">2h ago</span></div>
+                  <div class="audit-row"><span class="chip purchase">purchase</span><span class="text">50-credit bundle</span><span class="time">1d ago</span></div>
+                  <div class="audit-row"><span class="chip consent">consent</span><span class="text">M. Botha · avatar on</span><span class="time">2d ago</span></div>
+                </div>
+              </div>
+            </a>
+
+            <!-- ACCOUNT -->
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              </div>
+              <div class="tile-content">
+                <p class="tile-label">Account</p>
+                <h2 class="tile-headline">Settings</h2>
+                <p class="tile-subtitle">Email, password, practice name</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+            <!-- MEMBERS (owner-only) -->
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 21a8 8 0 0 0-16 0"></path><circle cx="10" cy="8" r="5"></circle><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"></path></svg>
+              </div>
+              <div class="tile-content">
+                <p class="tile-label">Members</p>
+                <h2 class="tile-headline">3 in practice</h2>
+                <p class="tile-subtitle">1 pending invite</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MOBILE FRAME ==================== -->
+    <div class="frame frame-mobile">
+      <div class="viewport-label">Mobile · 375px viewport</div>
+      <div class="browser-chrome">
+        <div class="browser-dots">
+          <div class="browser-dot"></div>
+          <div class="browser-dot"></div>
+          <div class="browser-dot"></div>
+        </div>
+        <div class="url-bar" style="font-size:10px"><span class="host">manage.homefit.studio</span>/dashboard</div>
+      </div>
+
+      <div class="portal">
+
+        <header class="portal-header">
+          <div class="portal-header-inner">
+            <a class="header-lockup" href="#">
+              <svg viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio">
+                <text x="24" y="4.6" text-anchor="middle" textLength="48" lengthAdjust="spacingAndGlyphs"
+                      font-family="Montserrat, sans-serif" font-weight="600" font-size="6.5" letter-spacing="-0.1">
+                  <tspan fill="#F0F0F5">homefit</tspan><tspan fill="#FF6B35">.studio</tspan>
+                </text>
+                <rect x="0"    y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+                <rect x="4"    y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="9"    y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+                <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="15"   y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="28"   y="6.5"  width="5" height="3" rx="1" fill="#86EFAC"/>
+                <rect x="34.5" y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="40.5" y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="45.5" y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+              </svg>
+            </a>
+
+            <div class="header-identity">
+              <div class="row">
+                <span class="label">Signed in as</span><br/>
+                <span class="value">b4ntr5ztz8@privaterelay.appleid.com</span>
+              </div>
+              <div class="row">
+                <span class="label">In practice</span>
+                <span class="practice-name">Carl &amp; co</span>
+                <span class="chevron">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </div>
+              <a class="signout" href="#">Sign out</a>
+            </div>
+          </div>
+        </header>
+
+        <div class="portal-body">
+          <div class="tile-grid">
+
+            <a class="tile warning" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"></circle><path d="M18.09 10.37A6 6 0 1 1 10.34 18"></path></svg>
+              </div>
+              <div class="tile-info-glyph" title="What is this?">i</div>
+              <div class="tile-content">
+                <p class="tile-label">Credits</p>
+                <h2 class="tile-headline">3 left</h2>
+                <p class="tile-subtitle">Top up to keep publishing</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+              </div>
+              <div class="tile-info-glyph" title="What is this?">i</div>
+              <div class="tile-content">
+                <p class="tile-label">Network</p>
+                <h2 class="tile-headline">2 referrals</h2>
+                <p class="tile-subtitle">R 47.50 earned</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"></circle><path d="M20 21a8 8 0 0 0-16 0"></path></svg>
+              </div>
+              <div class="tile-info-glyph" title="What is this?">i</div>
+              <div class="tile-content">
+                <p class="tile-label">Clients</p>
+                <h2 class="tile-headline">14 active</h2>
+                <p class="tile-subtitle">3 new this week</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+            <a class="tile audit" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4"></path><path d="M19 17V5a2 2 0 0 0-2-2H4"></path><path d="M15 8h-5"></path><path d="M15 12h-5"></path></svg>
+              </div>
+              <div class="tile-info-glyph" title="What is this?">i</div>
+              <div class="tile-content">
+                <p class="tile-label">Audit</p>
+                <h2 class="tile-headline">5 recent</h2>
+                <div class="audit-rows">
+                  <div class="audit-row"><span class="chip">publish</span><span class="text">Knee rehab</span><span class="time">2h</span></div>
+                  <div class="audit-row"><span class="chip purchase">purchase</span><span class="text">50 bundle</span><span class="time">1d</span></div>
+                </div>
+              </div>
+            </a>
+
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              </div>
+              <div class="tile-info-glyph" title="What is this?">i</div>
+              <div class="tile-content">
+                <p class="tile-label">Account</p>
+                <h2 class="tile-headline">Settings</h2>
+                <p class="tile-subtitle">Email, password</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+            <a class="tile" href="#">
+              <div class="tile-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 21a8 8 0 0 0-16 0"></path><circle cx="10" cy="8" r="5"></circle><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"></path></svg>
+              </div>
+              <div class="tile-info-glyph" title="What is this?">i</div>
+              <div class="tile-content">
+                <p class="tile-label">Members</p>
+                <h2 class="tile-headline">3 in practice</h2>
+                <p class="tile-subtitle">1 pending invite</p>
+              </div>
+              <div class="tile-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </div>
+            </a>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CALLOUTS ==================== -->
+  <div class="callouts">
+    <h3>What this mockup encodes</h3>
+
+    <div class="callout">
+      <div class="callout-num">1</div>
+      <div class="callout-text">
+        <strong>Lockup top-left at <code>h-10</code>.</strong> Wordmark stacked above the matrix, exact-width via <code>textLength="48"</code>. <code>.studio</code> (with the dot) renders coral <code>#FF6B35</code>; <code>homefit</code> stays light <code>#F0F0F5</code>. Same rule applies on mobile + web player + auth emails + OG card in this wave.
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-num">2</div>
+      <div class="callout-text">
+        <strong>Right side: two-line identity stack.</strong> Top line = literal email. Bottom line = practice name with a chevron that opens the switcher popover (chevron hidden if user is in one practice only). Below both: small <code>Sign out</code> text link. No chip, no dropdown, no rename inline — rename lives on <code>/account</code>.
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-num">3</div>
+      <div class="callout-text">
+        <strong>No "Dashboard" h1.</strong> The route stays at <code>/dashboard</code> — only the user-visible label is gone. Browser tab title drops the word too. Same header chrome ships on every authenticated page (Clients, Audit, Members, Network, Credits, Account).
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-num">4</div>
+      <div class="callout-text">
+        <strong>Tile order: Credits · Network · Clients · Audit · Account · Members.</strong> Credits + Network adjacent (currency cluster, per the existing comment in <code>dashboard/page.tsx:205-211</code>). Account second-to-last. Members owner-only.
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-num">5</div>
+      <div class="callout-text">
+        <strong>Every tile gets a 40px left icon slot.</strong> Lucide outline icons, 1.75 stroke, 24px. Muted-ink at rest, coral on hover (matches existing chevron behaviour). The Audit card is treated identically — icon on left, audit rows shift right of the slot.
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-num">6</div>
+      <div class="callout-text">
+        <strong>Hover popover, 400ms delay (Radix Tooltip).</strong> Floats above the tile with a downward caret. Touch viewports: <code>(i)</code> info glyph in the top-right of each tile opens the popover on tap. Tile click target intact — popover doesn't intercept.
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-num">7</div>
+      <div class="callout-text">
+        <strong>Account is now a tile, not a dropdown.</strong> The chip's dropdown is gone — Sign out moved to the header text link, Account settings moved to the tile. The chip itself collapses into the text-style identity stack.
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-num">8</div>
+      <div class="callout-text">
+        <strong>Mobile: header stays one strip.</strong> Lockup shrinks to <code>h-8</code>, email wraps below "Signed in as" label, practice name truncates on extreme narrow widths. Tiles stack to one column with info glyphs surfaced (no hover on touch).
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <strong>Out of scope for this mockup, on-deck for the same wave:</strong>
+    mobile app <code>homefit_logo.dart</code> coral-split update, web player <code>buildHomefitLogoSvg()</code> coral-split update,
+    auth email PNG re-render + Management API re-apply, referral OG card update. Memory entry in
+    <code>brand_system.md</code> + brand docs (<code>tokens.json</code>, <code>voice.md</code>, <code>CLAUDE.md</code>)
+    record the <code>.studio</code>-always-coral rule. Mobile + web player parity sweep ships under the same brand-rule update so the rule is uniformly applied at one moment in time.
+  </div>
+
+</div>
+
+</body>
+</html>
