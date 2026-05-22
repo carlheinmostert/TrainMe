@@ -130,3 +130,37 @@ export function webPlayerBaseUrl(): string {
     'https://missing-NEXT_PUBLIC_WEB_PLAYER_BASE_URL.invalid',
   );
 }
+
+/**
+ * Derive the player surface origin from the portal host. Used by
+ * surfaces (e.g. `/public-profile`) that want the Preview button to
+ * point at the SAME deploy ring as the portal it's rendering on:
+ * staging-portal → staging-player, prod-portal → prod-player,
+ * localhost → localhost. Avoids the bug where the staging Preview
+ * button 404s by pointing at the prod player.
+ *
+ * Vercel preview deployments (`manage-*.vercel.app`, etc.) fall through
+ * to prod-session as a safe default — preview branches don't have a
+ * matching player deploy, but the prod player at least renders.
+ *
+ * Pure function: takes the host string + optional protocol. The
+ * server-side wrapper [playerOriginFromHeaders] reads `headers()`;
+ * client-side callers pass `window.location.hostname` directly.
+ */
+export function playerOriginFromHost(host: string | null | undefined): string {
+  if (!host) return 'https://session.homefit.studio';
+  // Strip the port if present (e.g. `localhost:3000` -> `localhost`).
+  const hostname = host.split(':')[0]?.toLowerCase() ?? '';
+  if (hostname === 'manage.homefit.studio') {
+    return 'https://session.homefit.studio';
+  }
+  if (hostname === 'staging.manage.homefit.studio') {
+    return 'https://staging.session.homefit.studio';
+  }
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:8000';
+  }
+  // Vercel preview deployments + anything unrecognised fall through to
+  // prod-session as a safe default.
+  return 'https://session.homefit.studio';
+}

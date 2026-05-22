@@ -1,10 +1,11 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { playerOriginFromHost } from '@/lib/env';
 import { PublicProfileEditor } from './PublicProfileEditor';
 
 type SearchParams = { practice?: string; section?: 'branding' | 'identity' };
@@ -53,6 +54,16 @@ export default async function PublicProfilePage({
   ]);
   const isOwner = role === 'owner';
 
+  // Derive the player origin from the current portal host so the
+  // Preview button + inline `<code>` label point at the same deploy
+  // ring (staging-portal → staging-player, prod-portal → prod-player).
+  // Without this, the staging button 404s on the prod player because
+  // Public Profile v2 isn't promoted to prod yet.
+  const reqHeaders = await headers();
+  const playerOrigin = playerOriginFromHost(reqHeaders.get('host'));
+  // Display hostname for the inline `<code>` label (strip protocol).
+  const playerHostLabel = playerOrigin.replace(/^https?:\/\//, '');
+
   return (
     <main className="flex min-h-screen flex-col">
       <BrandHeader
@@ -74,20 +85,35 @@ export default async function PublicProfilePage({
           <p className="text-sm text-ink-muted">
             What clients see at{' '}
             <code className="rounded bg-surface-raised px-1 py-0.5 text-[11px] text-ink">
-              session.homefit.studio/v/{profile?.slug ?? 'your-slug'}
+              {playerHostLabel}/v/{profile?.slug ?? 'your-slug'}
             </code>
             . Logo + brand color also cascade into every plan you publish.
           </p>
-          {profile?.slug && profile.listed && (
-            <a
-              href={`https://session.homefit.studio/v/${profile.slug}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="self-start rounded-md border border-surface-border bg-surface-raised px-3 py-1.5 text-xs text-ink hover:border-brand hover:text-brand"
-            >
-              Preview your page ↗
-            </a>
-          )}
+          {/* Preview button: gate on `listed` because get_practice_profile
+              filters WHERE public_profile_listed = true for ALL callers
+              (anon + authenticated owner alike), so an unlisted slug 404s
+              even for its owner. Downgraded from hidden to disabled-with-
+              tooltip so practitioners can see the affordance exists. */}
+          {profile?.slug ? (
+            profile.listed ? (
+              <a
+                href={`${playerOrigin}/v/${profile.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="self-start rounded-md border border-surface-border bg-surface-raised px-3 py-1.5 text-xs text-ink hover:border-brand hover:text-brand"
+              >
+                Preview your page ↗
+              </a>
+            ) : (
+              <span
+                title="Toggle 'List in the directory' to preview — the public page is hidden until the practice is listed."
+                aria-disabled="true"
+                className="cursor-not-allowed self-start rounded-md border border-surface-border bg-surface-raised px-3 py-1.5 text-xs text-ink-muted opacity-60"
+              >
+                Preview your page ↗
+              </span>
+            )
+          ) : null}
         </div>
 
         <PublicProfileEditor
@@ -96,6 +122,7 @@ export default async function PublicProfilePage({
           isOwner={isOwner}
           initial={profile}
           initialSection={params.section}
+          playerHostLabel={playerHostLabel}
         />
       </div>
     </main>

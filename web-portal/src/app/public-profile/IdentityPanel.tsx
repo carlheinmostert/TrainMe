@@ -16,6 +16,13 @@ type Props = {
   profile: PracticePublicProfile;
   onSaved: (next: PracticePublicProfile) => void;
   defaultOpen?: boolean;
+  /**
+   * Hostname-only label for the paired player surface (e.g.
+   * `session.homefit.studio` on prod, `staging.session.homefit.studio`
+   * on staging). Used in the directory-listing copy so the inline
+   * preview matches the deploy ring the practitioner is looking at.
+   */
+  playerHostLabel: string;
 };
 
 // F-H1 fix (synthesis 2026-05-21): the hint promises a 3-40 char slug
@@ -37,6 +44,7 @@ export function IdentityPanel({
   profile,
   onSaved,
   defaultOpen,
+  playerHostLabel,
 }: Props) {
   const [slug, setSlug] = useState(profile.slug ?? '');
   const [tagline, setTagline] = useState(profile.tagline ?? '');
@@ -236,7 +244,7 @@ export function IdentityPanel({
           <span>
             List in the directory at{' '}
             <code className="text-ink">
-              session.homefit.studio/v/{slug || 'your-slug'}
+              {playerHostLabel}/v/{slug || 'your-slug'}
             </code>
           </span>
         </label>
