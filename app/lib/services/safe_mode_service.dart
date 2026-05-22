@@ -1,27 +1,38 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'api_client.dart';
 
-/// Camera-sticky service that tracks whether the camera surface is
-/// operating inside a Safe-Mode-enforcing premises.
+/// App-wide service that tracks whether the practitioner is currently
+/// inside a Safe-Mode-enforcing premises polygon. Drives the persistent
+/// top-of-app banner (PR #413) across every screen.
 ///
-/// Lifecycle (updated 2026-05-22 — camera-sticky, no longer session-sticky):
-///   1. On camera mount, the screen calls [reset] then [checkLocation].
-///      [checkLocation] requests `whenInUse` location permission, gets one
-///      GPS fix, and asks the server's `find_premises_at` RPC if the
-///      point lies inside an enforcing polygon.
-///   2. If a match is returned, [isActive] becomes true. If not, a
-///      one-shot retry is scheduled 30 seconds later — GPS fixes
+/// Lifecycle (updated 2026-05-22 — app-wide, no longer camera-bound):
+///   1. On app launch, `main()` calls [maybeInitialCheck] right after
+///      [initialize]. If location permission is already granted, the
+///      service runs one [checkLocation] so the banner is accurate
+///      from the first frame. If permission isn't granted yet,
+///      [maybeInitialCheck] no-ops — the camera screen is the gating
+///      surface that prompts (S-6).
+///   2. If [checkLocation] returns anything other than `active`, a
+///      one-shot retry is scheduled 30 seconds later. GPS fixes
 ///      improve as the device sits still and the practitioner has
-///      typically only just walked in.
-///   3. On camera dispose, the screen calls [cancelRetry] to stop a
-///      pending retry timer. State is NOT cleared on dispose so a
-///      manual toggle from Studio survives the Camera ↔ Studio swipe.
-///   4. On session end (the camera surface is torn down entirely),
-///      [reset] returns to `unchecked`.
+///      typically only just walked into the venue.
+///   3. The retry keeps re-running every 30s while the app is in the
+///      foreground and the state is `notInZone` or `unavailable`. The
+///      moment state becomes `active` (auto or manual), the retry
+///      cancels itself. If the practitioner walks OUT of a polygon
+///      again, [checkLocation] will need to be re-triggered manually
+///      (the active state is sticky for the surface lifetime).
+///   4. App background / paused: the timer is cancelled. App resumed:
+///      we re-run [checkLocation] immediately (and schedule another
+///      retry if needed).
+///   5. Camera mount still calls [reset] + [checkLocation] for the
+///      legacy camera-mount semantics — a manual toggle survives the
+///      Camera ↔ Studio page swipe because [reset] clears state but
+///      the immediate re-check fires before any rendering uses it.
 ///
 /// Manual override:
 ///   * [forceActive] flips the service into `active` with a synthetic
@@ -30,16 +41,24 @@ import 'api_client.dart';
 ///     without a GPS match. Cancels any pending retry.
 ///
 /// Consumers (one each, no recursion):
-///   * Capture UI (banner display via [isActive] / [premisesName]).
+///   * Persistent banner (app-wide via [isActive] / [premisesName]).
+///   * Capture UI (additional in-viewfinder cues).
 ///   * Conversion service (passes `safeModeEnabled` to native channel).
 ///   * Upload service (stamps `safe_mode_active` + `captured_in_premises_id`
 ///     on every exercise in the published session). `premisesId` is
 ///     NULL for manual mode — the RPC handles NULL gracefully.
 ///
+/// Battery note: while the app is foreground AND state is not active,
+/// the retry runs one GPS fix + one RPC every 30s — ~120/hour. That's
+/// acceptable for the bystander-privacy promise (banner must stay
+/// accurate as the practitioner moves between rooms / venues). If
+/// real-world telemetry shows pressure, revisit with exponential
+/// backoff (30s → 1m → 2m → 5m cap).
+///
 /// Singleton because the active session has at most one Safe Mode
 /// state, and threading the state through every capture pathway is
 /// noisy. `SafeModeService.instance` is set up in `main()`.
-class SafeModeService extends ChangeNotifier {
+class SafeModeService extends ChangeNotifier with WidgetsBindingObserver {
   SafeModeService._(this._api);
 
   static SafeModeService? _instance;
@@ -54,9 +73,14 @@ class SafeModeService extends ChangeNotifier {
   }
 
   /// Wire up the singleton at app launch. Idempotent — repeated calls
-  /// reuse the existing instance.
+  /// reuse the existing instance. On first call we register a
+  /// [WidgetsBindingObserver] so the service can pause/resume the retry
+  /// timer with app lifecycle (foreground → run, background → cancel).
   static void initialize(ApiClient api) {
-    _instance ??= SafeModeService._(api);
+    if (_instance != null) return;
+    final svc = SafeModeService._(api);
+    WidgetsBinding.instance.addObserver(svc);
+    _instance = svc;
   }
 
   final ApiClient _api;
@@ -115,6 +139,30 @@ class SafeModeService extends ChangeNotifier {
   String? _lastMatchName;
 
   _SafeModeState _state = const _SafeModeState.unchecked();
+
+  /// App-launch convenience: run [checkLocation] iff the OS has already
+  /// granted location permission. Never prompts — the camera screen
+  /// remains the gating surface for the first-time permission ask
+  /// (S-6). Safe to call from `main()` before the first frame is
+  /// painted; it's fire-and-forget.
+  ///
+  /// Rationale: with the persistent banner visible app-wide (PR #413),
+  /// the practitioner expects the banner to be accurate from the
+  /// moment the app opens — not only after they visit the camera.
+  /// Practitioners with prior permission grants get an immediate
+  /// check; everyone else gets the existing camera-gated flow.
+  Future<void> maybeInitialCheck() async {
+    if (_state.isManual) return;
+    final hasService = await Geolocator.isLocationServiceEnabled();
+    if (!hasService) return;
+    final permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.whileInUse
+        && permission != LocationPermission.always) {
+      // No prompt, no state change — the camera surface owns that.
+      return;
+    }
+    await checkLocation();
+  }
 
   /// One-shot query: get a GPS fix, ask the server which (if any)
   /// premises contains it.
@@ -263,9 +311,40 @@ class SafeModeService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// App lifecycle hook — keeps the 30s retry timer aligned with
+  /// foreground state.
+  ///
+  /// * paused / inactive / hidden → cancel the retry. A GPS poll while
+  ///   the app is backgrounded would burn battery for a banner that
+  ///   nobody can see.
+  /// * resumed → if state is not active and not manual, re-run
+  ///   [checkLocation] immediately (which itself schedules the next
+  ///   30s retry). This catches the practitioner walking into a
+  ///   polygon while the phone was locked.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        cancelRetry();
+        break;
+      case AppLifecycleState.resumed:
+        if (!_state.isActive && !_state.isManual) {
+          // Fire-and-forget — checkLocation owns its own state
+          // transitions + retry scheduling.
+          unawaited(checkLocation());
+        }
+        break;
+    }
+  }
+
   @override
   void dispose() {
     cancelRetry();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }

@@ -86,10 +86,19 @@ void main() async {
     // without waiting for an async load.
     await PractitionerCustomPresets.init();
 
-    // Safe Mode (2026-05-21) — session-scoped geofenced bystander blur
-    // service. Singleton wired here so the capture screen can read its
-    // state without dependency injection plumbing. Idempotent.
+    // Safe Mode (2026-05-21) — geofenced bystander blur service.
+    // Singleton wired here so every consumer (persistent banner,
+    // capture screen, conversion, upload) reads from the same state
+    // without dependency injection plumbing. Idempotent.
+    //
+    // Post-PR #413 (persistent banner) and the app-wide 30s retry
+    // wave: the service now owns its own retry timer + lifecycle, so
+    // the banner stays accurate whether the practitioner is in
+    // Clients, Studio, Settings, or Camera. `maybeInitialCheck()`
+    // fires the first GPS poll iff permission is already granted —
+    // it never prompts (camera remains the gating surface, S-6).
     SafeModeService.initialize(ApiClient.instance);
+    unawaited(SafeModeService.instance.maybeInitialCheck());
 
     runApp(TrainMeApp(storage: storage));
   } catch (e, stack) {

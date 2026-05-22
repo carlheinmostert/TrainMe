@@ -283,12 +283,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _safeRejectionSub = null;
     _safeToastClearTimer?.cancel();
     _safeToastClearTimer = null;
-    // Camera-sticky: stop any pending Safe Mode retry so the timer
-    // can't fire after the screen is gone. State itself is NOT
-    // cleared on dispose — a manual override engaged from Studio
-    // (`forceActive`) must survive the Camera ↔ Studio page swipe.
-    // Full reset happens at session boundary (SessionShell.initState).
-    SafeModeService.instance.cancelRetry();
+    // App-wide retry (post 2026-05-22): the SafeModeService owns the
+    // 30s retry timer itself, tied to app foreground lifecycle. We
+    // deliberately do NOT cancel here — leaving Camera shouldn't kill
+    // the retry that's keeping the persistent banner accurate while
+    // the practitioner reviews their list of clients. Service cancels
+    // on app background and on `forceActive` / `active` transitions.
     _cameraController?.dispose();
     _flyController.dispose();
     _lockTargetController.dispose();
