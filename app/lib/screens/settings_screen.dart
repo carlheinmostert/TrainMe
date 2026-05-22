@@ -12,6 +12,7 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/powered_by_footer.dart';
+import '../widgets/practice_switcher_sheet.dart';
 import '../widgets/set_password_sheet.dart';
 import '../widgets/undo_snackbar.dart';
 import 'diagnostics_screen.dart';
@@ -649,7 +650,16 @@ class _Divider extends StatelessWidget {
 class _ReadOnlyRow extends StatelessWidget {
   final String label;
   final String value;
-  const _ReadOnlyRow({required this.label, required this.value});
+
+  /// Optional trailing widget (e.g. chevron for the tappable practice
+  /// picker). When null the row reads as a pure display row.
+  final Widget? trailing;
+
+  const _ReadOnlyRow({
+    required this.label,
+    required this.value,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -685,6 +695,7 @@ class _ReadOnlyRow extends StatelessWidget {
               ],
             ),
           ),
+          ?trailing,
         ],
       ),
     );
@@ -928,6 +939,11 @@ class _PracticeRowState extends State<_PracticeRow> {
   bool _errored = false;
   String? _loadedForPracticeId;
 
+  /// Full membership list backing the bottom-sheet picker. Empty until
+  /// the first cache read / network reply resolves. The picker is only
+  /// offered when this contains more than one entry.
+  List<PracticeMembership> _memberships = const [];
+
   @override
   void initState() {
     super.initState();
@@ -955,12 +971,15 @@ class _PracticeRowState extends State<_PracticeRow> {
       final cached = await SyncService.instance.storage.getCachedPractices();
       if (!mounted || _loadedForPracticeId != practiceId) return;
       if (cached.isNotEmpty) {
+        final memberships =
+            cached.map((c) => c.toMembership()).toList(growable: false);
         final match = cached.firstWhere(
           (m) => m.id == practiceId,
           orElse: () => cached.first,
         );
         setState(() {
           _name = match.name.isNotEmpty ? match.name : null;
+          _memberships = memberships;
           _loading = false;
           _errored = false;
         });
@@ -993,6 +1012,7 @@ class _PracticeRowState extends State<_PracticeRow> {
       );
       setState(() {
         _name = match.name.isNotEmpty ? match.name : _name;
+        _memberships = memberships;
         _loading = false;
         _errored = false;
       });
@@ -1006,6 +1026,23 @@ class _PracticeRowState extends State<_PracticeRow> {
     }
   }
 
+  /// Open the bottom-sheet practice picker. Identical to the picker
+  /// previously surfaced by the home-screen PracticeChip — same
+  /// widget, same membership list, same on-select wiring through
+  /// AuthService.selectPractice. The Settings _PracticeRow's
+  /// ValueListenableBuilder catches the change and re-renders.
+  Future<void> _openPicker() async {
+    HapticFeedback.selectionClick();
+    await PracticeSwitcherSheet.show(
+      context,
+      memberships: _memberships,
+      currentPracticeId: widget.practiceId,
+    );
+    // No-op after; sheet writes to AuthService.currentPracticeId and
+    // the parent ValueListenableBuilder triggers a rebuild that flows
+    // through didUpdateWidget → _refresh.
+  }
+
   @override
   Widget build(BuildContext context) {
     String valueText;
@@ -1017,13 +1054,40 @@ class _PracticeRowState extends State<_PracticeRow> {
       valueText = _name ?? '—';
     }
     final retryable = _errored && widget.practiceId != null;
-    final row = _ReadOnlyRow(label: 'Practice', value: valueText);
-    if (!retryable) return row;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _refresh,
-      child: row,
+    final canSwitch =
+        !retryable && !_loading && _memberships.length > 1;
+
+    final row = _ReadOnlyRow(
+      label: 'Practice',
+      value: valueText,
+      // Surface a chevron so the row reads as tappable when there's
+      // more than one practice to switch to. R-09 — obvious defaults.
+      trailing: canSwitch
+          ? const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.grey500,
+              size: 22,
+            )
+          : null,
     );
+
+    if (retryable) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _refresh,
+        child: row,
+      );
+    }
+    if (canSwitch) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _openPicker,
+          child: row,
+        ),
+      );
+    }
+    return row;
   }
 }
 
