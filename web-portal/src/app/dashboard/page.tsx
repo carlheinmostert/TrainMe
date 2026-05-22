@@ -10,10 +10,10 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { DashboardTile } from '@/components/DashboardTile';
 import { DashboardAuditCard } from '@/components/DashboardAuditCard';
 import { DashboardTooltipProvider } from '@/components/DashboardTooltipProvider';
+import { GetTheAppBanner } from '@/components/GetTheAppBanner';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 import {
   Coins,
-  Share2,
   UserRound,
   ScrollText,
   UsersRound,
@@ -35,6 +35,14 @@ type SearchParams = { practice?: string };
  *   - R-12.3 primary nav covers every destination — BrandHeader expanded.
  *   - R-12.4 dashboard is a summary — no inline forms, no long lists.
  *   - R-12.5 one affordance style — DashboardTile everywhere.
+ *
+ * Dashboard rework (2026-05-22 — C-9 + C-12 + C-13):
+ *   - C-9: Classes tile remains as a coming-soon teaser.
+ *   - C-12: Network tile removed. Its content now lives on the Credits
+ *     tile as a coral footer band ("+ N free earned from your network").
+ *   - C-13: GetTheAppBanner renders above the grid for practices that
+ *     haven't published yet. Clients + Classes tiles carry an "iOS"
+ *     chip signalling that their content lives in the iOS app.
  *
  * Owners see 5 tiles (includes Members), practitioners see 4.
  */
@@ -125,6 +133,10 @@ export default async function DashboardPage({
     // applied — the card is the engagement signal, the dedicated page
     // is for triage. Replaces the pre-Wave-40 `getLastIssuanceAt` single-
     // line "Last publish · 2 days ago" tile which surfaced no row payload.
+    //
+    // Dashboard rework (C-13): this same query gates the GetTheAppBanner
+    // visibility — any row whose kind is `plan.publish` proves the
+    // practice has published before, so the loud banner stops rendering.
     auditApi.listAudit(selected.id, { limit: 5 }),
     api.listPracticePremises(selected.id),
     // Public Profile v2 — surface the practice's branding + directory
@@ -151,6 +163,15 @@ export default async function DashboardPage({
     ? 'Running low — top up'
     : 'Buy more';
 
+  // Credits footer band copy (C-12 merge). The band is the entry point
+  // to /network — when the practitioner has earned rebate credits the
+  // copy surfaces the figure; otherwise it's a forward-leaning invite.
+  const rebateBalance = referralStats.rebate_balance_credits;
+  const creditsFooterCopy =
+    rebateBalance > 0
+      ? `+ ${fmtCredits(rebateBalance)} free earned from your network`
+      : 'Earn free credits from your network';
+
   // Clients — "active this week" = last_plan_at within last 7 days.
   const clientCount = clients.length;
   const now = Date.now();
@@ -171,23 +192,20 @@ export default async function DashboardPage({
         ? `${activeThisWeek} active this week`
         : 'No activity this week';
 
-  // Network — surface rebate-balance + referee count. Peer-to-peer
-  // language: "free credits", "in your network". Never
-  // "earned", "commission", "reward", "payout".
-  const rebateBalance = referralStats.rebate_balance_credits;
-  const refereeCount = referralStats.referee_count;
-  const networkHeadline =
-    rebateBalance > 0
-      ? `${fmtCredits(rebateBalance)} free credits`
-      : 'Earn Free Credits';
-  const networkSubtitle =
-    refereeCount === 0
-      ? 'Share your code to start'
-      : `${refereeCount} ${refereeCount === 1 ? 'practitioner' : 'practitioners'} in your network`;
-
   // Audit — DashboardAuditCard renders rows directly; the pre-Wave-40
   // single-line "Last publish · …" computation moved into the card's
   // empty-state fallback.
+
+  // GetTheAppBanner gate (C-13). Show the loud install banner unless
+  // the audit feed contains a `plan.publish` row. We reuse the audit
+  // query the dashboard already makes — no extra round-trip. With
+  // limit=5 we catch the vast majority of fresh-signup users (their
+  // ledger usually contains only credit.signup_bonus on row 1);
+  // returning users whose 5 most-recent events all post-date their
+  // first publish naturally fall through to the "hide banner" branch.
+  const hasPublished = auditPreview.rows.some(
+    (r) => r.kind === 'plan.publish',
+  );
 
   // Members (owner only)
   const memberCount = members.length;
@@ -239,38 +257,36 @@ export default async function DashboardPage({
         practices={practices}
       />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-        {/*
-          Tile order is load-bearing. Network MUST sit next to Credits so
-          the two forms of the same currency (bought credits + free
-          credits earned from the network) are scannable together. This
-          reinforces the single-currency mental model: you BUY credits,
-          you EARN free credits on your network's spend.
+        {/* C-13: install nudge for users who haven't published yet.
+            Disappears automatically once `plan.publish` appears in the
+            audit feed. */}
+        {!hasPublished && <GetTheAppBanner />}
 
-          Cosmetic pass (2026-05-22): the h1 "Dashboard" + signed-in
-          email + practice-context line all moved into the BrandHeader's
-          identity stack. Practice rename now lives on the Account tile;
-          this page is now PURE TILE GRID.
+        {/*
+          Tile inventory (post-rework 2026-05-22):
+            1. Credits        — what you have to spend (footer band
+                                surfaces "+ N free earned from network")
+            2. Clients        — the core work surface (1:1 relationship,
+                                iOS chip — content lives in the app)
+            3. Classes        — coming-soon teaser (iOS chip — same)
+            4. Members        — (owner only; non-owners see the row reflow)
+            5. Public profile — your directory + branding face
+            6. Premises       — Safe Mode geofence sites
+            7. Account        — email, password, practice name
+            8. Audit          — append-only history of everything above
+
+          C-12 merge: the standalone Network tile was retired. Both
+          forms of credit (bought + earned-from-network) now live on the
+          Credits tile — the body links to /credits and the coral footer
+          band links to /network. No nested anchors; the band is a
+          sibling Link inside the card chrome.
+
+          C-7: each tile owns two Tooltip.Roots (main + touch info) so
+          popovers anchor to the hovered tile, not viewport (0,0).
+          C-8: every tile carries `h-full` so row-mates equalise to the
+          tallest card (usually Audit).
         */}
         <DashboardTooltipProvider>
-          {/*
-            Tile order is load-bearing (locked in the 2026-05-22 portal
-            cosmetics stack, item C-10 + Carl's same-day follow-up that
-            moved Classes adjacent to Clients):
-              1. Credits        — what you have to spend
-              2. Network        — what you can EARN to spend
-              3. Clients        — the core work surface (1:1 relationship)
-              4. Classes        — coming-soon teaser (1:many relationship)
-              5. Members        — (owner only; non-owners see the row reflow)
-              6. Public profile — your directory + branding face
-              7. Premises       — Safe Mode geofence sites
-              8. Account        — email, password, practice name
-              9. Audit          — append-only history of everything above
-
-            C-7: each tile owns two Tooltip.Roots (main + touch info) so
-            popovers anchor to the hovered tile, not viewport (0,0).
-            C-8: every tile carries `h-full` so row-mates equalise to the
-            tallest card (usually Audit).
-          */}
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <DashboardTile
               href={`/credits${qs}`}
@@ -279,16 +295,8 @@ export default async function DashboardPage({
               subtitle={creditsSubtitle}
               tone={creditsLow ? 'warning' : 'default'}
               icon={<Coins size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="Buy publishing credits and see what's left. One credit publishes one plan."
-            />
-
-            <DashboardTile
-              href={`/network${qs}`}
-              label="Network"
-              headline={networkHeadline}
-              subtitle={networkSubtitle}
-              icon={<Share2 size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="Invite other practitioners with your referral link. You earn 5% back in free credits on everything they buy."
+              description="Buy publishing credits and see what's left. One credit publishes one plan. The coral band below shows credits earned from your network."
+              footerBand={{ copy: creditsFooterCopy, href: `/network${qs}` }}
             />
 
             <DashboardTile
@@ -297,7 +305,8 @@ export default async function DashboardPage({
               headline={clientsHeadline}
               subtitle={clientsSubtitle}
               icon={<UserRound size={24} strokeWidth={1.75} aria-hidden="true" />}
-              description="Your private one-on-one clients. Each one gets a custom plan you build for them."
+              description="Your private one-on-one clients. Each one gets a custom plan you build for them in the iOS app."
+              requiresApp
             />
 
             {/*
@@ -314,11 +323,13 @@ export default async function DashboardPage({
             <DashboardTile
               href="#"
               label="Classes (group)"
-              headline="Coming soon"
-              subtitle="Build once, share with everyone who enrolls"
+              headline="Group workouts"
+              subtitle="Coming soon"
               icon={<Layers size={24} strokeWidth={1.75} aria-hidden="true" />}
               description="Group classes — build a programme once, many enrollees subscribe to follow it. Coming after MVP ships."
               comingSoon
+              requiresApp
+              badge="Soon"
             />
 
             {isOwner && (
@@ -390,4 +401,3 @@ function fmtCredits(n: number): string {
     ? String(Math.round(rounded))
     : rounded.toFixed(1);
 }
-

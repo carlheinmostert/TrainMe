@@ -1,10 +1,13 @@
 import Link from 'next/link';
+import QRCode from 'qrcode';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { AccountPanel } from '@/components/AccountPanel';
 import { PracticeNameField } from '@/components/PracticeNameField';
+import { AppStoreBadge } from '@/components/AppStoreBadge';
+import { APP_STORE_URL, APP_STORE_LABEL } from '@/lib/links';
 
 type SearchParams = { practice?: string };
 
@@ -112,6 +115,13 @@ export default async function AccountPage({
 
         <AccountPanel email={user.email ?? ''} />
 
+        {/* C-13: permanent home for the App Store install link.
+            Renders regardless of whether the practice has published —
+            covers the "I dismissed the loud dashboard banner but now
+            I'm on a new device" case. The QR is generated at request
+            time so the user can scan from a desktop browser. */}
+        <AppsSection qrSvg={await generateAppStoreQr()} />
+
         <section
           className="mt-12 border-t border-surface-border pt-8"
           aria-labelledby="about-heading"
@@ -137,5 +147,67 @@ export default async function AccountPage({
         </section>
       </div>
     </main>
+  );
+}
+
+/**
+ * Generate the App Store install QR code as inline SVG at request time.
+ * Same configuration as the GetTheAppBanner component so both surfaces
+ * scan to identical pixels. The QR encodes APP_STORE_URL — flip the
+ * constant in `lib/links.ts` when the app ships through review.
+ */
+async function generateAppStoreQr(): Promise<string> {
+  return QRCode.toString(APP_STORE_URL, {
+    type: 'svg',
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    color: {
+      dark: '#0F1117',
+      light: '#FFFFFF',
+    },
+  });
+}
+
+/**
+ * AppsSection — permanent "Get the iOS app" affordance on /account.
+ * Mirrors the App Store badge + QR from the dashboard's
+ * GetTheAppBanner so re-installs / new devices can always find the
+ * link, even after the loud banner has auto-dismissed.
+ */
+function AppsSection({ qrSvg }: { qrSvg: string }) {
+  return (
+    <section
+      className="mt-12 border-t border-surface-border pt-8"
+      aria-labelledby="apps-heading"
+    >
+      <h2
+        id="apps-heading"
+        className="font-heading text-lg font-semibold"
+      >
+        Apps
+      </h2>
+      <p className="mt-2 text-sm text-ink-muted">
+        Clients and Classes live in the iOS app — the portal manages
+        your account, credits, and audit log. Get the app on a new
+        device by tapping the badge or scanning the QR code.
+      </p>
+      <div className="mt-5 flex flex-wrap items-center gap-5">
+        <AppStoreBadge href={APP_STORE_URL} label={APP_STORE_LABEL} />
+        <div
+          aria-label="QR code to install on iPhone"
+          className="overflow-hidden rounded bg-white p-2"
+        >
+          <div
+            className="h-[120px] w-[120px]"
+            // QR is server-rendered SVG — safe to inline; encoded from
+            // a constant URL we control.
+            dangerouslySetInnerHTML={{ __html: qrSvg }}
+          />
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-ink-dim">
+        Android coming soon.
+      </p>
+    </section>
   );
 }
