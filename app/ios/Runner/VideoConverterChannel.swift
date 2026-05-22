@@ -1288,10 +1288,68 @@ class VideoConverterChannel {
                         maskPtr = seg.generateMask(for: pixelBuffer)
                     }
 
+                    // Safe Mode downstream-variants fix (2026-05-22). When
+                    // Safe Mode is active, paint the bystander coral
+                    // silhouettes onto the source frame BEFORE the line /
+                    // segmented / mask processors read from it. Without
+                    // this re-order, only the dedicated safe writer
+                    // honoured Safe Mode and every other output (line
+                    // drawing + segmented + thumbnail extraction) leaked
+                    // bystander identity even though PR #402 swapped the
+                    // canonical raw archive at the consumer end.
+                    //
+                    // `safeSourceBuffer` is the buffer the downstream
+                    // processors read from. When the safe pass succeeds
+                    // we point it at the safe-painted buffer; otherwise
+                    // (no Safe Mode, or this frame's safe composite
+                    // failed) it stays on the raw `pixelBuffer`.
+                    //
+                    // Carl-signed (2026-05-22): the LOCKED-v6 line-drawing
+                    // tuning exception is APPROVED — feeding safe pixels
+                    // into the edge detector is correct (a flat coral
+                    // region produces a flat silhouette rather than
+                    // identity-revealing edges).
+                    var safeSourceBuffer: CVPixelBuffer = pixelBuffer
+                    var safeOutForDownstream: CVPixelBuffer? = nil
+                    if let sfAd = safeAdaptor,
+                       let safeProc = safeProcessor,
+                       !safeVideoFinished {
+                        var sfOut: CVPixelBuffer?
+                        let sfAlloc: CVReturn
+                        if let pool = sfAd.pixelBufferPool {
+                            sfAlloc = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &sfOut)
+                        } else {
+                            sfAlloc = CVPixelBufferCreate(
+                                kCFAllocatorDefault,
+                                videoWidth,
+                                videoHeight,
+                                kCVPixelFormatType_32BGRA,
+                                nil,
+                                &sfOut
+                            )
+                        }
+                        if sfAlloc == kCVReturnSuccess, let sfBuffer = sfOut {
+                            if safeProc.processFrame(
+                                source: pixelBuffer,
+                                mask: maskPtr,
+                                into: sfBuffer
+                            ) {
+                                safeSourceBuffer = sfBuffer
+                                safeOutForDownstream = sfBuffer
+                            }
+                        }
+                    }
+
                     // Process the frame into a line drawing, writing into outBuffer.
                     // When maskPtr != nil the processor erases (forces to white) any
                     // pixel whose mask value is below 128 — the background.
-                    guard processor.processFrame(pixelBuffer, mask: maskPtr, into: outBuffer) else {
+                    // 2026-05-22: source from `safeSourceBuffer` so the line
+                    // drawing honours the Safe Mode bystander paint when
+                    // active. The Vision mask was computed against the raw
+                    // `pixelBuffer` so the body-vs-background segmentation
+                    // is unchanged — only the per-pixel RGB sampling shifts
+                    // to the safe-painted buffer.
+                    guard processor.processFrame(safeSourceBuffer, mask: maskPtr, into: outBuffer) else {
                         return
                     }
 
@@ -1328,7 +1386,12 @@ class VideoConverterChannel {
                             )
                         }
                         if segAlloc == kCVReturnSuccess, let segBuffer = segOut {
-                            if sProc.processFrame(pixelBuffer, mask: maskPtr, into: segBuffer) {
+                            // 2026-05-22: source from `safeSourceBuffer` so the
+                            // segmented-colour composite honours Safe Mode
+                            // bystander paint when active. The mask was
+                            // computed against the raw frame so body
+                            // detection is unchanged; only RGB shifts.
+                            if sProc.processFrame(safeSourceBuffer, mask: maskPtr, into: segBuffer) {
                                 // Brief spin-wait up to ~200ms for seg input
                                 // to absorb backpressure. Beyond that we drop
                                 // the frame rather than block the line pump.
@@ -1398,47 +1461,32 @@ class VideoConverterChannel {
                         }
                     }
 
-                    // Safe Mode (2026-05-21): produce a bystander-blurred
-                    // copy of the raw frame. Runs `VNDetectHumanRectangles`
-                    // on the source frame, finds the LARGEST detected
-                    // human bbox (= client), and rewrites every mask
-                    // pixel outside that bbox to coral. Best-effort: any
-                    // failure here just skips this frame's safe output —
-                    // the line / segmented / mask pumps continue.
+                    // Safe Mode (2026-05-21, single-pass refactor 2026-05-22):
+                    // Append the safe-painted buffer produced above to the
+                    // safe writer. Pre-2026-05-22 this block ran the safe
+                    // pass independently — but that left line/segmented/mask
+                    // sourcing from the raw `pixelBuffer` (bystander leak).
+                    // The buffer is now produced ONCE before the line pump
+                    // (see `safeSourceBuffer` block) and reused here, so
+                    // every downstream output honours Safe Mode.
+                    //
+                    // `safeOutForDownstream` holds the freshly-produced
+                    // safe buffer; nil means either Safe Mode is off or
+                    // this frame's safe composite failed (a Vision miss
+                    // counter that the Dart side reads via `safeFramesMissedRate`
+                    // for the fail-closed threshold).
                     if let sfAd = safeAdaptor,
                        let sfInput = safeWriterInput,
-                       let safeProc = safeProcessor,
-                       !safeVideoFinished {
-                        var sfOut: CVPixelBuffer?
-                        let sfAlloc: CVReturn
-                        if let pool = sfAd.pixelBufferPool {
-                            sfAlloc = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &sfOut)
-                        } else {
-                            sfAlloc = CVPixelBufferCreate(
-                                kCFAllocatorDefault,
-                                videoWidth,
-                                videoHeight,
-                                kCVPixelFormatType_32BGRA,
-                                nil,
-                                &sfOut
-                            )
+                       !safeVideoFinished,
+                       let sfBuffer = safeOutForDownstream {
+                        var waited = 0
+                        while !sfInput.isReadyForMoreMediaData && waited < 200 {
+                            usleep(1000)
+                            waited += 1
                         }
-                        if sfAlloc == kCVReturnSuccess, let sfBuffer = sfOut {
-                            if safeProc.processFrame(
-                                source: pixelBuffer,
-                                mask: maskPtr,
-                                into: sfBuffer
-                            ) {
-                                var waited = 0
-                                while !sfInput.isReadyForMoreMediaData && waited < 200 {
-                                    usleep(1000)
-                                    waited += 1
-                                }
-                                if sfInput.isReadyForMoreMediaData {
-                                    if sfAd.append(sfBuffer, withPresentationTime: presentationTime) {
-                                        safeFramesProcessed += 1
-                                    }
-                                }
+                        if sfInput.isReadyForMoreMediaData {
+                            if sfAd.append(sfBuffer, withPresentationTime: presentationTime) {
+                                safeFramesProcessed += 1
                             }
                         }
                     }

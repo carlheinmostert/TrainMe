@@ -519,7 +519,16 @@ class ConversionService extends ChangeNotifier {
             final thumbBwPath =
                 p.join(thumbDir, '${exercise.id}_thumb_bw.jpg');
 
-            final rawAbs = exercise.absoluteRawFilePath;
+            // Safe Mode downstream-variants fix (2026-05-22) — source the
+            // thumbnail variants from the safe-painted JPG when one was
+            // produced. Without this, `_thumb_bw.jpg` and
+            // `_thumb_color.jpg` are baked from the un-safe raw and the
+            // web player's lobby Hero surfaces a fully visible
+            // bystander even though the canonical raw archive was
+            // swapped. `done.safeRawFilePath` was stamped above in the
+            // success branch.
+            final rawAbs = done.absoluteSafeRawFilePath ??
+                exercise.absoluteRawFilePath;
             final convertedAbs = done.absoluteConvertedFilePath;
 
             await compute(_extractPhotoThumbnailVariants, _PhotoThumbArgs(
@@ -962,70 +971,30 @@ class ConversionService extends ChangeNotifier {
           exercise.absoluteRawFilePath, stillOutputPath);
       return _ConvertResult(convertedPath: stillOutputPath);
     } else {
-      final convertedPath =
-          p.join(convertedDir, '${exercise.id}_line$ext');
-      await _convertPhoto(exercise.absoluteRawFilePath, convertedPath);
-
-      // Wave 36 — body-focus segmented variant for exercise photos.
-      // Mirrors the dual-output story videos have had since Milestone P:
-      // a Vision person-segmentation + Gaussian-blur composite that
-      // preserves the body and dims the background. Best-effort — a
-      // failure here MUST NOT fail the line-drawing conversion (which
-      // is what gates publish).
+      // Safe Mode downstream-variants fix (2026-05-22). The photo branch
+      // re-orders the safe pass to run FIRST so every downstream pass
+      // (line drawing, body-focus segmented, thumbnail variants) reads
+      // from the safe-painted JPG instead of the raw capture. Without
+      // this, the player's `_thumb_bw.jpg` / `.segmented.jpg` /
+      // `_thumb_color.jpg` files all betray bystander identity even
+      // when PR #402's upload swap rewrote the canonical `.jpg`.
       //
-      // Output naming intentionally stays `.segmented.jpg` so
-      // `upload_service.dart` can route it to the same `raw-archive`
-      // bucket pattern videos use, and the schema's `segmented_url`
-      // signing logic in `get_plan_full` only has to learn one extra
-      // suffix per media type.
-      String? segmentedPhotoPath;
-      try {
-        final candidate =
-            p.join(convertedDir, '${exercise.id}.segmented.jpg');
-        await _convertPhotoBodyFocus(
-          exercise.absoluteRawFilePath,
-          candidate,
-        );
-        if (await File(candidate).exists()) {
-          segmentedPhotoPath = candidate;
-        }
-      } catch (e, stack) {
-        debugPrint(
-          'Photo body-focus segmentation failed for ${exercise.id}: $e — '
-          'line drawing already produced; falling through with segmented=null',
-        );
-        try {
-          final logDir = await getApplicationDocumentsDirectory();
-          final logFile = File(p.join(logDir.path, 'conversion_error.log'));
-          await logFile.writeAsString(
-            '${DateTime.now()} [_convertPhotoBodyFocus failed]\n$e\n$stack\n\n',
-            mode: FileMode.append,
-          );
-        } catch (_) {
-          // Sanctioned log-of-log swallow — see the video branch's
-          // matching site for the rationale.
-        }
-      }
-
-      // Safe Mode photo pass (Safe Mode completion wave, 2026-05-21).
-      // Mirrors the per-frame compositing the video pipeline does, but
-      // on a single still. Result file lives alongside the line +
-      // segmented JPGs. NOT best-effort like body-focus — if the
-      // native pass succeeds with `safeFramesMissedRate > kSafeModeMaxMissRate`
-      // the convert call throws SafeModeRejection so the queue can
-      // discard the row. A native error (not a Vision miss — an actual
-      // failure) is logged and treated as "no safe variant" so the
-      // line drawing still publishes; that's the same shape as the
-      // body-focus pass above.
+      // Carl-signed (2026-05-22): the LOCKED-v6 line-drawing tuning
+      // exception is APPROVED for Safe Mode captures — feeding safe
+      // pixels into the edge detector is correct because the
+      // bystander's flat coral region produces a flat silhouette
+      // rather than identifying edges. Without this, even the line
+      // drawing leaks bystander identity through silhouette.
+      //
+      // Gate on the CAPTURE-time stamp (`exercise.safeModeActive`),
+      // not the runtime `SafeModeService.instance.isActive` check. The
+      // conversion runs asynchronously after capture; if the
+      // practitioner leaves the polygon between shutter and conversion
+      // the runtime check would be false even though the capture
+      // intent was Safe Mode. The stamp is the source of truth.
       String? safePhotoPath;
       double safePhotoMissRate = 0.0;
-      bool safePhotoActive = false;
-      try {
-        safePhotoActive = SafeModeService.instance.isActive;
-      } catch (_) {
-        // Service not initialised (tests) — Safe Mode off.
-      }
-      if (safePhotoActive) {
+      if (exercise.safeModeActive) {
         try {
           final candidate =
               p.join(convertedDir, '${exercise.id}_safe.jpg');
@@ -1046,7 +1015,10 @@ class ConversionService extends ChangeNotifier {
         } catch (e, stack) {
           debugPrint(
             'Photo Safe Mode pass failed for ${exercise.id}: $e — '
-            'line drawing already produced; falling through with safe=null',
+            'falling through with safe=null; downstream passes will '
+            'fall back to the raw capture (un-blurred bystanders may '
+            'surface — outer queue handler may still throw '
+            'SafeModeRejection based on missRate when applicable).',
           );
           try {
             final logDir = await getApplicationDocumentsDirectory();
@@ -1059,6 +1031,65 @@ class ConversionService extends ChangeNotifier {
           } catch (_) {
             // Sanctioned log-of-log swallow.
           }
+        }
+      }
+
+      // Canonical source — the safe-painted JPG when Safe Mode produced
+      // one, otherwise the raw capture. Every downstream pass below
+      // reads from this so the bystander coral paint propagates into
+      // line drawing, body-focus segmented JPG, and thumbnail variants.
+      final canonicalSource =
+          safePhotoPath ?? exercise.absoluteRawFilePath;
+
+      final convertedPath =
+          p.join(convertedDir, '${exercise.id}_line$ext');
+      await _convertPhoto(canonicalSource, convertedPath);
+
+      // Wave 36 — body-focus segmented variant for exercise photos.
+      // Mirrors the dual-output story videos have had since Milestone P:
+      // a Vision person-segmentation + Gaussian-blur composite that
+      // preserves the body and dims the background. Best-effort — a
+      // failure here MUST NOT fail the line-drawing conversion (which
+      // is what gates publish).
+      //
+      // Output naming intentionally stays `.segmented.jpg` so
+      // `upload_service.dart` can route it to the same `raw-archive`
+      // bucket pattern videos use, and the schema's `segmented_url`
+      // signing logic in `get_plan_full` only has to learn one extra
+      // suffix per media type.
+      //
+      // 2026-05-22: `canonicalSource` flows in so the body-focus pass
+      // sees the safe-painted pixels. Vision person-segmentation may
+      // still detect the bystander silhouette as a person (the coral
+      // patch has body-shape edges), but the per-pixel composite
+      // sources RGB from the input — so any "human" region carries
+      // coral pixels rather than the original bystander.
+      String? segmentedPhotoPath;
+      try {
+        final candidate =
+            p.join(convertedDir, '${exercise.id}.segmented.jpg');
+        await _convertPhotoBodyFocus(
+          canonicalSource,
+          candidate,
+        );
+        if (await File(candidate).exists()) {
+          segmentedPhotoPath = candidate;
+        }
+      } catch (e, stack) {
+        debugPrint(
+          'Photo body-focus segmentation failed for ${exercise.id}: $e — '
+          'line drawing already produced; falling through with segmented=null',
+        );
+        try {
+          final logDir = await getApplicationDocumentsDirectory();
+          final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+          await logFile.writeAsString(
+            '${DateTime.now()} [_convertPhotoBodyFocus failed]\n$e\n$stack\n\n',
+            mode: FileMode.append,
+          );
+        } catch (_) {
+          // Sanctioned log-of-log swallow — see the video branch's
+          // matching site for the rationale.
         }
       }
 
@@ -1107,6 +1138,14 @@ class ConversionService extends ChangeNotifier {
   /// Pick the best available source file to extract a practitioner-facing
   /// thumbnail from, falling back in readability-preference order:
   ///
+  ///   0. Safe Mode variant (`safeRawFilePath`) — when present, ALWAYS
+  ///      preferred. Bystanders show as flat coral so the thumb honours
+  ///      the Safe Mode privacy guarantee. Added 2026-05-22 (downstream
+  ///      variants fix) so that `_thumb_color.jpg` / `_thumb.jpg` /
+  ///      `_thumb_line.jpg` are baked from safe pixels rather than the
+  ///      un-safe raw — without this, the web player's lobby Hero
+  ///      surfaces a fully visible bystander even though PR #402 swapped
+  ///      the canonical raw archive.
   ///   1. Raw capture (`rawFilePath`) — what the camera actually recorded.
   ///      Grayscales cleanly and gives the most legible "this is Client A
   ///      doing a squat" frame.
@@ -1121,6 +1160,10 @@ class ConversionService extends ChangeNotifier {
   /// happen in practice — caller will skip the thumbnail regen step).
   Future<String?> _pickThumbnailSource(ExerciseCapture exercise) async {
     final candidates = <String?>[
+      // Safe Mode wins when the capture was inside an enforcing polygon
+      // AND the converter produced a safe variant. Falls through to the
+      // un-safe raw only when the safe pass never ran or failed.
+      exercise.safeModeActive ? exercise.absoluteSafeRawFilePath : null,
       exercise.rawFilePath.isNotEmpty ? exercise.absoluteRawFilePath : null,
       exercise.absoluteArchiveFilePath,
       exercise.absoluteConvertedFilePath,

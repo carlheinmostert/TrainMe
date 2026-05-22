@@ -1159,9 +1159,18 @@ class UploadService {
       // The 2026-05-16 hero-thumb staleness fix — without this, dragging
       // the Hero star regenerated thumbs locally but the publish skipped
       // the upload because the raw archive was already in cloud.
+      //
+      // S-C2 follow-up (2026-05-22): the fast-path also bails for any
+      // Safe Mode capture. The derived variants in cloud might still
+      // be the pre-fix un-safe bake, so we need to run the slow path
+      // (which force-overwrites them) to be sure. For a fresh Safe Mode
+      // capture this is a no-op anyway (`rawArchiveUploadedAt` is null).
       final allPreviouslyUploaded = nonRestExercises.isNotEmpty &&
           nonRestExercises
-              .every((e) => e.rawArchiveUploadedAt != null && !e.thumbnailsDirty);
+              .every((e) =>
+                  e.rawArchiveUploadedAt != null &&
+                  !e.thumbnailsDirty &&
+                  !e.safeModeActive);
       // Snapshot the exercise order ONCE so every failure record reports
       // a stable 0-based slot even if `session.exercises` is mutated
       // elsewhere mid-publish. Mirrors the same map inside
@@ -1427,8 +1436,15 @@ class UploadService {
               // dragged), force re-upload even if the path already
               // exists in storage. `uploadMedia` uses `upsert: true`
               // so overwrite is a silent idempotent operation.
+              //
+              // S-C2 follow-up (2026-05-22): also force re-upload when
+              // Safe Mode applies. `_thumb.jpg` is the practitioner-
+              // facing canonical thumb (B&W); regenerated from safe
+              // pixels so the cloud copy must overwrite the un-safe
+              // bake.
               if (!existingFiles.contains(thumbStoragePath) ||
-                  exercise.thumbnailsDirty) {
+                  exercise.thumbnailsDirty ||
+                  exercise.safeModeActive) {
                 try {
                   await _api.uploadMedia(
                       path: thumbStoragePath, file: thumbFile);
@@ -2039,7 +2055,17 @@ class UploadService {
     // were regenerated (`thumbnailsDirty=true`), force re-upload even
     // if the path already exists in storage. `uploadMedia` uses
     // `upsert: true` so the overwrite is silently idempotent.
-    if (existingFiles.contains(storagePath) && !exercise.thumbnailsDirty) {
+    //
+    // S-C2 follow-up (2026-05-22): same override when Safe Mode
+    // applies. The conversion service now bakes `_thumb_bw.jpg` and
+    // `_thumb_line.jpg` from the safe variant (photos via
+    // `canonicalSource`, videos via the Swift `safeSourceBuffer`
+    // refactor); the un-safe blobs in the cloud must be overwritten
+    // or the player's lobby Hero / active-slide primary src still
+    // betrays bystander identity.
+    if (existingFiles.contains(storagePath) &&
+        !exercise.thumbnailsDirty &&
+        !exercise.safeModeActive) {
       return;
     }
     try {
@@ -2334,7 +2360,15 @@ class UploadService {
       final segMime = isPhotoSegmented ? 'image/jpeg' : 'video/mp4';
       final segStoragePath =
           '$practiceId/${session.id}/${exercise.id}$segSuffix';
-      if (existingRaw.contains(segStoragePath)) {
+      // S-C2 follow-up (2026-05-22): when Safe Mode applies, force
+      // re-upload of the segmented variant even when it already exists
+      // in storage. Pre-fix, the segmented variant in the cloud was
+      // derived from the un-safe raw and surfaced bystanders in
+      // body-focus playback. The conversion service now regenerates it
+      // from safe pixels (single-pass `safeSourceBuffer` for videos,
+      // `canonicalSource` for photos); the cloud blob must be
+      // overwritten. `uploadRawArchive` is idempotent (`upsert: true`).
+      if (existingRaw.contains(segStoragePath) && !exercise.safeModeActive) {
         debugPrint('_uploadRawArchives: skip $segStoragePath (exists)');
         continue;
       }
@@ -2609,8 +2643,15 @@ class UploadService {
       // re-upload even if `_thumb_color.jpg` already exists in
       // storage. `uploadRawArchive` uses `upsert: true` (per PR #369),
       // so re-upload is a silent overwrite.
+      //
+      // S-C2 follow-up (2026-05-22): same override when Safe Mode
+      // applies. The conversion service now bakes `_thumb_color.jpg`
+      // from the safe variant (via `_pickThumbnailSource` honouring
+      // `safeRawFilePath`); the un-safe blob in the cloud must be
+      // overwritten or the lobby Hero still leaks bystanders.
       if (existingRaw.contains(colorStoragePath) &&
-          !exercise.thumbnailsDirty) {
+          !exercise.thumbnailsDirty &&
+          !exercise.safeModeActive) {
         debugPrint('_uploadRawArchives: skip $colorStoragePath (exists)');
         continue;
       }
