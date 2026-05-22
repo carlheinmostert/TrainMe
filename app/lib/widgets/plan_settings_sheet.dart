@@ -498,8 +498,8 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
               child: Row(
                 children: [
                   const Padding(
-                    padding: EdgeInsets.only(right: 12),
-                    child: SafeModeIcon(size: 22),
+                    padding: EdgeInsets.only(right: 16),
+                    child: SafeModeIcon(size: 44),
                   ),
                   Expanded(
                     child: Column(
