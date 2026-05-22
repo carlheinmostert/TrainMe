@@ -438,3 +438,47 @@ Recommend (1) — single prop is a smaller diff and keeps the dashboard's tile i
 **Coupling:** ships with C-9 (Classes tile in the freed slot). Independent of C-7 (tooltip positioning) and C-8 (per-row tile heights) — those still need to land regardless of this change. If C-8 lands first, verify the band doesn't break the `h-full` stretch — it should be inside the stretched container, not outside.
 
 **Risk:** Network feature discoverability drops. Counter: the `/credits` page banner is more prominent than the old Network tile was, and the dashboard band gives a constant peripheral nudge. Net change is probably positive for engagement; track via plan-issuance vs referral-claim ratio post-merge.
+
+### C-13 — "Get the iOS app" nudge on the portal (banner + per-tile iOS chips)
+
+**Source:** Carl, 2026-05-22: "When a client comes to this page, they need to be reminded that they need to download the app. There's an Apple version, and then, in future, obviously an Android version. It needs to be more obvious that the private client card and the Classes card are very much dependent on having an app."
+
+**Design:** approved Variant A from the mockup at [`docs/design/mockups/portal-get-the-app.html`](../design/mockups/portal-get-the-app.html) — loud coral banner with App Store badge + QR popover above the dashboard grid, dismissed automatically once the practitioner has any row in `plan_issuances` for the active practice. Per-tile `iOS` chips on Clients + Classes persist after the banner dismisses, as a quiet ambient reminder.
+
+**Files to change:**
+
+- `web-portal/src/components/GetTheAppBanner.tsx` — NEW. Coral-tinted banner per the mockup's `.banner-a` rule. Props: `appStoreUrl: string`, optional `qrSvgPath: string` (for the popover). Glyph block is the homefit matrix-only logo at small size (reuse `HomefitLogo` component). Layout: 56px glyph + copy (headline "Get the iOS app to start capturing sessions", sub "Clients and Classes live in the app — the portal only manages your account, credits, and audit log." + `ANDROID COMING SOON` chip) + App Store badge + QR trigger with popover. Banner uses semantic markup — no dismiss-X (the dismiss is automatic; see below).
+- `web-portal/src/app/dashboard/page.tsx` — render `<GetTheAppBanner />` above the grid when `recentIssuances.length === 0` (or whatever variable name the audit-card query lands in — verify against the existing data fetch at ~line 80-120). The query is ALREADY made for the audit card, so this is zero-cost data-wise. If `plan_issuances` for the practice is non-empty, banner does not render.
+- `web-portal/src/components/DashboardTile.tsx` — add an optional `requiresApp?: boolean` prop. When true, render a small `iOS` chip next to the label (style per `.ios-chip.with-icon` in the mockup: 9.5px font, coral-soft background, coral-line border, 4px radius, with a 7px coral square glyph). Position chip in the label row, NOT in the headline row.
+- `web-portal/src/app/dashboard/page.tsx` — wire `requiresApp={true}` on the Clients tile and the new Classes tile (C-9 is the source of the Classes tile). DO NOT wire it on Credits, Audit, Members, Account, Network, Premises, Public Profile — those are portal-native.
+- `web-portal/src/app/clients/page.tsx` — empty-state copy update (when zero clients): replace the current empty message with "No clients yet. Capture your first session in the iOS app." + an App Store badge. Reuse `GetTheAppBanner`'s `<AppStoreBadge>` sub-component if extracted.
+- `web-portal/src/app/account/page.tsx` — NEW "Apps" section near the bottom: permanent App Store badge + QR + the same "Android coming soon" footnote. This is the always-available home for the affordance — users who dismissed via publishing still have a way to find the download link when they get a new device.
+- `web-portal/src/lib/links.ts` (NEW or existing) — single source of truth for `APP_STORE_URL`. Currently TestFlight; flip to App Store URL when the app is released. Surface via an `env`-driven const so staging vs prod can diverge if needed.
+
+**Banner glyph approach:** use the homefit matrix-only logo (NOT the lockup) at ~32px inside the 56px frame so the wordmark stays consistent across surfaces. Per CLAUDE.md brand rule: matrix-only when the wordmark wouldn't render at a useful size.
+
+**App Store badge:** use Apple's official "Download on the App Store" badge SVG (download from <https://developer.apple.com/app-store/marketing/guidelines/>). Don't reimplement in CSS — Apple's brand guidelines are strict about exact rendering. Save the SVG to `web-portal/public/app-store-badge.svg` and embed as `<img>`. Hover: 1px coral border around the badge.
+
+**QR code:** generate at build-time from `APP_STORE_URL` (or TestFlight URL until App Store release). Library: `qrcode` npm package (server-side generation, no runtime cost). Render inline as SVG. Popover positioned `bottom-right` relative to the QR trigger button. Trigger is a 40px square, popover ~170px wide.
+
+**Mockup signoff:** Carl approved Variant A on 2026-05-22 ("With your recommendation"). Variant B (slim permanent strip) is in the mockup for reference — DO NOT ship it.
+
+**Test scope:**
+
+- Fresh-signup user with 0 `plan_issuances`: lands on `/dashboard`, sees the loud banner above the grid. Clients + Classes tiles show the `iOS` chip in the label row.
+- After publishing first plan: banner is GONE on next dashboard load. Per-tile `iOS` chips remain.
+- App Store badge: click opens App Store URL in new tab (`target="_blank" rel="noopener"`).
+- QR popover: hover or focus opens, shows QR code centered with white border, caption "Scan with your iPhone camera". Closes on blur / outside-click.
+- Mobile (375px): banner stacks vertically — glyph + copy on row 1, badge + QR on row 2. No horizontal scroll.
+- Empty-state on `/clients` (zero rows): shows "Capture your first session in the iOS app" + App Store badge.
+- `/account` Apps section: always renders, regardless of `plan_issuances` state.
+- Banner is NOT shown on inner pages (`/clients`, `/credits`, `/audit`, etc.) — only the dashboard. The chips ARE shown wherever the relevant tile / row exists.
+- Keyboard: banner contents are tab-reachable; QR popover opens on Enter / Space on the trigger.
+
+**Coupling:** ships in the SAME PR as C-9 (Classes tile) and C-12 (Credits merge). All three form the dashboard rework — landing one without the others creates a transitional layout. If staged separately for review, sequence: C-9 first (adds tile), C-12 second (removes Network tile + adds Credits band), C-13 third (adds banner + chips). But ideally one PR.
+
+**Risk + non-risks:**
+
+- Risk: the `plan_issuances === 0` heuristic miscategorises users who published from a previous device but reinstalled. They'll see the loud banner re-appear. Acceptable: it's still accurate information ("you don't have the app on THIS device" reads similarly). Counter-measure: `/account` Apps section gives them a path to re-download without the banner.
+- Non-risk: Apple Reader-App compliance. Per `feedback_ios_reader_app.md`, the iOS Reader-App pattern forbids in-app purchase paths. This banner is on the WEB PORTAL, not in the iOS app — Apple's rule doesn't apply. Web portal can promote App Store downloads freely.
+- Non-risk: Android timing. The "ANDROID COMING SOON" chip is honest — no commitment to a date. If Android slips to never, the chip can be removed without re-doing the banner.

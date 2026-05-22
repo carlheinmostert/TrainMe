@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Portal: "Get the app" nudge — 2026-05-22 mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --coral: #FF6B35;
+    --coral-soft: #FF6B3514;
+    --coral-line: #FF6B3540;
+    --coral-text: #FFB99D;
+    --sage: #86EFAC;
+    --ink: #F0F0F5;
+    --ink-muted: #9CA3AF;
+    --ink-dim: #6B7280;
+    --surface-page: #0A0C12;
+    --surface-base: #14171F;
+    --surface-raised: #1B1F2A;
+    --surface-border: #2A2F3C;
+    --warning: #F59E0B;
+    --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #060810; color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px; line-height: 1.45;
+  }
+  .shell { max-width: 1700px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1.title {
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 24px;
+    margin: 0 0 6px; letter-spacing: -0.01em;
+  }
+  .sub { margin: 0 0 8px; color: var(--ink-muted); font-size: 13px; max-width: 760px; }
+  .sub strong { color: var(--coral); font-weight: 600; }
+  .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: var(--ink-dim); margin: 0 0 36px; letter-spacing: 0.04em; }
+
+  h2.section {
+    font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 14px;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--ink-muted); margin: 28px 0 16px;
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  h2.section .tag {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px; color: var(--coral); letter-spacing: 0.06em;
+  }
+
+  /* Page-frame simulating dashboard */
+  .frame {
+    background: var(--surface-page);
+    border: 1px solid var(--surface-border);
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 36px;
+  }
+  .frame .crumb {
+    font-size: 12px; color: var(--ink-dim);
+    margin-bottom: 14px;
+  }
+  .frame h3.page-h1 {
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 26px;
+    margin: 0 0 4px; letter-spacing: -0.01em;
+  }
+  .frame .signed-in { color: var(--ink-muted); font-size: 12.5px; margin-bottom: 20px; }
+
+  /* ── Banner Variant A — loud, dismiss-on-publish ──────────────── */
+  .banner-a {
+    display: grid;
+    grid-template-columns: 56px 1fr auto auto;
+    gap: 18px;
+    align-items: center;
+    padding: 18px 22px;
+    background: linear-gradient(135deg, rgba(255,107,53,0.18) 0%, rgba(255,107,53,0.04) 60%);
+    border: 1px solid var(--coral-line);
+    border-radius: 12px;
+    margin-bottom: 22px;
+  }
+  .banner-a .glyph {
+    width: 56px; height: 56px;
+    border-radius: 13px;
+    background: #111315;
+    border: 1px solid var(--surface-border);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  /* matrix-glyph hint */
+  .banner-a .glyph::before {
+    content: ''; position: absolute; inset: 14px;
+    background:
+      radial-gradient(circle at 20% 50%, var(--coral) 0 4px, transparent 5px),
+      radial-gradient(circle at 50% 50%, var(--coral) 0 4px, transparent 5px),
+      radial-gradient(circle at 80% 50%, #6B7280 0 4px, transparent 5px);
+  }
+  .banner-a .copy .top {
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 17px;
+    color: var(--ink); letter-spacing: -0.005em;
+  }
+  .banner-a .copy .bot {
+    color: var(--ink-muted); font-size: 13px; margin-top: 4px;
+  }
+  .banner-a .copy .bot .android {
+    color: var(--ink-dim);
+    font-size: 11.5px;
+    margin-left: 8px;
+    padding: 2px 6px;
+    border: 1px solid var(--surface-border);
+    border-radius: 4px;
+    letter-spacing: 0.02em;
+  }
+  /* App Store badge (approximation, mockup-only) */
+  .appstore-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #000; color: #fff;
+    padding: 9px 14px; border-radius: 9px;
+    text-decoration: none;
+    border: 1px solid #2A2F3C;
+    transition: border-color 120ms ease;
+  }
+  .appstore-badge:hover { border-color: var(--coral); }
+  .appstore-badge .apple-glyph {
+    font-size: 22px; line-height: 1; color: #fff;
+  }
+  .appstore-badge .badge-stack { display: flex; flex-direction: column; line-height: 1.1; }
+  .appstore-badge .badge-stack .one { font-size: 9px; letter-spacing: 0.04em; opacity: 0.85; }
+  .appstore-badge .badge-stack .two {
+    font-family: 'Montserrat', sans-serif; font-weight: 600;
+    font-size: 14px; letter-spacing: -0.01em;
+  }
+  /* QR control */
+  .qr-trigger {
+    width: 40px; height: 40px;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    position: relative;
+  }
+  .qr-trigger:hover { border-color: var(--coral-line); }
+  .qr-trigger .qr-mini {
+    width: 22px; height: 22px;
+    background:
+      conic-gradient(from 0deg at 30% 30%, var(--ink) 0 25%, transparent 25% 50%, var(--ink) 50% 75%, transparent 75%),
+      conic-gradient(from 0deg at 70% 30%, var(--ink) 0 25%, transparent 25% 50%, var(--ink) 50% 75%, transparent 75%),
+      conic-gradient(from 0deg at 30% 70%, var(--ink) 0 25%, transparent 25% 50%, var(--ink) 50% 75%, transparent 75%);
+    background-size: 7px 7px;
+    image-rendering: pixelated;
+  }
+  /* QR popover (always-visible in mockup so Carl can see it) */
+  .qr-pop {
+    position: absolute; top: calc(100% + 8px); right: 0;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 10px;
+    padding: 14px;
+    width: 170px;
+    box-shadow: 0 16px 36px rgba(0,0,0,0.6);
+    z-index: 5;
+  }
+  .qr-pop .qr-img {
+    width: 142px; height: 142px;
+    background:
+      repeating-conic-gradient(var(--ink) 0% 25%, transparent 0% 50%) 50% / 14px 14px,
+      repeating-linear-gradient(0deg, var(--ink) 0 1px, transparent 1px 12px),
+      repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 12px);
+    background-blend-mode: difference;
+    border: 6px solid #fff;
+    border-radius: 4px;
+  }
+  .qr-pop .qr-cap {
+    text-align: center; font-size: 11px; color: var(--ink-muted);
+    margin-top: 8px;
+  }
+  .qr-pop::before {
+    content: ''; position: absolute;
+    top: -6px; right: 16px;
+    width: 12px; height: 12px;
+    background: var(--surface-raised);
+    border-left: 1px solid var(--surface-border);
+    border-top: 1px solid var(--surface-border);
+    transform: rotate(45deg);
+  }
+  .dismiss-x {
+    color: var(--ink-dim); font-size: 18px; cursor: pointer;
+    padding: 4px 8px; line-height: 1;
+    align-self: flex-start;
+  }
+  .dismiss-x:hover { color: var(--ink); }
+
+  /* ── Banner Variant B — slim, permanent ──────────────────────── */
+  .banner-b {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 16px;
+    background: rgba(255, 107, 53, 0.06);
+    border: 1px solid rgba(255, 107, 53, 0.18);
+    border-radius: 9px;
+    margin-bottom: 22px;
+    font-size: 13px;
+  }
+  .banner-b .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--coral); flex-shrink: 0;
+    box-shadow: 0 0 8px rgba(255,107,53,0.5);
+  }
+  .banner-b .text {
+    flex: 1; color: var(--ink); font-weight: 500;
+  }
+  .banner-b .text .android-inline {
+    color: var(--ink-dim); font-size: 11.5px; margin-left: 8px;
+  }
+  .banner-b .mini-badge {
+    background: #000; color: #fff;
+    padding: 5px 10px; border-radius: 6px;
+    font-size: 11.5px; font-weight: 600;
+    text-decoration: none; border: 1px solid var(--surface-border);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .banner-b .mini-badge:hover { border-color: var(--coral); }
+  .banner-b .mini-qr {
+    color: var(--ink-muted); font-size: 11.5px;
+    padding: 5px 8px; border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--surface-border);
+  }
+  .banner-b .mini-qr:hover { color: var(--ink); border-color: var(--coral-line); }
+
+  /* Tile grid */
+  .grid {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .tile {
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 20px;
+    min-height: 130px;
+    box-shadow: var(--shadow-tile);
+    position: relative;
+  }
+  .tile .label-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  }
+  .tile .label {
+    font-size: 11px; color: var(--ink-dim);
+    text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
+  }
+  .tile .ios-chip {
+    font-size: 9.5px; font-weight: 700;
+    color: var(--coral-text);
+    background: var(--coral-soft);
+    border: 1px solid var(--coral-line);
+    border-radius: 4px;
+    padding: 1px 6px;
+    letter-spacing: 0.06em;
+  }
+  .tile .ios-chip.with-icon::before {
+    content: ''; display: inline-block;
+    width: 7px; height: 7px;
+    background: var(--coral);
+    border-radius: 2px;
+    margin-right: 4px; vertical-align: -1px;
+  }
+  .tile .headline {
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .tile .subtitle {
+    font-size: 13px; color: var(--ink-muted); margin-top: 4px;
+  }
+  .tile.coming-soon { opacity: 0.78; }
+  .tile.coming-soon .badge {
+    position: absolute; top: 14px; right: 14px;
+    font-size: 10px; color: var(--ink-dim);
+    border: 1px solid var(--surface-border);
+    padding: 2px 8px; border-radius: 4px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  /* Credits tile band (from C-12) */
+  .tile.credits { padding-bottom: 0; overflow: hidden; }
+  .tile.credits .body { padding-bottom: 14px; }
+  .tile.credits .earn-band {
+    margin: 0 -20px;
+    padding: 9px 20px;
+    background: var(--coral-soft);
+    border-top: 1px solid var(--coral-line);
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--coral-text); font-weight: 500;
+  }
+  .tile.credits .earn-band .arrow { color: var(--coral); font-weight: 600; }
+
+  /* Tradeoffs */
+  .tradeoffs {
+    background: var(--surface-base);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 24px;
+  }
+  .tradeoffs table { width: 100%; border-collapse: collapse; }
+  .tradeoffs th, .tradeoffs td {
+    text-align: left; padding: 12px 18px;
+    border-bottom: 1px solid var(--surface-border); font-size: 13px;
+  }
+  .tradeoffs th {
+    background: var(--surface-raised);
+    color: var(--ink-muted); font-weight: 600;
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .tradeoffs td:first-child {
+    font-weight: 600; color: var(--coral-text);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .tradeoffs tr:last-child td { border-bottom: none; }
+  .good { color: var(--sage); }
+  .meh { color: var(--warning); }
+
+  .recommend {
+    margin: 32px 0 0;
+    background: linear-gradient(135deg, rgba(255,107,53,0.08) 0%, rgba(255,107,53,0) 100%);
+    border: 1px solid var(--coral-line);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+  .recommend .label {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px; letter-spacing: 0.1em;
+    color: var(--coral); margin-bottom: 8px;
+  }
+  .recommend p { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.55; }
+  .recommend strong { color: var(--coral-text); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <h1 class="title">Portal — "Get the app" nudge</h1>
+  <p class="sub">Make it obvious that <strong>Clients</strong> and <strong>Classes</strong> depend on the iOS app. Two variants: a louder pre-publish banner that auto-dismisses, vs a slim permanent strip. Both share the per-tile <code>iOS</code> chip.</p>
+  <p class="meta">docs/design/mockups/portal-get-the-app.html · 2026-05-22 · pairs with C-12 (Credits merge) and C-9 (Classes tile)</p>
+
+  <!-- ─── Variant A ─── -->
+  <h2 class="section">Variant A — loud banner, auto-dismiss after first publish <span class="tag">recommended</span></h2>
+  <p class="sub" style="margin-bottom: 14px;">Detected via existing audit-card query: <code>0 rows in plan_issuances for this practice</code> → show banner. Once they publish, banner disappears forever — only the per-tile <code>iOS</code> chips remain as a quiet reminder.</p>
+
+  <div class="frame">
+    <div class="crumb">Dashboard</div>
+    <h3 class="page-h1">Dashboard</h3>
+    <div class="signed-in">Signed in as melissa@homefit.studio</div>
+
+    <!-- The loud banner -->
+    <div class="banner-a">
+      <div class="glyph"></div>
+      <div class="copy">
+        <div class="top">Get the iOS app to start capturing sessions</div>
+        <div class="bot">
+          Clients and Classes live in the app — the portal only manages your account, credits, and audit log.
+          <span class="android">ANDROID COMING SOON</span>
+        </div>
+      </div>
+      <a class="appstore-badge" href="#">
+        <span class="apple-glyph">&#xF8FF;</span>
+        <span class="badge-stack">
+          <span class="one">Download on the</span>
+          <span class="two">App Store</span>
+        </span>
+      </a>
+      <div class="qr-trigger" title="Scan with your iPhone">
+        <div class="qr-mini"></div>
+        <div class="qr-pop" aria-hidden="false">
+          <div class="qr-img"></div>
+          <div class="qr-cap">Scan with your iPhone camera</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grid with chips on dependent tiles -->
+    <div class="grid">
+      <div class="tile credits">
+        <div class="body">
+          <div class="label-row">
+            <span class="label">Credits</span>
+          </div>
+          <div class="headline">8 credits</div>
+          <div class="subtitle">Buy more</div>
+        </div>
+        <div class="earn-band">
+          <span>+ 0.4 free earned from your network</span>
+          <span class="arrow">Earn more →</span>
+        </div>
+      </div>
+
+      <div class="tile coming-soon">
+        <div class="label-row">
+          <span class="label">Classes</span>
+          <span class="ios-chip with-icon">iOS</span>
+        </div>
+        <div class="headline">Group workouts</div>
+        <div class="subtitle">Coming soon</div>
+        <div class="badge">Soon</div>
+      </div>
+
+      <div class="tile">
+        <div class="label-row">
+          <span class="label">Clients</span>
+          <span class="ios-chip with-icon">iOS</span>
+        </div>
+        <div class="headline">No clients yet</div>
+        <div class="subtitle">Capture your first session in the app</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- After first publish -->
+  <h2 class="section">Variant A — what the same dashboard looks like AFTER first publish</h2>
+  <p class="sub" style="margin-bottom: 14px;">Loud banner auto-dismisses; per-tile chips persist as a quiet reminder. No setting to toggle, no dismiss button needed — the publish event IS the dismiss signal.</p>
+
+  <div class="frame">
+    <div class="crumb">Dashboard</div>
+    <h3 class="page-h1">Dashboard</h3>
+    <div class="signed-in">Signed in as melissa@homefit.studio</div>
+
+    <div class="grid">
+      <div class="tile credits">
+        <div class="body">
+          <div class="label-row"><span class="label">Credits</span></div>
+          <div class="headline">8 credits</div>
+          <div class="subtitle">Buy more</div>
+        </div>
+        <div class="earn-band">
+          <span>+ 0.4 free earned from your network</span>
+          <span class="arrow">Earn more →</span>
+        </div>
+      </div>
+
+      <div class="tile coming-soon">
+        <div class="label-row">
+          <span class="label">Classes</span>
+          <span class="ios-chip with-icon">iOS</span>
+        </div>
+        <div class="headline">Group workouts</div>
+        <div class="subtitle">Coming soon</div>
+        <div class="badge">Soon</div>
+      </div>
+
+      <div class="tile">
+        <div class="label-row">
+          <span class="label">Clients</span>
+          <span class="ios-chip with-icon">iOS</span>
+        </div>
+        <div class="headline">12 clients</div>
+        <div class="subtitle">3 active this week</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Variant B ─── -->
+  <h2 class="section">Variant B — slim permanent strip (no auto-dismiss)</h2>
+  <p class="sub" style="margin-bottom: 14px;">One-liner, always visible above the grid. QR is a hover-popover (not always painted). No per-tile chips needed — the strip carries the full signal.</p>
+
+  <div class="frame">
+    <div class="crumb">Dashboard</div>
+    <h3 class="page-h1">Dashboard</h3>
+    <div class="signed-in">Signed in as melissa@homefit.studio</div>
+
+    <div class="banner-b">
+      <span class="dot"></span>
+      <span class="text">
+        Capture happens in the iOS app — the portal manages your account.
+        <span class="android-inline">Android coming soon.</span>
+      </span>
+      <span class="mini-qr">QR ⌖</span>
+      <a class="mini-badge" href="#"><span style="font-size: 13px;">&#xF8FF;</span> App Store</a>
+    </div>
+
+    <div class="grid">
+      <div class="tile credits">
+        <div class="body">
+          <div class="label-row"><span class="label">Credits</span></div>
+          <div class="headline">8 credits</div>
+          <div class="subtitle">Buy more</div>
+        </div>
+        <div class="earn-band">
+          <span>+ 0.4 free earned from your network</span>
+          <span class="arrow">Earn more →</span>
+        </div>
+      </div>
+
+      <div class="tile coming-soon">
+        <div class="label-row"><span class="label">Classes</span></div>
+        <div class="headline">Group workouts</div>
+        <div class="subtitle">Coming soon</div>
+        <div class="badge">Soon</div>
+      </div>
+
+      <div class="tile">
+        <div class="label-row"><span class="label">Clients</span></div>
+        <div class="headline">12 clients</div>
+        <div class="subtitle">3 active this week</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tradeoffs -->
+  <h2 class="section">Tradeoffs</h2>
+  <div class="tradeoffs">
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 110px;">Variant</th>
+          <th>Pre-publish signal</th>
+          <th>Post-publish noise</th>
+          <th>Real-estate cost</th>
+          <th>Implementation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A · loud</td>
+          <td class="good">Unmissable — full banner + QR + App Store badge</td>
+          <td class="good">Zero — banner vanishes; chips stay as quiet reminder</td>
+          <td class="meh">~90px banner before first publish, 0px after</td>
+          <td>Conditional on <code>plan_issuances.length === 0</code> (already loaded for audit card)</td>
+        </tr>
+        <tr>
+          <td>B · slim</td>
+          <td class="meh">Quieter — single-line strip, easy to ignore on a busy dashboard</td>
+          <td class="meh">~44px strip forever, even for users who never need it</td>
+          <td class="good">~44px constant</td>
+          <td>Static; no data-dependency</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Other-pages note -->
+  <h2 class="section">Where else the chip applies</h2>
+  <p class="sub">The <code>iOS</code> chip pattern carries to other portal pages where app-required actions surface:</p>
+  <ul style="color: var(--ink-muted); font-size: 13px; padding-left: 22px; line-height: 1.7;">
+    <li><strong style="color: var(--ink);">/clients</strong> — empty state: "No clients yet. Capture your first session in the iOS app." + App Store badge.</li>
+    <li><strong style="color: var(--ink);">/clients/[id]</strong> — header "Capture a new session" CTA (if surfaced) carries the <code>iOS</code> chip.</li>
+    <li><strong style="color: var(--ink);">/audit</strong> — no chip; this page is portal-native and shows post-publish history.</li>
+    <li><strong style="color: var(--ink);">/credits</strong> — no chip; credits are bought ON the portal.</li>
+    <li><strong style="color: var(--ink);">/network</strong>, <strong style="color: var(--ink);">/members</strong>, <strong style="color: var(--ink);">/premises</strong>, <strong style="color: var(--ink);">/public-profile</strong>, <strong style="color: var(--ink);">/account</strong> — no chip; portal-native management.</li>
+  </ul>
+
+  <!-- Recommendation -->
+  <div class="recommend">
+    <div class="label">RECOMMENDATION</div>
+    <p>Ship <strong>Variant A</strong>. The signal cost is highest exactly when it matters — for a freshly signed-up practitioner who hasn't yet realised the portal is account-only — and the cost drops to zero once they publish. The auto-dismiss avoids the failure mode of Variant B, which would either fatigue power-users or get permanently dismissed in localStorage and miss the practitioners who actually need it. Keep the per-tile <code>iOS</code> chips after dismiss as a quiet ambient reminder, and let the App Store / QR affordance live permanently on the <code>/account</code> page for users who want to grab the app on a new device.</p>
+  </div>
+
+</div>
+</body>
+</html>
