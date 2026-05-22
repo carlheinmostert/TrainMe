@@ -1,5 +1,23 @@
 # 2026-05-22 — Safe Mode photo crash (PR #423, build `bbce3e8`)
 
+## Correction — 2026-05-22 (post crash-log review)
+
+The primary root cause is NOT memory exhaustion / jetsam (hypothesis H4 below).
+Crash logs (Runner-2026-05-22-160118.ips, Runner-2026-05-22-160124.ips)
+confirm an EXC_BREAKPOINT/SIGTRAP in SafeModeProcessor.init at offset 944.
+This is a force-unwrap of `CIFilter(name: "CIBlendWithMaskFilter")` which
+returns nil — the correct Core Image filter name is `"CIBlendWithMask"` (no
+"Filter" suffix). The class name is `CIBlendWithMaskFilter`; the string-name
+passed to `CIFilter(name:)` is `"CIBlendWithMask"`.
+
+H4's memory-cliff concern is still valid as a latent issue for 12MP photo
+input + 4K video input — that's why fixes #2 and #3 in the handover are
+included alongside the primary filter-name fix.
+
+The other secondary findings (boot-loop via restoreQueue, Vision orientation
+hint, `Data(bytesNoCopy:)` fragility) remain valid and are also in scope of
+the fix PR.
+
 ## Table of Contents
 
 - [TL;DR](#tldr)
