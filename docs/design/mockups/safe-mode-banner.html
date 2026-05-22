@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Safe Mode banner + icon explorations</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --c-bg: #0F1117;
+    --c-surface: #1A1D27;
+    --c-raised: #242733;
+    --c-border: #2D3142;
+    --c-ink: #F9FAFB;
+    --c-ink-muted: #9CA3AF;
+    --c-brand: #FF6B35;
+    --c-brand-tint: rgba(255, 107, 53, 0.18);
+    --c-brand-strong: rgba(255, 107, 53, 0.9);
+    --c-sage: #86EFAC;
+  }
+  body {
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    background: var(--c-bg);
+    color: var(--c-ink);
+    min-height: 100vh;
+    padding: 48px 24px;
+  }
+  h1 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 800;
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    color: var(--c-ink-muted);
+    margin-bottom: 48px;
+    font-size: 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .col h2 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--c-ink-muted);
+    margin-bottom: 24px;
+  }
+
+  /* === Phone frame === */
+  .phone {
+    width: 320px;
+    aspect-ratio: 9 / 19.5;
+    background: #000;
+    border-radius: 36px;
+    padding: 8px;
+    margin: 0 auto 24px;
+    position: relative;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+  }
+  .viewfinder {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(160deg, #2a2d35, #15171c 60%, #0a0b10);
+    border-radius: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Fake camera "person" so banner appears IN context */
+  .vf-subject {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 35% at 50% 38%, rgba(120, 100, 80, 0.5), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 50% 75%, rgba(80, 70, 60, 0.4), transparent 60%);
+  }
+  .vf-grid::before, .vf-grid::after {
+    content: '';
+    position: absolute;
+    background: rgba(255,255,255,0.04);
+  }
+  .vf-grid::before {
+    top: 0; bottom: 0; left: 33%; width: 1px;
+  }
+  .vf-grid::after {
+    top: 0; bottom: 0; right: 33%; width: 1px;
+  }
+
+  /* Lens pills */
+  .lens-pills {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .lens-pill {
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--c-ink);
+    font-size: 9px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lens-pill.active {
+    background: var(--c-brand);
+    color: var(--c-bg);
+    border-color: var(--c-brand);
+  }
+
+  /* Shutter */
+  .shutter {
+    position: absolute;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    background: transparent;
+    border: 3px solid white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .shutter::after {
+    content: '';
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    background: white;
+  }
+  .toolbar-strip {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    color: var(--c-ink-muted);
+    font-size: 10px;
+    background: rgba(0,0,0,0.55);
+    padding: 4px 8px;
+    border-radius: 8px;
+  }
+  .toolbar-strip-right {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    color: var(--c-ink-muted);
+    font-size: 10px;
+    background: rgba(0,0,0,0.55);
+    padding: 4px 8px;
+    border-radius: 8px;
+  }
+
+  /* === Banners (overlayed on viewfinder, top) === */
+  .banner-slot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 12px;
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  /* Current (subtle, what Carl saw): coral border on dark surface */
+  .banner-current {
+    background: rgba(15, 17, 23, 0.7);
+    border: 1px solid var(--c-brand);
+    border-radius: 12px;
+    padding: 6px 12px;
+    color: var(--c-ink);
+    font-size: 11px;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+    display: inline-block;
+  }
+
+  /* Variant A: coral-filled bold */
+  .banner-a {
+    background: var(--c-brand);
+    border-radius: 12px;
+    padding: 8px 14px;
+    color: var(--c-bg);
+    font-family: 'Montserrat', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    box-shadow: 0 6px 18px rgba(255, 107, 53, 0.35);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .banner-a .icon-slot { width: 18px; height: 18px; flex-shrink: 0; }
+
+  /* Variant B: coral-fill with sub-line for premises */
+  .banner-b {
+    background: var(--c-brand);
+    border-radius: 14px;
+    padding: 10px 14px;
+    color: var(--c-bg);
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    box-shadow: 0 6px 18px rgba(255, 107, 53, 0.4);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100% - 24px);
+  }
+  .banner-b .icon-slot { width: 22px; height: 22px; flex-shrink: 0; }
+  .banner-b .text-lines { display: flex; flex-direction: column; line-height: 1.15; }
+  .banner-b .text-lines .main { font-size: 13px; letter-spacing: 0.4px; }
+  .banner-b .text-lines .sub { font-size: 10px; font-weight: 600; opacity: 0.78; letter-spacing: 0.3px; }
+
+  /* Variant C: pulsing coral chip (small + prominent via animation) */
+  .banner-c {
+    background: var(--c-brand);
+    border-radius: 999px;
+    padding: 6px 12px 6px 8px;
+    color: var(--c-bg);
+    font-family: 'Montserrat', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    animation: pulse-coral 2s ease-in-out infinite;
+  }
+  .banner-c .icon-slot { width: 16px; height: 16px; flex-shrink: 0; }
+  @keyframes pulse-coral {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(255, 107, 53, 0); }
+  }
+
+  .banner-label {
+    position: absolute;
+    bottom: -28px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: var(--c-ink-muted);
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .banner-wrap {
+    position: relative;
+    margin-bottom: 48px;
+  }
+
+  /* === Icon palette === */
+  .icon-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 8px;
+  }
+  .icon-card {
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 16px;
+    padding: 24px 16px 16px;
+    text-align: center;
+  }
+  .icon-card .icon-large {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 12px;
+    color: var(--c-brand);
+  }
+  .icon-card .icon-name {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--c-ink);
+    letter-spacing: 0.3px;
+  }
+  .icon-card .icon-desc {
+    font-size: 10px;
+    color: var(--c-ink-muted);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .icon-card .icon-mini-row {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+    align-items: center;
+  }
+  .icon-card .icon-mini { width: 14px; height: 14px; color: var(--c-brand); }
+  .icon-card .icon-mini-label {
+    font-size: 9px;
+    color: var(--c-ink-muted);
+  }
+
+  /* Legend at bottom */
+  .legend {
+    max-width: 1200px;
+    margin: 64px auto 0;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 16px;
+    padding: 24px;
+  }
+  .legend h3 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 12px;
+    color: var(--c-brand);
+  }
+  .legend ul {
+    list-style: none;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--c-ink-muted);
+  }
+  .legend ul li {
+    padding-left: 24px;
+    position: relative;
+  }
+  .legend ul li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--c-brand);
+    font-weight: bold;
+  }
+  .legend code {
+    background: var(--c-raised);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--c-sage);
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Safe Mode — banner + icon explorations</h1>
+<p class="subtitle">LOCKED design pinned below. Banner B + a combined shield-with-two-figures icon (fuses Icon 1 + Icon 2). Carl signed off 2026-05-22.</p>
+
+<!-- LOCKED DESIGN -->
+<div style="max-width: 1200px; margin: 0 auto 64px; background: linear-gradient(135deg, var(--c-brand-tint), transparent); border: 2px solid var(--c-brand); border-radius: 20px; padding: 32px;">
+  <h2 style="font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 18px; color: var(--c-brand); margin-bottom: 24px; letter-spacing: 1.5px; text-transform: uppercase;">✓ Locked design</h2>
+  <div style="display: grid; grid-template-columns: 320px 1fr; gap: 48px; align-items: center;">
+
+    <!-- Phone with locked banner B + new icon -->
+    <div class="phone" style="margin: 0;">
+      <div class="viewfinder">
+        <div class="vf-subject"></div>
+        <div class="vf-grid"></div>
+        <div class="banner-slot">
+          <div class="banner-b">
+            <span class="icon-slot">
+              <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <!-- Shield outline -->
+                <path d="M12 1.5L3 5v6c0 5.2 3.8 9.6 9 11 5.2-1.4 9-5.8 9-11V5l-9-3.5z"/>
+                <!-- Subject figure (solid, knockout) -->
+                <circle cx="9.5" cy="9.5" r="1.7" fill="#FF6B35"/>
+                <path d="M6.7 15c0-1.5 1.2-2.7 2.8-2.7s2.8 1.2 2.8 2.7" fill="#FF6B35"/>
+                <!-- Bystander figure (faded, knockout) -->
+                <circle cx="15" cy="9.7" r="1.45" fill="#FF6B35" opacity="0.45"/>
+                <path d="M12.5 15c0-1.3 1.1-2.4 2.5-2.4s2.5 1.1 2.5 2.4" fill="#FF6B35" opacity="0.45"/>
+              </svg>
+            </span>
+            <span class="text-lines">
+              <span class="main">SAFE MODE ACTIVE</span>
+              <span class="sub">Home · bystanders obscured</span>
+            </span>
+          </div>
+        </div>
+        <div class="lens-pills">
+          <div class="lens-pill">.5</div>
+          <div class="lens-pill active">1×</div>
+          <div class="lens-pill">2</div>
+          <div class="lens-pill">3</div>
+        </div>
+        <div class="toolbar-strip">peek</div>
+        <div class="toolbar-strip-right">flip</div>
+        <div class="shutter"></div>
+      </div>
+    </div>
+
+    <!-- Icon at multiple sizes -->
+    <div>
+      <h3 style="font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 14px; color: var(--c-ink); margin-bottom: 16px;">Icon at three rendering sizes</h3>
+      <div style="display: flex; gap: 32px; align-items: flex-end; margin-bottom: 24px;">
+        <!-- 64px (settings/about) -->
+        <div style="text-align: center;">
+          <div style="width: 64px; height: 64px; color: var(--c-brand); margin-bottom: 8px;">
+            <svg viewBox="0 0 64 64" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M32 4L8 14v18c0 14 10 26 24 30 14-4 24-16 24-30V14L32 4z"/>
+              <circle cx="25" cy="25" r="4.5" fill="#0F1117"/>
+              <path d="M17.5 40c0-4 3.5-7.5 7.5-7.5s7.5 3.5 7.5 7.5" fill="#0F1117"/>
+              <circle cx="40" cy="26" r="4" fill="#0F1117" opacity="0.4"/>
+              <path d="M33 40c0-3.5 3-6.5 7-6.5s7 3 7 6.5" fill="#0F1117" opacity="0.4"/>
+            </svg>
+          </div>
+          <div style="font-size: 11px; color: var(--c-ink-muted);">64px (settings)</div>
+        </div>
+        <!-- 24px (audit chip / studio chip) -->
+        <div style="text-align: center;">
+          <div style="width: 24px; height: 24px; color: var(--c-brand); margin-bottom: 8px;">
+            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 1.5L3 5v6c0 5.2 3.8 9.6 9 11 5.2-1.4 9-5.8 9-11V5l-9-3.5z"/>
+              <circle cx="9.5" cy="9.5" r="1.7" fill="#0F1117"/>
+              <path d="M6.7 15c0-1.5 1.2-2.7 2.8-2.7s2.8 1.2 2.8 2.7" fill="#0F1117"/>
+              <circle cx="15" cy="9.7" r="1.45" fill="#0F1117" opacity="0.45"/>
+              <path d="M12.5 15c0-1.3 1.1-2.4 2.5-2.4s2.5 1.1 2.5 2.4" fill="#0F1117" opacity="0.45"/>
+            </svg>
+          </div>
+          <div style="font-size: 11px; color: var(--c-ink-muted);">24px (chip)</div>
+        </div>
+        <!-- 14px (inside banner) -->
+        <div style="text-align: center;">
+          <div style="width: 14px; height: 14px; color: var(--c-brand); margin-bottom: 8px;">
+            <svg viewBox="0 0 14 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M7 0.9L1.7 2.9v3.5c0 3 2.2 5.6 5.3 6.4 3-.8 5.3-3.4 5.3-6.4V2.9L7 .9z"/>
+              <circle cx="5.5" cy="5.5" r="1" fill="#0F1117"/>
+              <path d="M4 8.8c0-.9.7-1.6 1.7-1.6s1.7.7 1.7 1.6" fill="#0F1117"/>
+              <circle cx="8.7" cy="5.7" r="0.85" fill="#0F1117" opacity="0.45"/>
+              <path d="M7.3 8.8c0-.8.6-1.4 1.5-1.4s1.5.6 1.5 1.4" fill="#0F1117" opacity="0.45"/>
+            </svg>
+          </div>
+          <div style="font-size: 11px; color: var(--c-ink-muted);">14px (banner)</div>
+        </div>
+      </div>
+      <p style="font-size: 12px; color: var(--c-ink-muted); line-height: 1.6;">
+        Shield outline contains two figures: one solid (the client / subject — fully captured) and one at 45% opacity (the bystander — visually "obscured into the surface"). The metaphor encodes the feature: "the shield protects; the visible person stays visible; the bystander is dimmed." Reads at every size.
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<hr style="max-width: 1200px; margin: 0 auto 48px; border: 0; border-top: 1px solid var(--c-border);" />
+<p style="max-width: 1200px; margin: 0 auto 32px; color: var(--c-ink-muted); font-size: 13px;">Explorations preserved below for reference / future iterations.</p>
+
+<div class="grid">
+
+  <!-- LEFT COLUMN: BANNERS -->
+  <div class="col">
+    <h2>Banners on the camera viewfinder</h2>
+
+    <!-- Banner reference: current build -->
+    <div class="banner-wrap">
+      <div class="phone">
+        <div class="viewfinder">
+          <div class="vf-subject"></div>
+          <div class="vf-grid"></div>
+          <div class="banner-slot">
+            <div class="banner-current">Safe Mode active · Home</div>
+          </div>
+          <div class="lens-pills">
+            <div class="lens-pill">.5</div>
+            <div class="lens-pill active">1×</div>
+            <div class="lens-pill">2</div>
+            <div class="lens-pill">3</div>
+          </div>
+          <div class="toolbar-strip">peek</div>
+          <div class="toolbar-strip-right">flip</div>
+          <div class="shutter"></div>
+        </div>
+      </div>
+      <p class="banner-label">Current (1c2fd06) — too subtle</p>
+    </div>
+
+    <!-- Banner A -->
+    <div class="banner-wrap">
+      <div class="phone">
+        <div class="viewfinder">
+          <div class="vf-subject"></div>
+          <div class="vf-grid"></div>
+          <div class="banner-slot">
+            <div class="banner-a">
+              <span class="icon-slot">
+                <!-- Default to Icon 1 inside the demo -->
+                <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <path d="M12 2L4 6v6c0 5 3.5 9.2 8 10 4.5-.8 8-5 8-10V6l-8-4z" />
+                  <circle cx="12" cy="11" r="2.2" fill="#FF6B35"/>
+                  <path d="M9 16c.4-1.4 1.6-2.3 3-2.3s2.6.9 3 2.3" stroke="#FF6B35" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+                </svg>
+              </span>
+              <span>SAFE MODE · HOME</span>
+            </div>
+          </div>
+          <div class="lens-pills">
+            <div class="lens-pill">.5</div>
+            <div class="lens-pill active">1×</div>
+            <div class="lens-pill">2</div>
+            <div class="lens-pill">3</div>
+          </div>
+          <div class="toolbar-strip">peek</div>
+          <div class="toolbar-strip-right">flip</div>
+          <div class="shutter"></div>
+        </div>
+      </div>
+      <p class="banner-label">Variant A — coral fill, single-line uppercase</p>
+    </div>
+
+    <!-- Banner B -->
+    <div class="banner-wrap">
+      <div class="phone">
+        <div class="viewfinder">
+          <div class="vf-subject"></div>
+          <div class="vf-grid"></div>
+          <div class="banner-slot">
+            <div class="banner-b">
+              <span class="icon-slot">
+                <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <path d="M12 2L4 6v6c0 5 3.5 9.2 8 10 4.5-.8 8-5 8-10V6l-8-4z" />
+                  <circle cx="12" cy="11" r="2.2" fill="#FF6B35"/>
+                  <path d="M9 16c.4-1.4 1.6-2.3 3-2.3s2.6.9 3 2.3" stroke="#FF6B35" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+                </svg>
+              </span>
+              <span class="text-lines">
+                <span class="main">SAFE MODE ACTIVE</span>
+                <span class="sub">Home · bystanders obscured</span>
+              </span>
+            </div>
+          </div>
+          <div class="lens-pills">
+            <div class="lens-pill">.5</div>
+            <div class="lens-pill active">1×</div>
+            <div class="lens-pill">2</div>
+            <div class="lens-pill">3</div>
+          </div>
+          <div class="toolbar-strip">peek</div>
+          <div class="toolbar-strip-right">flip</div>
+          <div class="shutter"></div>
+        </div>
+      </div>
+      <p class="banner-label">Variant B — coral fill, two-line, explains itself</p>
+    </div>
+
+    <!-- Banner C -->
+    <div class="banner-wrap">
+      <div class="phone">
+        <div class="viewfinder">
+          <div class="vf-subject"></div>
+          <div class="vf-grid"></div>
+          <div class="banner-slot">
+            <div class="banner-c">
+              <span class="icon-slot">
+                <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <path d="M12 2L4 6v6c0 5 3.5 9.2 8 10 4.5-.8 8-5 8-10V6l-8-4z" />
+                  <circle cx="12" cy="11" r="2.2" fill="#FF6B35"/>
+                  <path d="M9 16c.4-1.4 1.6-2.3 3-2.3s2.6.9 3 2.3" stroke="#FF6B35" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+                </svg>
+              </span>
+              <span>SAFE MODE · HOME</span>
+            </div>
+          </div>
+          <div class="lens-pills">
+            <div class="lens-pill">.5</div>
+            <div class="lens-pill active">1×</div>
+            <div class="lens-pill">2</div>
+            <div class="lens-pill">3</div>
+          </div>
+          <div class="toolbar-strip">peek</div>
+          <div class="toolbar-strip-right">flip</div>
+          <div class="shutter"></div>
+        </div>
+      </div>
+      <p class="banner-label">Variant C — pulsing pill (draws the eye, smaller footprint)</p>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: ICON EXPLORATIONS -->
+  <div class="col">
+    <h2>Icon explorations</h2>
+    <p style="color: var(--c-ink-muted); font-size: 12px; margin-bottom: 16px; line-height: 1.6;">
+      All in coral. Designed to read at 16px (banner) AND 64px (about / settings).
+      Stroke widths chosen for legibility at the small size.
+    </p>
+
+    <div class="icon-grid">
+
+      <!-- ICON 1: Shield + Person -->
+      <div class="icon-card">
+        <div class="icon-large">
+          <svg viewBox="0 0 64 64" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M32 4L8 14v18c0 14 10 26 24 30 14-4 24-16 24-30V14L32 4z" />
+            <circle cx="32" cy="28" r="6" fill="#0F1117"/>
+            <path d="M22 44c1-4 5-7 10-7s9 3 10 7" stroke="#0F1117" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+          </svg>
+        </div>
+        <div class="icon-name">1. Shield + Person</div>
+        <div class="icon-desc">"Protection over a person." Most literal of the bunch.</div>
+        <div class="icon-mini-row">
+          <div class="icon-mini">
+            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L4 6v6c0 5 3.5 9.2 8 10 4.5-.8 8-5 8-10V6l-8-4z" />
+              <circle cx="12" cy="11" r="2.2" fill="#0F1117"/>
+              <path d="M9 16c.4-1.4 1.6-2.3 3-2.3s2.6.9 3 2.3" stroke="#0F1117" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+            </svg>
+          </div>
+          <span class="icon-mini-label">14px banner size</span>
+        </div>
+      </div>
+
+      <!-- ICON 2: Two figures, one obscured -->
+      <div class="icon-card">
+        <div class="icon-large">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <!-- Main figure: solid coral -->
+            <circle cx="22" cy="22" r="7" fill="currentColor"/>
+            <path d="M12 50c0-7 4.5-12 10-12s10 5 10 12" fill="currentColor"/>
+            <!-- Background figure: dotted/blurred coral -->
+            <circle cx="44" cy="24" r="6" stroke="currentColor" stroke-width="2.5" stroke-dasharray="3 3"/>
+            <path d="M34 50c0-6 4-10 10-10s10 4 10 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="3 3" fill="none"/>
+          </svg>
+        </div>
+        <div class="icon-name">2. Subject + obscured bystander</div>
+        <div class="icon-desc">Two figures: one solid (client), one dashed (bystander obscured). Most literal to what the feature DOES.</div>
+        <div class="icon-mini-row">
+          <div class="icon-mini">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="8.5" cy="9" r="2.5" fill="currentColor"/>
+              <path d="M5 18c0-2.5 1.5-4.5 3.5-4.5s3.5 2 3.5 4.5" fill="currentColor"/>
+              <circle cx="16.5" cy="9.5" r="2.2" stroke="currentColor" stroke-width="1.4" stroke-dasharray="1.5 1.5"/>
+              <path d="M13 18c0-2.2 1.5-4 3.5-4s3.5 1.8 3.5 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="1.5 1.5" fill="none"/>
+            </svg>
+          </div>
+          <span class="icon-mini-label">14px banner size</span>
+        </div>
+      </div>
+
+      <!-- ICON 3: Privacy Eye (eye with shield wedge) -->
+      <div class="icon-card">
+        <div class="icon-large">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M6 32c5-8 14-14 26-14s21 6 26 14c-5 8-14 14-26 14S11 40 6 32z" stroke="currentColor" stroke-width="3.5" fill="none"/>
+            <circle cx="32" cy="32" r="6" fill="currentColor"/>
+            <!-- Shield wedge top-left covering the eye -->
+            <path d="M8 8h24v24a24 24 0 01-24-24z" fill="#0F1117"/>
+            <path d="M8 8h24v24a24 24 0 01-24-24z" stroke="currentColor" stroke-width="3.5" fill="none"/>
+          </svg>
+        </div>
+        <div class="icon-name">3. Protected sight</div>
+        <div class="icon-desc">Eye + shield wedge. Reads as "we control what's seen." Could feel surveillance-y if drawn wrong.</div>
+        <div class="icon-mini-row">
+          <div class="icon-mini">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 12c2-3 5-5 10-5s8 2 10 5c-2 3-5 5-10 5s-8-2-10-5z" stroke="currentColor" stroke-width="1.6" fill="none"/>
+              <circle cx="12" cy="12" r="2.2" fill="currentColor"/>
+              <path d="M3 3h9v9a9 9 0 01-9-9z" fill="#0F1117"/>
+              <path d="M3 3h9v9a9 9 0 01-9-9z" stroke="currentColor" stroke-width="1.6" fill="none"/>
+            </svg>
+          </div>
+          <span class="icon-mini-label">14px banner size</span>
+        </div>
+      </div>
+
+      <!-- ICON 4: Coral Silhouette (the feature output itself) -->
+      <div class="icon-card">
+        <div class="icon-large">
+          <svg viewBox="0 0 64 64" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="32" cy="20" r="9"/>
+            <path d="M12 58c0-11 9-20 20-20s20 9 20 20"/>
+            <!-- Faint outline ring suggests "this is the obscured form" -->
+            <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" fill="none" opacity="0.3" stroke-dasharray="4 4"/>
+          </svg>
+        </div>
+        <div class="icon-name">4. Coral silhouette</div>
+        <div class="icon-desc">The icon = what the feature actually renders. Self-explanatory after first exposure. Simplest at small sizes.</div>
+        <div class="icon-mini-row">
+          <div class="icon-mini">
+            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="8" r="3.2"/>
+              <path d="M5 21c0-4 3-7 7-7s7 3 7 7"/>
+            </svg>
+          </div>
+          <span class="icon-mini-label">14px banner size</span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+<div class="legend">
+  <h3>How to read this mockup</h3>
+  <ul>
+    <li>The top phone shows the <code>current build</code> banner (what Carl saw on his iPhone today) for comparison. Tiny, easy to miss.</li>
+    <li>Variants <code>A</code> / <code>B</code> / <code>C</code> are three directions, all coral-saturated. <code>A</code> is single-line; <code>B</code> adds an explanatory sub-line; <code>C</code> uses pulse to draw the eye without claiming as much screen space.</li>
+    <li>Icons <code>1</code>–<code>4</code> are four directions for the Safe Mode visual identity. Each card shows the icon at 64px (about / settings size) plus a 14px miniature for how it'll read inside the banner.</li>
+    <li>The icon you pick gets embedded into the banner you pick + becomes the Safe Mode glyph on per-exercise chips in Studio + on the audit feed.</li>
+    <li>Reply with <code>Banner X · Icon N</code> (e.g. "Banner B · Icon 4"). We can also iterate on the picked pair to refine.</li>
+  </ul>
+</div>
+
+</body>
+</html>
