@@ -192,3 +192,216 @@ After merge, update `/Users/chm/.claude/projects/-Users-chm-dev-TrainMe/memory/b
 **Re-apply:** Same Management API runbook as `docs/RESEND_SETUP.md` (target staging only).
 **Risk:** Visual diff is sub-perceptible (`#FFFFFF` vs `#F0F0F5` on dark email surfaces). Pure token-compliance hygiene, not user-visible.
 **Recommendation:** Bundle with the next routine email-template touch — not a standalone PR.
+
+### C-6 — Practice switcher is missing / hidden when you'd expect it
+
+**Source:** Carl, 2026-05-22 (after staging deploy of the cosmetic pass): "We need a practice switcher. I don't want to have to log out and log back in with a different username. Actually, that won't change my practice. What happened to our practice switcher? Can we put it back?"
+
+**Symptom:** Carl can't find a way to switch between practices from the new header.
+
+**File:** `web-portal/src/components/HeaderIdentityStack.tsx` — `PracticeLine` function at line ~75.
+
+**Current shipped behaviour (per Q15 of grilling):** the chevron-switcher renders ONLY when `practices.length > 1`. Single-practice users see "In practice {Name}" as plain prose with no affordance. This is identical to the old `PracticeContextLine.SwitchPopover` behaviour (also hid on single practice).
+
+**Two reads of the report — needs clarification when executing:**
+
+1. **(Bug) Carl has multiple practices but the chevron isn't appearing.** Diagnose data flow:
+   - `web-portal/src/app/dashboard/page.tsx:43` calls `await api.listMyPractices()` and passes the result to `BrandHeader` at line 180. Verify the RPC returns >1 row for Carl's account.
+   - If RPC returns the right list but `HeaderIdentityStack`'s `selected && (...)` guard at line 65 drops the line, that's a `selectedId`-propagation bug (line 81 of BrandHeader passes `practiceId ?? null`).
+   - Check inner pages (`/clients`, `/audit`, etc.) — same data plumbing? Or do they pass empty `practices=[]` so the line collapses everywhere except `/dashboard`?
+2. **(Design change) Carl has one practice and wants the switcher affordance restored anyway.** Override Q15's "single practice = no chevron" rule. Render the chevron always, opening a popover that either shows the empty state ("No other practices yet") or invites the user to be added as a member of another practice. Carl's phrasing "can we put it back" suggests this is the lived experience — the old chip-style switcher MAY have always shown a chevron visually even when only one practice existed; needs a regression check against the pre-cosmetic-pass behaviour.
+
+**Recommendation for execution:** start with (1) — verify the data + propagation. If Carl has multiple practices and the chevron isn't showing, fix the data plumbing. If he has one practice, ask whether he wants Q15's spec reversed (always show the chevron) or whether the empty-state design is acceptable.
+
+**Related:** the inner pages (`/clients`, `/clients/[id]`, `/audit`, `/credits`, `/members`, `/network`, `/account`, `/premises`, `/public-profile`) all use `BrandHeader showSignOut={true}` — verify each one threads `practices` AND `practiceId` through so the switcher works from any route, not just `/dashboard`. Q4 of the grilling locked "header on every authenticated page."
+
+### C-7 — Dashboard tile tooltips render at top-left of viewport instead of anchored to the card
+
+**Source:** Carl, 2026-05-22 (live on staging): "The pop-up notes that you created for me on the cards on the dashboard are rendering at the top left-hand side of the screen, so they are not rendering in the context of the card."
+
+**Symptom:** hovering a dashboard tile opens the description popover, but it floats in the top-left of the viewport (~0,0) instead of above the hovered tile.
+
+**File:** `web-portal/src/components/DashboardTile.tsx` (line ~65-110, `Tooltip.Root` + `Tooltip.Trigger asChild` + `Tooltip.Portal` + `Tooltip.Content`). Same pattern in `web-portal/src/components/DashboardAuditCard.tsx`.
+
+**Likely root cause (investigation needed during execution):**
+
+1. **`Tooltip.Trigger asChild` ref-forwarding to `Link`.** Radix needs the trigger to forward its ref to a real DOM element so it can measure the anchor's bounding rect. Next.js `Link` forwards refs to the underlying `<a>` — should work — but if for any reason the ref isn't reaching the DOM node, Radix can't compute position and falls back to (0,0). Possible interaction with the parent `<div className="relative">` wrapper at line 67.
+2. **`Tooltip.Portal` + measurement timing.** Portal renders into `document.body`, breaking out of any parent transforms/stacking contexts (which is correct). But if the Trigger isn't measured at open time, the Content positions at the viewport origin. Could be a hydration race.
+3. **The `TouchInfoTrigger` sibling trigger inside the same `Tooltip.Root`.** Two `Tooltip.Trigger` elements (one on the Link, one on the info button) sharing a single Root may be confusing Radix's anchor resolution — the second trigger might be winning and reporting position (0,0) because the info button has `display:none` until `@media(hover:none)` kicks in.
+
+**Fix shape (suggested — pick during execution):**
+
+- Refactor so the Link is the Trigger and the info button is in its own separate `Tooltip.Root` (one Root per Trigger). Two roots, two contents (or one shared description rendered twice — small dup).
+- Or use Radix `Popover` instead of `Tooltip` for the info-button-on-touch case, since that's semantically a tap-to-reveal not a hover-to-reveal.
+- Verify ref-forwarding on the Trigger → Link chain by adding `ref` logging on mount.
+- Confirm in Safari + Chrome (Radix positioning can drift across browsers).
+
+**Test scope:**
+- Hover any tile on `/dashboard` (desktop) → popover appears ABOVE the tile with the caret pointing down at it.
+- Tab through tiles via keyboard → popover for the focused tile renders anchored to it.
+- Touch viewport: tap the `(i)` info glyph → popover renders anchored to the glyph.
+- Verified on Safari + Chrome at 1280px + 375px viewports.
+
+### C-8 — Dashboard tile heights should align per row, dictated by the tallest card
+
+**Source:** Carl, 2026-05-22: "When cards are displayed in the Dashboard, the height of cards on every row should be the same. The height can be dictated by the card that needs the most space, but the other ones shouldn't be dynamic. They should all conform. It's easier on the eye."
+
+**Files:** `web-portal/src/components/DashboardTile.tsx`, `web-portal/src/components/DashboardAuditCard.tsx`, `web-portal/src/app/dashboard/page.tsx` (grid container at line ~253 `<div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">`).
+
+**Diagnosis (CSS grid stretches cells by default — so why don't the cards stretch?):**
+
+The grid container has default `align-items: stretch`, so each grid CELL is sized to the tallest item in its row. The problem is the tile's internal structure breaks the visual stretch:
+
+```tsx
+<Tooltip.Root>                          // renders nothing (context provider)
+  <div className="relative">            // ← grid item, will stretch
+    <Tooltip.Trigger asChild>
+      <Link className="flex p-5 ...">   // ← visible card, NOT stretched
+        ...content...
+      </Link>
+    </Tooltip.Trigger>
+    <TouchInfoTrigger />
+  </div>
+  <Tooltip.Portal>...</Tooltip.Portal>
+</Tooltip.Root>
+```
+
+`Tooltip.Root` is a React context provider — emits no DOM. So the grid item is the `<div className="relative">`. That div stretches to fill the cell (good). But the visible `<Link>` inside doesn't fill the div — because the div is `display: block` and the Link has no `h-full`. Result: equal-height cells with visually inconsistent cards inside them.
+
+**Fix shape (small, contained):**
+
+- Add `h-full` to the wrapper `<div className="relative h-full">` in both `DashboardTile` and `DashboardAuditCard`.
+- Add `h-full` to the inner `<Link>` so it fills the wrapper.
+- Verify the card's internal flex layout still works — Link is `flex items-start gap-4`; the icon column + text column will still align at the top, the card just gets taller.
+- The DashboardAuditCard is the tallest in row 2 (rows of audit events). With this fix, the Account + Members tiles in the same row will match its height — extra vertical space inside those tiles. Acceptable per Carl's spec.
+
+**Open question for execution:**
+- The extra vertical real estate inside the simpler tiles (Credits, Network, Clients, Account, Members) when row-mate Audit is tall — does the tile content stay top-aligned (current `items-start`)? Or center-align so the headline+subtitle sit visually middle? Top-align is the safer default; switch to center only if Carl flags it.
+
+**Test scope:**
+- `/dashboard` desktop 3-column: row 1 (Credits / Network / Clients) — all same height. Row 2 (Audit / Account / Members) — all same height as the tallest (Audit).
+- 2-column tablet: same rule per row.
+- 1-column mobile: each tile its natural height (no row alignment needed at 1 col).
+
+### C-9 — Add "Classes" tile to portal dashboard with "Coming soon" treatment (and explicitly NOT a Workouts tile)
+
+**Source:** Carl, 2026-05-22: "I want us to add, similar to what we did on the mobile app, a classes card and outfit it with the same 'Coming Soon' verbiage. This will just allow us to have the dashboard reflect the reality. The workouts card shouldn't be on the portal because somebody just consuming the product won't use the portal."
+
+**Files:** `web-portal/src/app/dashboard/page.tsx` (add new tile), `web-portal/src/components/DashboardTile.tsx` (likely needs a `disabled` / `comingSoon` variant — see below), possibly a new lucide icon for Classes.
+
+**Why workouts is intentionally excluded:** The portal is the practitioner's admin surface. End consumers (clients) never use the portal — they use the web player at `session.homefit.studio` (and they don't get a workouts dashboard, they get a workout URL). Classes is a practitioner-facing concept (build once, share with many enrollees) — that belongs on the portal. Workouts is consumer-facing (a single plan a client follows) — that doesn't.
+
+**Mobile reference (for parity):**
+- `app/lib/widgets/classes_coming_soon_view.dart` — the mobile "Coming Soon" view with three sample mock cards ("Glutes & Hamstrings", "Posture Reset", "Beginner Mobility"), a "Coming soon" pill, and a headline "Build a class once, share it with everyone who buys or [enrolls]".
+- `app/lib/screens/home_screen.dart:17, 106, 138` — Scope segmented control includes Classes (locked teaser until ships).
+
+**Portal scope (much smaller than mobile — single dashboard tile, not a full screen):**
+- Add one new `<DashboardTile>` to the dashboard grid. Position: end of the grid (after Members, owner-only). Order becomes `Credits · Network · Clients · Audit · Premises · Public profile · Account · Members · Classes`.
+- Label: `Classes`
+- Headline: `Coming soon`
+- Subtitle: `Build once, share with everyone who enrolls`
+- Icon: lucide `Layers` or `BookOpen` (suggest `Layers` — visually distinct from `BookOpen` which could read as Audit/log).
+- Description tooltip: "A subscription/class library — practitioners build a programme once and enrollees subscribe to follow it. Coming after MVP ships."
+- Disabled / non-routing state: the tile should NOT be a clickable Link. Either render as a `<div>` styled like a tile (no chevron, no hover-coral) OR add a `comingSoon` prop to `DashboardTile` that swaps the Link for a div and dims the icon.
+- Visual hint: muted ink throughout, no coral hover, opacity ~85% so it reads as "future" not "available". Matches the mobile coming-soon pill aesthetic.
+
+**Implementation choice for `DashboardTile` (decide during execution):**
+
+1. **Add a `comingSoon: boolean` prop** — when true, render as `<div>` not `<Link>`, suppress chevron, drop the `hover:border-brand`, dim the icon. Tooltip still works. One prop, one branch.
+2. **Make a new `<DashboardComingSoonTile>` component** — separate component, no Link, no chevron, no tone. Cleaner separation but duplicates the icon+tooltip+layout boilerplate.
+
+Recommend (1) — single prop is a smaller diff and keeps the dashboard's tile inventory in one shape.
+
+**Open questions for implementer:**
+- Members tile is owner-only. Classes is universal? Yes — show to all practitioners (owners + practitioners). Future ship will probably gate enrollment fees by owner role, but the teaser tile is non-functional.
+- "Coming soon" copy parity with mobile — mobile says "Coming soon" pill; portal says "Coming soon" as headline. Acceptable difference because the portal tile has different real estate.
+- Grid order with the new tile: 9 tiles for owners (Credits, Network, Clients, Audit, Premises, Public profile, Account, Members, Classes) = 3 rows of 3 — clean. Non-owners get 8 tiles (Members hidden) = 3 rows where the last has 2 tiles. Acceptable.
+
+**Test scope:**
+- `/dashboard` renders a new Classes tile, positioned last (after Members for owners, after Account for non-owners).
+- Tile is visually present but NOT clickable. No chevron. Hover reveals tooltip but no coral border.
+- Headline reads "Coming soon"; subtitle "Build once, share with everyone who enrolls".
+- Workouts tile is NOT present (deliberately).
+- Owner + non-owner both see the Classes tile (only Members is gated).
+
+### C-10 — Reorder dashboard tiles (supersedes Q5 grilled order)
+
+**Source:** Carl, 2026-05-22 (reading the order out top-left to bottom-right).
+
+**New order (locked):**
+1. Credits
+2. Network
+3. Clients
+4. Members
+5. Public profile
+6. Premises
+7. Account
+8. Audit
+
+**Supersedes:** Q5 of the grilling session, which locked `Credits · Network · Clients · Audit · Account · Members`. That order is retired.
+
+**File:** `web-portal/src/app/dashboard/page.tsx` — reorder the JSX of `<DashboardTile>` / `<DashboardAuditCard>` blocks in the grid at line ~253. No component changes needed.
+
+**Implications + open questions to resolve at execution:**
+
+1. **Members at position 4 (was last).** Members is owner-only — the existing `{isOwner && (<DashboardTile ... Members />)}` guard means non-owners see a GAP at position 4. New order for non-owners would be: Credits · Network · Clients · [gap] · Public profile · Premises · Account · Audit = 7 tiles with a hole at index 3 (or the tiles below shift up, which would re-create a 7-tile grid with Public Profile at position 4 etc.). With CSS grid + conditional render, tiles below the hidden Members will naturally reflow into its slot. Confirm Carl is OK with non-owners seeing: `Credits · Network · Clients · Public profile · Premises · Account · Audit` (no Members) as the natural reflow.
+
+2. **Where does the Classes tile (C-9) sit in this order?** Carl read 8 tiles. The Classes "Coming soon" tile from C-9 wasn't placed in the read. Two options for execution:
+   - **(a) End — position 9:** `... · Audit · Classes`. Treats Classes as the "future" tile, sits at the visual bottom.
+   - **(b) Adjacent to functionally similar tile:** insert next to Clients or Network (whichever it pairs with semantically). Probably not — "Coming soon" reads better at the end.
+   - Recommend (a). Confirm during execution if C-9 has been merged by then.
+
+3. **Audit at position 8 (last).** Audit is the multi-row card (tallest tile per C-8's row-alignment fix). Putting it at the END means it always sits alone or with at most 1 row-mate. With 8 tiles in 3 columns, Audit (#8) sits in row 3 with positions 7 (Account) and possibly 9 (Classes if added). Row alignment from C-8 will make Account and Classes match Audit's height. Probably acceptable but worth a visual sanity-check in the mockup.
+
+**Test scope:**
+- `/dashboard` owner view: tiles in exact order Credits · Network · Clients · Members · Public profile · Premises · Account · Audit (· Classes if C-9 shipped).
+- Non-owner view: Members hidden, tiles reflow naturally.
+- Visual: row 3 contains Audit alongside (Account, Classes) which are now match-height per C-8.
+
+### C-11 — Premises page "Add premises" opens a modal — violates R-01 + `feedback_no_popups_ever`
+
+**Source:** Carl, 2026-05-22: "In the newly added premises page, when we add a premise, we broke the rule of not using modal forms. Please can this be corrected when we click on Add Premises?"
+
+**Files (current — modal pattern):**
+- `web-portal/src/components/PremisesEditorDialog.tsx` — the modal component. Mounted by PremisesListPanel on "Add premises" click. Contains polygon editor + name + address + Safe Mode fields.
+- `web-portal/src/components/PremisesListPanel.tsx` — owns the open/close state of the dialog.
+- `web-portal/src/app/premises/page.tsx` — page that hosts the list panel.
+
+**Rules being violated:**
+- **R-01** (no modal confirmations / destructive-immediate + undo) — design system rule, see `docs/design/project/components.md`.
+- **`feedback_no_popups_ever.md`** — Carl's load-bearing extension: "Creating a new entity (client / session / exercise) never opens a bottom-sheet or modal. Mint with a default placeholder + navigate to detail + inline rename."
+
+**Fix shape (matches the existing client/session/exercise pattern):**
+
+1. **Add an "Add premises" RPC** that mints a default-placeholder premises row server-side:
+   - Name: `"New premises"` (or `"Premises {N}"` with N as practice count + 1 for slight differentiation)
+   - Polygon: empty / NULL
+   - Address: empty
+   - `enforced: false` (Safe Mode off by default)
+   - Returns the new premises ID
+   - File: `supabase/migrations/{ts}_add_premises_default.sql` — `create_default_premises(p_practice_id uuid) RETURNS uuid` SECURITY DEFINER with practice-membership check.
+2. **Add a `/premises/[id]` detail route** that hosts the editor (polygon map + name + address + Safe Mode toggle).
+   - Same polygon editor component from today's `PremisesEditorDialog` — lift the editor body into a `PremisesEditor` page-level component. The Dialog wrapper goes away.
+   - Inline-editable name at the top (dashed-underline pattern, mirroring `EditableClientName` on `/clients/[id]`).
+   - Address: inline-editable too, or with a "Search address" input that's part of the page (not popped).
+   - Safe Mode toggle: inline.
+   - Save: optimistic / autosave on each edit OR explicit "Save" button at the page level (no modal Save/Cancel).
+3. **Refactor `PremisesListPanel`**: "Add premises" button → calls RPC → navigates to `/premises/{newId}`. No dialog state. The list rows already link to edit — those should now route to `/premises/[id]` too, not pop a dialog.
+4. **Delete `PremisesEditorDialog.tsx`** once nothing imports it.
+
+**Open questions to confirm at execution:**
+
+- Save semantics on the detail page: autosave per-field (mirrors `/clients/[id]` inline rename) OR explicit Save button (matches the polygon editor's "draw, then commit" mental model)? Recommend autosave per-field for name/address/Safe Mode toggle, and an explicit "Save polygon" button INLINE on the map (not in a header bar) for the polygon, because the polygon is a multi-step interaction the user wants to commit deliberately.
+- Delete affordance: also can't be a modal confirmation. Use the R-01 undo-snackbar pattern — Delete fires immediately, snackbar lets you undo within 7 days (recycle bin).
+- Audit: `practice.premises.created` / `.deleted` / `.updated` events — verify they fire on the new flow too.
+
+**Test scope:**
+- `/premises` page: click "Add premises" → no modal opens. Router navigates to `/premises/{newId}` showing the default-placeholder name and an empty polygon editor.
+- Inline-rename name at the top works (dashed underline).
+- Polygon editor fills the page, not a dialog. Save commits the polygon.
+- Address search input is inline on the page.
+- Safe Mode toggle is inline.
+- "Edit" on an existing premise row in the list also routes to `/premises/{id}`, not a modal.
+- Delete uses undo-snackbar, no confirm modal.
+
+**Mobile parity (R-10-ish):** verify the mobile premises management flow doesn't have a modal either. If it does, file as a follow-up (different surface, different PR). Mobile premises capture-time check is GPS-only — the "edit a premises polygon" is portal-only today.
