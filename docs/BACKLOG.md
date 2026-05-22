@@ -7,6 +7,9 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 ## Deferred / future
 
 - **Projects / Class Sales** — sellable class bundles with revenue share. Future feature. Spec at [`docs/BACKLOG_PROJECTS.md`](BACKLOG_PROJECTS.md).
+- **Safe Mode Transparency — daily digest cron.** Phase D ships the per-report email via the `safe-mode-report` edge function, but the 48h-unanswered escalation digest is not wired. Add a Postgres `pg_cron` job (daily, ~09:00 UTC) that queries `safe_mode_session_reports` for `escalated_at IS NULL AND practice_notified_at < now() - interval '48 hours'`, posts a Slack/email digest to the homefit team, and stamps `escalated_at`. Spec in `docs/specs/2026-05-22-safe-mode-transparency.md` "Reporting flow" section.
+- **Safe Mode Transparency — WhatsApp report routing.** Phase D ships email only. `safe_mode_session_reports.practice_whatsapp_notified_at` is the parked column the future implementation stamps. Pick Twilio or Meta Cloud API depending on the cost story when this becomes worth wiring.
+- **Safe Mode Transparency — portal audit log surface.** `practitioner_audit_log` + `safe_mode_session_reports` data lands in Phase A/D; the portal surface for owners to review per-trainer identity changes + report history is parked.
 
 ---
 

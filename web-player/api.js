@@ -817,6 +817,36 @@
   }
 
   // -------------------------------------------------------------------
+  // Safe Mode Transparency — Phase D (2026-05-22)
+  // -------------------------------------------------------------------
+  async function reportSession(sessionId, reason, fingerprint) {
+    if (!sessionId || !reason || isLocalSurface()) return null;
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/report_session`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_session_id: sessionId,
+            p_reason: String(reason).slice(0, 500),
+            p_reporter_fingerprint: fingerprint || '',
+          }),
+        },
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      return typeof data === 'string' ? data : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // -------------------------------------------------------------------
   // Safe Mode Transparency — Phase B (2026-05-22)
   // -------------------------------------------------------------------
   async function getLiveSessions(slug) {
@@ -890,6 +920,7 @@
     getPlanSharingContext,
     clientSelfGrantConsent,
     getLiveSessions,
+    reportSession,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,

@@ -363,17 +363,13 @@
   }
 
   async function submitReport(sessionId, reason) {
-    // Phase D wires up `report_session`. Until that ships, we route
-    // through the existing `report_premises` flow as a graceful
-    // fallback so the modal isn't dead. The fallback is removed once
-    // Phase D lands.
-    if (typeof window.HomefitApi.reportSession === 'function') {
-      const id = await window.HomefitApi.reportSession(sessionId, reason);
-      return Boolean(id);
-    }
-    // Best-effort fallback: no-op, returns true so the modal closes.
-    // The real flow lands in Phase D.
-    return false;
+    // Safe Mode Transparency — Phase D (2026-05-22).
+    // Posts to `report_session` RPC. The RPC's transactional pg_net
+    // hook fires the `safe-mode-report` edge function which emails
+    // the practice's listed contact via Resend.
+    const fingerprint = window.__homefitLiveFingerprint || '';
+    const id = await window.HomefitApi.reportSession(sessionId, reason, fingerprint);
+    return Boolean(id);
   }
 
   function escapeHtml(s) {
