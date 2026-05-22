@@ -26,11 +26,16 @@ import type { PracticeWithRole } from '@/lib/supabase/api';
  *     duplicated affordances that now live in tiles (Account settings →
  *     the Account dashboard tile). With Account moved into a tile, the
  *     dropdown can collapse to a plain "Sign out" text link.
- *   - The practice-name chevron is hidden when the practitioner belongs
- *     to a single practice (no menu to open). Owners with multiple
- *     practices get the same dark popover as the old
- *     PracticeContextLine.SwitchPopover — lifted into this file so the
- *     dashboard surface no longer needs a duplicate context line.
+ *   - The practice-name chevron is ALWAYS rendered, regardless of how
+ *     many practices the practitioner belongs to. Carl's "put it back"
+ *     wording (2026-05-22) reversed the prior single-practice-no-chevron
+ *     decision: the affordance must remain discoverable so practitioners
+ *     never have to log out + back in to change practice context. Single-
+ *     practice users see the popover with their one practice listed plus
+ *     a helper line explaining how to gain access to another.
+ *   - Owners with multiple practices get the same dark popover as the
+ *     old PracticeContextLine.SwitchPopover — lifted into this file so
+ *     the dashboard surface no longer needs a duplicate context line.
  *   - R-02 (header purity) preserved: identity + tenant context only,
  *     no page titles or action buttons.
  */
@@ -72,7 +77,7 @@ export function HeaderIdentityStack({
 }
 
 /* ---------------------------------------------------------------------- */
-/*  Practice line — name + chevron-switcher (hidden if only one practice) */
+/*  Practice line — name + chevron-switcher (always visible)              */
 /* ---------------------------------------------------------------------- */
 
 function PracticeLine({
@@ -82,19 +87,10 @@ function PracticeLine({
   practices: PracticeWithRole[];
   selected: PracticeWithRole;
 }) {
-  const hasMany = practices.length > 1;
-
-  // Single-practice case: render as plain prose with no affordance —
-  // there's nothing to switch to.
-  if (!hasMany) {
-    return (
-      <div className="truncate text-ink-muted">
-        <span className="text-ink-dim">In practice </span>
-        <span className="font-medium text-ink">{selected.name}</span>
-      </div>
-    );
-  }
-
+  // The chevron is always visible — even for single-practice users — so
+  // that the switcher affordance never disappears. Single-practice users
+  // open the popover and see their one practice plus an empty-state
+  // helper line; multi-practice users get the full switchable list.
   return <PracticeSwitchTrigger practices={practices} selectedId={selected.id} />;
 }
 
@@ -201,6 +197,12 @@ function PracticeSwitchTrigger({
               />
             ))}
           </ul>
+          {practices.length === 1 && (
+            <div className="border-t border-surface-border/60 px-3 py-2.5 text-xs leading-snug text-ink-muted">
+              Ask another practice&rsquo;s owner to invite you to switch
+              context.
+            </div>
+          )}
         </PopoverCard>
       )}
     </>
