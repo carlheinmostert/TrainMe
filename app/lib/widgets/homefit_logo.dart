@@ -163,6 +163,14 @@ class _HomefitMatrixPainter extends CustomPainter {
 }
 
 /// Lockup painter (viewBox 48×14): wordmark row + matrix translated +4.5.
+///
+/// Brand rule (2026-05-22): the wordmark renders as a two-colour split —
+/// `homefit` in `#F0F0F5` (light) and `.studio` (with the leading dot) in
+/// `#FF6B35` (coral). The split is achieved with a single TextSpan whose
+/// children carry different `color` styles; the entire span is laid out as
+/// one run so glyph metrics + spacingAndGlyphs compression stay identical
+/// to the pre-split version (matches the web portal / web player / auth
+/// email implementations of the same lockup).
 class _HomefitLockupPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -177,17 +185,28 @@ class _HomefitLockupPainter extends CustomPainter {
     final sx = size.width / 48.0;
     final sy = size.height / viewBoxH;
 
+    final baseStyle = TextStyle(
+      fontFamily: 'Montserrat',
+      fontWeight: FontWeight.w600,
+      fontSize: wordmarkUnitHeight * sy,
+      letterSpacing: -0.1 * ((sx + sy) / 2),
+      height: 1.0,
+    );
+
     final wordmarkPainter = TextPainter(
       text: TextSpan(
-        text: 'homefit.studio',
-        style: TextStyle(
-          fontFamily: 'Montserrat',
-          fontWeight: FontWeight.w600,
-          fontSize: wordmarkUnitHeight * sy,
-          color: const Color(0xFFF0F0F5),
-          letterSpacing: -0.1 * ((sx + sy) / 2),
-          height: 1.0,
-        ),
+        style: baseStyle,
+        children: const [
+          TextSpan(
+            text: 'homefit',
+            style: TextStyle(color: AppColors.textOnDark),
+          ),
+          // The dot belongs to `.studio` — coral.
+          TextSpan(
+            text: '.studio',
+            style: TextStyle(color: AppColors.primary),
+          ),
+        ],
       ),
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.center,

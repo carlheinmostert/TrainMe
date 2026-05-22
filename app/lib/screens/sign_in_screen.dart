@@ -474,14 +474,27 @@ class _Header extends StatelessWidget {
       children: [
         const HomefitLogo(size: 120),
         const SizedBox(height: 24),
-        const Text(
-          'homefit.studio',
-          style: TextStyle(
-            fontFamily: 'Montserrat',
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
-            color: AppColors.textOnDark,
+        // Brand rule (2026-05-22): `.studio` (with the dot) renders coral
+        // wherever the lockup wordmark appears. The matrix above is
+        // unchanged; only the wordmark text-fill splits.
+        const Text.rich(
+          TextSpan(
+            style: TextStyle(
+              fontFamily: 'Montserrat',
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+            ),
+            children: [
+              TextSpan(
+                text: 'homefit',
+                style: TextStyle(color: AppColors.textOnDark),
+              ),
+              TextSpan(
+                text: '.studio',
+                style: TextStyle(color: AppColors.primary),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 12),
