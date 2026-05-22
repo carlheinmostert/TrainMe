@@ -229,11 +229,17 @@ class StudioBottomBar extends StatelessWidget {
     );
 
     return Container(
-      // Cells are taller than the prior 28pt icons because of the
-      // label, so bump the row height a touch. Pill geometry handles
-      // its own internal padding; this is just the outer breathing
-      // room above the home indicator.
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      // S-17 (2026-05-22) — drop the bottom 6pt that used to sit
+      // ABOVE the SafeArea inset so the gap below the workflow pill
+      // shrinks to just the home-indicator clearance the SafeArea
+      // already provides. The 6pt top stays — it's the visual
+      // breathing room between the last exercise card and the pill,
+      // which Carl reads as "appropriate". The home indicator itself
+      // is still cleared by the wrapping SafeArea(bottom: true) so
+      // the pill can't get tapped under the gesture line. Tightens
+      // the overall vertical footprint and recovers content area
+      // for the exercise list above.
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
