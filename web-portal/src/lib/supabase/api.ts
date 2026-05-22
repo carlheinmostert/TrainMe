@@ -736,6 +736,87 @@ export class PortalApi {
   }
 
   /**
+   * Mint a draft premises with a placeholder name and NULL polygon.
+   * Returns the new row id so the caller can router.push to
+   * `/premises/{id}` for inline editing. Replaces the modal-create
+   * flow per R-01 (no modal confirmations) and the no-popups-ever
+   * rule (mint with a default placeholder + navigate to detail +
+   * inline rename).
+   */
+  async createDefaultPremises(practiceId: string): Promise<string> {
+    const { data, error } = await this.supabase.rpc('create_default_premises', {
+      p_practice_id: practiceId,
+    });
+    if (!error) {
+      return typeof data === 'string' ? data : '';
+    }
+    const code = (error as { code?: string }).code ?? '';
+    const message = error.message ?? '';
+    if (code === '42501') throw new PremisesError('not-member', message);
+    throw new Error(message);
+  }
+
+  /**
+   * Fetch a single premises by id, with the same field shape as a
+   * `list_practice_premises` row. Used by the `/premises/{id}` detail
+   * page to hydrate without re-fetching the full practice list.
+   *
+   * Returns null when the row was deleted or never existed.
+   */
+  async getPremises(premisesId: string): Promise<PracticePremises | null> {
+    const { data, error } = await this.supabase.rpc('get_premises', {
+      p_premises_id: premisesId,
+    });
+    if (error) {
+      const code = (error as { code?: string }).code ?? '';
+      if (code === 'P0002' || code === '42501') return null;
+      throw new Error(error.message);
+    }
+    if (!data) return null;
+    const rows = data as unknown as Array<Record<string, unknown>>;
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return null;
+    return mapPracticePremisesRow(row);
+  }
+
+  /**
+   * Partial-update for name / address / Safe Mode without touching the
+   * polygon. Pass `null` on a field to leave it untouched; empty
+   * string on `address` clears it. The detail page calls this on each
+   * field's blur so edits autosave individually.
+   *
+   * Polygon edits still go through `upsertPremises` — they're a
+   * deliberate, explicit save (multi-step interaction on the map).
+   */
+  async updatePremisesMetadata(input: {
+    premisesId: string;
+    name?: string | null;
+    address?: string | null;
+    safeModeEnforced?: boolean | null;
+  }): Promise<void> {
+    const { error } = await this.supabase.rpc('update_premises_metadata', {
+      p_premises_id: input.premisesId,
+      p_name: input.name ?? null,
+      p_address: input.address ?? null,
+      p_safe_mode_enforced:
+        input.safeModeEnforced === undefined || input.safeModeEnforced === null
+          ? null
+          : input.safeModeEnforced,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code ?? '';
+    const message = error.message ?? '';
+    if (code === '42501') throw new PremisesError('not-member', message);
+    if (code === 'P0002') throw new PremisesError('not-found', message);
+    if (code === '22023') {
+      if (/name required/i.test(message)) throw new PremisesError('name-empty', message);
+      if (/name too long/i.test(message)) throw new PremisesError('name-too-long', message);
+      throw new PremisesError('invalid-input', message);
+    }
+    throw new Error(message);
+  }
+
+  /**
    * Soft-delete a premises (idempotent on an already-deleted row).
    */
   async deletePremises(premisesId: string): Promise<void> {
@@ -908,10 +989,17 @@ export type PracticePremises = {
   practiceId: string;
   name: string;
   address: string | null;
-  /** GeoJSON `Geometry` object as a string — feed to Leaflet via `JSON.parse`. */
-  polygonGeoJson: string;
-  centroidLat: number;
-  centroidLng: number;
+  /**
+   * GeoJSON `Geometry` object as a string — feed to Leaflet via
+   * `JSON.parse`. NULL when the row is a draft (created via
+   * `create_default_premises`) and the user hasn't drawn a polygon yet.
+   */
+  polygonGeoJson: string | null;
+  /** NULL on draft rows (no polygon yet). */
+  centroidLat: number | null;
+  /** NULL on draft rows (no polygon yet). */
+  centroidLng: number | null;
+  /** 0 on draft rows (no polygon yet). */
   areaM2: number;
   safeModeEnforced: boolean;
   signalType: 'gps' | 'gps+wifi' | 'gps+beacon';
@@ -920,14 +1008,18 @@ export type PracticePremises = {
 };
 
 function mapPracticePremisesRow(r: Record<string, unknown>): PracticePremises {
+  const polyRaw = r.polygon_geojson;
+  const latRaw = r.centroid_lat;
+  const lngRaw = r.centroid_lng;
   return {
     id: String(r.id ?? ''),
     practiceId: String(r.practice_id ?? ''),
     name: String(r.name ?? ''),
     address: typeof r.address === 'string' && r.address.length > 0 ? r.address : null,
-    polygonGeoJson: String(r.polygon_geojson ?? ''),
-    centroidLat: Number(r.centroid_lat ?? 0),
-    centroidLng: Number(r.centroid_lng ?? 0),
+    polygonGeoJson:
+      typeof polyRaw === 'string' && polyRaw.length > 0 ? polyRaw : null,
+    centroidLat: latRaw == null ? null : Number(latRaw),
+    centroidLng: lngRaw == null ? null : Number(lngRaw),
     areaM2: Number(r.area_m2 ?? 0),
     safeModeEnforced: Boolean(r.safe_mode_enforced),
     signalType: (r.signal_type === 'gps+wifi' || r.signal_type === 'gps+beacon')
