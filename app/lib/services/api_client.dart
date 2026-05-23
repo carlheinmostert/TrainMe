@@ -1134,7 +1134,7 @@ class ApiClient {
   }
 
   /// Safe Mode v2 (2026-05-23) — `set_client_safe_mode_consent(p_client_id,
-  /// p_allowed)`. Flips the `safe_mode_face_recognition` key in the client's
+  /// p_consent)`. Flips the `safe_mode_face_recognition` key in the client's
   /// `video_consent` jsonb. When [allowed] is false, the server also zeros
   /// out `clients.face_embedding` + `face_embedding_model_version` so a
   /// fresh consent grant restarts the biometric capture flow.
@@ -1152,7 +1152,7 @@ class ApiClient {
           'set_client_safe_mode_consent',
           params: <String, dynamic>{
             'p_client_id': clientId,
-            'p_allowed': allowed,
+            'p_consent': allowed,
           },
         ),
       );
