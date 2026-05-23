@@ -45,7 +45,7 @@ BEGIN;
 CREATE OR REPLACE FUNCTION public.report_session(
   p_session_id           uuid,
   p_reason               text,
-  p_reporter_fingerprint text
+  p_reporter_fingerprint text DEFAULT ''
 )
  RETURNS uuid
  LANGUAGE plpgsql
