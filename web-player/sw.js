@@ -13,6 +13,18 @@
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
 //
+// Manual bump 2026-05-23 (per-capture audit + 24h roster, PR A —
+// item 27 of the stack): live.js + live.html add the left-edge
+// collapsed pill, backdrop-blurred expanded drawer, and per-
+// practitioner timeline popover for "who has captured here in the
+// last 24h". New anon RPC `get_premises_active_roster` shipped as
+// migration 20260523145446_capture_audit_events.sql. Grace-period
+// fade holds the map avatar for 60s after `currentlyActive` flips
+// false → drawer-only. PR B (separate) ships the mobile Dart write
+// path for `record_capture_event`; until it merges, the roster
+// renders empty + the drawer simply doesn't appear, which is the
+// intended graceful empty state.
+//
 // Manual bump 2026-05-23 (live-view zoom + avatar-only pass): items 24
 // + 25 of the 2026-05-23 stack file. live.js + live.html. MAP_MAX_ZOOM
 // 19→21 with ESRI_MAX_NATIVE 18→19 (Esri has z19 native imagery in

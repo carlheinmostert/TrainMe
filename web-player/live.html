@@ -363,6 +363,271 @@
     .live-btn-primary:disabled {
       opacity: 0.5; cursor: not-allowed;
     }
+    /* -----------------------------------------------------------------
+       Per-capture 24h roster (2026-05-23, item 27)
+       -----------------------------------------------------------------
+       Three scenes:
+         1. Collapsed left-edge pill — only when there's at least one
+            recently-active practitioner (NOT currently active).
+         2. Expanded backdrop-blurred drawer (~220px) with the recently-
+            active list, sorted by last_event_at DESC. Map content dims.
+         3. Timeline popover (~240px) anchored beside the drawer with a
+            per-practitioner event list (photos + videos).
+       Drawer DOM lives inside .live-map-shell so it shares positioning
+       + clipping context with the map + card-layer.
+     */
+
+    /* Scene 1 — collapsed pill at the left edge */
+    .live-roster-pill {
+      position: absolute;
+      left: 0; top: 50%;
+      transform: translateY(-50%);
+      width: 32px; min-height: 64px;
+      padding: 8px 6px;
+      background: var(--c-surface-raised);
+      border: 1px solid var(--c-surface-border);
+      border-left: none;
+      border-radius: 0 12px 12px 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 4px;
+      cursor: pointer; z-index: 510;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+      transition: background 120ms ease, border-color 120ms ease;
+      pointer-events: auto;
+    }
+    .live-roster-pill:hover {
+      background: var(--c-surface-base);
+      border-color: var(--c-brand);
+    }
+    .live-roster-pill-count {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 14px; letter-spacing: 0.02em;
+      color: var(--c-ink-secondary);
+      line-height: 1;
+    }
+    .live-roster-pill.is-recent .live-roster-pill-count {
+      color: var(--c-brand);
+    }
+    .live-roster-pill-caption {
+      font-family: 'Inter', sans-serif; font-weight: 500;
+      font-size: 8px; letter-spacing: 0.06em;
+      color: var(--c-ink-muted);
+      text-transform: uppercase;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      margin-top: 2px;
+    }
+
+    /* Scene 2 — expanded drawer */
+    .live-roster-drawer {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 220px; max-width: 70%;
+      background: rgba(15, 17, 23, 0.78);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      border-right: 1px solid var(--c-surface-border);
+      z-index: 540;
+      display: flex; flex-direction: column;
+      pointer-events: auto;
+      animation: live-roster-drawer-in 160ms ease-out;
+    }
+    @keyframes live-roster-drawer-in {
+      from { transform: translateX(-100%); }
+      to   { transform: translateX(0); }
+    }
+    .live-roster-drawer-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px 8px;
+      border-bottom: 1px solid var(--c-surface-border);
+    }
+    .live-roster-drawer-title {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 12px; letter-spacing: 0.04em;
+      color: var(--c-ink-secondary);
+      text-transform: uppercase;
+    }
+    .live-roster-drawer-close {
+      background: transparent; border: none; cursor: pointer;
+      color: var(--c-ink-muted);
+      font-size: 18px; line-height: 1;
+      padding: 4px 8px; border-radius: 6px;
+    }
+    .live-roster-drawer-close:hover {
+      color: var(--c-brand);
+      background: rgba(255, 107, 53, 0.08);
+    }
+    .live-roster-drawer-list {
+      flex: 1 1 auto; overflow-y: auto;
+      padding: 6px 0;
+    }
+    .live-roster-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border: none; background: transparent;
+      width: 100%; text-align: left;
+      color: var(--c-ink-primary);
+      font-family: 'Inter', sans-serif;
+      transition: background 100ms ease;
+    }
+    .live-roster-row:hover {
+      background: rgba(255, 107, 53, 0.08);
+    }
+    .live-roster-row.is-selected {
+      background: rgba(255, 107, 53, 0.12);
+    }
+    .live-roster-row-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--c-surface-raised);
+      overflow: hidden; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700; font-size: 11px;
+      color: var(--c-brand);
+    }
+    .live-roster-row-avatar img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .live-roster-row-meta {
+      min-width: 0; flex: 1 1 auto;
+    }
+    .live-roster-row-name {
+      font-size: 13px; font-weight: 600;
+      color: var(--c-ink-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .live-roster-row-sub {
+      font-size: 11px; color: var(--c-ink-secondary);
+      margin-top: 2px; letter-spacing: 0.02em;
+    }
+    .live-roster-row-sub.is-recent {
+      color: var(--c-brand);
+    }
+    .live-roster-drawer-empty {
+      padding: 24px 14px; text-align: center;
+      font-size: 12px; color: var(--c-ink-muted);
+      line-height: 1.5;
+    }
+
+    /* Map dim when drawer is open (Scene 2). */
+    .live-card-layer.is-drawer-open .live-pavatar,
+    .live-card-layer.is-drawer-open .live-you-marker {
+      opacity: 0.35;
+      transition: opacity 160ms ease;
+    }
+    .live-map.is-drawer-open .leaflet-tile-pane,
+    .live-map.is-drawer-open .leaflet-overlay-pane {
+      opacity: 0.55;
+      transition: opacity 160ms ease;
+    }
+
+    /* Scene 3 — timeline popover (anchored beside the drawer) */
+    .live-roster-timeline {
+      position: absolute;
+      left: 232px; top: 14px;
+      width: 240px; max-height: calc(100% - 28px);
+      background: var(--c-surface-base);
+      border: 1px solid var(--c-surface-border);
+      border-radius: 12px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+      z-index: 545;
+      display: flex; flex-direction: column;
+      pointer-events: auto;
+      animation: live-roster-timeline-in 140ms ease-out;
+    }
+    @keyframes live-roster-timeline-in {
+      from { opacity: 0; transform: translateX(-6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .live-roster-timeline.is-below {
+      /* Auto-flip — when there isn't room beside, render below the
+         drawer (mobile narrow viewport). */
+      left: 14px; right: 14px;
+      top: auto; bottom: 14px;
+      width: auto; max-width: none;
+      max-height: 60%;
+    }
+    .live-roster-timeline-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border-bottom: 1px solid var(--c-surface-border);
+    }
+    .live-roster-timeline-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--c-surface-raised);
+      overflow: hidden; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700; font-size: 12px;
+      color: var(--c-brand);
+    }
+    .live-roster-timeline-avatar img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .live-roster-timeline-name {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 14px; color: var(--c-ink-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .live-roster-timeline-sub {
+      font-size: 11px; color: var(--c-ink-secondary);
+      margin-top: 2px; letter-spacing: 0.02em;
+    }
+    .live-roster-timeline-list {
+      flex: 1 1 auto; overflow-y: auto;
+      padding: 6px 0;
+    }
+    .live-roster-event {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px;
+      font-family: 'Inter', sans-serif; font-size: 12px;
+    }
+    .live-roster-event-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .live-roster-event-dot.is-photo { background: var(--c-sage); }
+    .live-roster-event-dot.is-video { background: var(--c-brand); }
+    .live-roster-event-label {
+      flex: 1 1 auto; color: var(--c-ink-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .live-roster-event-time {
+      color: var(--c-ink-secondary); font-size: 11px;
+      letter-spacing: 0.02em; flex-shrink: 0;
+    }
+    .live-roster-timeline-actions {
+      padding: 10px 14px; border-top: 1px solid var(--c-surface-border);
+    }
+    .live-roster-timeline-report {
+      width: 100%;
+      background: transparent;
+      border: 1px solid var(--c-surface-border);
+      color: var(--c-ink-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 12px; font-weight: 600; border-radius: 8px;
+      padding: 8px 12px; cursor: pointer;
+    }
+    .live-roster-timeline-report:hover {
+      border-color: var(--c-brand); color: var(--c-brand);
+    }
+
+    /* Grace-period fade on the map avatar after currentlyActive flips
+       true → false. 60s wall-clock fade-out is driven via inline
+       transform/opacity transitions in JS; the class enables a smooth
+       transition envelope. */
+    .live-pavatar.is-grace {
+      transition: opacity 1000ms linear, transform 60s linear;
+      animation: none;
+      border-color: rgba(255, 107, 53, 0.5);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .live-roster-drawer { animation: none; }
+      .live-roster-timeline { animation: none; }
+      .live-pavatar.is-grace { transition: opacity 200ms ease; }
+    }
+
     .live-toast {
       position: fixed; bottom: 24px; left: 50%;
       transform: translateX(-50%);
@@ -409,6 +674,11 @@
         <div class="live-map-shell">
           <div class="live-map" id="live-map" aria-label="Premises satellite map"></div>
           <div class="live-card-layer" id="live-card-layer"></div>
+          <!-- Per-capture 24h roster overlay (2026-05-23, item 27).
+               Mount point — live.js conditionally renders the
+               collapsed pill (.live-roster-pill) and the expanded
+               drawer (.live-roster-drawer) into this layer. -->
+          <div class="live-roster-layer" id="live-roster-layer"></div>
         </div>
       </section>
 

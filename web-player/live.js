@@ -45,6 +45,7 @@
   const elFooterLogo = document.getElementById('live-footer-logo');
   const elHeroH1 = document.getElementById('live-hero-h1');
   const elHeroTitle = document.getElementById('live-hero-title');
+  const elRosterLayer = document.getElementById('live-roster-layer');
 
   let pollTimer = null;
   let viewerPos = null; // { lat, lng } — never leaves the browser.
@@ -72,6 +73,32 @@
   let practiceContactCached = null; // most recent practice contact (for popover Report)
   let outsideTapHandler = null;
   let escKeyHandler = null;
+
+  // ---------------------------------------------------------------------
+  // PR A (2026-05-23): per-capture 24h roster + grace-fade state.
+  //
+  // The roster is polled on the same 12s cadence as the live sessions
+  // payload; the data drives both the side drawer (recently-active list)
+  // and the grace-period fade on map avatars (currently-active flipping
+  // false → drawer-only over a 60s wall-clock window).
+  //
+  // graceTrainers maps trainer_id → {pin (DOM), lastLatLng, fadeStart}.
+  // When a trainer disappears from the "currently active" set BUT still
+  // has roster events in the last 24h, we hold the pin for 60s with a
+  // slow opacity fade. If they become active again inside that window,
+  // we cancel the grace + snap back to the live pulse.
+  // ---------------------------------------------------------------------
+  let lastRoster = []; // [{trainerId, currentlyActive, firstName, ...events}]
+  let drawerOpen = false;
+  let selectedTrainerId = null;
+  let elDrawer = null;
+  let elDrawerPill = null;
+  let elTimeline = null;
+  let drawerOutsideTapHandler = null;
+  let drawerEscKeyHandler = null;
+  let graceTrainers = new Map(); // trainer_id → {pin, startedAt, lastLatLng}
+  let graceTickTimer = null;
+  const GRACE_DURATION_MS = 60000;
 
   function slugsFromPath() {
     // Per-premises shape: /v/{practice-slug}/{premises-slug}/now.
@@ -264,6 +291,7 @@
     map.on('move zoom moveend zoomend', () => {
       repositionCards();
       repositionViewerDot();
+      repositionGracePins();
     });
 
     // First-paint sizing: Leaflet caches container size on init. If the
@@ -738,6 +766,20 @@
     paintViewerDot();
     lastUpdatedAt = Date.now();
     updateMetaTicker();
+
+    // PR A (2026-05-23): fetch the 24h roster on the same cadence. The
+    // RPC is anon + idempotent + read-only; failure leaves the roster
+    // empty and the side drawer simply doesn't appear.
+    try {
+      const roster = await window.HomefitApi.getPremisesActiveRoster(
+        slugs.practiceSlug,
+        slugs.premisesSlug,
+        24,
+      );
+      handleRosterPayload(Array.isArray(roster) ? roster : []);
+    } catch (_) {
+      handleRosterPayload([]);
+    }
   }
 
   async function fetchPracticeContact(slug) {
@@ -865,6 +907,573 @@
         { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 },
       );
     } catch (_) {}
+  }
+
+  // =====================================================================
+  // PR A (2026-05-23) — Per-capture 24h roster + grace fade
+  // =====================================================================
+
+  /**
+   * Compare the incoming roster payload against the previous one + the
+   * current `lastSessions` (currently active set) and:
+   *   - Drive the grace-period fade for trainers who just went inactive
+   *     (in roster, NOT in lastSessions, lookup by trainer_id).
+   *   - Cancel any grace fade for trainers who came back active.
+   *   - Re-render the side drawer (collapsed pill OR expanded panel).
+   *
+   * The roster is the source of truth for "who has been here in the last
+   * 24h"; `lastSessions` is the source of truth for "who is recording
+   * right now". The two intersect to drive the live pulse + drawer
+   * placement.
+   */
+  function handleRosterPayload(roster) {
+    lastRoster = roster;
+
+    // Trainer IDs currently broadcasting a live session (heartbeat ≤60s).
+    const liveIds = new Set(
+      (lastSessions || []).map((s) => s.trainerId).filter(Boolean),
+    );
+
+    // Drive grace-fade transitions. Any trainer in the roster who is
+    // NOT currently live but was last seen recently could be in the
+    // fade window. We trust the roster's `currentlyActive` flag (server
+    // computes it from active_capture_sessions), so we only need to
+    // detect the FLIP from active → not-active.
+    roster.forEach((r) => {
+      const wasInGrace = graceTrainers.has(r.trainerId);
+      if (r.currentlyActive) {
+        // If they were in a grace fade, cancel cleanly — the live
+        // drawSessions call will repaint them with the full pulse.
+        if (wasInGrace) {
+          cancelGrace(r.trainerId);
+        }
+      } else if (!wasInGrace) {
+        // Newly inactive. Did they have a pin on the last live cycle?
+        // If so, start the 60s fade; otherwise they were already in
+        // the drawer-only state and we just rerender the list.
+        const prevSession = (lastSessions || []).find(
+          (s) => s.trainerId === r.trainerId,
+        );
+        // No previous pin → nothing to fade. Skip.
+        if (!prevSession) return;
+        // We already wiped pins in drawSessions(); the fade has to be
+        // a synthetic pin so the visual position is preserved.
+        startGraceFade(r.trainerId, prevSession, r);
+      }
+    });
+
+    // Garbage-collect any grace entries whose trainer disappeared from
+    // the roster entirely (24h window expired between polls).
+    for (const tid of Array.from(graceTrainers.keys())) {
+      if (!roster.find((r) => r.trainerId === tid)) {
+        cancelGrace(tid);
+      }
+    }
+
+    renderRosterUi(roster, liveIds);
+  }
+
+  // ---------------------------------------------------------------------
+  // Grace fade: hold an avatar at its last known map position for 60s
+  // with a slow opacity fade. After 60s the pin is removed; the drawer
+  // entry remains. The animation respects prefers-reduced-motion via the
+  // CSS @media query on .live-pavatar.is-grace.
+  // ---------------------------------------------------------------------
+  function startGraceFade(trainerId, prevSession, rosterEntry) {
+    if (!elCardLayer || !map || !window.L) return;
+    if (!Number.isFinite(prevSession.latitude) || !Number.isFinite(prevSession.longitude)) {
+      return;
+    }
+    const pin = document.createElement('div');
+    pin.className = 'live-pavatar is-grace';
+    pin.dataset.lat = String(prevSession.latitude);
+    pin.dataset.lng = String(prevSession.longitude);
+    pin.dataset.sessionId = prevSession.sessionId || '';
+    pin.dataset.trainerId = trainerId;
+    pin.style.opacity = '0.85';
+    const fullName = [rosterEntry.firstName, rosterEntry.lastName]
+      .filter(Boolean).join(' ') || 'Practitioner';
+    pin.setAttribute('aria-label', `${fullName} (recently active)`);
+    if (rosterEntry.avatarUrl) {
+      const img = document.createElement('img');
+      img.src = rosterEntry.avatarUrl;
+      img.alt = '';
+      pin.appendChild(img);
+    } else {
+      pin.classList.add('is-initials');
+      pin.textContent = sessionInitials(rosterEntry.firstName, rosterEntry.lastName);
+    }
+    elCardLayer.appendChild(pin);
+    // Initial position via the map projection.
+    const pt = map.latLngToContainerPoint([prevSession.latitude, prevSession.longitude]);
+    pin.style.left = `${pt.x}px`;
+    pin.style.top = `${pt.y}px`;
+    const entry = {
+      pin,
+      startedAt: Date.now(),
+      lastLatLng: { lat: prevSession.latitude, lng: prevSession.longitude },
+    };
+    graceTrainers.set(trainerId, entry);
+
+    // Schedule the opacity fade to 0 over 60s. CSS transition handles
+    // the actual interpolation; we just kick it off on the next frame.
+    requestAnimationFrame(() => {
+      pin.style.transition = 'opacity 60000ms linear';
+      pin.style.opacity = '0';
+    });
+
+    // Ensure the global tick is running so we GC the pin after 60s.
+    ensureGraceTick();
+  }
+
+  function cancelGrace(trainerId) {
+    const entry = graceTrainers.get(trainerId);
+    if (!entry) return;
+    if (entry.pin && entry.pin.parentNode) {
+      entry.pin.parentNode.removeChild(entry.pin);
+    }
+    graceTrainers.delete(trainerId);
+    if (graceTrainers.size === 0 && graceTickTimer) {
+      window.clearInterval(graceTickTimer);
+      graceTickTimer = null;
+    }
+  }
+
+  function ensureGraceTick() {
+    if (graceTickTimer) return;
+    graceTickTimer = window.setInterval(() => {
+      const now = Date.now();
+      for (const [tid, entry] of Array.from(graceTrainers.entries())) {
+        if (now - entry.startedAt >= GRACE_DURATION_MS) {
+          cancelGrace(tid);
+        }
+      }
+    }, 1000);
+  }
+
+  // Reproject grace pins along with live pins on map move/zoom.
+  function repositionGracePins() {
+    if (!map) return;
+    graceTrainers.forEach((entry) => {
+      if (!entry || !entry.pin || !entry.lastLatLng) return;
+      const pt = map.latLngToContainerPoint([entry.lastLatLng.lat, entry.lastLatLng.lng]);
+      entry.pin.style.left = `${pt.x}px`;
+      entry.pin.style.top = `${pt.y}px`;
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Drawer / pill rendering
+  // ---------------------------------------------------------------------
+  function renderRosterUi(roster, liveIds) {
+    if (!elRosterLayer) return;
+
+    // "Recently active" = in the 24h roster but NOT currently live.
+    const recent = roster.filter(
+      (r) => !r.currentlyActive && !liveIds.has(r.trainerId),
+    );
+
+    // If nothing to surface (no recent + drawer not currently open),
+    // wipe the layer cleanly.
+    if (recent.length === 0 && !drawerOpen) {
+      while (elRosterLayer.firstChild) elRosterLayer.removeChild(elRosterLayer.firstChild);
+      elDrawer = null;
+      elDrawerPill = null;
+      elTimeline = null;
+      return;
+    }
+
+    // Drawer open path renders the panel + (optionally) the timeline.
+    if (drawerOpen) {
+      renderDrawerExpanded(recent);
+    } else {
+      renderDrawerCollapsedPill(recent);
+    }
+  }
+
+  function renderDrawerCollapsedPill(recent) {
+    // Clean slate
+    while (elRosterLayer.firstChild) elRosterLayer.removeChild(elRosterLayer.firstChild);
+    elDrawer = null;
+    elTimeline = null;
+    if (recent.length === 0) {
+      elDrawerPill = null;
+      return;
+    }
+
+    // Recent-within-1-hour driver: coral text if at least one entry.
+    const oneHourAgo = Date.now() - 3600000;
+    const hasFresh = recent.some((r) => {
+      const t = Date.parse(r.lastEventAt || '');
+      return Number.isFinite(t) && t >= oneHourAgo;
+    });
+
+    elDrawerPill = document.createElement('button');
+    elDrawerPill.type = 'button';
+    elDrawerPill.className = 'live-roster-pill' + (hasFresh ? ' is-recent' : '');
+    elDrawerPill.setAttribute(
+      'aria-label',
+      `${recent.length} recently active in the last 24 hours`,
+    );
+
+    const count = document.createElement('div');
+    count.className = 'live-roster-pill-count';
+    count.textContent = `+${recent.length}`;
+    elDrawerPill.appendChild(count);
+
+    const caption = document.createElement('div');
+    caption.className = 'live-roster-pill-caption';
+    caption.textContent = 'Recent 24h';
+    elDrawerPill.appendChild(caption);
+
+    elDrawerPill.addEventListener('click', (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      openDrawer();
+    });
+
+    elRosterLayer.appendChild(elDrawerPill);
+  }
+
+  function renderDrawerExpanded(recent) {
+    // Wipe the layer and rebuild — cheaper than diffing on every 12s poll.
+    while (elRosterLayer.firstChild) elRosterLayer.removeChild(elRosterLayer.firstChild);
+    elDrawerPill = null;
+
+    elDrawer = document.createElement('div');
+    elDrawer.className = 'live-roster-drawer';
+    elDrawer.setAttribute('role', 'dialog');
+    elDrawer.setAttribute('aria-label', 'Recently active practitioners (last 24 hours)');
+
+    const header = document.createElement('div');
+    header.className = 'live-roster-drawer-header';
+    const title = document.createElement('div');
+    title.className = 'live-roster-drawer-title';
+    title.textContent = 'Recent · 24h';
+    header.appendChild(title);
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'live-roster-drawer-close';
+    closeBtn.setAttribute('aria-label', 'Close drawer');
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      closeDrawer();
+    });
+    header.appendChild(closeBtn);
+    elDrawer.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'live-roster-drawer-list';
+    if (recent.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'live-roster-drawer-empty';
+      empty.textContent = 'Nobody recorded here in the last 24 hours.';
+      list.appendChild(empty);
+    } else {
+      recent.forEach((r) => list.appendChild(buildRosterRow(r)));
+    }
+    elDrawer.appendChild(list);
+
+    elRosterLayer.appendChild(elDrawer);
+
+    // Apply dim classes to map + card layer while drawer is open.
+    if (elCardLayer) elCardLayer.classList.add('is-drawer-open');
+    if (elMap) elMap.classList.add('is-drawer-open');
+
+    // Timeline popover persistence — if the user had a row selected
+    // before this re-render, restore it (data may have updated).
+    if (selectedTrainerId) {
+      const r = recent.find((rr) => rr.trainerId === selectedTrainerId);
+      if (r) {
+        renderTimeline(r);
+      } else {
+        // Selection vanished from the roster — clean up.
+        selectedTrainerId = null;
+        if (elTimeline && elTimeline.parentNode) {
+          elTimeline.parentNode.removeChild(elTimeline);
+        }
+        elTimeline = null;
+      }
+    }
+  }
+
+  function buildRosterRow(r) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'live-roster-row';
+    if (selectedTrainerId === r.trainerId) row.classList.add('is-selected');
+    row.dataset.trainerId = r.trainerId;
+
+    const fullName = [r.firstName, r.lastName].filter(Boolean).join(' ') || 'Practitioner';
+    const minsAgo = minutesSince(r.lastEventAt);
+    const captureCount = r.eventCount24h || (r.events || []).length;
+    const captureLabel = captureCount === 1 ? '1 capture' : `${captureCount} captures`;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'live-roster-row-avatar';
+    if (r.avatarUrl) {
+      const img = document.createElement('img');
+      img.src = r.avatarUrl;
+      img.alt = '';
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = sessionInitials(r.firstName, r.lastName);
+    }
+    row.appendChild(avatar);
+
+    const meta = document.createElement('div');
+    meta.className = 'live-roster-row-meta';
+    const name = document.createElement('div');
+    name.className = 'live-roster-row-name';
+    name.textContent = fullName;
+    meta.appendChild(name);
+    const sub = document.createElement('div');
+    sub.className = 'live-roster-row-sub';
+    if (minsAgo !== null && minsAgo < 60) sub.classList.add('is-recent');
+    sub.textContent = `${formatMinsAgo(minsAgo)} · ${captureLabel}`;
+    meta.appendChild(sub);
+    row.appendChild(meta);
+
+    row.addEventListener('click', (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      selectTrainer(r);
+    });
+
+    return row;
+  }
+
+  function minutesSince(iso) {
+    if (!iso) return null;
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) return null;
+    return Math.max(0, Math.floor((Date.now() - ms) / 60000));
+  }
+
+  function formatMinsAgo(mins) {
+    if (mins === null) return 'recently';
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const h = Math.floor(mins / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  function selectTrainer(rosterEntry) {
+    selectedTrainerId = rosterEntry.trainerId;
+    // Update row selection state.
+    if (elDrawer) {
+      const rows = elDrawer.querySelectorAll('.live-roster-row');
+      rows.forEach((r) => {
+        if (r.dataset.trainerId === selectedTrainerId) {
+          r.classList.add('is-selected');
+        } else {
+          r.classList.remove('is-selected');
+        }
+      });
+    }
+    renderTimeline(rosterEntry);
+  }
+
+  // ---------------------------------------------------------------------
+  // Timeline popover (Scene 3)
+  // ---------------------------------------------------------------------
+  function renderTimeline(rosterEntry) {
+    if (!elRosterLayer) return;
+    if (elTimeline && elTimeline.parentNode) {
+      elTimeline.parentNode.removeChild(elTimeline);
+    }
+    elTimeline = document.createElement('div');
+    elTimeline.className = 'live-roster-timeline';
+    elTimeline.setAttribute('role', 'dialog');
+    const fullName = [rosterEntry.firstName, rosterEntry.lastName]
+      .filter(Boolean).join(' ') || 'Practitioner';
+    elTimeline.setAttribute('aria-label', `${fullName} — last 24 hours`);
+
+    // Auto-flip: if the map shell is narrower than ~480px (drawer 220 +
+    // timeline 240 + a hair), render the timeline BELOW the drawer
+    // instead of beside it.
+    if (elMap) {
+      const rect = elMap.getBoundingClientRect();
+      if (rect.width < 480) elTimeline.classList.add('is-below');
+    }
+
+    // Header — avatar + name + subline
+    const header = document.createElement('div');
+    header.className = 'live-roster-timeline-header';
+    const avatar = document.createElement('div');
+    avatar.className = 'live-roster-timeline-avatar';
+    if (rosterEntry.avatarUrl) {
+      const img = document.createElement('img');
+      img.src = rosterEntry.avatarUrl;
+      img.alt = '';
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = sessionInitials(rosterEntry.firstName, rosterEntry.lastName);
+    }
+    header.appendChild(avatar);
+    const headerMeta = document.createElement('div');
+    headerMeta.style.minWidth = '0';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'live-roster-timeline-name';
+    nameEl.textContent = fullName;
+    headerMeta.appendChild(nameEl);
+    const subEl = document.createElement('div');
+    subEl.className = 'live-roster-timeline-sub';
+    const captureCount = rosterEntry.eventCount24h || (rosterEntry.events || []).length;
+    subEl.textContent = `Last 24h · ${captureCount === 1 ? '1 capture' : `${captureCount} captures`}`;
+    headerMeta.appendChild(subEl);
+    header.appendChild(headerMeta);
+    elTimeline.appendChild(header);
+
+    // Event list — photos + videos, most-recent first
+    const list = document.createElement('div');
+    list.className = 'live-roster-timeline-list';
+    const events = Array.isArray(rosterEntry.events) ? rosterEntry.events : [];
+    if (events.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'live-roster-drawer-empty';
+      empty.textContent = 'No captures in the last 24 hours.';
+      list.appendChild(empty);
+    } else {
+      events.forEach((ev) => list.appendChild(buildEventRow(ev)));
+    }
+    elTimeline.appendChild(list);
+
+    // Footer actions — Report. Reuses the existing report-modal flow
+    // (it expects a session shape; synthesize one from the roster).
+    const actions = document.createElement('div');
+    actions.className = 'live-roster-timeline-actions';
+    const reportBtn = document.createElement('button');
+    reportBtn.type = 'button';
+    reportBtn.className = 'live-roster-timeline-report';
+    reportBtn.textContent = `Report ${fullName.split(' ')[0] || 'practitioner'}`;
+    reportBtn.addEventListener('click', (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      // No active session id available; the modal handles the missing
+      // sessionId by surfacing the report against the practitioner's
+      // most-recent event instead. Report flow remains unchanged.
+      const fakeSession = {
+        sessionId: '', // server-side rate-limit treats empty as missing
+        firstName: rosterEntry.firstName,
+        lastName: rosterEntry.lastName,
+      };
+      openReportModal(fakeSession, practiceContactCached);
+    });
+    actions.appendChild(reportBtn);
+    elTimeline.appendChild(actions);
+
+    elRosterLayer.appendChild(elTimeline);
+  }
+
+  function buildEventRow(ev) {
+    const row = document.createElement('div');
+    row.className = 'live-roster-event';
+    const dot = document.createElement('div');
+    const isVideo = ev.kind === 'video';
+    dot.className = 'live-roster-event-dot ' + (isVideo ? 'is-video' : 'is-photo');
+    row.appendChild(dot);
+
+    const label = document.createElement('div');
+    label.className = 'live-roster-event-label';
+    const time = document.createElement('div');
+    time.className = 'live-roster-event-time';
+
+    const startMs = Date.parse(ev.started_at || '');
+    const endMs = ev.ended_at ? Date.parse(ev.ended_at) : null;
+    if (isVideo && Number.isFinite(startMs) && Number.isFinite(endMs)) {
+      const durSecs = Math.max(0, Math.round((endMs - startMs) / 1000));
+      label.textContent = `Video (${formatDurationSecs(durSecs)})`;
+      time.textContent = `${formatClock(startMs)} → ${formatClock(endMs)}`;
+    } else if (isVideo && Number.isFinite(startMs)) {
+      label.textContent = 'Video';
+      time.textContent = formatClock(startMs);
+    } else {
+      label.textContent = 'Photo';
+      time.textContent = Number.isFinite(startMs) ? formatClock(startMs) : '';
+    }
+
+    row.appendChild(label);
+    row.appendChild(time);
+    return row;
+  }
+
+  function formatDurationSecs(secs) {
+    if (!Number.isFinite(secs) || secs < 0) return '0s';
+    if (secs < 60) return `${secs}s`;
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (s === 0) return `${m}m`;
+    return `${m}m ${s}s`;
+  }
+
+  function formatClock(ms) {
+    if (!Number.isFinite(ms)) return '';
+    try {
+      const d = new Date(ms);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Drawer open / close machinery
+  // ---------------------------------------------------------------------
+  function openDrawer() {
+    if (drawerOpen) return;
+    drawerOpen = true;
+    selectedTrainerId = null;
+    // Close any session popover that's open — the drawer + popover
+    // would otherwise visually clash.
+    closePopover();
+    // Render with the current snapshot — poll loop will refresh.
+    const liveIds = new Set((lastSessions || []).map((s) => s.trainerId).filter(Boolean));
+    renderRosterUi(lastRoster, liveIds);
+
+    // Outside-tap + ESC dismissal. Defer the outside-tap by a tick so
+    // the click that opened us doesn't immediately close us.
+    setTimeout(() => {
+      drawerOutsideTapHandler = (evt) => {
+        if (!elDrawer) return;
+        if (elDrawer.contains(evt.target)) return;
+        if (elTimeline && elTimeline.contains(evt.target)) return;
+        // Tapping outside both the drawer + the timeline (anywhere on
+        // the map or beyond) closes the drawer.
+        closeDrawer();
+      };
+      document.addEventListener('mousedown', drawerOutsideTapHandler, true);
+      document.addEventListener('touchstart', drawerOutsideTapHandler, true);
+    }, 0);
+    drawerEscKeyHandler = (evt) => {
+      if (evt.key === 'Escape') closeDrawer();
+    };
+    document.addEventListener('keydown', drawerEscKeyHandler);
+  }
+
+  function closeDrawer() {
+    if (!drawerOpen) return;
+    drawerOpen = false;
+    selectedTrainerId = null;
+    if (elCardLayer) elCardLayer.classList.remove('is-drawer-open');
+    if (elMap) elMap.classList.remove('is-drawer-open');
+    if (drawerOutsideTapHandler) {
+      document.removeEventListener('mousedown', drawerOutsideTapHandler, true);
+      document.removeEventListener('touchstart', drawerOutsideTapHandler, true);
+      drawerOutsideTapHandler = null;
+    }
+    if (drawerEscKeyHandler) {
+      document.removeEventListener('keydown', drawerEscKeyHandler);
+      drawerEscKeyHandler = null;
+    }
+    // Repaint as collapsed pill (or wipe entirely).
+    const liveIds = new Set((lastSessions || []).map((s) => s.trainerId).filter(Boolean));
+    renderRosterUi(lastRoster, liveIds);
   }
 
   function boot() {

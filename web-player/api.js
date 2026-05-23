@@ -817,6 +817,65 @@
   }
 
   // -------------------------------------------------------------------
+  // Per-capture audit log + 24h roster (2026-05-23, PR A)
+  // -------------------------------------------------------------------
+  // Anonymous SECURITY DEFINER RPC. Returns the per-practitioner roster
+  // for the resolved (practice-slug, premises-slug) over the trailing
+  // window (default 24h). Each row has `currently_active` (heartbeat
+  // <= 60s on `active_capture_sessions`) plus an `events` jsonb timeline
+  // of `{kind, started_at, ended_at}` rows most-recent-first, so the
+  // timeline popover renders without a second round-trip.
+  //
+  // Returns [] for not-found / not-listed practice or premises (mirrors
+  // get_practice_profile's privacy posture — doesn't leak the existence
+  // of unlisted slugs).
+  //
+  // KNOWN: until PR B (the mobile write path) ships, this returns an
+  // empty array even on a real venue. The web-player renders the empty
+  // state gracefully (no drawer pill).
+  async function getPremisesActiveRoster(practiceSlug, premisesSlug, lookbackHours) {
+    if (!practiceSlug || !premisesSlug || isLocalSurface()) return [];
+    const hours = Number.isFinite(Number(lookbackHours))
+      ? Math.max(1, Math.min(168, Math.floor(Number(lookbackHours))))
+      : 24;
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_premises_active_roster`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_practice_slug: String(practiceSlug).toLowerCase(),
+            p_premises_slug: String(premisesSlug).toLowerCase(),
+            p_lookback_hours: hours,
+          }),
+        },
+      );
+      if (!response.ok) return [];
+      const rows = await response.json();
+      if (!Array.isArray(rows)) return [];
+      return rows.map((r) => ({
+        trainerId: r.trainer_id,
+        firstName: r.first_name || null,
+        lastName: r.last_name || null,
+        avatarUrl: r.avatar_url || null,
+        currentlyActive: r.currently_active === true,
+        lastEventAt: r.last_event_at,
+        eventCount24h: Number.isFinite(Number(r.event_count_24h))
+          ? Number(r.event_count_24h)
+          : 0,
+        events: Array.isArray(r.events) ? r.events : [],
+      }));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // -------------------------------------------------------------------
   // Safe Mode Transparency — Phase D (2026-05-22)
   // -------------------------------------------------------------------
   async function reportSession(sessionId, reason, fingerprint) {
@@ -925,6 +984,7 @@
     getPlanSharingContext,
     clientSelfGrantConsent,
     getLiveSessions,
+    getPremisesActiveRoster,
     reportSession,
     isLocalSurface,
     getLocalPlanId,
