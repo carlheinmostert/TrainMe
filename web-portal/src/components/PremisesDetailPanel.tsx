@@ -385,6 +385,47 @@ export function PremisesDetailPanel({
     return () => window.clearTimeout(id);
   }, [polygonState]);
 
+  // ---------------------------------------------------------------------
+  // Item 19 — "Regenerate satellite snapshot" owner-only action. Useful
+  // when Mapbox tile updates lag reality OR the auto-regen on polygon
+  // edit didn't fire (vault secret missing / pg_net hiccup).
+  // ---------------------------------------------------------------------
+  const [snapshotState, setSnapshotState] = useState<FieldSaveState>({ kind: 'idle' });
+  async function regenerateSnapshot() {
+    setSnapshotState({ kind: 'saving' });
+    try {
+      const fired = await api().regeneratePremisesSnapshot(initial.id);
+      if (fired) {
+        setSnapshotState({ kind: 'ok' });
+      } else {
+        setSnapshotState({
+          kind: 'err',
+          message:
+            'Regen dispatch could not fire — confirm MAPBOX_TOKEN is set on the Supabase project.',
+        });
+      }
+    } catch (e) {
+      setSnapshotState({
+        kind: 'err',
+        message:
+          e instanceof PremisesError
+            ? messageForPremisesError(e)
+            : e instanceof Error
+              ? e.message
+              : 'Snapshot regen failed.',
+      });
+    }
+  }
+  useEffect(() => {
+    if (snapshotState.kind === 'idle' || snapshotState.kind === 'saving') return;
+    const ttl = snapshotState.kind === 'err' ? 6000 : 3500;
+    const id = window.setTimeout(
+      () => setSnapshotState({ kind: 'idle' }),
+      ttl,
+    );
+    return () => window.clearTimeout(id);
+  }, [snapshotState]);
+
   const isDraft = !initial.polygonGeoJson;
 
   return (
@@ -756,6 +797,45 @@ export function PremisesDetailPanel({
             className="mt-3 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
           >
             {polygonState.message}
+          </p>
+        )}
+
+        {/* Item 19 — Regenerate satellite snapshot. Only meaningful when
+            a polygon already exists; the auto-regen trigger fires on
+            polygon edits, but Mapbox tile updates lag reality so a
+            manual refresh is worth surfacing. */}
+        {!isDraft && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-surface-border pt-4">
+            <div className="text-xs text-ink-muted">
+              The live transparency page uses a satellite snapshot of this
+              premises. Refresh it if Mapbox tile updates lag reality.
+            </div>
+            <div className="flex items-center gap-2">
+              {snapshotState.kind === 'ok' && (
+                <span role="status" className="text-xs text-success">
+                  Snapshot refresh dispatched.
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={regenerateSnapshot}
+                disabled={snapshotState.kind === 'saving'}
+                className="rounded-md border border-surface-border bg-transparent px-3 py-1.5 text-xs font-semibold text-ink-primary hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {snapshotState.kind === 'saving'
+                  ? 'Regenerating…'
+                  : 'Regenerate satellite snapshot'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {snapshotState.kind === 'err' && !isDraft && (
+          <p
+            role="alert"
+            className="mt-2 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-xs text-error"
+          >
+            {snapshotState.message}
           </p>
         )}
       </section>
