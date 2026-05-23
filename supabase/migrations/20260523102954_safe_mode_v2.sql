@@ -10,7 +10,7 @@
 -- heuristic broke in multi-person frames where a bystander entered
 -- closer to the camera (bigger bbox than the actual client). v2 replaces
 -- bbox-size with face-recognition: on first capture for a client the
--- practitioner enrols a 128-dim FP32 face embedding via MobileFaceNet,
+-- practitioner enrols a 512-dim FP32 face embedding via MobileFaceNet,
 -- and subsequent captures match every detected face against the stored
 -- embedding — the matching face's segmentation mask renders normally,
 -- everyone else gets the coral overlay.
@@ -26,7 +26,7 @@ BEGIN;
 -- 1. Column adds
 -- ----------------------------------------------------------------------------
 
--- clients.face_embedding stores 128 FP32 little-endian floats = 512 bytes.
+-- clients.face_embedding stores 512 FP32 little-endian floats = 2048 bytes.
 -- MobileFaceNet v1 is the only generator today (model_version = 1). A
 -- future model upgrade bumps the version + invalidates older rows.
 ALTER TABLE public.clients
@@ -34,8 +34,8 @@ ALTER TABLE public.clients
   ADD COLUMN IF NOT EXISTS face_embedding_model_version smallint;
 
 COMMENT ON COLUMN public.clients.face_embedding IS
-  'Safe Mode v2 — 128-dim FP32 little-endian face embedding produced by '
-  'MobileFaceNet. Exactly 512 bytes when present. NULL = client has not '
+  'Safe Mode v2 — 512-dim FP32 little-endian face embedding produced by '
+  'MobileFaceNet. Exactly 2048 bytes (512 FP32 floats) when present. NULL = client has not '
   'been enrolled, OR enrolment was wiped via set_client_safe_mode_consent '
   '(p_consent = false). Withdrawing consent erases this column.';
 
@@ -96,10 +96,10 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  -- Sanity check: 128 FP32 little-endian floats = 512 bytes. Any other
+  -- Sanity check: 512 FP32 little-endian floats = 2048 bytes. Any other
   -- size is a client-side bug; refuse to persist a malformed embedding.
-  IF length(p_embedding) <> 512 THEN
-    RAISE EXCEPTION 'set_client_face_embedding: expected 512-byte embedding, got % bytes',
+  IF length(p_embedding) <> 2048 THEN
+    RAISE EXCEPTION 'set_client_face_embedding: expected 2048-byte embedding, got % bytes',
       length(p_embedding)
       USING ERRCODE = '22023';
   END IF;
