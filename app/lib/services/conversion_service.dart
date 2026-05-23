@@ -10,9 +10,11 @@ import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 import '../config.dart';
 import '../models/exercise_capture.dart';
+import 'face_embedding_service.dart';
 import 'local_storage_service.dart';
 import 'loud_swallow.dart';
 import 'path_resolver.dart';
+import 'safe_mode.dart';
 import 'safe_mode_service.dart';
 
 /// Maximum tolerated Vision miss-rate (0.0–1.0) for a Safe Mode
@@ -2302,6 +2304,120 @@ class ConversionService extends ChangeNotifier {
 
   /// Whether the service is currently processing conversions.
   bool get isProcessing => _processing;
+
+  /// Safe Mode v2 (2026-05-23) — re-process a single photo exercise's
+  /// safe variant against the current algorithm (face-recognition
+  /// based) using the latest subject embedding.
+  ///
+  /// Eligible iff:
+  ///   * `media_type == photo` (v2 photos only — video Safe Mode is
+  ///     deferred per the spec).
+  ///   * Raw original is still available locally OR within the 90-day
+  ///     cloud retention window.
+  ///   * The current subject embedding exists for the bound client.
+  ///
+  /// Flow:
+  ///   1. Resolve the raw original path (local — cloud fallback is
+  ///      future work; today raw photos stay on-device under their
+  ///      `archive/` directory).
+  ///   2. Invoke the native `applySafeModeV2ToPhoto(srcPath, destPath,
+  ///      subjectEmbedding, threshold)` with the new subject embedding.
+  ///   3. Overwrite the safe-variant JPG at `{exerciseId}_safe.jpg`.
+  ///   4. Stamp `safeModeAlgorithmVersion = kSafeModeAlgorithmVersion`
+  ///      on the SQLite row + mark thumbnails dirty so the next publish
+  ///      re-uploads.
+  ///
+  /// Returns true on success, false on any failure (file missing,
+  /// embedding missing, native call throws). Caller surfaces the
+  /// result with a toast.
+  Future<bool> reprocessSafeMode(String exerciseId) async {
+    final ex = await _storage.getExerciseById(exerciseId);
+    if (ex == null) return false;
+    if (ex.mediaType != MediaType.photo) return false;
+    if (!ex.safeModeActive) return false;
+
+    // Step 1: resolve raw original. Today raw originals live under
+    // {Documents}/raw/ via the captures pipeline; the archive/
+    // directory holds the 720p compressed copy for videos. For
+    // photos the rawFilePath IS the captured JPG. Cloud retention
+    // fallback (signed URL download from raw-archive) is documented
+    // future work — at retention, the exercise becomes ineligible.
+    final rawAbs = ex.absoluteRawFilePath;
+    final rawFile = File(rawAbs);
+    if (!await rawFile.exists()) return false;
+
+    // Step 2: resolve the subject embedding. The capture's session
+    // carries the client_id; the FaceEmbeddingService caches the
+    // bytes after the most-recent ensureForClient run. Caller is
+    // expected to have triggered that already (the UI hands off
+    // only when the bound client's embedding is ready), but if
+    // it's missing here we bail rather than re-running with a
+    // stale fingerprint.
+    final session = ex.sessionId == null
+        ? null
+        : await _storage.getSession(ex.sessionId!);
+    final clientId = session?.clientId;
+    if (clientId == null || clientId.isEmpty) return false;
+    final Uint8List? embedding =
+        FaceEmbeddingService.instance.getEmbedding(clientId);
+    if (embedding == null || embedding.isEmpty) return false;
+
+    // Step 3: invoke the native pass.
+    final docsDir = await getApplicationDocumentsDirectory();
+    final convertedDir = p.join(docsDir.path, 'converted');
+    try {
+      await Directory(convertedDir).create(recursive: true);
+    } catch (_) {}
+    final destPath = p.join(convertedDir, '${ex.id}_safe.jpg');
+
+    try {
+      final dynamic resp = await _videoChannel
+          .invokeMethod<Map<dynamic, dynamic>>(
+            'applySafeModeV2ToPhoto',
+            <String, dynamic>{
+              'srcPath': rawAbs,
+              'destPath': destPath,
+              'subjectEmbedding': embedding,
+              // Conservative default; the native pipeline interprets
+              // this as cosine-similarity threshold for matching the
+              // subject. Tuning is locked native-side until QA.
+              'threshold': 0.65,
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+      if (resp == null) return false;
+    } catch (e, stack) {
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [applySafeModeV2ToPhoto re-process failed]\n$e\n$stack\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {
+        // Sanctioned log-of-log swallow.
+      }
+      return false;
+    }
+
+    if (!await File(destPath).exists()) return false;
+
+    // Step 4: stamp the new algorithm version + mark thumbs dirty so
+    // the next publish re-uploads. The safe-variant relative path
+    // doesn't change (same `_safe.jpg` slot), so safeRawFilePath
+    // round-trips unchanged.
+    final updated = ex.copyWith(
+      safeRawFilePath: PathResolver.toRelative(destPath),
+      safeModeAlgorithmVersion: kSafeModeAlgorithmVersion,
+      thumbnailsDirty: true,
+    );
+    await _storage.saveExercise(updated);
+    if (!_updateController.isClosed) {
+      _updateController.add(updated);
+    }
+    notifyListeners();
+    return true;
+  }
 
   // Note: dispose() intentionally not overridden. This service is a singleton
   // that lives for the entire app lifetime. Closing the StreamController would

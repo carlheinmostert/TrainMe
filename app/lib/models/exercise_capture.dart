@@ -427,6 +427,22 @@ class ExerciseCapture {
   /// v44, TEXT).
   final String? safeRawFilePath;
 
+  /// Safe Mode v2 (2026-05-23) — algorithm version that produced the
+  /// safe variant for this capture. NULL = legacy / v1 (pre-spec); 2 =
+  /// MobileFaceNet face-recognition.
+  ///
+  /// Used by the re-process affordance: a capture whose stored value
+  /// is < [kSafeModeAlgorithmVersion] (defined in
+  /// `app/lib/services/safe_mode.dart`) is eligible for re-compositing
+  /// when the raw bytes are still available (local OR within the
+  /// 90-day raw-archive retention).
+  ///
+  /// Persistence: local SQLite `exercises.safe_mode_algorithm_version`
+  /// (schema v45, INTEGER NULL) + Supabase
+  /// `exercises.safe_mode_algorithm_version` (added by the schema
+  /// sibling PR).
+  final int? safeModeAlgorithmVersion;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -466,6 +482,7 @@ class ExerciseCapture {
     this.safeModeActive = false,
     this.capturedInPremisesId,
     this.safeRawFilePath,
+    this.safeModeAlgorithmVersion,
   });
 
   /// Create a new capture with a generated UUID.
@@ -584,6 +601,7 @@ class ExerciseCapture {
       safeModeActive: (map['safe_mode_active'] as int? ?? 0) != 0,
       capturedInPremisesId: map['captured_in_premises_id'] as String?,
       safeRawFilePath: map['safe_raw_file_path'] as String?,
+      safeModeAlgorithmVersion: map['safe_mode_algorithm_version'] as int?,
     );
   }
 
@@ -625,6 +643,7 @@ class ExerciseCapture {
       'safe_mode_active': safeModeActive ? 1 : 0,
       'captured_in_premises_id': capturedInPremisesId,
       'safe_raw_file_path': safeRawFilePath,
+      'safe_mode_algorithm_version': safeModeAlgorithmVersion,
     };
   }
 
@@ -694,6 +713,8 @@ class ExerciseCapture {
     bool clearCapturedInPremisesId = false,
     String? safeRawFilePath,
     bool clearSafeRawFilePath = false,
+    int? safeModeAlgorithmVersion,
+    bool clearSafeModeAlgorithmVersion = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -768,6 +789,9 @@ class ExerciseCapture {
       safeRawFilePath: clearSafeRawFilePath
           ? null
           : (safeRawFilePath ?? this.safeRawFilePath),
+      safeModeAlgorithmVersion: clearSafeModeAlgorithmVersion
+          ? null
+          : (safeModeAlgorithmVersion ?? this.safeModeAlgorithmVersion),
     );
   }
 

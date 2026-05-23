@@ -15,17 +15,21 @@ import '../models/session.dart';
 import '../services/auth_service.dart';
 import '../services/capture_auto_save_preference.dart';
 import '../services/conversion_service.dart';
+import '../services/face_embedding_service.dart';
 import '../services/homefit_haptics.dart';
 import '../services/local_storage_service.dart';
 import '../services/original_video_service.dart';
 import '../services/path_resolver.dart';
+import '../services/safe_mode.dart';
 import '../services/safe_mode_service.dart';
 import '../services/sticky_defaults.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import '../widgets/orientation_lock_guard.dart';
+import 'client_avatar_capture_screen.dart';
 import 'public_profile_screen.dart';
+import '../models/cached_client.dart';
 import '../widgets/safe_mode_icon.dart';
 import '../widgets/shell_pull_tab.dart';
 
@@ -262,6 +266,16 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // the viewfinder anyway.
     SafeModeService.instance.reset();
     unawaited(_evaluateLocationGate(initial: true));
+    // Safe Mode v2 (2026-05-23) — hydrate the cached client snapshot
+    // so the banner + gate can resolve immediately on first frame.
+    unawaited(_refreshCachedClient());
+    // Rebuild on FaceEmbeddingService state transitions so the
+    // banner re-renders without manual setState boilerplate.
+    FaceEmbeddingService.instance.addListener(_onFaceEmbeddingChanged);
+  }
+
+  void _onFaceEmbeddingChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -271,6 +285,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     final parentCount = widget.session.exercises.length;
     if (parentCount > _captureCount) {
       _captureCount = parentCount;
+    }
+    // Safe Mode v2 (2026-05-23) — refresh cached client when session
+    // identity changes so the gate re-evaluates against the new
+    // client's consent + embedding state.
+    if (oldWidget.session.clientId != widget.session.clientId) {
+      unawaited(_refreshCachedClient());
     }
   }
 
@@ -292,6 +312,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // (`forceActive`) must survive the Camera ↔ Studio page swipe.
     // Full reset happens at session boundary (SessionShell.initState).
     SafeModeService.instance.cancelRetry();
+    FaceEmbeddingService.instance.removeListener(_onFaceEmbeddingChanged);
     _cameraController?.dispose();
     _flyController.dispose();
     _lockTargetController.dispose();
@@ -838,6 +859,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       return;
     }
 
+    // Safe Mode v2 (2026-05-23) — block capture when the v2 gate
+    // isn't ready. Banner UI tells the practitioner what to do.
+    if (_shouldGateOnSafeModeV2() && !_resolveSafeModeV2State().isReady) {
+      HomefitHaptics.light();
+      return;
+    }
+
     try {
       HomefitHaptics.medium();
       final xFile = await _cameraController!.takePicture();
@@ -962,6 +990,21 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         !_cameraController!.value.isInitialized ||
         _isRecording) {
       return;
+    }
+
+    // Safe Mode v2 (2026-05-23) — video Safe Mode doesn't ship in
+    // this wave. Suppress the long-press-to-record gesture entirely
+    // when Safe Mode is engaged. The banner in the top bar tells the
+    // practitioner photos are the only option for now.
+    try {
+      if (SafeModeService.instance.isActive) {
+        HomefitHaptics.light();
+        _longPressActive = false;
+        _pendingStopAfterStart = false;
+        return;
+      }
+    } catch (_) {
+      // Service not initialised — proceed.
     }
 
     // Best-effort haptic — iOS suppresses vibration while AVCaptureSession
@@ -1227,6 +1270,11 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           exercise = exercise.copyWith(
             safeModeActive: true,
             capturedInPremisesId: SafeModeService.instance.premisesId,
+            // Safe Mode v2 (2026-05-23) — stamp the algorithm version
+            // the capture ran under. Re-process affordance keys on
+            // `< kSafeModeAlgorithmVersion` to identify captures that
+            // pre-date the current compositing pipeline.
+            safeModeAlgorithmVersion: kSafeModeAlgorithmVersion,
           );
         }
       } catch (_) {
@@ -1470,8 +1518,34 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                   // rejection toast (Vision miss > 5%) remains here —
                   // it's a per-capture failure surface, not a global
                   // state cue.
+                  // Safe Mode v2 (2026-05-23) — face-recognition
+                  // gating banner. Only rendered when Safe Mode is
+                  // active for a real client AND the v2 state isn't
+                  // ready. Hard-fail per
+                  // `feedback_no_silent_fallbacks` — the practitioner
+                  // must take action to clear the banner before
+                  // capture proceeds.
+                  if (_shouldGateOnSafeModeV2()) ...[
+                    Builder(builder: (context) {
+                      final s = _resolveSafeModeV2State();
+                      if (s.isReady) return const SizedBox.shrink();
+                      return _SafeModeV2Banner(
+                        state: s,
+                        onSetFace: _openInlineAvatarFlow,
+                        onPrepare: _retrySafeModeV2,
+                        onRetry: _retrySafeModeV2,
+                      );
+                    }),
+                  ],
                   if (_safeToastMessage != null)
                     _SafeModeRejectionToast(message: _safeToastMessage!),
+                  // Safe Mode v2 (2026-05-23) — when Safe Mode is
+                  // engaged, video recording is suppressed. Photo
+                  // capture still works; the long-press gesture
+                  // does not enter the video-recording recognizer.
+                  if (_shouldGateOnSafeModeV2() &&
+                      _resolveSafeModeV2State().isReady)
+                    const _SafeModeV2VideoBlockedBanner(),
                 ],
               ),
             ),
@@ -2267,6 +2341,403 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Safe Mode v2 — face-recognition gating
+  // ---------------------------------------------------------------------------
+
+  /// Safe Mode v2 (2026-05-23) — whether the current session is gated
+  /// on Safe Mode v2 readiness for the active client.
+  ///
+  /// Returns true iff Safe Mode is engaged (auto OR manual) AND the
+  /// session is bound to a real client. Sessions without a client_id
+  /// (legacy) fall through with v1 semantics.
+  bool _shouldGateOnSafeModeV2() {
+    try {
+      if (!SafeModeService.instance.isActive) return false;
+    } catch (_) {
+      return false;
+    }
+    final cid = widget.session.clientId;
+    return cid != null && cid.isNotEmpty;
+  }
+
+  /// Snapshot the v2 state for the active client. Reads the cached
+  /// client (for the consent flag) + the live embedding service. The
+  /// banner + capture-gate read this every build.
+  _SafeModeV2State _resolveSafeModeV2State() {
+    final cid = widget.session.clientId;
+    if (cid == null || cid.isEmpty) return _SafeModeV2State.ready;
+    final cached = _cachedClientSnapshot;
+    if (cached == null) {
+      // Cache miss — surface as "needs consent" rather than silently
+      // letting capture proceed; the cache should populate on the
+      // next sync pull.
+      return _SafeModeV2State.consentMissing;
+    }
+    if (!cached.safeModeFaceRecognitionAllowed) {
+      return _SafeModeV2State.consentMissing;
+    }
+    final s = FaceEmbeddingService.instance.stateFor(cid);
+    if (s.isReady) return _SafeModeV2State.ready;
+    if (s.isLoading) return _SafeModeV2State.loading;
+    if (s.isError) {
+      return _SafeModeV2State.error(s.errorMessage ?? 'Face recognition failed');
+    }
+    if (cached.avatarPath == null || cached.avatarPath!.isEmpty) {
+      return _SafeModeV2State.avatarMissing;
+    }
+    return _SafeModeV2State.needsEmbedding;
+  }
+
+  /// In-memory snapshot of the active client's cached row, refreshed
+  /// each build. Cheap to recompute; the cache lookup is a single
+  /// SQLite read.
+  CachedClient? _cachedClientSnapshot;
+  String? _cachedClientLookupId;
+
+  Future<void> _refreshCachedClient() async {
+    final cid = widget.session.clientId;
+    if (cid == null || cid.isEmpty) {
+      if (_cachedClientSnapshot != null) {
+        setState(() {
+          _cachedClientSnapshot = null;
+          _cachedClientLookupId = null;
+        });
+      }
+      return;
+    }
+    if (_cachedClientLookupId == cid && _cachedClientSnapshot != null) {
+      return;
+    }
+    final cached = await SyncService.instance.storage.getCachedClientById(cid);
+    if (!mounted) return;
+    setState(() {
+      _cachedClientSnapshot = cached;
+      _cachedClientLookupId = cid;
+    });
+  }
+
+  /// Open the avatar capture flow (sets the client's avatar AND
+  /// triggers embedding generation). Used by the inline-capture-flow
+  /// CTA when no avatar exists yet for this client.
+  Future<void> _openInlineAvatarFlow() async {
+    final cached = _cachedClientSnapshot;
+    final cid = widget.session.clientId;
+    if (cached == null || cid == null || cid.isEmpty) return;
+    HomefitHaptics.selection();
+    final outcome = await pushClientAvatarCapture(
+      context,
+      client: cached.toPracticeClient(),
+    );
+    if (!mounted) return;
+    if (outcome == null) return;
+    // Refresh the cache so the banner state advances to
+    // `needsEmbedding` (or directly to `loading` if the
+    // FaceEmbeddingService kicks off on its own).
+    await _refreshCachedClient();
+    if (!mounted) return;
+    unawaited(FaceEmbeddingService.instance.ensureForClient(cid));
+  }
+
+  /// Trigger embedding generation explicitly (Retry CTA after error,
+  /// or initial trigger after avatar is set).
+  void _retrySafeModeV2() {
+    final cid = widget.session.clientId;
+    if (cid == null || cid.isEmpty) return;
+    HomefitHaptics.selection();
+    unawaited(FaceEmbeddingService.instance.ensureForClient(cid));
+  }
+}
+
+/// Visual states the inline Safe Mode v2 banner can occupy.
+///
+/// Drives both the banner text/CTA AND the capture-gate (blocks
+/// `_capturePhoto` + `_startVideoRecording` for any state other than
+/// [ready] when Safe Mode v2 is required).
+sealed class _SafeModeV2State {
+  const _SafeModeV2State();
+
+  /// Capture proceeds normally (the active client doesn't need v2 OR
+  /// has a ready embedding).
+  static const _SafeModeV2State ready = _SafeModeV2StateReady();
+
+  /// `safe_mode_face_recognition` consent toggle is off. Block capture
+  /// + show CTA pointing at the consent sheet.
+  static const _SafeModeV2State consentMissing =
+      _SafeModeV2StateConsentMissing();
+
+  /// Consent granted but no avatar set yet. Block capture + show CTA
+  /// to launch the inline avatar capture flow.
+  static const _SafeModeV2State avatarMissing =
+      _SafeModeV2StateAvatarMissing();
+
+  /// Consent granted + avatar set, but embedding hasn't been generated
+  /// yet. Block capture + show CTA to trigger generation.
+  static const _SafeModeV2State needsEmbedding =
+      _SafeModeV2StateNeedsEmbedding();
+
+  /// Embedding generation in flight. Block capture + show spinner.
+  static const _SafeModeV2State loading = _SafeModeV2StateLoading();
+
+  /// Embedding generation failed. Block capture + show error + Retry.
+  const factory _SafeModeV2State.error(String message) =
+      _SafeModeV2StateError;
+
+  bool get isReady => this is _SafeModeV2StateReady;
+}
+
+class _SafeModeV2StateReady extends _SafeModeV2State {
+  const _SafeModeV2StateReady();
+}
+
+class _SafeModeV2StateConsentMissing extends _SafeModeV2State {
+  const _SafeModeV2StateConsentMissing();
+}
+
+class _SafeModeV2StateAvatarMissing extends _SafeModeV2State {
+  const _SafeModeV2StateAvatarMissing();
+}
+
+class _SafeModeV2StateNeedsEmbedding extends _SafeModeV2State {
+  const _SafeModeV2StateNeedsEmbedding();
+}
+
+class _SafeModeV2StateLoading extends _SafeModeV2State {
+  const _SafeModeV2StateLoading();
+}
+
+class _SafeModeV2StateError extends _SafeModeV2State {
+  final String message;
+  const _SafeModeV2StateError(this.message);
+}
+
+/// Inline banner that surfaces the Safe Mode v2 gating state in the
+/// camera. Sits below the top bar (above the rejection toast slot).
+/// Coral-bordered, dark-veiled, matches the rejection-toast vocabulary.
+///
+/// Non-CTA states show a spinner + text only. CTA states show a
+/// trailing button — "Set face", "Retry", "Prepare". Tapping the
+/// button routes to the parent's callback.
+class _SafeModeV2Banner extends StatelessWidget {
+  const _SafeModeV2Banner({
+    required this.state,
+    required this.onSetFace,
+    required this.onPrepare,
+    required this.onRetry,
+  });
+
+  final _SafeModeV2State state;
+  final VoidCallback onSetFace;
+  final VoidCallback onPrepare;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final spec = _resolveSpec();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xCC0F1117),
+          borderRadius: BorderRadius.circular(8),
+          border: const Border(
+            left: BorderSide(color: Color(0xFFFF6B35), width: 4),
+            top: BorderSide(color: Color(0xFFFF6B35), width: 1),
+            right: BorderSide(color: Color(0xFFFF6B35), width: 1),
+            bottom: BorderSide(color: Color(0xFFFF6B35), width: 1),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              if (spec.showSpinner)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFFFF6B35),
+                    ),
+                  ),
+                )
+              else
+                const Icon(
+                  Icons.face_retouching_natural_outlined,
+                  size: 16,
+                  color: Color(0xFFFF6B35),
+                ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  spec.message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+              if (spec.ctaLabel != null) ...[
+                const SizedBox(width: 8),
+                _BannerCta(
+                  label: spec.ctaLabel!,
+                  onTap: spec.onTap!,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  _SafeModeV2BannerSpec _resolveSpec() {
+    final s = state;
+    if (s is _SafeModeV2StateConsentMissing) {
+      return const _SafeModeV2BannerSpec(
+        message:
+            'Face recognition for Safe Mode is off — enable it in client consent.',
+        showSpinner: false,
+        ctaLabel: null,
+        onTap: null,
+      );
+    }
+    if (s is _SafeModeV2StateAvatarMissing) {
+      return _SafeModeV2BannerSpec(
+        message: 'Set face for Safe Mode — this becomes the client avatar.',
+        showSpinner: false,
+        ctaLabel: 'Set face',
+        onTap: onSetFace,
+      );
+    }
+    if (s is _SafeModeV2StateNeedsEmbedding) {
+      return _SafeModeV2BannerSpec(
+        message: 'Safe Mode needs to prepare a face fingerprint from the avatar.',
+        showSpinner: false,
+        ctaLabel: 'Prepare',
+        onTap: onPrepare,
+      );
+    }
+    if (s is _SafeModeV2StateLoading) {
+      return const _SafeModeV2BannerSpec(
+        message: 'Preparing Safe Mode…',
+        showSpinner: true,
+        ctaLabel: null,
+        onTap: null,
+      );
+    }
+    if (s is _SafeModeV2StateError) {
+      return _SafeModeV2BannerSpec(
+        message: s.message,
+        showSpinner: false,
+        ctaLabel: 'Retry',
+        onTap: onRetry,
+      );
+    }
+    return const _SafeModeV2BannerSpec(
+      message: '',
+      showSpinner: false,
+      ctaLabel: null,
+      onTap: null,
+    );
+  }
+}
+
+class _SafeModeV2BannerSpec {
+  final String message;
+  final bool showSpinner;
+  final String? ctaLabel;
+  final VoidCallback? onTap;
+  const _SafeModeV2BannerSpec({
+    required this.message,
+    required this.showSpinner,
+    required this.ctaLabel,
+    required this.onTap,
+  });
+}
+
+class _BannerCta extends StatelessWidget {
+  const _BannerCta({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF6B35),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Banner shown when Safe Mode is engaged but the practitioner tries
+/// to long-press to record. Video Safe Mode (v2) doesn't ship in this
+/// wave — photos only.
+class _SafeModeV2VideoBlockedBanner extends StatelessWidget {
+  const _SafeModeV2VideoBlockedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xCC0F1117),
+          borderRadius: BorderRadius.circular(8),
+          border: const Border(
+            left: BorderSide(color: Color(0xFFFF6B35), width: 4),
+            top: BorderSide(color: Color(0xFFFF6B35), width: 1),
+            right: BorderSide(color: Color(0xFFFF6B35), width: 1),
+            bottom: BorderSide(color: Color(0xFFFF6B35), width: 1),
+          ),
+        ),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                Icons.videocam_off_outlined,
+                size: 16,
+                color: Color(0xFFFF6B35),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Safe Mode: video coming soon. Photos only for now.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

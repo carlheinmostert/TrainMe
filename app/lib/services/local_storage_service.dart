@@ -1305,8 +1305,8 @@ class LocalStorageService {
       // enrolment state + per-exercise algorithm-version stamps. Spec
       // at docs/specs/2026-05-23-safe-mode-face-rec.md.
       //
-      // - cached_clients.face_embedding (BLOB): 128 FP32 little-endian
-      //   floats = 512 bytes. NULL = unenrolled OR consent withdrawn.
+      // - cached_clients.face_embedding (BLOB): 512 FP32 little-endian
+      //   floats = 2048 bytes. NULL = unenrolled OR consent withdrawn.
       // - cached_clients.face_embedding_model_version (INTEGER):
       //   generator version. 1 = MobileFaceNet v1 (only version today).
       // - exercises.safe_mode_algorithm_version (INTEGER): stamped at

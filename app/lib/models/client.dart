@@ -33,6 +33,20 @@ class PracticeClient {
   /// events are recorded.
   final bool analyticsAllowed;
 
+  /// Safe Mode v2 (2026-05-23) — has the practitioner been granted
+  /// consent to store a biometric face fingerprint for this client?
+  ///
+  /// The fingerprint is a MobileFaceNet embedding (128-D float vector)
+  /// derived ON-DEVICE from the client's avatar JPG. It never leaves
+  /// the server in raw image form. Required to use Safe Mode (v2,
+  /// face-recognition based) with this client — without an embedding,
+  /// the native pipeline cannot identify the subject vs. bystanders.
+  ///
+  /// Default false. Toggle lives in the client consent sheet; the
+  /// `set_client_safe_mode_consent` RPC zeros the embedding column
+  /// when toggled OFF (server-side, in the schema PR).
+  final bool safeModeFaceRecognitionAllowed;
+
   /// Relative path inside the `raw-archive` bucket
   /// (`<practiceId>/<clientId>/avatar.png`). Null = no avatar yet —
   /// UI falls back to the initials monogram.
@@ -65,6 +79,7 @@ class PracticeClient {
     this.grayscaleAllowed = false,
     this.avatarAllowed = false,
     this.analyticsAllowed = true,
+    this.safeModeFaceRecognitionAllowed = false,
     this.avatarPath,
     this.consentExplicitlySetAt,
   });
@@ -91,6 +106,8 @@ class PracticeClient {
       grayscaleAllowed: consentMap['grayscale'] == true,
       avatarAllowed: consentMap['avatar'] == true,
       analyticsAllowed: consentMap['analytics_allowed'] != false,
+      safeModeFaceRecognitionAllowed:
+          consentMap['safe_mode_face_recognition'] == true,
       avatarPath: pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       consentExplicitlySetAt: explicitMs,
     );
@@ -102,6 +119,7 @@ class PracticeClient {
     bool? grayscaleAllowed,
     bool? avatarAllowed,
     bool? analyticsAllowed,
+    bool? safeModeFaceRecognitionAllowed,
     String? avatarPath,
     bool clearAvatarPath = false,
     int? consentExplicitlySetAt,
@@ -114,6 +132,8 @@ class PracticeClient {
       grayscaleAllowed: grayscaleAllowed ?? this.grayscaleAllowed,
       avatarAllowed: avatarAllowed ?? this.avatarAllowed,
       analyticsAllowed: analyticsAllowed ?? this.analyticsAllowed,
+      safeModeFaceRecognitionAllowed: safeModeFaceRecognitionAllowed ??
+          this.safeModeFaceRecognitionAllowed,
       avatarPath: clearAvatarPath ? null : (avatarPath ?? this.avatarPath),
       consentExplicitlySetAt:
           consentExplicitlySetAt ?? this.consentExplicitlySetAt,
