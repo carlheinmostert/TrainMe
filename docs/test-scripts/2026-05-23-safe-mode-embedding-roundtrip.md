@@ -14,6 +14,7 @@ This script verifies the end-to-end round-trip: enrol on device → 2048 bytes l
 - [A. Enrol embedding from device](#a-enrol-embedding-from-device)
 - [B. Withdraw consent zeroes the embedding](#b-withdraw-consent-zeroes-the-embedding)
 - [C. Capture screen unblocks once embedding ready](#c-capture-screen-unblocks-once-embedding-ready)
+- [D. Capture-time face matching (v2 photo pipeline)](#d-capture-time-face-matching-v2-photo-pipeline)
 
 ## Prerequisites
 
@@ -42,3 +43,17 @@ A staging client row with `safe_mode_face_recognition = true` consent. If you do
 - [ ] 8. With consent ON and no embedding present, capture buttons should be greyed out / non-functional in the viewfinder.
 - [ ] 9. Tap **Prepare a face fingerprint**. After the brief spinner, capture buttons re-enable.
 - [ ] 10. Take one photo + one video to confirm the unblock holds through normal capture.
+
+## D. Capture-time face matching (v2 photo pipeline)
+
+Verifies the conversion service now routes capture-time photo Safe Mode through `applySafeModeV2ToPhoto` (face-recognition match) instead of the removed v1 anchor-box method. Prerequisite for the section: items 1-4 passed, embedding is present on the server AND cached locally on the device (the latter is guaranteed by re-launching the app after the enrol step). The enrolled client must be the active session client and the device must be inside an enforcing premises polygon.
+
+- [ ] 11. With the enrolled client active and inside an enforcing premises, take a photo of yourself standing beside another person (a bystander). Open the Studio card thumbnail — your face should remain sharp, the bystander's face and silhouette should be coral-overlay'd in the safe variant.
+- [ ] 12. Same setup. Step **behind** the bystander so they are noticeably closer to the camera (their bounding box is now the larger one). Take a photo. Under v1 anchor-box this would have flipped — the bystander would have been treated as the subject and YOU would have been coral'd. Under v2 the embedding should still identify YOU as the subject, your face stays sharp, the bystander gets coral. This is the key regression v2 fixes.
+- [ ] 13. Step out of the frame entirely and take a photo of just the bystander. Vision detects their face but no face matches your stored embedding above threshold, so the v2 pipeline falls into "no subject mode" (per the Swift spec at `VideoConverterChannel.swift:3011-3013`): every detected face gets coral-painted in its head-expanded bbox; silhouettes stay sharp. The bystander's face should be coral'd; their body silhouette stays visible. The capture is NOT rejected (per `VideoConverterChannel.swift:2800-2806`, `missRate = 0.0` in the no-subject case is intentional — the solo-back-view safety guarantee).
+- [ ] 14. SQL spot-check on staging — replace `<exercise_id>` with the id of the photo captured in item 11 or 12:
+  ```sql
+  SELECT id, media_type, safe_mode_active, safe_mode_algorithm_version
+  FROM exercises WHERE id = '<exercise_id>';
+  ```
+  Expected: `media_type = 'photo'`, `safe_mode_active = true`, `safe_mode_algorithm_version = 2`. Use `mcp__supabase__execute_sql` against staging project `vadjvkmldtoeyspyoqbx`.

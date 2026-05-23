@@ -1053,41 +1053,91 @@ class ConversionService extends ChangeNotifier {
       String? safePhotoPath;
       double safePhotoMissRate = 0.0;
       if (exercise.safeModeActive) {
-        try {
-          final candidate =
-              p.join(convertedDir, '${exercise.id}_safe.jpg');
-          final resp = await _videoChannel
-              .invokeMethod<Map<dynamic, dynamic>>('processPhotoSafeMode', {
-            'srcPath': exercise.absoluteRawFilePath,
-            'destPath': candidate,
-          }).timeout(const Duration(seconds: 30));
-          if (resp == null) {
-            throw StateError('processPhotoSafeMode returned null');
-          }
-          final missRate =
-              (resp['safeFramesMissedRate'] as num?)?.toDouble() ?? 0.0;
-          if (await File(candidate).exists()) {
-            safePhotoPath = candidate;
-            safePhotoMissRate = missRate;
-          }
-        } catch (e, stack) {
+        // Safe Mode v2 (2026-05-23) — resolve the bound client's face
+        // embedding through the session. Capture-screen gating in
+        // `_shouldGateOnSafeModeV2` normally guarantees the embedding
+        // is cached by shutter time; if it's missing here the capture
+        // raced ahead or the session has no client. The native v1
+        // anchor-box handler was removed in this wave, so there is no
+        // fallback compositor — skip the safe pass and let publish
+        // upload the un-blurred raw archive. This matches the
+        // existing fail-soft contract the upload swap at
+        // `upload_service.dart:2197` already handles
+        // (`safeModeActive && safeRawFilePath == null`).
+        final session = exercise.sessionId == null
+            ? null
+            : await _storage.getSession(exercise.sessionId!);
+        final clientId = session?.clientId;
+        final Uint8List? subjectEmbedding =
+            (clientId == null || clientId.isEmpty)
+                ? null
+                : FaceEmbeddingService.instance.getEmbedding(clientId);
+
+        if (subjectEmbedding == null || subjectEmbedding.isEmpty) {
           debugPrint(
-            'Photo Safe Mode pass failed for ${exercise.id}: $e — '
-            'falling through with safe=null; downstream passes will '
-            'fall back to the raw capture (un-blurred bystanders may '
-            'surface — outer queue handler may still throw '
-            'SafeModeRejection based on missRate when applicable).',
+            'Photo Safe Mode pass skipped for ${exercise.id}: no cached '
+            'subject embedding for client=${clientId ?? "<none>"} — '
+            'downstream passes will run against the raw capture and '
+            'the safe variant will not be produced (publish will '
+            'upload the un-blurred raw archive).',
           );
           try {
             final logDir = await getApplicationDocumentsDirectory();
             final logFile =
                 File(p.join(logDir.path, 'conversion_error.log'));
             await logFile.writeAsString(
-              '${DateTime.now()} [processPhotoSafeMode failed]\n$e\n$stack\n\n',
+              '${DateTime.now()} [applySafeModeV2ToPhoto skipped: '
+              'no embedding for client=${clientId ?? "<none>"}]\n\n',
               mode: FileMode.append,
             );
           } catch (_) {
             // Sanctioned log-of-log swallow.
+          }
+        } else {
+          try {
+            final candidate =
+                p.join(convertedDir, '${exercise.id}_safe.jpg');
+            final resp = await _videoChannel
+                .invokeMethod<Map<dynamic, dynamic>>(
+              'applySafeModeV2ToPhoto',
+              <String, dynamic>{
+                'srcPath': exercise.absoluteRawFilePath,
+                'destPath': candidate,
+                'subjectEmbedding': subjectEmbedding,
+                // Matches `reprocessSafeMode` at line 2384 — the
+                // cosine-similarity threshold tuning is locked
+                // native-side until QA.
+                'threshold': 0.65,
+              },
+            ).timeout(const Duration(seconds: 30));
+            if (resp == null) {
+              throw StateError('applySafeModeV2ToPhoto returned null');
+            }
+            final missRate =
+                (resp['safeFramesMissedRate'] as num?)?.toDouble() ?? 0.0;
+            if (await File(candidate).exists()) {
+              safePhotoPath = candidate;
+              safePhotoMissRate = missRate;
+            }
+          } catch (e, stack) {
+            debugPrint(
+              'Photo Safe Mode v2 pass failed for ${exercise.id}: $e — '
+              'falling through with safe=null; downstream passes will '
+              'fall back to the raw capture (un-blurred bystanders may '
+              'surface — outer queue handler may still throw '
+              'SafeModeRejection based on missRate when applicable).',
+            );
+            try {
+              final logDir = await getApplicationDocumentsDirectory();
+              final logFile =
+                  File(p.join(logDir.path, 'conversion_error.log'));
+              await logFile.writeAsString(
+                '${DateTime.now()} [applySafeModeV2ToPhoto failed]\n$e\n$stack\n\n',
+                mode: FileMode.append,
+              );
+            } catch (_) {
+              // Sanctioned log-of-log swallow.
+            }
           }
         }
       }

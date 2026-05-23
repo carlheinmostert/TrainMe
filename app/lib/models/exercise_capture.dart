@@ -411,7 +411,8 @@ class ExerciseCapture {
   /// Videos: `{exerciseId}_safe.mp4` written by the native
   /// `SafeModeProcessor` pass during AVAssetWriter conversion.
   /// Photos: `{exerciseId}_safe.jpg` written by the
-  /// `processPhotoSafeMode` native method.
+  /// `applySafeModeV2ToPhoto` native method (per-client face-recognition
+  /// pipeline; see `safe_mode.dart` for the version history).
   ///
   /// Used by `UploadService` to decide which local file to upload to
   /// the private `raw-archive` bucket. When non-null and
