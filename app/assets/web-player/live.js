@@ -62,6 +62,17 @@
   let mapFittedOnce = false; // only fit-bounds on the FIRST polygon paint
   let lastPolygonKey = null; // skip re-paint when the same polygon repeats
 
+  // ---------------------------------------------------------------------
+  // Item 25 (2026-05-23): avatar-only practitioner pins + tap-to-expand
+  // popover. State machine — only ONE popover open at a time. The cached
+  // contact + session payload keep the popover content cheap to re-render.
+  // ---------------------------------------------------------------------
+  let openSessionId = null;
+  let elPopover = null;
+  let practiceContactCached = null; // most recent practice contact (for popover Report)
+  let outsideTapHandler = null;
+  let escKeyHandler = null;
+
   function slugsFromPath() {
     // Per-premises shape: /v/{practice-slug}/{premises-slug}/now.
     const m = String(window.location.pathname || '').match(
@@ -194,9 +205,17 @@
     if (map || !window.L || !elMap) return map;
     // Pin a generous maxZoom so the layer switcher doesn't re-clamp the
     // view mid-session. maxNativeZoom caps tile fetches at the highest
-    // zoom Esri actually has imagery for; beyond that Leaflet upscales.
-    const MAP_MAX_ZOOM = 19;
-    const ESRI_MAX_NATIVE = 18;
+    // zoom each layer actually has imagery for; beyond that Leaflet
+    // upscales (slight blur, but the venue still resolves).
+    //
+    // 2026-05-23 (item 24 of stack): bumped from 19/18 → 21/19. Esri
+    // World Imagery has z19 native tiles in most SA urban areas; z20-21
+    // are upscaled but available for users who want to lean in. The
+    // previous 19/18 cap was conservative — bystanders zooming into a
+    // dense gym layout hit the wall too early.
+    const MAP_MAX_ZOOM = 21;
+    const ESRI_MAX_NATIVE = 19;
+    const OSM_MAX_NATIVE = 19;
 
     map = window.L.map(elMap, {
       // Sensible default until the polygon arrives + we fitBounds it.
@@ -209,7 +228,11 @@
 
     const street = window.L.tileLayer(
       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      { maxZoom: MAP_MAX_ZOOM, attribution: '© OpenStreetMap contributors' },
+      {
+        maxZoom: MAP_MAX_ZOOM,
+        maxNativeZoom: OSM_MAX_NATIVE,
+        attribution: '© OpenStreetMap contributors',
+      },
     );
     const satellite = window.L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -294,6 +317,9 @@
       try {
         map.fitBounds(polygonLayer.getBounds(), {
           padding: [20, 20],
+          // Match the satellite native cap so initial fit lands on crisp
+          // tiles; users can lean to z20-21 (upscaled) via the +
+          // control if they want closer.
           maxZoom: 19,
         });
         mapFittedOnce = true;
@@ -303,15 +329,34 @@
 
   function repositionCards() {
     if (!map || !elCardLayer) return;
-    const cards = elCardLayer.querySelectorAll('.live-pcard');
-    cards.forEach((card) => {
-      const lat = Number(card.dataset.lat);
-      const lng = Number(card.dataset.lng);
+    // Item 25: cards are now avatar pins (.live-pavatar). Same positional
+    // contract: dataset.lat/lng → container point → top/left.
+    const pins = elCardLayer.querySelectorAll('.live-pavatar');
+    pins.forEach((pin) => {
+      const lat = Number(pin.dataset.lat);
+      const lng = Number(pin.dataset.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const pt = map.latLngToContainerPoint([lat, lng]);
-      card.style.left = `${pt.x}px`;
-      card.style.top = `${pt.y}px`;
+      pin.style.left = `${pt.x}px`;
+      pin.style.top = `${pt.y}px`;
     });
+    // If a popover is open, reproject it too.
+    if (openSessionId && elPopover) {
+      const session = lastSessions.find((s) => s.sessionId === openSessionId);
+      if (session && Number.isFinite(session.latitude) && Number.isFinite(session.longitude)) {
+        const mapRect = elMap.getBoundingClientRect();
+        const pt = map.latLngToContainerPoint([session.latitude, session.longitude]);
+        // If the underlying avatar has scrolled out of the visible map,
+        // close the popover gracefully.
+        if (pt.x < 0 || pt.y < 0 || pt.x > mapRect.width || pt.y > mapRect.height) {
+          closePopover();
+        } else {
+          positionPopover(pt.x, pt.y);
+        }
+      } else {
+        closePopover();
+      }
+    }
   }
 
   function repositionViewerDot() {
@@ -320,65 +365,263 @@
     // switch to a DOM-positioned dot.
   }
 
+  // -------------------------------------------------------------------
+  // Item 25 (2026-05-23): each active session is a 40×40 circular
+  // avatar pin (coral pulsing border = "actively recording"). Tap to
+  // open a popover with the full card body (name + duration · venue +
+  // Report). Predictable behaviour regardless of session count — the
+  // pulse signals presence; no auto-expand.
+  //
+  // KNOWN LIMITATION: avatars overlap at high zoom when two
+  // practitioners are within ~6m of each other. Cluster-into-"+N"-badge
+  // behaviour is out of scope for this PR — follow-up.
+  // -------------------------------------------------------------------
   function drawSessions(sessions, practiceContact) {
     if (!elCardLayer) return;
-    // Clear existing practitioner cards. (Viewer dot is a Leaflet marker
-    // and lives separately, so no special handling needed.)
+    practiceContactCached = practiceContact;
+
+    // If the currently-open popover's session vanished from the new
+    // payload (session ended, heartbeat stale), close gracefully before
+    // we wipe the avatar layer.
+    if (openSessionId && !sessions.some((s) => s.sessionId === openSessionId)) {
+      closePopover();
+    }
+
+    // Clear existing avatar pins. (Viewer dot is a Leaflet marker;
+    // popover lives on document.body separately.)
     while (elCardLayer.firstChild) elCardLayer.removeChild(elCardLayer.firstChild);
 
     sessions.forEach((s) => {
-      const card = document.createElement('div');
-      card.className = 'live-pcard';
-
-      // Store the latlng on the element so reposition on move/zoom can
-      // recompute the pixel position without re-querying state.
       const hasFix = Number.isFinite(s.latitude) && Number.isFinite(s.longitude);
-      if (hasFix) {
-        card.dataset.lat = String(s.latitude);
-        card.dataset.lng = String(s.longitude);
-      }
+      if (!hasFix) return;
 
-      const avatar = document.createElement('div');
-      avatar.className = 'live-pcard-avatar';
+      const pin = document.createElement('div');
+      pin.className = 'live-pavatar';
+      pin.dataset.lat = String(s.latitude);
+      pin.dataset.lng = String(s.longitude);
+      pin.dataset.sessionId = s.sessionId || '';
+
+      // Accessibility — pin reads as a button, opens the practitioner
+      // detail popover. The aria-label communicates who's recording
+      // where; keyboard users get tab + Enter/Space parity with tap.
+      const fullName = [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Practitioner';
+      const wherePart = s.premisesName ? s.premisesName : (s.manualMode ? 'a manual zone' : 'this venue');
+      pin.setAttribute('role', 'button');
+      pin.setAttribute('aria-label', `${fullName}, recording at ${wherePart}`);
+      pin.setAttribute('tabindex', '0');
+
       if (s.avatarUrl) {
         const img = document.createElement('img');
         img.src = s.avatarUrl;
         img.alt = '';
-        avatar.appendChild(img);
+        pin.appendChild(img);
       } else {
-        avatar.textContent = sessionInitials(s.firstName, s.lastName);
+        // Coral-on-coral-tint initials fallback. Two-letter initials.
+        pin.classList.add('is-initials');
+        pin.textContent = sessionInitials(s.firstName, s.lastName);
       }
 
-      const info = document.createElement('div');
-      info.style.minWidth = '0';
+      const open = (evt) => {
+        if (evt) {
+          evt.preventDefault();
+          evt.stopPropagation();
+        }
+        togglePopover(s);
+      };
+      pin.addEventListener('click', open);
+      pin.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Enter' || evt.key === ' ') open(evt);
+      });
 
-      const name = document.createElement('div');
-      name.className = 'live-pcard-name';
-      name.textContent = [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Practitioner';
-      info.appendChild(name);
-
-      const meta = document.createElement('div');
-      meta.className = 'live-pcard-meta';
-      const dur = formatDuration(s.startedAt);
-      const zone = s.premisesName ? s.premisesName : (s.manualMode ? 'Manual' : 'In zone');
-      meta.textContent = `${dur} · ${zone}`;
-      info.appendChild(meta);
-
-      const report = document.createElement('button');
-      report.className = 'live-pcard-report';
-      report.type = 'button';
-      report.textContent = 'Report';
-      report.addEventListener('click', () => openReportModal(s, practiceContact));
-
-      card.appendChild(avatar);
-      card.appendChild(info);
-      card.appendChild(report);
-      elCardLayer.appendChild(card);
+      elCardLayer.appendChild(pin);
     });
 
-    // Position them once now — reposition handlers will keep them in
-    // sync on subsequent map events.
+    // Position pins once; reposition handlers keep them aligned on
+    // subsequent map move/zoom events.
     repositionCards();
+  }
+
+  // -------------------------------------------------------------------
+  // Popover state machine — only one open at a time. Opening a
+  // different pin closes the current one; tapping the same pin toggles.
+  // -------------------------------------------------------------------
+  function togglePopover(session) {
+    if (openSessionId === session.sessionId) {
+      closePopover();
+      return;
+    }
+    openPopover(session);
+  }
+
+  function openPopover(session) {
+    closePopover(); // ensure single-open invariant
+    if (!session || !map) return;
+    if (!(Number.isFinite(session.latitude) && Number.isFinite(session.longitude))) return;
+
+    const fullName = [session.firstName, session.lastName].filter(Boolean).join(' ') || 'Practitioner';
+    const dur = formatDuration(session.startedAt);
+    const zone = session.premisesName ? session.premisesName : (session.manualMode ? 'Manual' : 'In zone');
+
+    elPopover = document.createElement('div');
+    elPopover.className = 'live-popover';
+    elPopover.setAttribute('role', 'dialog');
+    elPopover.setAttribute('aria-label', `${fullName} — details`);
+
+    const name = document.createElement('div');
+    name.className = 'live-popover-name';
+    name.textContent = fullName;
+
+    const meta = document.createElement('div');
+    meta.className = 'live-popover-meta';
+    meta.textContent = `${dur} · ${zone}`;
+
+    const report = document.createElement('button');
+    report.className = 'live-popover-report';
+    report.type = 'button';
+    report.textContent = 'Report';
+    report.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      openReportModal(session, practiceContactCached);
+    });
+
+    // The tail/pointer triangle. Direction class flipped by
+    // positionPopover() based on auto-flip side.
+    const tail = document.createElement('div');
+    tail.className = 'live-popover-tail';
+
+    elPopover.appendChild(name);
+    elPopover.appendChild(meta);
+    elPopover.appendChild(report);
+    elPopover.appendChild(tail);
+
+    // Append into the map shell so the popover shares the map's
+    // positioning context (and z-stacks above the avatar layer cleanly).
+    const shell = elMap && elMap.parentElement;
+    (shell || document.body).appendChild(elPopover);
+
+    openSessionId = session.sessionId;
+
+    // Initial position — repositionCards() will re-do this on every
+    // map move/zoom event.
+    const pt = map.latLngToContainerPoint([session.latitude, session.longitude]);
+    positionPopover(pt.x, pt.y);
+
+    // Wire dismiss handlers. defer the outside-tap listener to the next
+    // tick so the click that opened us doesn't immediately close us.
+    setTimeout(() => {
+      outsideTapHandler = (evt) => {
+        if (!elPopover) return;
+        // Ignore clicks inside the popover or on any avatar pin.
+        if (elPopover.contains(evt.target)) return;
+        if (evt.target.closest && evt.target.closest('.live-pavatar')) return;
+        closePopover();
+      };
+      document.addEventListener('mousedown', outsideTapHandler, true);
+      document.addEventListener('touchstart', outsideTapHandler, true);
+    }, 0);
+
+    escKeyHandler = (evt) => {
+      if (evt.key === 'Escape') closePopover();
+    };
+    document.addEventListener('keydown', escKeyHandler);
+  }
+
+  function closePopover() {
+    if (elPopover && elPopover.parentNode) {
+      elPopover.parentNode.removeChild(elPopover);
+    }
+    elPopover = null;
+    openSessionId = null;
+    if (outsideTapHandler) {
+      document.removeEventListener('mousedown', outsideTapHandler, true);
+      document.removeEventListener('touchstart', outsideTapHandler, true);
+      outsideTapHandler = null;
+    }
+    if (escKeyHandler) {
+      document.removeEventListener('keydown', escKeyHandler);
+      escKeyHandler = null;
+    }
+  }
+
+  // Hand-rolled auto-flip: try the default side (above the avatar);
+  // if there's not enough room, try below; then right; then left.
+  // x/y are the avatar's pixel coords inside the map container.
+  function positionPopover(avatarX, avatarY) {
+    if (!elPopover || !elMap) return;
+    const mapRect = elMap.getBoundingClientRect();
+    const avatarOffset = 26; // half the 40px avatar + a small gap
+
+    // Measure the popover. We need its size to compute flip targets;
+    // briefly force it visible-but-offscreen so layout settles.
+    const prevVisibility = elPopover.style.visibility;
+    elPopover.style.visibility = 'hidden';
+    elPopover.style.left = '-9999px';
+    elPopover.style.top = '-9999px';
+    elPopover.classList.remove('live-popover-below', 'live-popover-above', 'live-popover-left', 'live-popover-right');
+    elPopover.classList.add('live-popover-above'); // start with tail-down assumption for size measure
+    // Force layout
+    // eslint-disable-next-line no-unused-vars
+    const _ = elPopover.offsetHeight;
+    const popW = elPopover.offsetWidth;
+    const popH = elPopover.offsetHeight;
+    elPopover.style.visibility = prevVisibility || '';
+
+    // Candidate slots (top-left of popover) for each side, in priority
+    // order: above → below → right → left.
+    const slots = [
+      {
+        side: 'above',
+        left: avatarX - popW / 2,
+        top: avatarY - avatarOffset - popH,
+      },
+      {
+        side: 'below',
+        left: avatarX - popW / 2,
+        top: avatarY + avatarOffset,
+      },
+      {
+        side: 'right',
+        left: avatarX + avatarOffset,
+        top: avatarY - popH / 2,
+      },
+      {
+        side: 'left',
+        left: avatarX - avatarOffset - popW,
+        top: avatarY - popH / 2,
+      },
+    ];
+
+    const fits = (slot) => slot.left >= 4
+      && slot.top >= 4
+      && slot.left + popW <= mapRect.width - 4
+      && slot.top + popH <= mapRect.height - 4;
+
+    const chosen = slots.find(fits) || slots[0];
+
+    // Clamp to the map container so the popover never escapes its edge,
+    // even when no slot fits cleanly (small viewport case).
+    const left = Math.max(4, Math.min(chosen.left, mapRect.width - popW - 4));
+    const top = Math.max(4, Math.min(chosen.top, mapRect.height - popH - 4));
+
+    elPopover.classList.remove('live-popover-above', 'live-popover-below', 'live-popover-left', 'live-popover-right');
+    elPopover.classList.add(`live-popover-${chosen.side}`);
+    elPopover.style.left = `${left}px`;
+    elPopover.style.top = `${top}px`;
+
+    // Position the tail so it points back at the avatar relative to
+    // the popover's chosen side. Tail is the .live-popover-tail child.
+    const tail = elPopover.querySelector('.live-popover-tail');
+    if (tail) {
+      if (chosen.side === 'above' || chosen.side === 'below') {
+        const tx = Math.max(8, Math.min(popW - 8, avatarX - left));
+        tail.style.left = `${tx}px`;
+        tail.style.top = '';
+      } else {
+        const ty = Math.max(8, Math.min(popH - 8, avatarY - top));
+        tail.style.top = `${ty}px`;
+        tail.style.left = '';
+      }
+    }
   }
 
   function sessionInitials(first, last) {

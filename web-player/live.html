@@ -156,47 +156,123 @@
     .live-card-layer {
       position: absolute; inset: 0; pointer-events: none; z-index: 500;
     }
-    .live-pcard {
+
+    /* Item 25 (2026-05-23) — avatar-only practitioner pin (40×40,
+       pulsing coral border = "actively recording"). Tap opens a
+       popover with the full card body. Legacy `.live-pcard` styles
+       retired in this PR. */
+    .live-pavatar {
       position: absolute; pointer-events: auto;
       transform: translate(-50%, -50%);
-      display: flex; align-items: center; gap: 10px;
-      background: var(--c-surface-base);
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--c-surface-raised);
       border: 2px solid var(--c-brand);
-      border-radius: 14px; padding: 8px 12px 8px 8px;
       box-shadow: 0 0 0 5px var(--c-brand-tint-bg);
       animation: live-pulse-ring 2.4s ease-in-out infinite;
-      max-width: 260px;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      outline: none;
+      transition: transform 120ms ease;
+    }
+    .live-pavatar:hover { transform: translate(-50%, -50%) scale(1.08); }
+    .live-pavatar:focus-visible {
+      box-shadow: 0 0 0 5px var(--c-brand-tint-bg), 0 0 0 8px rgba(255, 107, 53, 0.45);
+    }
+    .live-pavatar img {
+      width: 100%; height: 100%; object-fit: cover;
+      pointer-events: none; /* clicks go to the parent button-role div */
+    }
+    .live-pavatar.is-initials {
+      background: var(--c-brand);
+      color: #FFFFFF;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700; font-size: 14px; letter-spacing: 0.02em;
     }
     @keyframes live-pulse-ring {
       0%, 100% { box-shadow: 0 0 0 5px var(--c-brand-tint-bg); }
       50%      { box-shadow: 0 0 0 9px rgba(255, 107, 53, 0.08); }
     }
-    .live-pcard-avatar {
-      width: 40px; height: 40px; border-radius: 50%;
-      background: var(--c-surface-raised);
-      display: flex; align-items: center; justify-content: center;
-      color: var(--c-brand); font-family: 'Montserrat', sans-serif;
-      font-weight: 700; font-size: 14px; overflow: hidden; flex-shrink: 0;
+
+    /* Item 25 — popover anchored to the avatar. Default state is
+       above-the-avatar; the JS auto-flip will swap to below/right/left
+       when there's no room. The .live-popover-tail child is the
+       speech-bubble pointer. */
+    .live-popover {
+      position: absolute; z-index: 600; pointer-events: auto;
+      background: var(--c-surface-base);
+      border: 1px solid var(--c-surface-border);
+      border-radius: 12px;
+      padding: 10px 14px 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+      min-width: 180px; max-width: 260px;
+      transform-origin: center bottom;
+      animation: live-popover-in 120ms ease-out;
     }
-    .live-pcard-avatar img {
-      width: 100%; height: 100%; object-fit: cover;
+    @keyframes live-popover-in {
+      from { opacity: 0; transform: scale(0.96); }
+      to   { opacity: 1; transform: scale(1); }
     }
-    .live-pcard-name {
+    @media (prefers-reduced-motion: reduce) {
+      .live-popover { animation: none; }
+      .live-pavatar { animation: none; transition: none; }
+      .live-pavatar:hover { transform: translate(-50%, -50%); }
+    }
+    .live-popover-name {
       font-family: 'Montserrat', sans-serif; font-weight: 700;
       font-size: 14px; line-height: 1.25; color: var(--c-ink-primary);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 232px;
     }
-    .live-pcard-meta {
-      font-size: 10px; color: var(--c-ink-secondary); margin-top: 2px;
+    .live-popover-meta {
+      font-size: 11px; color: var(--c-ink-secondary); margin-top: 4px;
       letter-spacing: 0.02em;
     }
-    .live-pcard-report {
-      background: transparent; border: 1px solid var(--c-surface-border);
-      color: var(--c-ink-primary); font-family: 'Inter', sans-serif;
-      font-size: 11px; font-weight: 600; border-radius: 8px;
-      padding: 5px 10px; cursor: pointer; flex-shrink: 0;
+    .live-popover-report {
+      margin-top: 10px;
+      background: transparent;
+      border: 1px solid var(--c-surface-border);
+      color: var(--c-ink-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 12px; font-weight: 600; border-radius: 8px;
+      padding: 6px 12px; cursor: pointer;
     }
-    .live-pcard-report:hover { border-color: var(--c-brand); color: var(--c-brand); }
+    .live-popover-report:hover {
+      border-color: var(--c-brand); color: var(--c-brand);
+    }
+    /* Speech-bubble tail. Direction set by sibling class on the
+       popover; tail position along its edge set inline by JS. */
+    .live-popover-tail {
+      position: absolute; width: 0; height: 0;
+    }
+    .live-popover-above .live-popover-tail {
+      bottom: -7px; transform: translateX(-50%);
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-top: 7px solid var(--c-surface-base);
+      filter: drop-shadow(0 1px 0 var(--c-surface-border));
+    }
+    .live-popover-below .live-popover-tail {
+      top: -7px; transform: translateX(-50%);
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-bottom: 7px solid var(--c-surface-base);
+      filter: drop-shadow(0 -1px 0 var(--c-surface-border));
+    }
+    .live-popover-left .live-popover-tail {
+      right: -7px; transform: translateY(-50%);
+      border-top: 7px solid transparent;
+      border-bottom: 7px solid transparent;
+      border-left: 7px solid var(--c-surface-base);
+      filter: drop-shadow(1px 0 0 var(--c-surface-border));
+    }
+    .live-popover-right .live-popover-tail {
+      left: -7px; transform: translateY(-50%);
+      border-top: 7px solid transparent;
+      border-bottom: 7px solid transparent;
+      border-right: 7px solid var(--c-surface-base);
+      filter: drop-shadow(-1px 0 0 var(--c-surface-border));
+    }
 
     .live-you {
       position: absolute; transform: translate(-50%, -50%);
