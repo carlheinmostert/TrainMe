@@ -5480,7 +5480,24 @@ async function registerServiceWorker() {
   }
   if ('serviceWorker' in navigator) {
     try {
-      await navigator.serviceWorker.register('/sw.js');
+      const reg = await navigator.serviceWorker.register('/sw.js');
+
+      // Force an immediate update check on every page load. Safari's
+      // built-in SW update poll is lazy and can serve a stale bundle
+      // for hours after a deploy even though sw.js HAS been updated.
+      // Calling reg.update() on registration forces Safari to fetch
+      // sw.js again; if the bytes differ, install + skipWaiting +
+      // clients.claim chain fires and the next page interaction picks
+      // up the new bundle. Also fire on tab-visibility changes so a
+      // user who Cmd-Tabbed away during a deploy gets the new bundle
+      // when they return. See web-player/sw.js comment block for the
+      // CACHE_NAME bumping convention this works in concert with.
+      try { reg.update(); } catch (_) {}
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          try { reg.update(); } catch (_) {}
+        }
+      });
     } catch (err) {
       console.warn('Service worker registration failed:', err);
     }
