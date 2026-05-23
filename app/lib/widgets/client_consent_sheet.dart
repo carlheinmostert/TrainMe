@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/client.dart';
+import '../services/api_client.dart';
+import '../services/face_embedding_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 
@@ -52,7 +56,16 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
   late bool _colourAllowed;
   late bool _avatarAllowed;
   late bool _analyticsAllowed;
+  late bool _safeModeFaceRecognitionAllowed;
   bool _saving = false;
+
+  /// Track whether the Safe Mode v2 face-recognition flag changed
+  /// during this sheet session. The toggle hits its own dedicated RPC
+  /// (`set_client_safe_mode_consent`) on Save — separate from the
+  /// `set_client_video_consent` route the other flags use — so the
+  /// server can additionally zero `clients.face_embedding` on a
+  /// toggle-off in the same transaction.
+  late bool _safeModeFaceRecognitionInitial;
 
   @override
   void initState() {
@@ -61,6 +74,10 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
     _colourAllowed = widget.client.colourAllowed;
     _avatarAllowed = widget.client.avatarAllowed;
     _analyticsAllowed = widget.client.analyticsAllowed;
+    _safeModeFaceRecognitionAllowed =
+        widget.client.safeModeFaceRecognitionAllowed;
+    _safeModeFaceRecognitionInitial =
+        widget.client.safeModeFaceRecognitionAllowed;
   }
 
   Future<void> _save() async {
@@ -88,7 +105,50 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         );
         return;
       }
-      setState(() => _saving = false);
+
+      // Safe Mode v2 (2026-05-23) — when the face-recognition flag
+      // changed, route through its own dedicated RPC so the server
+      // can additionally zero `clients.face_embedding` on a
+      // toggle-off in the same transaction. This is NOT bundled into
+      // `set_client_video_consent` because the server-side zeroing
+      // is a load-bearing privacy step that must run server-side
+      // atomically with the consent flip.
+      //
+      // Online-only by design — face-rec consent toggle is rare
+      // enough that the offline-first queue is overkill, and the
+      // embedding-zero must run server-side immediately on toggle-off.
+      if (_safeModeFaceRecognitionAllowed !=
+          _safeModeFaceRecognitionInitial) {
+        final ok = await ApiClient.instance.setClientSafeModeConsent(
+          clientId: widget.client.id,
+          allowed: _safeModeFaceRecognitionAllowed,
+        );
+        if (!mounted) return;
+        if (!ok) {
+          setState(() {
+            _saving = false;
+            // Roll back optimistic UI on RPC failure — the original
+            // value is still authoritative until the server acks.
+            _safeModeFaceRecognitionAllowed =
+                _safeModeFaceRecognitionInitial;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Couldn't update face recognition right now — try again.",
+              ),
+            ),
+          );
+          return;
+        }
+        // Toggled OFF → clear cached embedding state so a subsequent
+        // toggle-ON re-runs the inline capture flow rather than
+        // reusing a stale local snapshot.
+        if (!_safeModeFaceRecognitionAllowed) {
+          FaceEmbeddingService.instance.resetFor(widget.client.id);
+        }
+      }
+
       // 2026-05-13 — propagate the consent_explicitly_set_at stamp from
       // the cache write so the ClientSessionsScreen's auto-open check
       // doesn't re-fire on the immediate re-build (the parent rebuilds
@@ -99,8 +159,22 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         colourAllowed: _colourAllowed,
         avatarAllowed: _avatarAllowed,
         analyticsAllowed: _analyticsAllowed,
+        safeModeFaceRecognitionAllowed: _safeModeFaceRecognitionAllowed,
         consentExplicitlySetAt: cached.consentExplicitlySetAt,
       );
+
+      // Safe Mode v2 (2026-05-23) — when the practitioner just enabled
+      // face recognition AND the client has an avatar, kick off the
+      // embedding generation in the background. UI doesn't block on
+      // it; the camera screen reads the live state to gate capture.
+      if (_safeModeFaceRecognitionAllowed &&
+          !_safeModeFaceRecognitionInitial) {
+        unawaited(
+          FaceEmbeddingService.instance.ensureForClient(widget.client.id),
+        );
+      }
+
+      setState(() => _saving = false);
       widget.onSaved?.call(updated);
       Navigator.of(context).pop(updated);
     } catch (_) {
@@ -226,6 +300,21 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
                               '— helps you refine plans.',
                           value: _analyticsAllowed,
                           onChanged: (v) => setState(() => _analyticsAllowed = v),
+                        ),
+                        const SizedBox(height: 20),
+                        _sectionHeader('Safe Mode'),
+                        const SizedBox(height: 4),
+                        _row(
+                          icon: Icons.face_retouching_natural_outlined,
+                          title: 'Face recognition for Safe Mode',
+                          subtitle:
+                              'Stores a biometric fingerprint derived from '
+                              "this client's avatar so we can recognize them "
+                              'in Safe Mode captures. Required to use Safe '
+                              'Mode with this client.',
+                          value: _safeModeFaceRecognitionAllowed,
+                          onChanged: (v) => setState(
+                              () => _safeModeFaceRecognitionAllowed = v),
                         ),
                         // Future consent groups slot in above this line —
                         // e.g. outcome-tracking, data sharing, reminder

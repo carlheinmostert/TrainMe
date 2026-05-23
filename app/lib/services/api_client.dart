@@ -1105,6 +1105,12 @@ class ApiClient {
       // 3-arg shim which preserves the existing avatar value server-side
       // — a stale caller can't accidentally clobber a flag it doesn't
       // know about.
+      //
+      // NOTE (Safe Mode v2, 2026-05-23): the `safe_mode_face_recognition`
+      // consent flag is NOT routed through here. It flows via its own
+      // dedicated [setClientSafeModeConsent] RPC so the server can
+      // additionally zero `clients.face_embedding` on a toggle-off in
+      // the same transaction. Don't bundle it into this 5-arg wrapper.
       final params = <String, dynamic>{
         'p_client_id': clientId,
         'p_line_drawing': lineAllowed,
@@ -1123,6 +1129,72 @@ class ApiClient {
       return true;
     } catch (e) {
       debugPrint('ApiClient.setClientVideoConsent failed: $e');
+      return false;
+    }
+  }
+
+  /// Safe Mode v2 (2026-05-23) — `set_client_safe_mode_consent(p_client_id,
+  /// p_allowed)`. Flips the `safe_mode_face_recognition` key in the client's
+  /// `video_consent` jsonb. When [allowed] is false, the server also zeros
+  /// out `clients.face_embedding` + `face_embedding_model_version` so a
+  /// fresh consent grant restarts the biometric capture flow.
+  ///
+  /// Returns true on success, false on any error (network, RLS, RPC
+  /// signature mismatch — common while the sibling schema PR is in
+  /// flight). Caller is expected to roll back optimistic UI on false.
+  Future<bool> setClientSafeModeConsent({
+    required String clientId,
+    required bool allowed,
+  }) async {
+    try {
+      await _guardAuth(
+        () => raw.rpc(
+          'set_client_safe_mode_consent',
+          params: <String, dynamic>{
+            'p_client_id': clientId,
+            'p_allowed': allowed,
+          },
+        ),
+      );
+      return true;
+    } catch (e) {
+      debugPrint('ApiClient.setClientSafeModeConsent failed: $e');
+      return false;
+    }
+  }
+
+  /// Safe Mode v2 (2026-05-23) — `set_client_face_embedding(p_client_id,
+  /// p_embedding, p_model_version)`. Persists the MobileFaceNet embedding
+  /// (raw bytes, 128-D float32 little-endian = 512 bytes) into
+  /// `clients.face_embedding` (bytea) and stamps
+  /// `clients.face_embedding_model_version`.
+  ///
+  /// The embedding is derived ON-DEVICE from the client's avatar JPG —
+  /// the raw image never leaves the practitioner's iPhone in a form that
+  /// can be reverse-engineered into an identifying photo.
+  ///
+  /// Returns true on success, false on any error. Caller (the
+  /// `FaceEmbeddingService`) flips its state to error so the UI can
+  /// surface a retry CTA.
+  Future<bool> setClientFaceEmbedding({
+    required String clientId,
+    required Uint8List embedding,
+    required int modelVersion,
+  }) async {
+    try {
+      await _guardAuth(
+        () => raw.rpc(
+          'set_client_face_embedding',
+          params: <String, dynamic>{
+            'p_client_id': clientId,
+            'p_embedding': embedding,
+            'p_model_version': modelVersion,
+          },
+        ),
+      );
+      return true;
+    } catch (e) {
+      debugPrint('ApiClient.setClientFaceEmbedding failed: $e');
       return false;
     }
   }

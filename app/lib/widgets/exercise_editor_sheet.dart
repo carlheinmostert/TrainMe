@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,8 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../services/conversion_service.dart';
+import '../services/safe_mode.dart';
 import '../theme.dart';
 import 'plan_table.dart';
 import 'inline_editable_text.dart';
@@ -1179,7 +1182,154 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
               ),
             ),
           ],
+          // Safe Mode v2 (2026-05-23) — re-process affordance. Visible
+          // iff the capture is a photo, was captured with Safe Mode
+          // active, and its stored algorithm version is below the
+          // current constant. Greyed-out when the raw original isn't
+          // available locally (cloud retention fallback is future
+          // work).
+          if (ex.mediaType == MediaType.photo &&
+              ex.safeModeActive &&
+              (ex.safeModeAlgorithmVersion ?? 0) <
+                  kSafeModeAlgorithmVersion) ...[
+            const SizedBox(height: 16),
+            _ReprocessSafeModeRow(exercise: ex),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// Settings-tab row that surfaces the "Re-process Safe Mode" action
+/// for legacy / v1 photo captures (Safe Mode v2 spec, 2026-05-23).
+///
+/// Hidden entirely when the exercise is already up-to-date or isn't a
+/// Safe Mode photo. Greyed-out + non-interactive when the raw
+/// original isn't available locally — at 90-day retention the cloud
+/// copy is gone too, and we can't re-composite without it.
+class _ReprocessSafeModeRow extends StatefulWidget {
+  const _ReprocessSafeModeRow({required this.exercise});
+
+  final ExerciseCapture exercise;
+
+  @override
+  State<_ReprocessSafeModeRow> createState() => _ReprocessSafeModeRowState();
+}
+
+class _ReprocessSafeModeRowState extends State<_ReprocessSafeModeRow> {
+  bool _running = false;
+  bool? _localAvailable;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLocalAvailable();
+  }
+
+  Future<void> _checkLocalAvailable() async {
+    final exists = await File(widget.exercise.absoluteRawFilePath).exists();
+    if (!mounted) return;
+    setState(() => _localAvailable = exists);
+  }
+
+  Future<void> _run() async {
+    if (_running) return;
+    setState(() => _running = true);
+    HapticFeedback.selectionClick();
+    final ok = await ConversionService.instance
+        .reprocessSafeMode(widget.exercise.id);
+    if (!mounted) return;
+    setState(() => _running = false);
+    final msg = ok
+        ? 'Safe Mode re-processed.'
+        : "Couldn't re-process — try again.";
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final available = _localAvailable ?? true;
+    final disabled = !available || _running;
+    final tooltip = !available
+        ? 'Re-process not available — raw original past 90-day retention.'
+        : null;
+    return Tooltip(
+      message: tooltip ?? '',
+      triggerMode: tooltip == null ? TooltipTriggerMode.manual : null,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: disabled ? null : _run,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceRaised,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: disabled
+                    ? AppColors.surfaceBorder
+                    : AppColors.primary.withValues(alpha: 0.5),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.refresh_rounded,
+                  size: 18,
+                  color: disabled
+                      ? AppColors.textSecondaryOnDark
+                      : AppColors.primary,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Re-process Safe Mode',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: disabled
+                              ? AppColors.textSecondaryOnDark
+                              : AppColors.textOnDark,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        available
+                            ? 'Re-composite with the latest face-recognition pass.'
+                            : 'Raw original past 90-day retention.',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11.5,
+                          color: AppColors.textSecondaryOnDark,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_running)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -37,6 +37,13 @@ class CachedClient {
   final bool avatarAllowed;
   final bool analyticsAllowed;
 
+  /// Safe Mode v2 (2026-05-23) — has the practitioner been granted
+  /// consent to store a biometric face fingerprint for this client?
+  /// See [PracticeClient.safeModeFaceRecognitionAllowed] for the full
+  /// rationale. Stored inside the `video_consent` jsonb on the cloud
+  /// side under the key `safe_mode_face_recognition`.
+  final bool safeModeFaceRecognitionAllowed;
+
   /// Wave 30 — relative path inside the `raw-archive` bucket of the
   /// body-focus blurred avatar PNG. Shape `{practiceId}/{clientId}/avatar.png`.
   /// Null = no avatar yet (UI falls back to initials monogram).
@@ -113,6 +120,7 @@ class CachedClient {
     this.colourAllowed = false,
     this.avatarAllowed = false,
     this.analyticsAllowed = true,
+    this.safeModeFaceRecognitionAllowed = false,
     this.avatarPath,
     this.clientExerciseDefaults = const <String, dynamic>{},
     this.consentConfirmedAt,
@@ -169,6 +177,8 @@ class CachedClient {
       colourAllowed: consentMap['original'] == true || consentMap['colour'] == true,
       avatarAllowed: consentMap['avatar'] == true,
       analyticsAllowed: consentMap['analytics_allowed'] != false,
+      safeModeFaceRecognitionAllowed:
+          consentMap['safe_mode_face_recognition'] == true,
       avatarPath:
           pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaultsMap,
@@ -234,6 +244,7 @@ class CachedClient {
     var colour = false;
     var avatar = false;
     var analytics = true;
+    var safeModeFaceRec = false;
     if (consentStr != null && consentStr.isNotEmpty) {
       try {
         final decoded = jsonDecode(consentStr);
@@ -242,6 +253,7 @@ class CachedClient {
           colour = decoded['original'] == true || decoded['colour'] == true;
           avatar = decoded['avatar'] == true;
           analytics = decoded['analytics_allowed'] != false;
+          safeModeFaceRec = decoded['safe_mode_face_recognition'] == true;
         }
       } catch (_) {
         // Malformed JSON in cache — treat as default (all off).
@@ -278,6 +290,7 @@ class CachedClient {
       colourAllowed: colour,
       avatarAllowed: avatar,
       analyticsAllowed: analytics,
+      safeModeFaceRecognitionAllowed: safeModeFaceRec,
       avatarPath:
           pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaults,
@@ -304,6 +317,7 @@ class CachedClient {
         'original': colourAllowed,
         'avatar': avatarAllowed,
         'analytics_allowed': analyticsAllowed,
+        'safe_mode_face_recognition': safeModeFaceRecognitionAllowed,
       }),
       'avatar_path': avatarPath,
       'client_exercise_defaults': jsonEncode(clientExerciseDefaults),
@@ -327,6 +341,7 @@ class CachedClient {
       grayscaleAllowed: grayscaleAllowed,
       avatarAllowed: avatarAllowed,
       analyticsAllowed: analyticsAllowed,
+      safeModeFaceRecognitionAllowed: safeModeFaceRecognitionAllowed,
       avatarPath: avatarPath,
       consentExplicitlySetAt: consentExplicitlySetAt,
     );
@@ -340,6 +355,7 @@ class CachedClient {
     bool? colourAllowed,
     bool? avatarAllowed,
     bool? analyticsAllowed,
+    bool? safeModeFaceRecognitionAllowed,
     String? avatarPath,
     bool clearAvatarPath = false,
     Map<String, dynamic>? clientExerciseDefaults,
@@ -360,6 +376,8 @@ class CachedClient {
       colourAllowed: colourAllowed ?? this.colourAllowed,
       avatarAllowed: avatarAllowed ?? this.avatarAllowed,
       analyticsAllowed: analyticsAllowed ?? this.analyticsAllowed,
+      safeModeFaceRecognitionAllowed: safeModeFaceRecognitionAllowed ??
+          this.safeModeFaceRecognitionAllowed,
       avatarPath: clearAvatarPath ? null : (avatarPath ?? this.avatarPath),
       clientExerciseDefaults:
           clientExerciseDefaults ?? this.clientExerciseDefaults,
