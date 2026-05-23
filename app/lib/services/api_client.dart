@@ -1182,12 +1182,24 @@ class ApiClient {
     required int modelVersion,
   }) async {
     try {
+      // PostgREST expects bytea params as a `\x`-prefixed hex string.
+      // Passing the raw Uint8List was being JSON-serialised as a list
+      // of integers (e.g. `[255, 128, 64, ...]`) which PostgreSQL cast
+      // to bytea using the literal characters of THAT encoding — the
+      // server-side `length(p_embedding) = 2048` check tripped with
+      // "got 7253 bytes" (diagnosed via postgres logs 2026-05-23).
+      // Hex string with the `\x` prefix is the canonical bytea input
+      // format and lands as exactly 2048 bytes for a 2048-byte vector.
+      final hex = StringBuffer(r'\x');
+      for (final b in embedding) {
+        hex.write(b.toRadixString(16).padLeft(2, '0'));
+      }
       await _guardAuth(
         () => raw.rpc(
           'set_client_face_embedding',
           params: <String, dynamic>{
             'p_client_id': clientId,
-            'p_embedding': embedding,
+            'p_embedding': hex.toString(),
             'p_model_version': modelVersion,
           },
         ),
