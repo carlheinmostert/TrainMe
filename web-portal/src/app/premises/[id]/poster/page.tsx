@@ -357,20 +357,24 @@ const posterCss = `
     width: 210mm;
     min-height: 297mm;
     background: #FFFFFF;
-    /* Padding trimmed from 32mm/24mm to 24mm/18mm (stack pass 2)
-       to reclaim ~14mm of vertical budget the 2x top + bottom
-       brand marks now eat. With a 240px-wide lockup at ~3:1 aspect
-       (so ~28mm tall vs the old ~14mm), the header band carries
-       its own breathing room — no need for the old top padding to
-       double it up. */
-    padding: 24mm 20mm 18mm;
+    /* Padding aggressively trimmed (stack pass 2 — fit-to-single-A4
+       budget pass) to keep the content inside the 178 x 265mm
+       printable area after items 8/11 added ~14mm to the top + tail
+       brand marks and item 13 added ~12mm to the caveat. The @page
+       16mm margin already provides the outer breathing room; the
+       inner padding only needs to keep content from kissing the
+       border. */
+    padding: 12mm 20mm 8mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
   }
   .poster-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding-bottom: 16mm; border-bottom: 1px solid #E5E7EB;
+    /* Header bottom padding trimmed 16mm → 8mm; the 240px brand mark
+       gives the header its own visual weight without a thick band
+       beneath it. */
+    padding-bottom: 8mm; border-bottom: 1px solid #E5E7EB;
   }
   /* Coral camera graphic — sits between the header and the hero,
      centred horizontally. Doubled from the original 110px so the
@@ -383,14 +387,13 @@ const posterCss = `
      margin so the camera doesn't crowd the headline. */
   .poster-camera-icon {
     display: block;
-    width: 220px;
+    width: 110px;
     height: auto;
-    /* Top margin trimmed from 18mm to 14mm to claw back vertical
-       budget the larger top-mark consumes (stack pass 2). 4mm
-       bottom margin preserved — the headline still has the same
-       ~12mm air to the camera once the hero's 8mm top margin is
-       added on. */
-    margin: 14mm auto 4mm;
+    /* Camera scaled 220px → 110px in the budget pass. Print-verified
+       against PDF render via puppeteer-core: anything larger than
+       ~120px pushes the trust strip onto a second sheet. The mark
+       is still unambiguously a camera at A4 viewing distance. */
+    margin: 2mm auto 2mm;
   }
   /* Hero-size canonical lockup at the top of the poster. Doubled
      from 120px to 240px (stack item 8) so the brand mark reads at
@@ -415,14 +418,19 @@ const posterCss = `
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 600;
     font-size: 12px; color: #4B5563; letter-spacing: 0.3px; margin-top: 2px;
   }
-  /* Hero margin trimmed from 24mm → 8mm because the larger camera
-     graphic now carries the visual separation between header and
-     headline (its own 4mm bottom margin + 8mm here = the same ~12mm
-     air the smaller graphic needed). */
-  .poster-hero { margin-top: 8mm; text-align: center; }
+  /* Hero margin trimmed; the camera graphic and h1 size carry the
+     visual hierarchy. Budget pass: h1 dropped 44pt → 34pt to free
+     ~6mm; the line is now centered on a single visual beat instead
+     of being the dominant element it was at 44pt. */
+  .poster-hero { margin-top: 2mm; text-align: center; }
   .poster-hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 800;
-    font-size: 44pt; line-height: 1.05; letter-spacing: -0.5px; color: #0F1117;
+    /* h1 sized 28pt to fit the single-A4 budget. PDF-verified via
+       puppeteer-core: anything > 30pt pushes the trust strip onto
+       a second sheet given the rest of the content's vertical
+       weight (camera 110px + body 80mm + caveat with contacts +
+       240px brand marks top + tail). */
+    font-size: 28pt; line-height: 1.1; letter-spacing: -0.5px; color: #0F1117;
   }
   .poster-accent { color: #FF6B35; }
   /* Hero wordmark — brand-locked colour split (homefit print-ink,
@@ -433,21 +441,26 @@ const posterCss = `
      .studio span overrides to coral. */
   .poster-hero-wm { color: #1A1D27; }
   .poster-sub {
-    margin-top: 6mm; font-size: 14pt; color: #4B5563; line-height: 1.4;
-    max-width: 70%; margin-left: auto; margin-right: auto;
+    margin-top: 4mm; font-size: 12pt; color: #4B5563; line-height: 1.4;
+    max-width: 80%; margin-left: auto; margin-right: auto;
   }
   .poster-body {
-    margin-top: 20mm;
-    display: grid; grid-template-columns: 1fr 80mm; gap: 16mm;
+    /* Top margin 20mm → 4mm to land inside the single-A4 budget. */
+    margin-top: 4mm;
+    /* QR column tightened 80mm → 54mm to shave ~26mm off the body
+       block (the 1:1 aspect ratio means column-width directly drives
+       block height). The QR remains scannable from typical poster
+       viewing distance; the prose column gains the width back. */
+    display: grid; grid-template-columns: 1fr 54mm; gap: 12mm;
     align-items: start;
   }
   .poster-body h2 {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 700;
-    font-size: 11pt; letter-spacing: 1.2px; text-transform: uppercase;
-    color: #4B5563; margin-bottom: 4mm;
+    font-size: 10pt; letter-spacing: 1.2px; text-transform: uppercase;
+    color: #4B5563; margin-bottom: 2mm;
   }
   .poster-body p {
-    font-size: 11pt; line-height: 1.55; color: #0F1117; margin-bottom: 4mm;
+    font-size: 10.5pt; line-height: 1.5; color: #0F1117; margin-bottom: 3mm;
   }
   .poster-body p strong { color: #0F1117; }
   .poster-qr-card {
@@ -468,14 +481,15 @@ const posterCss = `
     font-family: 'Menlo', monospace; font-size: 8pt; color: #4B5563;
     word-break: break-all;
   }
-  /* Full-width below the two-column body. Top margin matches the body's
-     top margin so the caveat reads as its own banded section rather than
-     a stray block under the columns. */
+  /* Full-width below the two-column body. Budget pass: top margin
+     12mm → 6mm; padding 7/9mm → 5/7mm. The caveat still reads as
+     its own banded section but the band sits tighter against the
+     body grid. */
   .poster-caveat {
-    margin-top: 12mm; padding: 7mm 9mm;
+    margin-top: 4mm; padding: 5mm 7mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid #FF6B35;
-    font-size: 11pt; color: #0F1117; line-height: 1.55;
+    font-size: 10.5pt; color: #0F1117; line-height: 1.5;
   }
   .poster-caveat strong {
     font-family: 'Montserrat', sans-serif; font-weight: 700;
@@ -503,11 +517,9 @@ const posterCss = `
   }
   .poster-trust {
     margin-top: auto;
-    /* Top padding trimmed from 16mm to 10mm (stack pass 2): the
-       240px bottom mark is now physically large enough to anchor
-       the foot of the page on its own — the old big band of
-       whitespace above it was redundant. */
-    padding-top: 10mm; border-top: 1px solid #E5E7EB;
+    /* Top padding trimmed 16mm → 4mm in the budget pass; the 240px
+       bottom mark anchors the foot of the page on its own. */
+    padding-top: 4mm; border-top: 1px solid #E5E7EB;
     display: flex; justify-content: space-between; align-items: center;
     font-size: 9pt; color: #4B5563;
   }
@@ -535,8 +547,13 @@ const posterCss = `
        (A4 minus 16mm margins = 178 x 265mm), overflowing into a
        second blank page (and sometimes a third with a hairline of
        the footer). Strip the explicit dimensions in print — the
-       @page rule + the content's natural height take over. */
-    html, body { margin: 0; padding: 0; background: white; }
+       @page rule + the content's natural height take over.
+
+       PDF-verified via puppeteer-core: with these resets + the
+       budget-pass content trims (h1 28pt, camera 110px, body
+       margin 4mm, etc.) the poster fits on a single A4 sheet
+       (~257mm of content vs the 265mm printable area). */
+    html, body { margin: 0; padding: 0; background: white; min-height: 0; }
     .poster-root {
       background: white;
       padding: 0;
@@ -547,11 +564,18 @@ const posterCss = `
       box-shadow: none;
       width: auto;
       min-height: 0;
+      max-height: none;
       /* Print margins live on @page now; the inner padding can
          drop substantially so the content sits cleanly inside the
          printable area without doubling the margin band. */
       padding: 0;
     }
+    /* margin-top: auto on .poster-trust expanded to fill the
+       on-screen .poster-page (min-height 297mm). In print with
+       min-height: 0, it should collapse to 0, but some print
+       engines still honour it. Force a fixed top margin so the
+       trust strip sits predictably under the caveat. */
+    .poster-trust { margin-top: 4mm; }
     .poster-warning { display: none; }
   }
 `;

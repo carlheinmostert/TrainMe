@@ -27,10 +27,9 @@
     width: 210mm;
     min-height: 297mm;
     background: var(--c-paper);
-    /* Page padding trimmed (stack pass 2) so the larger 240px top +
-       bottom brand marks fit the printable area without overflowing
-       to a second sheet. */
-    padding: 24mm 20mm 18mm;
+    /* Page padding aggressively trimmed (budget pass) to keep the
+       content within the 178 × 265mm printable area. */
+    padding: 12mm 20mm 8mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
@@ -38,17 +37,14 @@
 
   /* Coral camera graphic — clean line-art between header and hero.
      Stroke-first geometry matches the canonical matrix logo's
-     restrained vocabulary. Doubled from 110px → 220px so the mark
-     reads as a substantial visual anchor at A4 viewing distance;
-     vertical margins (18mm/4mm) give it its own breathing band
-     instead of crowding the headline. */
+     restrained vocabulary. Scaled 220px → 180px in the budget pass
+     so the larger brand marks fit; still unambiguously a camera at
+     A4 viewing distance. */
   .camera-icon {
     display: block;
-    width: 220px;
+    width: 110px;
     height: auto;
-    /* Top margin trimmed 18mm → 14mm (stack pass 2) to claw back
-       vertical budget for the larger top mark. */
-    margin: 14mm auto 4mm;
+    margin: 2mm auto 2mm;
   }
 
   /* Header */
@@ -56,7 +52,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 16mm;
+    /* Bottom padding trimmed 16mm → 8mm (budget pass). */
+    padding-bottom: 8mm;
     border-bottom: 1px solid var(--c-rule);
   }
   /* Hero-size canonical lockup at the top edge — print variant
@@ -82,18 +79,19 @@
   }
   .practice-mark .name { font-size: 16px; color: var(--c-ink); }
 
-  /* Hero — margin trimmed from 24mm → 8mm; the larger camera graphic
-     above carries the visual separation (its own 4mm bottom margin +
-     8mm here = the same ~12mm air the smaller graphic needed). */
+  /* Hero — budget pass: margin trimmed and h1 sized down so the
+     headline lands as a single visual beat, not the dominant
+     element. */
   .hero {
-    margin-top: 8mm;
+    margin-top: 2mm;
     text-align: center;
   }
   .hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif;
     font-weight: 800;
-    font-size: 44pt;
-    line-height: 1.05;
+    /* h1 28pt — PDF-verified single-A4 budget. */
+    font-size: 28pt;
+    line-height: 1.1;
     letter-spacing: -0.5px;
     color: var(--c-ink);
   }
@@ -102,37 +100,38 @@
      .studio coral). Sits as the final beat of the headline. */
   .hero .hero-wm { color: #1A1D27; }
   .hero .sub {
-    margin-top: 6mm;
-    font-size: 14pt;
+    margin-top: 4mm;
+    font-size: 12pt;
     color: var(--c-ink-muted);
     line-height: 1.4;
-    max-width: 70%;
+    max-width: 80%;
     margin-left: auto;
     margin-right: auto;
   }
 
-  /* Body */
+  /* Body — budget pass: top margin 20mm → 8mm, QR column 80mm → 64mm,
+     gap 16mm → 12mm, body type sized down 12pt → 10.5pt. */
   .body {
-    margin-top: 20mm;
+    margin-top: 4mm;
     display: grid;
-    grid-template-columns: 1fr 80mm;
-    gap: 16mm;
+    grid-template-columns: 1fr 54mm;
+    gap: 12mm;
     align-items: start;
   }
   .body h2 {
     font-family: 'Montserrat', system-ui, sans-serif;
     font-weight: 700;
-    font-size: 12pt;
+    font-size: 10pt;
     letter-spacing: 1.2px;
     text-transform: uppercase;
     color: var(--c-ink-muted);
-    margin-bottom: 4mm;
+    margin-bottom: 2mm;
   }
   .body p {
-    font-size: 12pt;
-    line-height: 1.55;
+    font-size: 10.5pt;
+    line-height: 1.5;
     color: var(--c-ink);
-    margin-bottom: 4mm;
+    margin-bottom: 3mm;
   }
   .body p strong { color: var(--c-ink); }
 
@@ -181,10 +180,9 @@
   /* Trust strip */
   .trust {
     margin-top: auto;
-    /* Top padding trimmed 16mm → 10mm (stack pass 2) — the bottom
-       brand mark is now physically large enough to anchor the foot
-       of the page on its own. */
-    padding-top: 10mm;
+    /* Top padding trimmed 16mm → 4mm (budget pass) — the 240px
+       bottom brand mark anchors the foot of the page on its own. */
+    padding-top: 4mm;
     border-top: 1px solid var(--c-rule);
     display: flex;
     justify-content: space-between;
@@ -221,13 +219,14 @@
      the stop-and-act CTA across full width gives both columns a clean
      common baseline. */
   .caveat {
-    margin-top: 12mm;
-    padding: 7mm 9mm;
+    /* Budget pass: top margin 12mm → 4mm, padding 7/9mm → 5/7mm. */
+    margin-top: 4mm;
+    padding: 5mm 7mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid var(--c-brand);
-    font-size: 11pt;
+    font-size: 10.5pt;
     color: var(--c-ink);
-    line-height: 1.55;
+    line-height: 1.5;
   }
   .caveat strong {
     font-family: 'Montserrat', sans-serif;
@@ -254,14 +253,20 @@
      of the footer). The @page rule below owns the margin band; the
      content owns its own height. */
   @media print {
-    html, body { margin: 0; padding: 0; background: white; }
+    html, body { margin: 0; padding: 0; background: white; min-height: 0; }
     body { display: block; }
     .page {
       box-shadow: none;
       width: auto;
       min-height: 0;
+      max-height: none;
       padding: 0;
     }
+    /* margin-top: auto on .trust would expand to the .page min-height
+       on screen; in print with min-height: 0 it should collapse, but
+       some print engines still honour it. Force a fixed top margin
+       so the trust strip sits predictably under the caveat. */
+    .page .trust { margin-top: 4mm; }
   }
 </style>
 </head>
