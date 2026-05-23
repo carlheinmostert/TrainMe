@@ -224,6 +224,23 @@ private let handDilationConfidenceMin: Float = 0.20
 /// 5. Contrast boost
 /// 6. Line-alpha dim (softens intensity — see `edgeThresholdLo/Hi/lineAlpha`)
 class VideoConverterChannel {
+    // Safe Mode v2 (2026-05-23) — video gate.
+    //
+    // The v1 photo path is removed entirely in this wave and replaced
+    // by `applySafeModeV2ToPhoto` (per-client face-recognition
+    // discriminator via MobileFaceNet). The v1 VIDEO path still uses
+    // the legacy `SafeModeProcessor` anchor-box code at the
+    // convertVideo writer pump below; for v2 the Dart side refuses to
+    // start video recording inside a Safe Mode polygon (suppression
+    // implemented in `safe_mode_service.dart` / `capture_mode_screen.dart`).
+    //
+    // This constant is a defensive backstop: if the Dart side ever
+    // hands us a `safeOutputPath` on convertVideo, the writer
+    // allocation is short-circuited and the safe-mp4 simply isn't
+    // produced. The legacy code path remains compiled-in so v3 can
+    // re-enable with keyframe-embed + tracking.
+    static let kSafeModeVideoEnabled: Bool = false
+
     private let channel: FlutterMethodChannel
     private let processingQueue = DispatchQueue(
         label: "com.raidme.video_converter.processing",
@@ -392,33 +409,61 @@ class VideoConverterChannel {
                 }
             }
 
-        case "processPhotoSafeMode":
-            // Safe Mode completion wave (2026-05-21) — single-frame
-            // Safe Mode pass for exercise photos. Mirrors the per-frame
-            // shape of the video pipeline: run Vision person
-            // segmentation + VNDetectHumanRectangles, then use
-            // `SafeModeProcessor.processFrame` to coral-paint every
-            // segmented pixel that falls OUTSIDE the largest detected
-            // human bbox. Result writes JPG at `destPath`. iOS 15+ only.
+        case "applySafeModeV2ToPhoto":
+            // Safe Mode v2 (2026-05-23) — per-client face-recognition
+            // discriminator. Caller supplies the subject's 2048-byte
+            // L2-normalized FP32 embedding (derived from the client's
+            // avatar JPG via `generateFaceEmbedding`). We run face
+            // detection + person segmentation on the photo, embed every
+            // detected face, pick the one with max cosine similarity to
+            // the subject embedding (if any meets threshold), then
+            // composite per the algorithm in
+            // `docs/specs/2026-05-23-safe-mode-face-rec.md`.
             //
-            // Returns `safeFramesProcessed` (0 or 1) +
-            // `safeFramesMissedRate` (0.0 or 1.0) so the Dart side can
-            // apply the same 5%-miss fail-closed threshold as videos.
+            // Returns the same SafeModePhotoOutcome shape the v1 path
+            // used so the Dart side's `kSafeModeMaxMissRate` decision
+            // stays unchanged: processed (0/1), missRate (0.0/1.0),
+            // lowConfidence (true when no subject was identified and
+            // we fell through to no-subject mode).
             guard let args = call.arguments as? [String: Any],
                   let srcPath = args["srcPath"] as? String,
                   let destPath = args["destPath"] as? String else {
                 result(FlutterError(
                     code: "INVALID_ARGS",
-                    message: "Missing srcPath/destPath for processPhotoSafeMode",
+                    message: "Missing srcPath/destPath for applySafeModeV2ToPhoto",
                     details: nil
                 ))
                 return
             }
+            // subjectEmbedding arrives as FlutterStandardTypedData on the
+            // platform channel; Swift surfaces it as FlutterStandardTypedData
+            // which has a `.data: Data` property. Accept Data too for
+            // forwards-compat. Required — Dart side must block capture
+            // until the embedding is generated.
+            let embedData: Data?
+            if let typed = args["subjectEmbedding"] as? FlutterStandardTypedData {
+                embedData = typed.data
+            } else if let raw = args["subjectEmbedding"] as? Data {
+                embedData = raw
+            } else {
+                embedData = nil
+            }
+            guard let subjectEmbedding = embedData else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing or invalid subjectEmbedding for applySafeModeV2ToPhoto",
+                    details: nil
+                ))
+                return
+            }
+            let threshold = (args["threshold"] as? Double) ?? 0.6
             processingQueue.async {
                 if #available(iOS 15.0, *) {
-                    let outcome = Self.applySafeModeToPhoto(
+                    let outcome = Self.applySafeModeV2ToPhoto(
                         srcPath: srcPath,
-                        destPath: destPath
+                        destPath: destPath,
+                        subjectEmbedding: subjectEmbedding,
+                        threshold: threshold
                     )
                     DispatchQueue.main.async {
                         switch outcome {
@@ -431,7 +476,7 @@ class VideoConverterChannel {
                             ])
                         case .failure(let err):
                             result(FlutterError(
-                                code: "PHOTO_SAFE_FAILED",
+                                code: "PHOTO_SAFE_V2_FAILED",
                                 message: err,
                                 details: nil
                             ))
@@ -441,7 +486,79 @@ class VideoConverterChannel {
                     DispatchQueue.main.async {
                         result(FlutterError(
                             code: "UNSUPPORTED_OS",
-                            message: "Photo Safe Mode requires iOS 15+",
+                            message: "Safe Mode v2 requires iOS 15+",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
+        case "generateFaceEmbedding":
+            // Safe Mode v2 (2026-05-23) — produce the per-client face
+            // embedding from an avatar JPG. Used both on avatar upload
+            // (going-forward) and as a lazy backfill on Safe Mode
+            // first-use for existing clients. Caller passes the JPG
+            // path; we return a 2048-byte FlutterStandardTypedData blob
+            // (512 FP32 little-endian floats, L2-normalized).
+            //
+            // Failure modes surfaced as FlutterError:
+            //   - JPG missing / unreadable: code "FILE_NOT_FOUND".
+            //   - Zero faces detected: code "NO_FACE_DETECTED".
+            //   - Multiple ambiguous faces (top-two within 80% area):
+            //     code "MULTIPLE_AMBIGUOUS_FACES" with details
+            //     containing the area ratio so the UI can prompt the
+            //     practitioner to pick a clearer avatar.
+            //   - MobileFaceNet load / inference failure: code
+            //     "FACE_EMBED_FAILED". Per feedback_no_silent_fallbacks
+            //     the UI shows a hard error — never silently fall back
+            //     to a stub embedding.
+            guard let args = call.arguments as? [String: Any],
+                  let srcPath = args["srcPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing srcPath for generateFaceEmbedding",
+                    details: nil
+                ))
+                return
+            }
+            processingQueue.async {
+                if #available(iOS 15.0, *) {
+                    let outcome = Self.generateFaceEmbeddingFromJpg(srcPath: srcPath)
+                    DispatchQueue.main.async {
+                        switch outcome {
+                        case .success(let blob):
+                            result(FlutterStandardTypedData(bytes: blob))
+                        case .noFace:
+                            result(FlutterError(
+                                code: "NO_FACE_DETECTED",
+                                message: "Avatar must contain a face",
+                                details: nil
+                            ))
+                        case .multipleAmbiguous(let ratio):
+                            result(FlutterError(
+                                code: "MULTIPLE_AMBIGUOUS_FACES",
+                                message: "Multiple faces of similar size detected — pick an avatar with a single clearly-dominant face",
+                                details: ["topTwoAreaRatio": ratio]
+                            ))
+                        case .fileMissing:
+                            result(FlutterError(
+                                code: "FILE_NOT_FOUND",
+                                message: "Avatar JPG not found at \(srcPath)",
+                                details: nil
+                            ))
+                        case .failure(let msg):
+                            result(FlutterError(
+                                code: "FACE_EMBED_FAILED",
+                                message: msg,
+                                details: nil
+                            ))
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UNSUPPORTED_OS",
+                            message: "Face embedding requires iOS 15+",
                             details: nil
                         ))
                     }
@@ -922,7 +1039,14 @@ class VideoConverterChannel {
         var safeWriter: AVAssetWriter? = nil
         var safeWriterInput: AVAssetWriterInput? = nil
         var safeAdaptor: AVAssetWriterInputPixelBufferAdaptor? = nil
-        if let sfPath = safeOutputPath {
+        // Safe Mode v2 video suppression (2026-05-23):
+        // `kSafeModeVideoEnabled` is false in v2. Even if the Dart side
+        // forwards a `safeOutputPath` we short-circuit here so the
+        // legacy anchor-box compositor never runs against the writer
+        // pump. The line / segmented / mask writers continue
+        // unaffected — the convertVideo call still produces all the
+        // standard outputs, just without the safe-mp4 sidecar.
+        if let sfPath = safeOutputPath, Self.kSafeModeVideoEnabled {
             let sfURL = URL(fileURLWithPath: sfPath)
             try? FileManager.default.removeItem(at: sfURL)
             do {
@@ -2667,12 +2791,19 @@ class VideoConverterChannel {
 
     // MARK: - Photo Safe Mode
 
-    /// Outcome of [applySafeModeToPhoto]. `success(processed,
-    /// missRate, lowConfidence)` mirrors the video path's payload —
-    /// `processed` is 0 or 1 (single frame); `missRate` is 0.0 when
-    /// Vision found a face, 1.0 when it didn't (single-frame can only
-    /// be all-or-nothing); `lowConfidence` is true if the two largest
-    /// faces in the frame were within 80% of each other in area.
+    /// Outcome of `applySafeModeV2ToPhoto`. `success(processed,
+    /// missRate, lowConfidence)` mirrors the v1 photo payload so the
+    /// Dart side's `kSafeModeMaxMissRate` decision stays unchanged.
+    /// In v2:
+    ///   - `processed` is 0 or 1 (always 1 unless the pipeline fell
+    ///     through to byte-copy fallback).
+    ///   - `missRate` is 0.0 when a subject face was identified above
+    ///     threshold OR when no faces were detected at all (the
+    ///     solo-back-view case is intentional); 1.0 only when Vision
+    ///     itself threw and we wrote source bytes verbatim.
+    ///   - `lowConfidence` is true when faces were detected but none
+    ///     matched the subject embedding above threshold — signals
+    ///     "subject not in frame, fell through to no-subject mode".
     /// Failure carries a string so the channel layer can route it as
     /// a FlutterError.
     enum SafeModePhotoOutcome {
@@ -2680,32 +2811,220 @@ class VideoConverterChannel {
         case failure(String)
     }
 
-    /// Apply the Safe Mode coral-silhouette composite to a single
-    /// JPG photo. Mirrors the per-frame Vision + segmentation +
-    /// `SafeModeProcessor.processFrame` shape used by the video path
-    /// so the same compositing rules apply (largest detected human
-    /// stays untouched; every other segmented person becomes coral).
+    // MARK: - Safe Mode v2 — face-recognition discriminator
+    //
+    // Replaces the v1 anchor-box approach (`applySafeModeToPhoto`, removed
+    // in this wave). The contract is per
+    // `docs/specs/2026-05-23-safe-mode-face-rec.md`:
+    //
+    //   1. `generateFaceEmbeddingFromJpg(srcPath:)` — called on avatar
+    //      upload + lazy backfill. Produces the 2048-byte
+    //      MobileFaceNet embedding from the client's avatar JPG.
+    //   2. `applySafeModeV2ToPhoto(srcPath:destPath:subjectEmbedding:threshold:)`
+    //      — called at capture time. Identifies the subject face by
+    //      cosine similarity vs the supplied embedding; blurs every
+    //      other face's head-expanded region + (in subject identified
+    //      mode) every non-subject silhouette.
+    //
+    // The v1 code path (`SafeModeProcessor.processFrame` invoked via the
+    // old anchor-box pipeline) is still used by the VIDEO writer pump
+    // for backwards compat — gated by `kSafeModeVideoEnabled` for v2,
+    // which the Dart side flips off so video capture is forbidden
+    // inside a Safe Mode polygon (v3 will re-enable with keyframe-embed
+    // + tracking).
+
+    /// Outcome of `generateFaceEmbeddingFromJpg`. The channel layer
+    /// maps each case to a structured FlutterError so the Dart side
+    /// can surface a clear UX message instead of a generic failure.
+    enum FaceEmbeddingOutcome {
+        case success(Data)
+        case noFace
+        case multipleAmbiguous(ratio: Double)
+        case fileMissing
+        case failure(String)
+    }
+
+    /// Generate the MobileFaceNet embedding for the supplied JPG.
     ///
-    /// Input: a JPG at `srcPath` (the practitioner's raw colour
-    /// photo). Output: a JPG at `destPath` whose bystander pixels are
-    /// coral. iOS 15+ only — the caller gates with `@available`.
-    ///
-    /// Working-resolution clamp: source photos from iPhone main cameras
-    /// are 12MP+ (4032x3024) which spikes peak working set to ~500MB
-    /// once Vision + CoreImage allocate intermediates. iOS jetsam reaps
-    /// the process well below that. The compositor here scales the
-    /// source down to fit within a 1920px max-dim before allocating
-    /// pixel buffers, runs the Vision/CoreImage pass at the smaller
-    /// dimensions, and writes the JPG at the smaller (work) resolution.
-    /// The editor sheet renders the safe variant at typical hero-card
-    /// sizes (<=1080p effective) — there is no surface that requires
-    /// the original 12MP fidelity for the safe (bystander-blurred)
-    /// output. Native un-blurred bytes stay on the line + raw archive
-    /// outputs.
+    /// Pipeline:
+    ///   1. Load the JPG via UIImage; pre-render upright via
+    ///      `UIGraphicsImageRenderer` (same EXIF-respecting technique
+    ///      as the photo Safe Mode path) so Vision sees pixels in the
+    ///      human-up orientation.
+    ///   2. Run `VNDetectFaceRectanglesRequest` with `orientation: .up`.
+    ///   3. If zero faces: return `.noFace` (the channel handler maps
+    ///      to a FlutterError with code "NO_FACE_DETECTED").
+    ///   4. If multiple faces with the two largest within 80% area
+    ///      ratio: return `.multipleAmbiguous(ratio:)` so the UI can
+    ///      prompt the practitioner to pick a clearer avatar.
+    ///   5. Otherwise: crop the largest face's bbox with a 20% pad on
+    ///      every side, pass the CGImage to `MobileFaceNetEmbedder`,
+    ///      return the resulting 2048-byte Data.
     @available(iOS 15.0, *)
-    static func applySafeModeToPhoto(
+    static func generateFaceEmbeddingFromJpg(srcPath: String) -> FaceEmbeddingOutcome {
+        guard FileManager.default.fileExists(atPath: srcPath) else {
+            return .fileMissing
+        }
+        guard let uiImage = UIImage(contentsOfFile: srcPath),
+              let cgImage = uiImage.cgImage else {
+            return .failure("Could not decode JPG at \(srcPath)")
+        }
+
+        // Pre-render upright. Re-uses the technique pioneered by PR #430
+        // for the photo Safe Mode path: the UIGraphicsImageRenderer +
+        // `uiImage.draw(in:)` combo applies EXIF orientation
+        // automatically, yielding a top-left-origin buffer that Vision
+        // can interpret with `orientation: .up`.
+        let displayW: Int
+        let displayH: Int
+        switch uiImage.imageOrientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            displayW = cgImage.height
+            displayH = cgImage.width
+        default:
+            displayW = cgImage.width
+            displayH = cgImage.height
+        }
+        // Clamp to 1920px max-dim (same as the photo Safe Mode path):
+        // the embedding only needs a 112×112 crop, so we don't need
+        // the full 12MP. Smaller buffer = faster Vision pass.
+        let maxWorkDim = 1920
+        let displayMax = max(displayW, displayH)
+        let workScale = min(1.0, Double(maxWorkDim) / Double(displayMax))
+        let width = max(1, Int((Double(displayW) * workScale).rounded()))
+        let height = max(1, Int((Double(displayH) * workScale).rounded()))
+
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.scale = 1.0
+        fmt.opaque = true
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: fmt
+        )
+        let uprightUI = renderer.image { _ in
+            uiImage.draw(in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        guard let uprightCG = uprightUI.cgImage else {
+            return .failure("UIGraphicsImageRenderer produced no cgImage")
+        }
+
+        // Run VNDetectFaceRectanglesRequest. Use VNImageRequestHandler
+        // since this is a single-frame path.
+        let request = VNDetectFaceRectanglesRequest()
+        let handler = VNImageRequestHandler(
+            cgImage: uprightCG,
+            orientation: .up,
+            options: [:]
+        )
+        do {
+            try handler.perform([request])
+        } catch {
+            return .failure("Vision face detect failed: \(error.localizedDescription)")
+        }
+        let observations = request.results ?? []
+        if observations.isEmpty {
+            return .noFace
+        }
+
+        // Sort faces by area, descending. Pick the largest as subject.
+        // If the second-largest is >= 80% of the largest, we don't know
+        // which face is the practitioner's intended client avatar —
+        // refuse and prompt to recapture.
+        var areas: [(rect: CGRect, area: CGFloat)] = observations.map {
+            ($0.boundingBox, $0.boundingBox.width * $0.boundingBox.height)
+        }
+        areas.sort { $0.area > $1.area }
+        if areas.count >= 2 {
+            let ratio = areas[1].area / areas[0].area
+            if ratio >= 0.80 {
+                return .multipleAmbiguous(ratio: Double(ratio))
+            }
+        }
+        let faceRect = areas[0].rect
+
+        // Crop face bbox with 20% pad. Vision rects are normalized in
+        // origin-bottom-left coords; convert to top-left pixel coords
+        // for CGImage.cropping.
+        let padFactor: CGFloat = 0.20
+        let padW = faceRect.width * padFactor
+        let padH = faceRect.height * padFactor
+        let cropX0 = max(0, (faceRect.origin.x - padW)) * CGFloat(width)
+        let cropY0Bottom = max(0, (faceRect.origin.y - padH)) * CGFloat(height)
+        let cropW = min(1.0, faceRect.width + 2 * padW) * CGFloat(width)
+        let cropH = min(1.0, faceRect.height + 2 * padH) * CGFloat(height)
+        // Flip Y for top-left pixel grid.
+        let cropY0Top = CGFloat(height) - cropY0Bottom - cropH
+        let pixelCropRect = CGRect(
+            x: cropX0.rounded(.down),
+            y: max(0, cropY0Top.rounded(.down)),
+            width: cropW.rounded(.up),
+            height: cropH.rounded(.up)
+        )
+        guard let faceCrop = uprightCG.cropping(to: pixelCropRect) else {
+            return .failure("CGImage cropping returned nil for rect \(pixelCropRect)")
+        }
+
+        // Hand to MobileFaceNet. Hard-fail per
+        // feedback_no_silent_fallbacks — never return a zero / random
+        // embedding when the model fails.
+        do {
+            let blob = try MobileFaceNetEmbedder.shared.embed(face: faceCrop)
+            return .success(blob)
+        } catch let err as MobileFaceNetEmbedderError {
+            switch err {
+            case .modelNotBundled:
+                return .failure("MobileFaceNet.mlmodel not found in app bundle")
+            case .modelLoadFailed(let msg):
+                return .failure("MobileFaceNet load failed: \(msg)")
+            case .preprocessingFailed(let msg):
+                return .failure("MobileFaceNet preprocessing failed: \(msg)")
+            case .inferenceFailed(let msg):
+                return .failure("MobileFaceNet inference failed: \(msg)")
+            case .outputShapeMismatch(let msg):
+                return .failure("MobileFaceNet output shape mismatch: \(msg)")
+            }
+        } catch {
+            return .failure("MobileFaceNet unknown error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Apply Safe Mode v2 to a single JPG. Replaces the v1
+    /// anchor-box `applySafeModeToPhoto` entirely.
+    ///
+    /// Pipeline (per `docs/specs/2026-05-23-safe-mode-face-rec.md`):
+    ///   1. Pre-render the source upright (same UIGraphics technique
+    ///      as v1) and allocate a working BGRA pixel buffer at
+    ///      <=1920px max-dim.
+    ///   2. Run face detection on the upright buffer.
+    ///   3. For every detected face: crop, embed via MobileFaceNet,
+    ///      compute cosine similarity vs `subjectEmbedding`. The face
+    ///      with max similarity is the subject — IFF max >= threshold.
+    ///   4. Run PersonSegmenter on the same buffer.
+    ///   5. Subject identified mode: scanline-flood-fill the segmentation
+    ///      mask from the subject face centroid to find the connected
+    ///      component = subject silhouette. Build keepSourceMask:
+    ///        - subject silhouette → 255 (keep sharp)
+    ///        - other mask-positive pixels → 0 (blur)
+    ///        - background → 255 (keep sharp)
+    ///      Then paint 0s in every non-subject face's head-expanded
+    ///      bbox (defensive — silhouette undershoot at the head).
+    ///   6. No subject mode: keepSourceMask = all 255; paint 0s in
+    ///      every detected face's head-expanded bbox. Silhouettes
+    ///      stay sharp — solo back-view self-recording case.
+    ///   7. CIBlendWithMask composite source vs CIGaussianBlur(source).
+    ///   8. Encode to JPG at destPath.
+    ///
+    /// `lowConfidence` in the return payload is set when no subject
+    /// face was identified above threshold but at least one face was
+    /// detected — surfaces the "subject not recognised, fell through
+    /// to no-subject mode" signal so the Dart side can decide whether
+    /// to nudge the practitioner.
+    @available(iOS 15.0, *)
+    static func applySafeModeV2ToPhoto(
         srcPath: String,
-        destPath: String
+        destPath: String,
+        subjectEmbedding: Data,
+        threshold: Double
     ) -> SafeModePhotoOutcome {
         guard FileManager.default.fileExists(atPath: srcPath) else {
             return .failure("Source photo not found: \(srcPath)")
@@ -2714,41 +3033,19 @@ class VideoConverterChannel {
               let cgImage = uiImage.cgImage else {
             return .failure("Could not decode source photo: \(srcPath)")
         }
+        guard subjectEmbedding.count == MobileFaceNetEmbedder.embeddingByteLength else {
+            return .failure(
+                "subjectEmbedding wrong size — got \(subjectEmbedding.count) bytes, " +
+                "expected \(MobileFaceNetEmbedder.embeddingByteLength)"
+            )
+        }
+
+        // --- Upright pre-render at <=1920px max-dim (same as v1) ---
         let nativeCgW = cgImage.width
         let nativeCgH = cgImage.height
         guard nativeCgW > 0, nativeCgH > 0 else {
             return .failure("Source photo has zero dimensions")
         }
-
-        // --- Coordinate-frame discipline ---
-        // The Vision + segmentation + composite pipeline only works when
-        // every actor agrees on what "upright" means.
-        //
-        // PR #427's photo path treated `cgImage.width/.height` as the
-        // working dimensions and forwarded `uiImage.imageOrientation` to
-        // Vision. For a portrait iPhone shot the raw bytes are landscape
-        // (e.g. 4032x3024) with the subject sideways, and EXIF tags it
-        // `.right` to be rotated 90° CW on display. Vision's bounding
-        // box is in normalized coords relative to the UPRIGHT (rotated)
-        // image; multiplying those upright normalized coords by the
-        // LANDSCAPE buffer's pixel dims lands the anchor box in the
-        // wrong region of the buffer. Combined with a PersonSegmenter
-        // run without an orientation hint (mask in landscape buffer
-        // coords), the anchor and segmentation mask end up in different
-        // coordinate spaces — the subject's pixels fall outside the
-        // anchor → mis-classified as bystanders → blurred. Carl's bug:
-        // single-subject portrait photo, whole body Gaussian-blurred.
-        //
-        // Fix: pre-render the UIImage in its UPRIGHT pixel orientation
-        // via UIKit (`UIGraphicsImageRenderer` honours EXIF via
-        // `uiImage.draw(in:)` automatically), then run Vision +
-        // segmentation against that upright buffer with orientation
-        // `.up`. Mask, anchor, and composite all live in the same
-        // coordinate space.
-        //
-        // Compute the DISPLAY (post-EXIF) dimensions of the source:
-        // for `.left/.right/.leftMirrored/.rightMirrored` the cgImage's
-        // width and height are swapped relative to display.
         let displayW: Int
         let displayH: Int
         switch uiImage.imageOrientation {
@@ -2759,22 +3056,12 @@ class VideoConverterChannel {
             displayW = nativeCgW
             displayH = nativeCgH
         }
-
-        // Clamp to 1920px max-dim on the DISPLAY dimensions. The
-        // resulting (width, height) are the UPRIGHT working dims —
-        // every downstream allocation and coord computation uses them.
         let maxWorkDim = 1920
         let displayMax = max(displayW, displayH)
         let workScale = min(1.0, Double(maxWorkDim) / Double(displayMax))
         let width = max(1, Int((Double(displayW) * workScale).rounded()))
         let height = max(1, Int((Double(displayH) * workScale).rounded()))
 
-        // Render the source UIImage UPRIGHT into a CGImage at the
-        // working resolution. `UIGraphicsImageRenderer` + `draw(in:)`
-        // applies EXIF orientation automatically — the resulting bytes
-        // are top-left-origin and human-upright, regardless of the
-        // source's imageOrientation. `.up` is the only orientation
-        // Vision needs to know about from here on.
         let renderFormat = UIGraphicsImageRendererFormat.default()
         renderFormat.scale = 1.0
         renderFormat.opaque = true
@@ -2789,32 +3076,23 @@ class VideoConverterChannel {
             return .failure("UIGraphicsImageRenderer produced no cgImage")
         }
 
-        // After upright pre-rendering the buffer is in display-natural
-        // orientation. Vision must run with `.up` so its normalized
-        // face bbox is in coords matching our buffer dimensions.
-        let photoOrientation: CGImagePropertyOrientation = .up
-
-        // --- Render the upright CGImage into a BGRA CVPixelBuffer. ---
+        // --- Allocate source + dest BGRA pixel buffers ---
         let attrs: [CFString: Any] = [
             kCVPixelBufferCGImageCompatibilityKey: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey: true,
         ]
         var srcBufOut: CVPixelBuffer?
         let srcStatus = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            width,
-            height,
-            kCVPixelFormatType_32BGRA,
-            attrs as CFDictionary,
-            &srcBufOut
+            kCFAllocatorDefault, width, height,
+            kCVPixelFormatType_32BGRA, attrs as CFDictionary, &srcBufOut
         )
         guard srcStatus == kCVReturnSuccess, let srcBuf = srcBufOut else {
-            return .failure("CVPixelBufferCreate failed (src) status=\(srcStatus)")
+            return .failure("CVPixelBufferCreate(src) status=\(srcStatus)")
         }
         CVPixelBufferLockBaseAddress(srcBuf, [])
         guard let srcBase = CVPixelBufferGetBaseAddress(srcBuf) else {
             CVPixelBufferUnlockBaseAddress(srcBuf, [])
-            return .failure("CVPixelBufferGetBaseAddress failed (src)")
+            return .failure("CVPixelBufferGetBaseAddress(src)")
         }
         let srcRowBytes = CVPixelBufferGetBytesPerRow(srcBuf)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -2822,112 +3100,272 @@ class VideoConverterChannel {
             CGBitmapInfo.byteOrder32Little.rawValue |
             CGImageAlphaInfo.premultipliedFirst.rawValue
         guard let srcCtx = CGContext(
-            data: srcBase,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: srcRowBytes,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo
+            data: srcBase, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: srcRowBytes,
+            space: colorSpace, bitmapInfo: bitmapInfo
         ) else {
             CVPixelBufferUnlockBaseAddress(srcBuf, [])
-            return .failure("CGContext init failed (src)")
+            return .failure("CGContext init (src)")
         }
-        // Copy the upright CGImage bytes into the pixel buffer. Both
-        // the CGImage and the CGContext share the same dimensions and
-        // bitmap layout — this is a straight blit, not an orientation
-        // transform.
         srcCtx.draw(uprightCG, in: CGRect(x: 0, y: 0, width: width, height: height))
         CVPixelBufferUnlockBaseAddress(srcBuf, [])
 
-        // --- Destination buffer the SafeModeProcessor writes into. ---
         var dstBufOut: CVPixelBuffer?
         let dstStatus = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            width,
-            height,
-            kCVPixelFormatType_32BGRA,
-            attrs as CFDictionary,
-            &dstBufOut
+            kCFAllocatorDefault, width, height,
+            kCVPixelFormatType_32BGRA, attrs as CFDictionary, &dstBufOut
         )
         guard dstStatus == kCVReturnSuccess, let dstBuf = dstBufOut else {
-            return .failure("CVPixelBufferCreate failed (dst) status=\(dstStatus)")
+            return .failure("CVPixelBufferCreate(dst) status=\(dstStatus)")
         }
 
-        // --- Person segmentation mask (best-effort — SafeModeProcessor
-        // tolerates a nil mask by passing the frame through; that
-        // path is also counted as a Vision hit if rectangles found a
-        // person). ---
+        // --- Face detection ---
+        let faceReq = VNDetectFaceRectanglesRequest()
+        let visionHandler = VNImageRequestHandler(
+            cgImage: uprightCG, orientation: .up, options: [:]
+        )
+        do {
+            try visionHandler.perform([faceReq])
+        } catch {
+            // Vision threw — fall through to "no faces" path. We still
+            // need to encode SOMETHING to destPath so the caller has a
+            // file to look at; we'll write the source bytes verbatim
+            // and report missRate=1.0.
+            return encodeSourceAsFallback(
+                srcBuf: srcBuf,
+                dstBuf: dstBuf,
+                width: width,
+                height: height,
+                colorSpace: colorSpace,
+                bitmapInfo: bitmapInfo,
+                scale: uiImage.scale,
+                destPath: destPath,
+                missRate: 1.0,
+                lowConfidence: true,
+                failReason: "Vision face detect threw: \(error.localizedDescription)"
+            )
+        }
+        let observations = faceReq.results ?? []
+
+        // --- Embed every face + compute cos similarity ---
+        struct DetectedFace {
+            let normalizedRect: CGRect       // Vision normalized, bottom-left origin
+            let pixelRectTopLeft: CGRect     // Top-left origin, in upright pixel coords
+            let centerXPx: Int
+            let centerYPx: Int
+            let cosSim: Double               // vs subjectEmbedding
+        }
+
+        // Helper: convert a Vision normalized rect to a top-left
+        // pixel rect, then expand by `pad` factor for the crop.
+        func toPixelTopLeft(_ r: CGRect, pad: CGFloat = 0.20) -> CGRect {
+            let padW = r.width * pad
+            let padH = r.height * pad
+            let nx0 = max(0, r.origin.x - padW)
+            let ny0Bot = max(0, r.origin.y - padH)
+            let nw = min(1.0, r.width + 2 * padW)
+            let nh = min(1.0, r.height + 2 * padH)
+            let px0 = nx0 * CGFloat(width)
+            let py0Top = CGFloat(height) - (ny0Bot + nh) * CGFloat(height)
+            let pw = nw * CGFloat(width)
+            let ph = nh * CGFloat(height)
+            return CGRect(
+                x: max(0, px0).rounded(.down),
+                y: max(0, py0Top).rounded(.down),
+                width: pw.rounded(.up),
+                height: ph.rounded(.up)
+            )
+        }
+
+        var faces: [DetectedFace] = []
+        for obs in observations {
+            let r = obs.boundingBox
+            let pixelRect = toPixelTopLeft(r, pad: 0.20)
+            // Skip degenerate rects.
+            if pixelRect.width < 8 || pixelRect.height < 8 { continue }
+            guard let crop = uprightCG.cropping(to: pixelRect) else { continue }
+            var sim: Double = -1.0
+            do {
+                let embed = try MobileFaceNetEmbedder.shared.embed(face: crop)
+                sim = MobileFaceNetEmbedder.cosineSimilarity(embed, subjectEmbedding)
+            } catch {
+                // One face's embed failed — don't kill the whole pass.
+                // Treat as no-match (low cos), continue with the others.
+                NSLog("[SafeMode v2] face embed failed for one bbox: \(error.localizedDescription)")
+                sim = -1.0
+            }
+            let cxNormBot = r.origin.x + r.width * 0.5
+            let cyNormBot = r.origin.y + r.height * 0.5
+            let cxPx = Int((cxNormBot * CGFloat(width)).rounded())
+            let cyPx = Int(((1.0 - cyNormBot) * CGFloat(height)).rounded())
+            faces.append(DetectedFace(
+                normalizedRect: r,
+                pixelRectTopLeft: pixelRect,
+                centerXPx: max(0, min(width - 1, cxPx)),
+                centerYPx: max(0, min(height - 1, cyPx)),
+                cosSim: sim
+            ))
+        }
+
+        // --- Pick subject by max cosine similarity ---
+        var subjectIdx: Int? = nil
+        var bestSim = -2.0
+        for (i, f) in faces.enumerated() {
+            if f.cosSim > bestSim {
+                bestSim = f.cosSim
+                subjectIdx = i
+            }
+        }
+        let subjectIdentified: Bool
+        if let _ = subjectIdx, bestSim >= threshold {
+            subjectIdentified = true
+        } else {
+            subjectIdentified = false
+        }
+
+        // --- Run PersonSegmenter on the upright buffer ---
         let segmenter = PersonSegmenter(width: width, height: height)
         let maskPtr = segmenter.generateMaskOneShot(for: srcBuf)
 
-        // --- Composite ---
-        let processor = SafeModeProcessor(
-            width: width,
-            height: height,
-            orientation: photoOrientation
-        )
-        let ok = processor.processFrame(
-            source: srcBuf,
-            mask: maskPtr,
-            into: dstBuf
-        )
+        // --- Build the keepSourceMask ---
+        // Allocate fresh per call; small enough to not worry about pooling.
+        let totalPx = width * height
+        let keepMask = UnsafeMutablePointer<UInt8>.allocate(capacity: totalPx)
+        defer {
+            keepMask.deinitialize(count: totalPx)
+            keepMask.deallocate()
+        }
+        // Default fill: all 255 (keep source).
+        keepMask.initialize(repeating: 255, count: totalPx)
 
-        // missRate is 0.0 if processor's single processFrame call
-        // succeeded (Vision found a face); 1.0 otherwise.
-        let missRate = processor.missRate
-        let processed = ok ? 1 : 0
-        let lowConfidence = processor.lowConfidence
-
-        if !ok {
-            // Vision found nobody — write the source bytes verbatim
-            // to dest so the caller still has a file to look at.
-            // Dart side compares missRate against the threshold and
-            // discards if too high.
-            CVPixelBufferLockBaseAddress(srcBuf, .readOnly)
-            CVPixelBufferLockBaseAddress(dstBuf, [])
+        if subjectIdentified, let subjI = subjectIdx, let mask = maskPtr {
+            // Flood-fill from the subject face center to find the
+            // connected component in the binary segmentation mask.
+            // This component = subject silhouette. We mark its pixels
+            // in `subjectComponent` (a parallel bitmap). All OTHER
+            // mask-positive pixels become blur targets.
+            let subject = faces[subjI]
+            let subjectComponent = floodFillBinary(
+                mask: mask,
+                width: width,
+                height: height,
+                seedX: subject.centerXPx,
+                seedY: subject.centerYPx,
+                threshold: 128
+            )
             defer {
-                CVPixelBufferUnlockBaseAddress(srcBuf, .readOnly)
-                CVPixelBufferUnlockBaseAddress(dstBuf, [])
+                subjectComponent.deinitialize(count: totalPx)
+                subjectComponent.deallocate()
             }
-            if let s = CVPixelBufferGetBaseAddress(srcBuf),
-               let d = CVPixelBufferGetBaseAddress(dstBuf) {
-                let dstRowBytes = CVPixelBufferGetBytesPerRow(dstBuf)
-                let sPtr = s.assumingMemoryBound(to: UInt8.self)
-                let dPtr = d.assumingMemoryBound(to: UInt8.self)
-                for y in 0..<height {
-                    memcpy(dPtr + y * dstRowBytes,
-                           sPtr + y * srcRowBytes,
-                           width * 4)
+
+            // For every pixel that is mask-positive (>= 128) AND NOT in
+            // the subject component → keep blurred (0). Subject pixels
+            // and background pixels stay at 255 (already default).
+            for y in 0..<height {
+                let rowOffset = y * width
+                for x in 0..<width {
+                    let i = rowOffset + x
+                    if mask[i] >= 128 && subjectComponent[i] == 0 {
+                        keepMask[i] = 0
+                    }
                 }
+            }
+
+            // Defensive: paint 0s into every NON-subject face's
+            // head-expanded bbox so a silhouette that undershot the
+            // chin/hair still gets its face blurred.
+            for (i, f) in faces.enumerated() where i != subjI {
+                paintHeadExpansion(
+                    keepMask: keepMask,
+                    width: width,
+                    height: height,
+                    pixelRect: f.pixelRectTopLeft,
+                    headWidthFactor: 2.0,
+                    headHeightFactor: 1.5
+                )
+            }
+        } else {
+            // No-subject mode: keepMask stays all 255 except for
+            // head-expanded bboxes of every detected face.
+            for f in faces {
+                paintHeadExpansion(
+                    keepMask: keepMask,
+                    width: width,
+                    height: height,
+                    pixelRect: f.pixelRectTopLeft,
+                    headWidthFactor: 2.0,
+                    headHeightFactor: 1.5
+                )
             }
         }
 
-        // --- Encode dst buffer to JPG at destPath. ---
+        // --- Composite via CIBlendWithMask ---
+        // Blur radius scales with frame dim — same convention as the
+        // v1 SafeModeProcessor (35.0 at 1080p).
+        let minDim = Double(min(width, height))
+        let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
+
+        let options: [CIContextOption: Any] = [
+            .workingColorSpace: NSNull(),
+            .outputColorSpace: NSNull(),
+        ]
+        let ciContext: CIContext
+        if let device = MTLCreateSystemDefaultDevice() {
+            ciContext = CIContext(mtlDevice: device, options: options)
+        } else {
+            ciContext = CIContext(options: options)
+        }
+        guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
+              let blendFilter = CIFilter(name: "CIBlendWithMask") else {
+            return .failure("CIFilter init failed (CIGaussianBlur / CIBlendWithMask)")
+        }
+
+        let sourceCI = CIImage(cvPixelBuffer: srcBuf)
+        blurFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+        blurFilter.setValue(blurRadius, forKey: kCIInputRadiusKey)
+        guard let rawBlur = blurFilter.outputImage else {
+            return .failure("CIGaussianBlur produced no output")
+        }
+        let blurredCI = rawBlur.cropped(to: sourceCI.extent)
+
+        // Wrap the keepMask as a CIImage (R8 luminance). The
+        // `CIImage(bitmapData:bytesPerRow:size:format:colorSpace:)`
+        // initializer is non-failing; CoreImage takes a defensive copy
+        // of the data, so the maskBytes buffer lifetime here is fine.
+        let maskBytes = Data(bytes: keepMask, count: totalPx)
+        let maskCI = CIImage(
+            bitmapData: maskBytes,
+            bytesPerRow: width,
+            size: CGSize(width: width, height: height),
+            format: .R8,
+            colorSpace: CGColorSpaceCreateDeviceGray()
+        )
+
+        blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+        blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
+        blendFilter.setValue(maskCI, forKey: kCIInputMaskImageKey)
+        guard let outputCI = blendFilter.outputImage else {
+            return .failure("CIBlendWithMask produced no output")
+        }
+        ciContext.render(outputCI, to: dstBuf, bounds: sourceCI.extent, colorSpace: nil)
+
+        // --- Encode dst → JPG ---
         CVPixelBufferLockBaseAddress(dstBuf, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(dstBuf, .readOnly) }
         guard let dstBase = CVPixelBufferGetBaseAddress(dstBuf) else {
-            return .failure("CVPixelBufferGetBaseAddress failed (dst)")
+            return .failure("CVPixelBufferGetBaseAddress(dst)")
         }
         let dstRowBytes = CVPixelBufferGetBytesPerRow(dstBuf)
         guard let outCtx = CGContext(
-            data: dstBase,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: dstRowBytes,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo
+            data: dstBase, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: dstRowBytes,
+            space: colorSpace, bitmapInfo: bitmapInfo
         ) else {
-            return .failure("CGContext init failed (dst)")
+            return .failure("CGContext init (dst)")
         }
         guard let outCG = outCtx.makeImage() else {
             return .failure("makeImage failed (dst)")
         }
-        // The destination buffer's pixels are already upright (we
-        // pre-rendered via UIKit before the Vision/composite pass), so
-        // the output UIImage must NOT re-apply EXIF orientation. `.up`
-        // means "the bytes are already in display order; don't rotate".
         let outUI = UIImage(cgImage: outCG, scale: uiImage.scale, orientation: .up)
         guard let jpgData = outUI.jpegData(compressionQuality: 0.9) else {
             return .failure("jpegData encoding failed")
@@ -2937,12 +3375,234 @@ class VideoConverterChannel {
         } catch {
             return .failure("write failed: \(error.localizedDescription)")
         }
+
+        // missRate semantics: 0.0 when we found the subject above
+        // threshold; 1.0 when we fell through to no-subject mode
+        // because either no faces or no match (the Dart side may
+        // tolerate the latter — it's the "solo back-view" case).
+        // lowConfidence is true when faces were present but none
+        // matched the subject — surfaces the "subject not in frame"
+        // signal so the Dart side / UI can decide whether to nudge.
+        let missRate: Double = subjectIdentified ? 0.0 : (faces.isEmpty ? 1.0 : 0.0)
+        let lowConfidence: Bool = (!subjectIdentified && !faces.isEmpty)
         return .success(
-            processed: processed,
+            processed: 1,
             missRate: missRate,
             lowConfidence: lowConfidence
         )
     }
+
+    /// Encode the source buffer as the destination JPG verbatim — used
+    /// as a last-resort fallback when Vision throws / the pipeline
+    /// cannot complete. Caller supplies the metrics to return.
+    @available(iOS 15.0, *)
+    private static func encodeSourceAsFallback(
+        srcBuf: CVPixelBuffer,
+        dstBuf: CVPixelBuffer,
+        width: Int,
+        height: Int,
+        colorSpace: CGColorSpace,
+        bitmapInfo: UInt32,
+        scale: CGFloat,
+        destPath: String,
+        missRate: Double,
+        lowConfidence: Bool,
+        failReason: String
+    ) -> SafeModePhotoOutcome {
+        NSLog("[SafeMode v2] fallback encode: \(failReason)")
+        CVPixelBufferLockBaseAddress(srcBuf, .readOnly)
+        CVPixelBufferLockBaseAddress(dstBuf, [])
+        if let s = CVPixelBufferGetBaseAddress(srcBuf),
+           let d = CVPixelBufferGetBaseAddress(dstBuf) {
+            let srcRowBytes = CVPixelBufferGetBytesPerRow(srcBuf)
+            let dstRowBytes = CVPixelBufferGetBytesPerRow(dstBuf)
+            let sPtr = s.assumingMemoryBound(to: UInt8.self)
+            let dPtr = d.assumingMemoryBound(to: UInt8.self)
+            for y in 0..<height {
+                memcpy(dPtr + y * dstRowBytes, sPtr + y * srcRowBytes, width * 4)
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(srcBuf, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(dstBuf, .readOnly) }
+        guard let dstBase = CVPixelBufferGetBaseAddress(dstBuf) else {
+            return .failure("fallback encode: dst base addr nil")
+        }
+        let dstRowBytes = CVPixelBufferGetBytesPerRow(dstBuf)
+        guard let outCtx = CGContext(
+            data: dstBase, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: dstRowBytes,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        ) else {
+            return .failure("fallback encode: CGContext init")
+        }
+        guard let outCG = outCtx.makeImage() else {
+            return .failure("fallback encode: makeImage failed")
+        }
+        let outUI = UIImage(cgImage: outCG, scale: scale, orientation: .up)
+        guard let jpgData = outUI.jpegData(compressionQuality: 0.9) else {
+            return .failure("fallback encode: jpegData failed")
+        }
+        do {
+            try jpgData.write(to: URL(fileURLWithPath: destPath))
+        } catch {
+            return .failure("fallback encode: write failed \(error.localizedDescription)")
+        }
+        return .success(processed: 0, missRate: missRate, lowConfidence: lowConfidence)
+    }
+
+    /// Scanline flood-fill on a Planar8 binary mask. Returns a
+    /// newly-allocated bitmap where pixels in the same connected
+    /// component as `(seedX, seedY)` are 1, all others 0. The caller
+    /// owns the buffer + must deallocate.
+    ///
+    /// 4-connectivity (no diagonals) is sufficient for the
+    /// segmentation mask shapes Vision produces (smooth silhouettes
+    /// with no 1-pixel diagonal bridges).
+    @available(iOS 15.0, *)
+    private static func floodFillBinary(
+        mask: UnsafePointer<UInt8>,
+        width: Int,
+        height: Int,
+        seedX: Int,
+        seedY: Int,
+        threshold: UInt8
+    ) -> UnsafeMutablePointer<UInt8> {
+        let total = width * height
+        let visited = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
+        visited.initialize(repeating: 0, count: total)
+
+        // Bail if seed itself is outside the mask (subject's face
+        // centroid not inside any silhouette). Return all-zero visited
+        // — caller's effect is "no subject silhouette identified",
+        // which means EVERY mask-positive pixel will get blurred.
+        // That's actually correct fail-safe behaviour.
+        guard seedX >= 0, seedX < width, seedY >= 0, seedY < height else {
+            return visited
+        }
+        let seedIdx = seedY * width + seedX
+        if mask[seedIdx] < threshold {
+            // Seed is on background — search a small neighborhood to
+            // find a nearby mask-positive pixel. Heads sometimes
+            // segment with a 5-10 pixel gap at the very tip of the
+            // chin / forehead; the face centroid lands just outside.
+            var foundSeed = -1
+            let searchRadius = 16
+            outer: for dr in 1...searchRadius {
+                for dy in -dr...dr {
+                    for dx in -dr...dr {
+                        if abs(dx) != dr && abs(dy) != dr { continue }
+                        let nx = seedX + dx
+                        let ny = seedY + dy
+                        if nx < 0 || nx >= width || ny < 0 || ny >= height { continue }
+                        let i = ny * width + nx
+                        if mask[i] >= threshold {
+                            foundSeed = i
+                            break outer
+                        }
+                    }
+                }
+            }
+            if foundSeed < 0 {
+                return visited
+            }
+            return floodFillFromIdx(
+                mask: mask, width: width, height: height,
+                threshold: threshold, seedIdx: foundSeed,
+                visited: visited
+            )
+        }
+        return floodFillFromIdx(
+            mask: mask, width: width, height: height,
+            threshold: threshold, seedIdx: seedIdx,
+            visited: visited
+        )
+    }
+
+    /// Inner flood-fill given a confirmed-positive seed index.
+    /// Iterative (explicit stack) — recursive would blow the iOS
+    /// stack on a large silhouette.
+    @available(iOS 15.0, *)
+    private static func floodFillFromIdx(
+        mask: UnsafePointer<UInt8>,
+        width: Int,
+        height: Int,
+        threshold: UInt8,
+        seedIdx: Int,
+        visited: UnsafeMutablePointer<UInt8>
+    ) -> UnsafeMutablePointer<UInt8> {
+        var stack: [Int] = [seedIdx]
+        stack.reserveCapacity(1024)
+        visited[seedIdx] = 1
+        while let idx = stack.popLast() {
+            let x = idx % width
+            let y = idx / width
+            // 4-neighbors.
+            if x > 0 {
+                let n = idx - 1
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+            if x < width - 1 {
+                let n = idx + 1
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+            if y > 0 {
+                let n = idx - width
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+            if y < height - 1 {
+                let n = idx + width
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+        }
+        return visited
+    }
+
+    /// Paint 0s into a rectangular head-expanded region around a face
+    /// bbox. Used by both subject-identified mode (defensive coverage
+    /// of non-subject heads) and no-subject mode (all detected face
+    /// regions get blurred).
+    ///
+    /// The expansion is 2× width / 1.5× height around the face center
+    /// — slightly conservative compared to v1's 2× horizontal /
+    /// 6× downward expansion (v1 needed to cover torso + legs; v2
+    /// only needs the head region).
+    @available(iOS 15.0, *)
+    private static func paintHeadExpansion(
+        keepMask: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        pixelRect: CGRect,
+        headWidthFactor: CGFloat,
+        headHeightFactor: CGFloat
+    ) {
+        let cx = pixelRect.midX
+        let cy = pixelRect.midY
+        let halfW = pixelRect.width * headWidthFactor * 0.5
+        let halfH = pixelRect.height * headHeightFactor * 0.5
+        let x0 = max(0, Int((cx - halfW).rounded(.down)))
+        let x1 = min(width, Int((cx + halfW).rounded(.up)))
+        let y0 = max(0, Int((cy - halfH).rounded(.down)))
+        let y1 = min(height, Int((cy + halfH).rounded(.up)))
+        for y in y0..<y1 {
+            let rowOffset = y * width
+            for x in x0..<x1 {
+                keepMask[rowOffset + x] = 0
+            }
+        }
+    }
+
 
     // MARK: - Grayscale Fallback
 
