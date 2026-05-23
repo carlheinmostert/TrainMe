@@ -63,7 +63,7 @@ export function BrandHeader({
 }: Props) {
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
-      <div className="relative mx-auto flex max-w-5xl items-center justify-center px-6 py-3">
+      <div className="relative mx-auto flex max-w-5xl items-center justify-center px-6 py-1">
         <Link
           href="/"
           className="block text-ink transition hover:opacity-90"
@@ -73,7 +73,7 @@ export function BrandHeader({
         </Link>
 
         {showSignOut && (
-          <div className="absolute right-6 top-4">
+          <div className="absolute right-6 top-2">
             <HeaderIdentityStack
               email={userEmail}
               practices={practices}
