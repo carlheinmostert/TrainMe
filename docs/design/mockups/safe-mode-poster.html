@@ -27,10 +27,22 @@
     width: 210mm;
     min-height: 297mm;
     background: var(--c-paper);
-    padding: 24mm 20mm;
+    /* Top padding 32mm (was 24mm) — extra breathing room above the
+       header so the new camera graphic underneath gets its own band. */
+    padding: 32mm 20mm 24mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
+  }
+
+  /* Coral camera graphic — clean line-art between header and hero.
+     Stroke-first geometry matches the canonical matrix logo's
+     restrained vocabulary. */
+  .camera-icon {
+    display: block;
+    width: 110px;
+    height: auto;
+    margin: 14mm auto 0;
   }
 
   /* Header */
@@ -60,9 +72,10 @@
   }
   .practice-mark .name { font-size: 16px; color: var(--c-ink); }
 
-  /* Hero */
+  /* Hero — margin trimmed from 24mm → 12mm; camera graphic above
+     now carries the visual separation between header and headline. */
   .hero {
-    margin-top: 24mm;
+    margin-top: 12mm;
     text-align: center;
   }
   .hero h1 {
@@ -251,6 +264,20 @@
       <div>Johannesburg</div>
     </div>
   </div>
+
+  <!-- Coral camera graphic — stroke-first line-art between header and
+       hero. Body 3:2 rounded rect, viewfinder bump top-centre, lens
+       circle with a filled coral disc inside (the disc is the
+       unambiguous "this is a camera, not an eye" cue), tiny shutter-
+       release rectangle in the top-right corner of the body. Mirrors
+       what ships in `web-portal/src/app/premises/[id]/poster/page.tsx`. -->
+  <svg class="camera-icon" viewBox="0 0 100 70" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="38" y="6"  width="24" height="8"  rx="2" fill="none" stroke="#FF6B35" stroke-width="3" stroke-linejoin="round"/>
+    <rect x="6"  y="14" width="88" height="50" rx="6" fill="none" stroke="#FF6B35" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="50" cy="39" r="15" fill="none" stroke="#FF6B35" stroke-width="3"/>
+    <circle cx="50" cy="39" r="6"  fill="#FF6B35"/>
+    <rect x="78" y="20" width="6" height="3" rx="1" fill="#FF6B35"/>
+  </svg>
 
   <!-- Hero -->
   <div class="hero">

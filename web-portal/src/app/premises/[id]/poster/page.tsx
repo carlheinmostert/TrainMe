@@ -111,6 +111,65 @@ export default async function PosterPage({
             </div>
           </div>
 
+          {/* Coral camera graphic — clean line-art, single colour, sits
+              between the header and the hero so the page reads
+              [breathing space → header → camera → hero]. Stroke-first
+              vocabulary matches the canonical matrix logo's restrained
+              geometric feel without competing with the wordmark above.
+              Body 3:2, rounded corners (rx=8 at 100px scale ≈ 0.08
+              proportionally — same warmth as the matrix pills). Small
+              viewfinder bump top-centre + lens circle in the middle.
+              The lens has a thin inner ring (filled coral) so the
+              graphic reads as CAMERA, not eye / video / target. */}
+          <svg
+            className="poster-camera-icon"
+            viewBox="0 0 100 70"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            {/* Viewfinder bump — small rectangle on top-centre of body */}
+            <rect
+              x="38"
+              y="6"
+              width="24"
+              height="8"
+              rx="2"
+              fill="none"
+              stroke="#FF6B35"
+              strokeWidth="3"
+              strokeLinejoin="round"
+            />
+            {/* Body — 3:2 rounded rectangle */}
+            <rect
+              x="6"
+              y="14"
+              width="88"
+              height="50"
+              rx="6"
+              fill="none"
+              stroke="#FF6B35"
+              strokeWidth="3"
+              strokeLinejoin="round"
+            />
+            {/* Lens outer ring */}
+            <circle
+              cx="50"
+              cy="39"
+              r="15"
+              fill="none"
+              stroke="#FF6B35"
+              strokeWidth="3"
+            />
+            {/* Lens inner — filled coral disc, the only fill on the
+                whole mark, so the graphic reads unmistakably as a
+                camera lens rather than an open shape. */}
+            <circle cx="50" cy="39" r="6" fill="#FF6B35" />
+            {/* Shutter-release dot, top-right corner of body —
+                small filled coral square, the canonical "this is a
+                camera" cue. */}
+            <rect x="78" y="20" width="6" height="3" rx="1" fill="#FF6B35" />
+          </svg>
+
           <div className="poster-hero">
             <h1>
               Recording <span className="poster-accent">is happening here.</span>
@@ -227,7 +286,11 @@ const posterCss = `
     width: 210mm;
     min-height: 297mm;
     background: #FFFFFF;
-    padding: 24mm 20mm;
+    /* Top padding bumped from 24mm to 32mm so the header gets breathing
+       room from the top edge — gives the camera graphic underneath it
+       its own vertical band without crowding the hero. Horizontal +
+       bottom unchanged. */
+    padding: 32mm 20mm 24mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
@@ -235,6 +298,15 @@ const posterCss = `
   .poster-header {
     display: flex; justify-content: space-between; align-items: center;
     padding-bottom: 16mm; border-bottom: 1px solid #E5E7EB;
+  }
+  /* Coral camera graphic — sits between the header and the hero,
+     centred horizontally. Height tuned to ~100px-equivalent so it
+     reads as a substantial brand mark without dominating the page. */
+  .poster-camera-icon {
+    display: block;
+    width: 110px;
+    height: auto;
+    margin: 14mm auto 0;
   }
   /* Hero-size canonical lockup at the top of the poster. The lockup's
      intrinsic aspect is 48:16 (≈ 3:1), so a 120px width yields a 40px
@@ -250,7 +322,9 @@ const posterCss = `
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 600;
     font-size: 12px; color: #4B5563; letter-spacing: 0.3px; margin-top: 2px;
   }
-  .poster-hero { margin-top: 24mm; text-align: center; }
+  /* Hero margin trimmed from 24mm → 12mm because the camera graphic
+     now provides the visual separation between header and headline. */
+  .poster-hero { margin-top: 12mm; text-align: center; }
   .poster-hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 800;
     font-size: 44pt; line-height: 1.05; letter-spacing: -0.5px; color: #0F1117;
