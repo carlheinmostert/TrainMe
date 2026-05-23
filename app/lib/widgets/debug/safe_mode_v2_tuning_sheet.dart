@@ -344,7 +344,7 @@ class _PhotoPreview extends StatelessWidget {
                 key: ValueKey('preview-$refreshKey-$filePath'),
                 fit: BoxFit.contain,
                 gaplessPlayback: true,
-                errorBuilder: (_, __, ___) =>
+                errorBuilder: (_, _, _) =>
                     const _PreviewPlaceholder(message: 'Preview unavailable'),
               )
             else
