@@ -114,11 +114,19 @@ export default async function PosterPage({
 
         <div className="poster-page">
           <div className="poster-header">
-            {/* Canonical brand lockup, print variant — `homefit` ink-dark
-                so it reads on the white poster background; `.studio`
-                stays coral. Single source of truth in
-                `web-portal/src/components/HomefitLogo.tsx`. */}
-            <HomefitLogoLockup className="poster-lockup-hero" print />
+            {/* Top brand mark — "powered by" sits to the LEFT of the
+                lockup, both at the same vertical baseline. Doubled
+                from 120px → 240px so the mark reads as a substantial
+                anchor at A4 viewing distance, paired with the
+                bottom-right footer at the same scale so the
+                top-and-tail framing is symmetric. The lockup itself
+                is the print variant — homefit ink-dark, .studio coral.
+                Single source of truth: web-portal/src/components/
+                HomefitLogo.tsx. */}
+            <div className="poster-powered-inline">
+              <div className="poster-powered">powered by</div>
+              <HomefitLogoLockup className="poster-lockup-hero" print />
+            </div>
             <div className="poster-practice">
               <div className="poster-practice-name">{practiceName}</div>
               {(venueLine || address) && (
@@ -286,11 +294,14 @@ export default async function PosterPage({
                 </strong>
               </div>
             </div>
-            <div className="poster-powered-stack">
+            {/* Bottom brand mark — paired with the top mark at the
+                same 240px scale and the same "powered by" + lockup
+                inline arrangement. Tight spacing (≤ 1em gap) so the
+                two read as one composite signature rather than two
+                separate elements. Print variant of the canonical
+                HomefitLogoLockup. */}
+            <div className="poster-powered-inline">
               <div className="poster-powered">powered by</div>
-              {/* Canonical brand lockup, print variant — half the
-                  hero-size. Single source of truth in
-                  `web-portal/src/components/HomefitLogo.tsx`. */}
               <HomefitLogoLockup className="poster-lockup-footer" print />
             </div>
           </div>
@@ -331,11 +342,13 @@ const posterCss = `
     width: 210mm;
     min-height: 297mm;
     background: #FFFFFF;
-    /* Top padding bumped from 24mm to 32mm so the header gets breathing
-       room from the top edge — gives the camera graphic underneath it
-       its own vertical band without crowding the hero. Horizontal +
-       bottom unchanged. */
-    padding: 32mm 20mm 24mm;
+    /* Padding trimmed from 32mm/24mm to 24mm/18mm (stack pass 2)
+       to reclaim ~14mm of vertical budget the 2x top + bottom
+       brand marks now eat. With a 240px-wide lockup at ~3:1 aspect
+       (so ~28mm tall vs the old ~14mm), the header band carries
+       its own breathing room — no need for the old top padding to
+       double it up. */
+    padding: 24mm 20mm 18mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
@@ -357,13 +370,27 @@ const posterCss = `
     display: block;
     width: 220px;
     height: auto;
-    margin: 18mm auto 4mm;
+    /* Top margin trimmed from 18mm to 14mm to claw back vertical
+       budget the larger top-mark consumes (stack pass 2). 4mm
+       bottom margin preserved — the headline still has the same
+       ~12mm air to the camera once the hero's 8mm top margin is
+       added on. */
+    margin: 14mm auto 4mm;
   }
-  /* Hero-size canonical lockup at the top of the poster. The lockup's
-     intrinsic aspect is 48:16 (≈ 3:1), so a 120px width yields a 40px
-     tall mark — substantial brand presence at the top edge without
-     stealing weight from the practice name beside it. */
-  .poster-lockup-hero { width: 120px; height: auto; display: block; }
+  /* Hero-size canonical lockup at the top of the poster. Doubled
+     from 120px to 240px (stack item 8) so the brand mark reads at
+     A4 viewing distance — paired with the bottom-right footer at
+     the same scale so the top-and-tail framing is symmetric. The
+     lockup's intrinsic aspect is 48:16 (≈ 3:1), so 240px wide
+     yields ~80px tall. */
+  .poster-lockup-hero { width: 240px; height: auto; display: block; }
+  /* Top + bottom mark composite — "powered by" sits inline to the
+     LEFT of the lockup. Tight gap (12px ≈ 1em at 12pt) so the two
+     pieces read as one signature unit rather than two adjacent
+     elements. */
+  .poster-powered-inline {
+    display: flex; align-items: center; gap: 12px;
+  }
   .poster-practice { text-align: right; }
   .poster-practice-name {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 700;
@@ -439,22 +466,29 @@ const posterCss = `
     font-family: 'Montserrat', sans-serif; font-weight: 700;
   }
   .poster-trust {
-    margin-top: auto; padding-top: 16mm; border-top: 1px solid #E5E7EB;
-    display: flex; justify-content: space-between; align-items: flex-end;
+    margin-top: auto;
+    /* Top padding trimmed from 16mm to 10mm (stack pass 2): the
+       240px bottom mark is now physically large enough to anchor
+       the foot of the page on its own — the old big band of
+       whitespace above it was redundant. */
+    padding-top: 10mm; border-top: 1px solid #E5E7EB;
+    display: flex; justify-content: space-between; align-items: center;
     font-size: 9pt; color: #4B5563;
   }
   .poster-trust-links {
     display: flex; flex-direction: column; gap: 2mm;
   }
-  .poster-powered-stack {
-    display: flex; flex-direction: column; align-items: flex-end; gap: 3mm;
-  }
   .poster-powered {
+    /* Lowercase per brief, kept lowercase regardless of surrounding
+       capitalisation; sits inline to the left of the lockup. */
     font-family: 'Montserrat', sans-serif; font-weight: 600;
+    text-transform: lowercase; font-size: 11pt; color: #4B5563;
+    line-height: 1; white-space: nowrap;
   }
-  /* Footer-scale canonical lockup — about half the hero size.
-     Signature treatment at the bottom-right of the poster. */
-  .poster-lockup-footer { width: 60px; height: auto; display: block; }
+  /* Footer-scale lockup — matches the hero scale (stack item 11):
+     the top and bottom marks are deliberately the same size so the
+     poster reads as top-and-tail symmetric. */
+  .poster-lockup-footer { width: 240px; height: auto; display: block; }
   .poster-wm { font-family: 'Montserrat', sans-serif; font-weight: 700; }
   .poster-dot-studio { color: #FF6B35; }
 

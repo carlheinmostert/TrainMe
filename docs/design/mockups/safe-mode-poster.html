@@ -27,9 +27,10 @@
     width: 210mm;
     min-height: 297mm;
     background: var(--c-paper);
-    /* Top padding 32mm (was 24mm) — extra breathing room above the
-       header so the new camera graphic underneath gets its own band. */
-    padding: 32mm 20mm 24mm;
+    /* Page padding trimmed (stack pass 2) so the larger 240px top +
+       bottom brand marks fit the printable area without overflowing
+       to a second sheet. */
+    padding: 24mm 20mm 18mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
@@ -45,7 +46,9 @@
     display: block;
     width: 220px;
     height: auto;
-    margin: 18mm auto 4mm;
+    /* Top margin trimmed 18mm → 14mm (stack pass 2) to claw back
+       vertical budget for the larger top mark. */
+    margin: 14mm auto 4mm;
   }
 
   /* Header */
@@ -57,13 +60,17 @@
     border-bottom: 1px solid var(--c-rule);
   }
   /* Hero-size canonical lockup at the top edge — print variant
-     (`homefit` ink-dark, `.studio` coral). Matches what
-     `web-portal/src/app/premises/[id]/poster/page.tsx` renders via
-     <HomefitLogoLockup print />. */
+     (homefit ink-dark, .studio coral). 240px (stack pass 2) paired
+     with the bottom mark at the same scale. */
   .lockup-hero {
-    width: 120px;
+    width: 240px;
     height: auto;
     display: block;
+  }
+  /* "powered by" inline LEFT of the lockup, tight gap. Top + bottom
+     marks share this layout (stack pass 2). */
+  .powered-inline {
+    display: flex; align-items: center; gap: 12px;
   }
   .practice-mark {
     text-align: right;
@@ -174,29 +181,32 @@
   /* Trust strip */
   .trust {
     margin-top: auto;
-    padding-top: 16mm;
+    /* Top padding trimmed 16mm → 10mm (stack pass 2) — the bottom
+       brand mark is now physically large enough to anchor the foot
+       of the page on its own. */
+    padding-top: 10mm;
     border-top: 1px solid var(--c-rule);
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
     font-size: 9pt;
     color: var(--c-ink-muted);
   }
-  .trust .powered-stack {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4mm;
-  }
-  .trust .powered {
+  .powered {
     font-family: 'Montserrat', sans-serif;
     font-weight: 600;
+    text-transform: lowercase;
+    font-size: 11pt;
+    color: var(--c-ink-muted);
+    line-height: 1;
+    white-space: nowrap;
   }
-  .trust .powered .accent { color: var(--c-brand); }
-  /* Footer-scale canonical lockup — about half the hero size,
-     signature treatment at the bottom-right. */
+  .powered .accent { color: var(--c-brand); }
+  /* Footer-scale canonical lockup — matches hero scale (stack pass 2).
+     Top + bottom marks deliberately the same size so the poster reads
+     top-and-tail symmetric. */
   .trust .lockup-footer {
-    width: 60px;
+    width: 240px;
     height: auto;
     display: block;
   }
@@ -251,6 +261,8 @@
        canonical #F0F0F5 (near-white, dark-surface only); `.studio`
        stays coral. Pill geometry, ghost greys, sage rest unchanged. -->
   <div class="header">
+    <div class="powered-inline">
+      <div class="powered">powered by</div>
     <svg class="lockup-hero" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <text
         x="24"
@@ -279,6 +291,7 @@
       <rect x="40.5" y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
       <rect x="45.5" y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
     </svg>
+    </div>
     <div class="practice-mark">
       <div class="name">MUSCLE WORKS GYM</div>
       <div>Johannesburg</div>
@@ -341,10 +354,14 @@
     <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act.
   </div>
 
-  <!-- Trust strip -->
+  <!-- Trust strip — drops the "Learn more / what-we-share" link
+       entirely (stack item 10). Keeps the "How Safe Mode works:
+       .../safe-mode" link (PR #444 addition; still useful since
+       it's the bystander's authoritative entry point). Powered-by
+       footer is the 240px paired mark — top + tail symmetric. -->
   <div class="trust">
-    <div>Learn more at <strong class="wm">homefit<span class="dot-studio">.studio</span>/what-we-share</strong></div>
-    <div class="powered-stack">
+    <div>How Safe Mode works: <strong class="wm">homefit<span class="dot-studio">.studio</span>/safe-mode</strong></div>
+    <div class="powered-inline">
       <div class="powered">powered by</div>
       <!-- Footer canonical lockup, print variant — half the hero size.
            Geometry mirrors `web-portal/src/components/HomefitLogo.tsx`. -->
