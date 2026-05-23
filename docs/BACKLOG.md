@@ -443,3 +443,19 @@ Short-term workaround: AirDrop a raw video from the iPhone to the Mac and drop i
 3. **Optional artifact telemetry.** Snackbars cover visible lag on raw-archive paths; evaluate **logging/analytics/support pings** for segmented/mask/issuance gaps.
 
 Device QA capture: [`T2_DEVICE_QA_OUTCOMES_2026-05-01.md`](T2_DEVICE_QA_OUTCOMES_2026-05-01.md).
+
+## iPhone build-speed pass (follow-up to 2026-05-23 Safe Mode v2 wave)
+
+**Status:** Discussed 2026-05-23 after a 30-min build cycle. Not urgent, but every wave's QA-iteration loop benefits.
+
+**Goal:** cold builds 10 min → 3-4 min; warm builds 5 min → 30s.
+
+**Three changes to make in `install-device.sh`:**
+
+1. **Switch `flutter build ios --profile` → `--debug`** for device installs. Skips Dart AOT tree-shaking entirely (~2-3 min saved). Runtime perf is invisible for QA. Keep `--profile`/`--release` for TestFlight uploads via a separate code path (likely `bump-version.sh` or a new `ship-testflight.sh`).
+2. **Narrow the fingerprint-triggered `flutter clean`.** Today: any `GIT_SHA` change triggers full clean → full rebuild. Better: hash `app/pubspec.yaml + app/ios/Podfile + app/ios/Podfile.lock + app/ios/Runner.xcodeproj/` and only clean when that subset changed. Code-only commits keep the warm Xcode cache.
+3. **Skip web-player bundle sync when unchanged.** Hash `web-player/` directory; bypass `tool/sync_web_player_bundle.dart` on match. (The script's job is `app/assets/web-player/` → `web-player/` parity per R-10; if the source side hasn't changed, the sync is a no-op anyway.)
+
+**Optional bigger win:** rework the script to drive Xcode via the `xcodebuild` MCP (Sentry, already installed at user scope). Builds cached across sessions instead of being invalidated by every `git worktree add`. Not required for the three above to land.
+
+**Owner:** picked up after the current Safe Mode v2 device-QA wave closes.
