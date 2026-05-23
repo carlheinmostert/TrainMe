@@ -16,6 +16,7 @@ import '../widgets/practice_switcher_sheet.dart';
 import '../widgets/set_password_sheet.dart';
 import '../widgets/undo_snackbar.dart';
 import 'diagnostics_screen.dart';
+import 'public_profile_screen.dart';
 
 /// Persistent home for account-level actions the practitioner needs
 /// access to at any time — primarily "set or change password" so a
@@ -230,6 +231,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: 'Sign out',
                         destructive: true,
                         onTap: _signOutPending ? null : _signOutWithUndo,
+                      ),
+                    ],
+                  ),
+                  // Safe Mode Transparency — Phase A (2026-05-22)
+                  // Public profile section. Required before Safe Mode
+                  // can engage (auto or manual) — the practitioner's
+                  // name + photo appear on the venue's live transparency
+                  // page when capturing in an enforced polygon. Six-point
+                  // gate is enforced server-side in `can_use_safe_mode`.
+                  const SizedBox(height: 24),
+                  _SectionHeader(label: 'Public profile'),
+                  _SettingsGroup(
+                    children: [
+                      _ActionRow(
+                        icon: Icons.account_circle_outlined,
+                        label: 'Name + face photo',
+                        subtitle:
+                            'Required for Safe Mode. Shown publicly to '
+                            'anyone in the venue who scans the poster.',
+                        onTap: _signOutPending
+                            ? null
+                            : () {
+                                HapticFeedback.selectionClick();
+                                PublicProfileScreen.push(context);
+                              },
                       ),
                     ],
                   ),

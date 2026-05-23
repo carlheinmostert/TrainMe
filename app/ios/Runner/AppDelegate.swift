@@ -23,6 +23,10 @@ import AVFoundation
   // multi-lens iPhones. See AvatarCameraChannel.swift for the why.
   private var avatarCamera: AvatarCameraChannel?
 
+  // Safe Mode Transparency Phase A (2026-05-22) — native face detection
+  // for the practitioner avatar selfie. See PractitionerProfileChannel.
+  private var practitionerProfile: PractitionerProfileChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -281,6 +285,13 @@ import AVFoundation
         avatarPreviewFactory,
         withId: "homefit/avatar_camera_preview"
       )
+    }
+
+    // Safe Mode Transparency Phase A — native Vision face detection for
+    // the practitioner avatar selfie. Mandatory before the avatar can be
+    // saved + Safe Mode can engage.
+    if #available(iOS 11.0, *) {
+      practitionerProfile = PractitionerProfileChannel(messenger: messenger)
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

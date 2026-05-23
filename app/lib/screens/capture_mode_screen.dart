@@ -7,10 +7,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../main.dart' show rootScaffoldMessengerKey;
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../services/auth_service.dart';
 import '../services/capture_auto_save_preference.dart';
 import '../services/conversion_service.dart';
 import '../services/homefit_haptics.dart';
@@ -23,6 +25,7 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import '../widgets/orientation_lock_guard.dart';
+import 'public_profile_screen.dart';
 import '../widgets/safe_mode_icon.dart';
 import '../widgets/shell_pull_tab.dart';
 
@@ -424,6 +427,19 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           unawaited(_initCamera());
         }
         unawaited(SafeModeService.instance.checkLocation());
+        // Safe Mode Transparency — Phase A (2026-05-22). Run the
+        // six-point identity gate alongside the GPS check. When the
+        // gate fails, the service transitions to `blocked` even if
+        // we're inside a polygon. The camera surface watches
+        // `isProfileBlocked` and routes to the identity-gate screen.
+        final trainerId = AuthService.instance.currentUserId;
+        final practiceId = AuthService.instance.currentPracticeId.value;
+        if (trainerId != null && practiceId != null) {
+          unawaited(SafeModeService.instance.refreshProfileGate(
+            trainerId: trainerId,
+            practiceId: practiceId,
+          ));
+        }
       }
     } finally {
       _retryingLocationGate = false;
@@ -1377,6 +1393,53 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         ),
       );
     }
+    // Safe Mode Transparency — Phase A (2026-05-22). When the
+    // six-point identity gate failed, render an identity-gate screen
+    // instead of the viewfinder. The gate routes the practitioner to
+    // Settings (practitioner gaps) or the portal (practice gaps) — the
+    // moment they fix the missing item and re-mount the camera, the
+    // gate re-queries.
+    return ListenableBuilder(
+      listenable: SafeModeService.instance,
+      builder: (context, _) {
+        if (SafeModeService.instance.isProfileBlocked) {
+          return OrientationLockGuard(
+            allowed: const {DeviceOrientation.portraitUp},
+            child: _IdentityGateScreen(
+              missing: SafeModeService.instance.missingGateItems,
+              onOpenPublicProfile: () async {
+                await PublicProfileScreen.push(context);
+                if (!mounted) return;
+                // Re-query the gate on return.
+                final trainerId = AuthService.instance.currentUserId;
+                final practiceId =
+                    AuthService.instance.currentPracticeId.value;
+                if (trainerId != null && practiceId != null) {
+                  unawaited(SafeModeService.instance.refreshProfileGate(
+                    trainerId: trainerId,
+                    practiceId: practiceId,
+                  ));
+                }
+              },
+              onOpenPortal: () {
+                unawaited(launchUrl(
+                  Uri.parse(
+                      'https://manage.homefit.studio/public-profile'),
+                  mode: LaunchMode.externalApplication,
+                ));
+              },
+              onExitToStudio: widget.onExitToStudio,
+            ),
+          );
+        }
+        return _buildViewfinder(context);
+      },
+    );
+  }
+
+  /// Original viewfinder body — extracted so the identity-gate branch
+  /// in [build] can swap it out cleanly.
+  Widget _buildViewfinder(BuildContext context) {
     return OrientationLockGuard(
       allowed: _allowedOrientations,
       child: Container(
@@ -2573,6 +2636,8 @@ class _SafeModeDebugHud extends StatelessWidget {
         return 'active';
       case SafeModeCheckStatus.manual:
         return 'manual';
+      case SafeModeCheckStatus.blocked:
+        return 'blocked';
     }
   }
 
@@ -2654,6 +2719,149 @@ class _SafeModeDebugHud extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Safe Mode Transparency — Phase A (2026-05-22).
+/// Full-screen replacement for the camera viewfinder when the
+/// six-point identity gate has failed. Routes the practitioner to
+/// either Settings (for practitioner-controlled gaps) or the portal
+/// (for practice-controlled gaps).
+///
+/// Distinct from [_LocationPermissionGate] because the failure modes
+/// are categorically different — that gate is about OS permission,
+/// this gate is about content-completeness. Same visual language for
+/// continuity (dark surface, coral CTA, Safe Mode icon).
+class _IdentityGateScreen extends StatelessWidget {
+  const _IdentityGateScreen({
+    required this.missing,
+    required this.onOpenPublicProfile,
+    required this.onOpenPortal,
+    required this.onExitToStudio,
+  });
+
+  final List<String> missing;
+  final VoidCallback onOpenPublicProfile;
+  final VoidCallback onOpenPortal;
+  final VoidCallback onExitToStudio;
+
+  bool get _hasPractitionerGap =>
+      missing.contains('first_name')
+      || missing.contains('last_name')
+      || missing.contains('avatar_url');
+
+  bool get _hasPracticeGap =>
+      missing.contains('public_slug')
+      || missing.contains('public_blurb')
+      || missing.contains('public_profile_listed');
+
+  String get _title {
+    if (_hasPractitionerGap && !_hasPracticeGap) {
+      return 'Complete your public profile';
+    }
+    if (_hasPracticeGap && !_hasPractitionerGap) {
+      return 'Practice profile incomplete';
+    }
+    return 'Safe Mode is disabled';
+  }
+
+  String get _body {
+    if (_hasPractitionerGap && !_hasPracticeGap) {
+      return 'Add your name and a face photo in Settings to record in '
+          'Safe Mode zones. This information is publicly visible on the '
+          'venue’s live transparency page.';
+    }
+    if (_hasPracticeGap && !_hasPractitionerGap) {
+      return 'Your practice’s public profile is incomplete. Ask your '
+          'owner to set it up at manage.homefit.studio/public-profile. '
+          'Until then, Safe Mode is disabled.';
+    }
+    return 'Both your public profile and your practice’s public profile '
+        'need to be completed before Safe Mode can engage.';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF0F1117),
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Positioned(
+              top: 8,
+              left: 4,
+              child: IconButton(
+                onPressed: onExitToStudio,
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Color(0xFFF0F0F5),
+                  size: 22,
+                ),
+                tooltip: 'Back to Studio',
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: SafeModeIcon(
+                        size: 64,
+                        fillColor: const Color(0xFFFF6B35),
+                        knockoutColor: const Color(0xFF0F1117),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Text(
+                      _title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFF0F0F5),
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _body,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color:
+                            const Color(0xFFF0F0F5).withValues(alpha: 0.78),
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    if (_hasPractitionerGap)
+                      _GateButton(
+                        label: 'Open Settings',
+                        onPressed: onOpenPublicProfile,
+                        primary: true,
+                      ),
+                    if (_hasPractitionerGap && _hasPracticeGap)
+                      const SizedBox(height: 10),
+                    if (_hasPracticeGap)
+                      _GateButton(
+                        label: 'Open Portal',
+                        onPressed: onOpenPortal,
+                        primary: !_hasPractitionerGap,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

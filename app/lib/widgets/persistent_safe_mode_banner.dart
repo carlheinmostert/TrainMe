@@ -275,8 +275,13 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
       return 'Leaving · ${remaining}s';
     }
 
+    // Safe Mode Transparency — Phase B (2026-05-22).
+    // When inside an enforced polygon (auto mode, premises name set),
+    // remind the practitioner that the live transparency page surfaces
+    // their session. The hint is purposefully terse — full guidance
+    // lives on /what-we-share + the venue's poster.
     if (hasName) {
-      return '$trimmed · bystanders obscured';
+      return '$trimmed · visible live';
     }
     return 'bystanders obscured';
   }

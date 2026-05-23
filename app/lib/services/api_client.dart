@@ -1561,6 +1561,262 @@ class ApiClient {
       return null;
     }
   }
+
+  // ==========================================================================
+  // Safe Mode Transparency — Phase A (2026-05-22)
+  // ==========================================================================
+
+  /// `set_practitioner_profile(p_first_name, p_last_name, p_avatar_url)` —
+  /// upserts the caller's identity row + appends one audit-log entry per
+  /// changed field. Empty strings normalise to NULL server-side.
+  ///
+  /// Throws on validation failure (length > 60, malformed avatar URL,
+  /// missing auth). The caller is expected to surface a friendly message.
+  Future<void> setPractitionerProfile({
+    required String firstName,
+    required String lastName,
+    required String avatarUrl,
+  }) async {
+    await _guardAuth(
+      () => raw.rpc(
+        'set_practitioner_profile',
+        params: {
+          'p_first_name': firstName,
+          'p_last_name': lastName,
+          'p_avatar_url': avatarUrl,
+        },
+      ),
+    );
+  }
+
+  /// `can_use_safe_mode(p_trainer_id, p_practice_id)` — returns the
+  /// six-point gate result. `ok = true` means Safe Mode can engage.
+  /// `missing` lists the stable identifiers the client maps to UI copy:
+  ///
+  ///   Practitioner-controlled:
+  ///     'first_name', 'last_name', 'avatar_url'
+  ///   Practice-controlled:
+  ///     'public_slug', 'public_blurb', 'public_profile_listed'
+  ///
+  /// Returns null on any network/RPC failure — the caller should treat
+  /// null as "unknown, allow the optimistic path" rather than "blocked",
+  /// because we don't want a flaky network to suppress Safe Mode for a
+  /// fully-compliant practitioner.
+  Future<SafeModeGateResult?> canUseSafeMode({
+    required String trainerId,
+    required String practiceId,
+  }) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'can_use_safe_mode',
+          params: {
+            'p_trainer_id': trainerId,
+            'p_practice_id': practiceId,
+          },
+        ),
+      );
+      if (result is! List || result.isEmpty) return null;
+      final row = result.first;
+      if (row is! Map) return null;
+      final ok = row['ok'];
+      final missing = row['missing'];
+      return SafeModeGateResult(
+        ok: ok is bool ? ok : false,
+        missing: missing is List
+            ? missing.whereType<String>().toList(growable: false)
+            : const <String>[],
+      );
+    } catch (e) {
+      debugPrint('ApiClient.canUseSafeMode failed: $e');
+      return null;
+    }
+  }
+
+  /// Fetch the caller's own practitioner row (or null if not yet
+  /// created). Reads via the table directly because RLS already scopes
+  /// to self + shared-practice; no RPC needed for a single-row read.
+  Future<PractitionerProfile?> getMyPractitionerProfile() async {
+    final user = raw.auth.currentUser;
+    if (user == null) return null;
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw
+            .from('practitioners')
+            .select('user_id, first_name, last_name, avatar_url')
+            .eq('user_id', user.id)
+            .maybeSingle(),
+      );
+      if (result is! Map) return null;
+      return PractitionerProfile(
+        userId: (result['user_id'] as String?) ?? user.id,
+        firstName: result['first_name'] as String?,
+        lastName: result['last_name'] as String?,
+        avatarUrl: result['avatar_url'] as String?,
+      );
+    } catch (e) {
+      debugPrint('ApiClient.getMyPractitionerProfile failed: $e');
+      return null;
+    }
+  }
+
+  // ==========================================================================
+  // Safe Mode Transparency — Phase B (2026-05-22)
+  // ==========================================================================
+
+  /// `start_capture_session(p_practice_id, p_premises_id, p_lat, p_lng, p_manual)`.
+  /// Returns the new session id, or null on failure.
+  Future<String?> startCaptureSession({
+    required String practiceId,
+    String? premisesId,
+    double? latitude,
+    double? longitude,
+    bool manual = false,
+  }) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'start_capture_session',
+          params: {
+            'p_practice_id': practiceId,
+            'p_premises_id': premisesId,
+            'p_lat': latitude,
+            'p_lng': longitude,
+            'p_manual': manual,
+          },
+        ),
+      );
+      return result is String ? result : null;
+    } catch (e) {
+      debugPrint('ApiClient.startCaptureSession failed: $e');
+      return null;
+    }
+  }
+
+  /// `heartbeat_capture_session(p_session_id, p_lat, p_lng)`.
+  /// Fire-and-forget — caller should not block on the response. Errors
+  /// are swallowed; a missed heartbeat is recovered by the next tick.
+  Future<void> heartbeatCaptureSession({
+    required String sessionId,
+    double? latitude,
+    double? longitude,
+  }) async {
+    try {
+      await _guardAuth(
+        () => raw.rpc(
+          'heartbeat_capture_session',
+          params: {
+            'p_session_id': sessionId,
+            'p_lat': latitude,
+            'p_lng': longitude,
+          },
+        ),
+      );
+    } catch (e) {
+      debugPrint('ApiClient.heartbeatCaptureSession failed: $e');
+    }
+  }
+
+  /// `end_capture_session(p_session_id)`. Idempotent. Stamps ended_at.
+  Future<void> endCaptureSession({required String sessionId}) async {
+    try {
+      await _guardAuth(
+        () => raw.rpc(
+          'end_capture_session',
+          params: {'p_session_id': sessionId},
+        ),
+      );
+    } catch (e) {
+      debugPrint('ApiClient.endCaptureSession failed: $e');
+    }
+  }
+
+  /// Upload an avatar JPEG to the public `media` bucket at
+  /// `avatars/{trainer_id}.jpg`. Returns the public URL on success,
+  /// null on failure. Uses upsert so re-uploads overwrite.
+  Future<String?> uploadAvatar({
+    required String trainerId,
+    required File file,
+  }) async {
+    try {
+      final path = 'avatars/$trainerId.jpg';
+      await _guardAuth(
+        () => raw.storage.from('media').upload(
+              path,
+              file,
+              fileOptions: const FileOptions(
+                upsert: true,
+                contentType: 'image/jpeg',
+                cacheControl: '3600',
+              ),
+            ),
+      );
+      // Bust the public URL cache so a re-upload shows the new image
+      // immediately. The query string is ignored by Supabase Storage
+      // but trips browser + CDN caches.
+      final base = raw.storage.from('media').getPublicUrl(path);
+      return '$base?v=${DateTime.now().millisecondsSinceEpoch}';
+    } catch (e) {
+      debugPrint('ApiClient.uploadAvatar failed: $e');
+      return null;
+    }
+  }
+}
+
+/// Result of the six-point [ApiClient.canUseSafeMode] gate.
+///
+/// `ok` is true iff every check passed. `missing` carries the stable
+/// identifier strings the UI maps to copy:
+///
+///   Practitioner-controlled:
+///     'first_name', 'last_name', 'avatar_url'
+///   Practice-controlled:
+///     'public_slug', 'public_blurb', 'public_profile_listed'
+@immutable
+class SafeModeGateResult {
+  final bool ok;
+  final List<String> missing;
+
+  const SafeModeGateResult({required this.ok, required this.missing});
+
+  /// True iff at least one of the missing items is practitioner-controlled
+  /// (the user can fix it in Settings). Drives the "Open Settings" vs
+  /// "Open Portal" branch on the gate screen.
+  bool get hasPractitionerGap =>
+      missing.contains('first_name')
+      || missing.contains('last_name')
+      || missing.contains('avatar_url');
+
+  /// True iff at least one of the missing items is practice-controlled.
+  bool get hasPracticeGap =>
+      missing.contains('public_slug')
+      || missing.contains('public_blurb')
+      || missing.contains('public_profile_listed');
+}
+
+/// The caller's own practitioner identity row, populated by Settings.
+/// Null fields = not yet set. Mirrors the columns on the
+/// `public.practitioners` table.
+@immutable
+class PractitionerProfile {
+  final String userId;
+  final String? firstName;
+  final String? lastName;
+  final String? avatarUrl;
+
+  const PractitionerProfile({
+    required this.userId,
+    this.firstName,
+    this.lastName,
+    this.avatarUrl,
+  });
+
+  /// True iff first + last + avatar are all set. Used to skip the
+  /// first-time disclosure card on the second save.
+  bool get isComplete =>
+      (firstName?.trim().isNotEmpty ?? false)
+      && (lastName?.trim().isNotEmpty ?? false)
+      && (avatarUrl?.trim().isNotEmpty ?? false);
 }
 
 /// Outcome of a [ApiClient.findPremisesAt] call. Returned when the

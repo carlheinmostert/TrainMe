@@ -496,6 +496,37 @@ export function PremisesDetailPanel({ initial, practiceId }: Props) {
             </p>
           )}
         </div>
+
+        {/* Safe Mode Transparency — Phase C (2026-05-22).
+            Printable A4 poster the owner tapes up at the venue. Carries
+            the QR code that points at the live transparency page. */}
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-surface-border bg-surface-raised p-4">
+          <div className="text-sm font-medium text-ink">
+            Transparency poster
+          </div>
+          <p className="text-xs text-ink-muted">
+            A printable A4 poster for reception with a QR code clients can
+            scan to see who is recording in Safe Mode right now.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={`/premises/${initial.id}/poster?print=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md border border-brand bg-brand px-3 py-1.5 text-xs font-semibold text-surface-bg hover:bg-brand-light"
+            >
+              Download poster
+            </a>
+            <a
+              href={`/premises/${initial.id}/poster`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md border border-surface-border bg-surface-base px-3 py-1.5 text-xs text-ink hover:border-brand hover:text-brand"
+            >
+              Preview
+            </a>
+          </div>
+        </div>
       </section>
 
       {/* Polygon editor (deliberate save) */}
