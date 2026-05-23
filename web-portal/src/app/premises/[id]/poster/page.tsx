@@ -209,13 +209,6 @@ export default async function PosterPage({
                 </strong>{' '}
                 by scanning the code on the right.
               </p>
-
-              <div className="poster-caveat">
-                <strong>Worried about a practitioner&rsquo;s behavior?</strong>{' '}
-                Scan the code, find their session, and tap &ldquo;Report&rdquo;.
-                The practice owner at {practiceName} is notified directly via
-                their listed contact and can act.
-              </div>
             </div>
 
             <div className="poster-qr-card">
@@ -231,6 +224,20 @@ export default async function PosterPage({
               </div>
               <div className="poster-qr-url">{liveUrl.replace(/^https?:\/\//, '')}</div>
             </div>
+          </div>
+
+          {/* Caveat box — full-width below the two-column body. Pulled
+              OUT of the left column because the asymmetric column heights
+              (long body copy left vs. short QR card right) left a tall
+              empty band on the right side of the page. Anchoring the
+              stop-and-act CTA across the full width gives both columns a
+              clean common baseline and gives the "if you're worried"
+              framing the visual weight it deserves. */}
+          <div className="poster-caveat">
+            <strong>Worried about a practitioner&rsquo;s behavior?</strong>{' '}
+            Scan the code, find their session, and tap &ldquo;Report&rdquo;.
+            The practice owner at {practiceName} is notified directly via
+            their listed contact and can act.
           </div>
 
           <div className="poster-trust">
@@ -366,11 +373,14 @@ const posterCss = `
     font-family: 'Menlo', monospace; font-size: 8pt; color: #4B5563;
     word-break: break-all;
   }
+  /* Full-width below the two-column body. Top margin matches the body's
+     top margin so the caveat reads as its own banded section rather than
+     a stray block under the columns. */
   .poster-caveat {
-    margin-top: 8mm; padding: 6mm 8mm;
+    margin-top: 12mm; padding: 7mm 9mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid #FF6B35;
-    font-size: 10pt; color: #0F1117; line-height: 1.5;
+    font-size: 11pt; color: #0F1117; line-height: 1.55;
   }
   .poster-caveat strong {
     font-family: 'Montserrat', sans-serif; font-weight: 700;

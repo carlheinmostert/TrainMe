@@ -198,15 +198,19 @@
   .wm { font-family: 'Montserrat', sans-serif; font-weight: 700; }
   .wm .dot-studio { color: var(--c-brand); }
 
-  /* Caveat box */
+  /* Caveat box — full-width below the two-column body. Pulled out of
+     the left column because the long body copy left vs. short QR card
+     right asymmetry created a tall empty band beside the QR. Anchoring
+     the stop-and-act CTA across full width gives both columns a clean
+     common baseline. */
   .caveat {
-    margin-top: 8mm;
-    padding: 6mm 8mm;
+    margin-top: 12mm;
+    padding: 7mm 9mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid var(--c-brand);
     font-size: 11pt;
     color: var(--c-ink);
-    line-height: 1.5;
+    line-height: 1.55;
   }
   .caveat strong {
     font-family: 'Montserrat', sans-serif;
@@ -300,10 +304,6 @@
       <p>
         Every practitioner recording here has identified themselves publicly. <strong>You can see who is currently recording, when they started, and where they are in the venue</strong> by scanning the code on the right.
       </p>
-
-      <div class="caveat">
-        <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act.
-      </div>
     </div>
 
     <div class="qr-card">
@@ -311,6 +311,13 @@
       <div class="qr-label">Scan to see who is recording right now</div>
       <div class="qr-url">session.homefit.studio/<br/>v/muscle-works/now</div>
     </div>
+  </div>
+
+  <!-- Full-width caveat box — pulled out of the left column to fix the
+       asymmetric column heights that left a tall empty band beside the
+       QR card. -->
+  <div class="caveat">
+    <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act.
   </div>
 
   <!-- Trust strip -->
