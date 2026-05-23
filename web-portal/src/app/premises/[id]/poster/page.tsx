@@ -189,8 +189,19 @@ export default async function PosterPage({
           </svg>
 
           <div className="poster-hero">
+            {/* Headline copy locked 2026-05-23 (stack item 9). The
+                line is rhythmically split around the em-dash so the
+                wordmark sits as the final beat: "Safe recording is
+                allowed here — using homefit.studio". The wordmark
+                colour split is brand-locked (homefit ink-dark,
+                .studio coral); the rest of the line stays in the
+                page's ink colour so the wordmark is the only coral
+                accent in the headline. */}
             <h1>
-              Safe recording <span className="poster-accent">is happening here.</span>
+              Safe recording is allowed here —{' '}
+              <span className="poster-hero-wm">
+                using homefit<span className="poster-dot-studio">.studio</span>
+              </span>
             </h1>
             <p className="poster-sub">
               Practitioners film exercise demos for their clients. Anyone in
@@ -372,6 +383,13 @@ const posterCss = `
     font-size: 44pt; line-height: 1.05; letter-spacing: -0.5px; color: #0F1117;
   }
   .poster-accent { color: #FF6B35; }
+  /* Hero wordmark — brand-locked colour split (homefit print-ink,
+     .studio coral). Inherits the h1 Montserrat 800 weight so the
+     wordmark integrates with the headline rather than sitting as a
+     visually distinct block. The homefit portion uses #1A1D27
+     (print ink, matches the canonical print lockup variant); the
+     .studio span overrides to coral. */
+  .poster-hero-wm { color: #1A1D27; }
   .poster-sub {
     margin-top: 6mm; font-size: 14pt; color: #4B5563; line-height: 1.4;
     max-width: 70%; margin-left: auto; margin-right: auto;

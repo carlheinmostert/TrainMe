@@ -85,12 +85,15 @@
   .hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif;
     font-weight: 800;
-    font-size: 48pt;
+    font-size: 44pt;
     line-height: 1.05;
     letter-spacing: -0.5px;
     color: var(--c-ink);
   }
   .hero .accent { color: var(--c-brand); }
+  /* Hero wordmark — brand-locked colour split (homefit print ink,
+     .studio coral). Sits as the final beat of the headline. */
+  .hero .hero-wm { color: #1A1D27; }
   .hero .sub {
     margin-top: 6mm;
     font-size: 14pt;
@@ -296,9 +299,14 @@
     <rect x="78" y="20" width="6" height="3" rx="1" fill="#FF6B35"/>
   </svg>
 
-  <!-- Hero -->
+  <!-- Hero — headline copy locked 2026-05-23. The line splits around
+       the em-dash so the wordmark sits as the final beat:
+       "Safe recording is allowed here — using homefit.studio". The
+       wordmark colour split is brand-locked (homefit ink-dark,
+       .studio coral); the rest of the line stays in the page's ink
+       colour so the wordmark is the only coral accent. -->
   <div class="hero">
-    <h1>Safe recording <span class="accent">is happening here.</span></h1>
+    <h1>Safe recording is allowed here — <span class="hero-wm">using homefit<span class="dot-studio">.studio</span></span></h1>
     <p class="sub">
       Practitioners film exercise demos for their clients. Anyone in the background — including you — is automatically obscured by <span class="wm">homefit<span class="dot-studio">.studio</span></span> Safe Mode.
     </p>
