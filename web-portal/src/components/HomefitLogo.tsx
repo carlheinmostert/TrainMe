@@ -73,14 +73,25 @@ export function HomefitLogo({
  * +4.5 on Y to make room for the wordmark row. Wordmark uses
  * Montserrat 600 stretched via `textLength` so it aligns to the
  * 48-unit matrix width at any render size.
+ *
+ * Pass `print` to swap the `homefit` portion of the wordmark from the
+ * canonical near-white (`#F0F0F5` — built for dark surfaces) to the
+ * dark-ink (`#1A1D27` — soft near-black) variant for white/printed
+ * backgrounds. The `.studio` portion stays coral on every variant —
+ * the wordmark colour split is brand-locked; only the `homefit`
+ * portion swaps. Pill geometry / ghost greys / sage rest are
+ * unchanged because they already render correctly on white.
  */
 export function HomefitLogoLockup({
   className,
   'aria-hidden': ariaHidden = true,
+  print = false,
 }: {
   className?: string;
   'aria-hidden'?: boolean;
+  print?: boolean;
 }) {
+  const wordmarkFill = print ? '#1A1D27' : '#F0F0F5';
   return (
     <svg
       className={className}
@@ -105,7 +116,7 @@ export function HomefitLogoLockup({
         fontSize="6.5"
         letterSpacing="-0.1"
       >
-        <tspan fill="#F0F0F5">homefit</tspan>
+        <tspan fill={wordmarkFill}>homefit</tspan>
         <tspan fill="#FF6B35">.studio</tspan>
       </text>
 

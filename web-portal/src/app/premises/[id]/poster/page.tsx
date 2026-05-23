@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { playerOriginFromHost } from '@/lib/env';
+import { HomefitLogoLockup } from '@/components/HomefitLogo';
 import QRCode from 'qrcode';
 
 type RouteParams = { id: string };
@@ -95,27 +96,11 @@ export default async function PosterPage({
 
         <div className="poster-page">
           <div className="poster-header">
-            <svg
-              className="poster-matrix"
-              viewBox="0 0 48 9.5"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-              <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-              <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15" />
-              <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC" />
-              <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-              <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-            </svg>
+            {/* Canonical brand lockup, print variant — `homefit` ink-dark
+                so it reads on the white poster background; `.studio`
+                stays coral. Single source of truth in
+                `web-portal/src/components/HomefitLogo.tsx`. */}
+            <HomefitLogoLockup className="poster-lockup-hero" print />
             <div className="poster-practice">
               <div className="poster-practice-name">{practiceName}</div>
               {(venueLine || address) && (
@@ -126,9 +111,68 @@ export default async function PosterPage({
             </div>
           </div>
 
+          {/* Coral camera graphic — clean line-art, single colour, sits
+              between the header and the hero so the page reads
+              [breathing space → header → camera → hero]. Stroke-first
+              vocabulary matches the canonical matrix logo's restrained
+              geometric feel without competing with the wordmark above.
+              Body 3:2, rounded corners (rx=8 at 100px scale ≈ 0.08
+              proportionally — same warmth as the matrix pills). Small
+              viewfinder bump top-centre + lens circle in the middle.
+              The lens has a thin inner ring (filled coral) so the
+              graphic reads as CAMERA, not eye / video / target. */}
+          <svg
+            className="poster-camera-icon"
+            viewBox="0 0 100 70"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            {/* Viewfinder bump — small rectangle on top-centre of body */}
+            <rect
+              x="38"
+              y="6"
+              width="24"
+              height="8"
+              rx="2"
+              fill="none"
+              stroke="#FF6B35"
+              strokeWidth="3"
+              strokeLinejoin="round"
+            />
+            {/* Body — 3:2 rounded rectangle */}
+            <rect
+              x="6"
+              y="14"
+              width="88"
+              height="50"
+              rx="6"
+              fill="none"
+              stroke="#FF6B35"
+              strokeWidth="3"
+              strokeLinejoin="round"
+            />
+            {/* Lens outer ring */}
+            <circle
+              cx="50"
+              cy="39"
+              r="15"
+              fill="none"
+              stroke="#FF6B35"
+              strokeWidth="3"
+            />
+            {/* Lens inner — filled coral disc, the only fill on the
+                whole mark, so the graphic reads unmistakably as a
+                camera lens rather than an open shape. */}
+            <circle cx="50" cy="39" r="6" fill="#FF6B35" />
+            {/* Shutter-release dot, top-right corner of body —
+                small filled coral square, the canonical "this is a
+                camera" cue. */}
+            <rect x="78" y="20" width="6" height="3" rx="1" fill="#FF6B35" />
+          </svg>
+
           <div className="poster-hero">
             <h1>
-              Recording <span className="poster-accent">is happening here.</span>
+              Safe recording <span className="poster-accent">is happening here.</span>
             </h1>
             <p className="poster-sub">
               Practitioners film exercise demos for their clients. Anyone in
@@ -151,6 +195,12 @@ export default async function PosterPage({
                 includes you.
               </p>
               <p>
+                The app uses face recognition to lock the obscuring to the one
+                client registered at the start of each session. Anyone else who
+                walks into the frame — including you passing by — stays
+                obscured.
+              </p>
+              <p>
                 Every practitioner recording here has identified themselves
                 publicly.{' '}
                 <strong>
@@ -159,17 +209,6 @@ export default async function PosterPage({
                 </strong>{' '}
                 by scanning the code on the right.
               </p>
-
-              <div className="poster-caveat">
-                <strong>Worried about a practitioner&rsquo;s behavior?</strong>{' '}
-                Scan the code, find their session, and tap &ldquo;Report&rdquo;.
-                The practice owner at {practiceName} is notified directly via
-                their listed contact and can act.{' '}
-                <span className="poster-wm">
-                  homefit<span className="poster-dot-studio">.studio</span>
-                </span>{' '}
-                is a backstop if the practice doesn&rsquo;t respond.
-              </div>
             </div>
 
             <div className="poster-qr-card">
@@ -187,6 +226,20 @@ export default async function PosterPage({
             </div>
           </div>
 
+          {/* Caveat box — full-width below the two-column body. Pulled
+              OUT of the left column because the asymmetric column heights
+              (long body copy left vs. short QR card right) left a tall
+              empty band on the right side of the page. Anchoring the
+              stop-and-act CTA across the full width gives both columns a
+              clean common baseline and gives the "if you're worried"
+              framing the visual weight it deserves. */}
+          <div className="poster-caveat">
+            <strong>Worried about a practitioner&rsquo;s behavior?</strong>{' '}
+            Scan the code, find their session, and tap &ldquo;Report&rdquo;.
+            The practice owner at {practiceName} is notified directly via
+            their listed contact and can act.
+          </div>
+
           <div className="poster-trust">
             <div>
               Learn more at{' '}
@@ -196,33 +249,11 @@ export default async function PosterPage({
               </strong>
             </div>
             <div className="poster-powered-stack">
-              <div className="poster-powered">
-                powered by{' '}
-                <span className="poster-wm">
-                  homefit<span className="poster-dot-studio">.studio</span>
-                </span>
-              </div>
-              <svg
-                className="poster-footer-logo"
-                viewBox="0 0 48 9.5"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
-              >
-                <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-                <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-                <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15" />
-                <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC" />
-                <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-                <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-              </svg>
+              <div className="poster-powered">powered by</div>
+              {/* Canonical brand lockup, print variant — half the
+                  hero-size. Single source of truth in
+                  `web-portal/src/components/HomefitLogo.tsx`. */}
+              <HomefitLogoLockup className="poster-lockup-footer" print />
             </div>
           </div>
         </div>
@@ -262,7 +293,11 @@ const posterCss = `
     width: 210mm;
     min-height: 297mm;
     background: #FFFFFF;
-    padding: 24mm 20mm;
+    /* Top padding bumped from 24mm to 32mm so the header gets breathing
+       room from the top edge — gives the camera graphic underneath it
+       its own vertical band without crowding the hero. Horizontal +
+       bottom unchanged. */
+    padding: 32mm 20mm 24mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
@@ -271,7 +306,26 @@ const posterCss = `
     display: flex; justify-content: space-between; align-items: center;
     padding-bottom: 16mm; border-bottom: 1px solid #E5E7EB;
   }
-  .poster-matrix { width: 56px; height: 12px; }
+  /* Coral camera graphic — sits between the header and the hero,
+     centred horizontally. Doubled from the original 110px so the
+     mark reads as a substantial visual anchor at A4 viewing
+     distance — at ~220px the body + lens silhouette is unmistakable
+     from a few metres away (poster context, not screen context).
+     Vertical margins bumped to give the larger graphic its own
+     breathing band: 18mm above (vs 14mm) clears the header
+     border-rule, 4mm below balances against the trimmed hero
+     margin so the camera doesn't crowd the headline. */
+  .poster-camera-icon {
+    display: block;
+    width: 220px;
+    height: auto;
+    margin: 18mm auto 4mm;
+  }
+  /* Hero-size canonical lockup at the top of the poster. The lockup's
+     intrinsic aspect is 48:16 (≈ 3:1), so a 120px width yields a 40px
+     tall mark — substantial brand presence at the top edge without
+     stealing weight from the practice name beside it. */
+  .poster-lockup-hero { width: 120px; height: auto; display: block; }
   .poster-practice { text-align: right; }
   .poster-practice-name {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 700;
@@ -281,7 +335,11 @@ const posterCss = `
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 600;
     font-size: 12px; color: #4B5563; letter-spacing: 0.3px; margin-top: 2px;
   }
-  .poster-hero { margin-top: 24mm; text-align: center; }
+  /* Hero margin trimmed from 24mm → 8mm because the larger camera
+     graphic now carries the visual separation between header and
+     headline (its own 4mm bottom margin + 8mm here = the same ~12mm
+     air the smaller graphic needed). */
+  .poster-hero { margin-top: 8mm; text-align: center; }
   .poster-hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 800;
     font-size: 44pt; line-height: 1.05; letter-spacing: -0.5px; color: #0F1117;
@@ -323,11 +381,14 @@ const posterCss = `
     font-family: 'Menlo', monospace; font-size: 8pt; color: #4B5563;
     word-break: break-all;
   }
+  /* Full-width below the two-column body. Top margin matches the body's
+     top margin so the caveat reads as its own banded section rather than
+     a stray block under the columns. */
   .poster-caveat {
-    margin-top: 8mm; padding: 6mm 8mm;
+    margin-top: 12mm; padding: 7mm 9mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid #FF6B35;
-    font-size: 10pt; color: #0F1117; line-height: 1.5;
+    font-size: 11pt; color: #0F1117; line-height: 1.55;
   }
   .poster-caveat strong {
     font-family: 'Montserrat', sans-serif; font-weight: 700;
@@ -343,7 +404,9 @@ const posterCss = `
   .poster-powered {
     font-family: 'Montserrat', sans-serif; font-weight: 600;
   }
-  .poster-footer-logo { width: 72px; height: 16px; }
+  /* Footer-scale canonical lockup — about half the hero size.
+     Signature treatment at the bottom-right of the poster. */
+  .poster-lockup-footer { width: 60px; height: auto; display: block; }
   .poster-wm { font-family: 'Montserrat', sans-serif; font-weight: 700; }
   .poster-dot-studio { color: #FF6B35; }
 

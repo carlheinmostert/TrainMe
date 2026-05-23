@@ -27,10 +27,25 @@
     width: 210mm;
     min-height: 297mm;
     background: var(--c-paper);
-    padding: 24mm 20mm;
+    /* Top padding 32mm (was 24mm) — extra breathing room above the
+       header so the new camera graphic underneath gets its own band. */
+    padding: 32mm 20mm 24mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
+  }
+
+  /* Coral camera graphic — clean line-art between header and hero.
+     Stroke-first geometry matches the canonical matrix logo's
+     restrained vocabulary. Doubled from 110px → 220px so the mark
+     reads as a substantial visual anchor at A4 viewing distance;
+     vertical margins (18mm/4mm) give it its own breathing band
+     instead of crowding the headline. */
+  .camera-icon {
+    display: block;
+    width: 220px;
+    height: auto;
+    margin: 18mm auto 4mm;
   }
 
   /* Header */
@@ -41,10 +56,14 @@
     padding-bottom: 16mm;
     border-bottom: 1px solid var(--c-rule);
   }
-  .matrix-logo {
-    width: 56px;
-    height: 12px;
-    color: var(--c-brand);
+  /* Hero-size canonical lockup at the top edge — print variant
+     (`homefit` ink-dark, `.studio` coral). Matches what
+     `web-portal/src/app/premises/[id]/poster/page.tsx` renders via
+     <HomefitLogoLockup print />. */
+  .lockup-hero {
+    width: 120px;
+    height: auto;
+    display: block;
   }
   .practice-mark {
     text-align: right;
@@ -56,9 +75,11 @@
   }
   .practice-mark .name { font-size: 16px; color: var(--c-ink); }
 
-  /* Hero */
+  /* Hero — margin trimmed from 24mm → 8mm; the larger camera graphic
+     above carries the visual separation (its own 4mm bottom margin +
+     8mm here = the same ~12mm air the smaller graphic needed). */
   .hero {
-    margin-top: 24mm;
+    margin-top: 8mm;
     text-align: center;
   }
   .hero h1 {
@@ -169,24 +190,31 @@
     font-weight: 600;
   }
   .trust .powered .accent { color: var(--c-brand); }
-  .trust .footer-logo {
-    width: 72px;
-    height: 16px;
+  /* Footer-scale canonical lockup — about half the hero size,
+     signature treatment at the bottom-right. */
+  .trust .lockup-footer {
+    width: 60px;
+    height: auto;
+    display: block;
   }
 
   /* Canonical inline wordmark: "homefit" body color + ".studio" coral. */
   .wm { font-family: 'Montserrat', sans-serif; font-weight: 700; }
   .wm .dot-studio { color: var(--c-brand); }
 
-  /* Caveat box */
+  /* Caveat box — full-width below the two-column body. Pulled out of
+     the left column because the long body copy left vs. short QR card
+     right asymmetry created a tall empty band beside the QR. Anchoring
+     the stop-and-act CTA across full width gives both columns a clean
+     common baseline. */
   .caveat {
-    margin-top: 8mm;
-    padding: 6mm 8mm;
+    margin-top: 12mm;
+    padding: 7mm 9mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid var(--c-brand);
     font-size: 11pt;
     color: var(--c-ink);
-    line-height: 1.5;
+    line-height: 1.55;
   }
   .caveat strong {
     font-family: 'Montserrat', sans-serif;
@@ -204,23 +232,40 @@
 
 <div class="page">
 
-  <!-- Header -->
+  <!-- Header — canonical HomefitLogoLockup, print variant.
+       Geometry sourced byte-for-byte from
+       `web-portal/src/components/HomefitLogo.tsx`. The `homefit`
+       portion of the wordmark uses #1A1D27 (print ink) instead of the
+       canonical #F0F0F5 (near-white, dark-surface only); `.studio`
+       stays coral. Pill geometry, ghost greys, sage rest unchanged. -->
   <div class="header">
-    <svg class="matrix-logo" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280"/>
-      <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280"/>
-      <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
-      <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC"/>
-      <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
+    <svg class="lockup-hero" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <text
+        x="24"
+        y="4.6"
+        text-anchor="middle"
+        textLength="48"
+        lengthAdjust="spacingAndGlyphs"
+        font-family="Montserrat, sans-serif"
+        font-weight="600"
+        font-size="6.5"
+        letter-spacing="-0.1"
+      >
+        <tspan fill="#1A1D27">homefit</tspan>
+        <tspan fill="#FF6B35">.studio</tspan>
+      </text>
+      <rect x="0"    y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
+      <rect x="4"    y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+      <rect x="9"    y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+      <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+      <rect x="15"   y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="15"   y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="21.5" y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="21.5" y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="28"   y="6.5"  width="5"    height="3"   rx="1"   fill="#86EFAC"/>
+      <rect x="34.5" y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+      <rect x="40.5" y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+      <rect x="45.5" y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
     </svg>
     <div class="practice-mark">
       <div class="name">MUSCLE WORKS GYM</div>
@@ -228,9 +273,23 @@
     </div>
   </div>
 
+  <!-- Coral camera graphic — stroke-first line-art between header and
+       hero. Body 3:2 rounded rect, viewfinder bump top-centre, lens
+       circle with a filled coral disc inside (the disc is the
+       unambiguous "this is a camera, not an eye" cue), tiny shutter-
+       release rectangle in the top-right corner of the body. Mirrors
+       what ships in `web-portal/src/app/premises/[id]/poster/page.tsx`. -->
+  <svg class="camera-icon" viewBox="0 0 100 70" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="38" y="6"  width="24" height="8"  rx="2" fill="none" stroke="#FF6B35" stroke-width="3" stroke-linejoin="round"/>
+    <rect x="6"  y="14" width="88" height="50" rx="6" fill="none" stroke="#FF6B35" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="50" cy="39" r="15" fill="none" stroke="#FF6B35" stroke-width="3"/>
+    <circle cx="50" cy="39" r="6"  fill="#FF6B35"/>
+    <rect x="78" y="20" width="6" height="3" rx="1" fill="#FF6B35"/>
+  </svg>
+
   <!-- Hero -->
   <div class="hero">
-    <h1>Recording <span class="accent">is happening here.</span></h1>
+    <h1>Safe recording <span class="accent">is happening here.</span></h1>
     <p class="sub">
       Practitioners film exercise demos for their clients. Anyone in the background — including you — is automatically obscured by <span class="wm">homefit<span class="dot-studio">.studio</span></span> Safe Mode.
     </p>
@@ -244,12 +303,11 @@
         Practitioners at MUSCLE WORKS GYM record exercise demonstrations for their clients. The app they use automatically obscures the face and body of anyone caught in the background — that includes you.
       </p>
       <p>
+        The app uses face recognition to lock the obscuring to the one client registered at the start of each session. Anyone else who walks into the frame — including you passing by — stays obscured.
+      </p>
+      <p>
         Every practitioner recording here has identified themselves publicly. <strong>You can see who is currently recording, when they started, and where they are in the venue</strong> by scanning the code on the right.
       </p>
-
-      <div class="caveat">
-        <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act. <span class="wm">homefit<span class="dot-studio">.studio</span></span> is a backstop if the practice doesn't respond.
-      </div>
     </div>
 
     <div class="qr-card">
@@ -259,29 +317,47 @@
     </div>
   </div>
 
+  <!-- Full-width caveat box — pulled out of the left column to fix the
+       asymmetric column heights that left a tall empty band beside the
+       QR card. -->
+  <div class="caveat">
+    <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act.
+  </div>
+
   <!-- Trust strip -->
   <div class="trust">
     <div>Learn more at <strong class="wm">homefit<span class="dot-studio">.studio</span>/what-we-share</strong></div>
     <div class="powered-stack">
-      <div class="powered">
-        <span>powered by </span>
-        <span class="wm">homefit<span class="dot-studio">.studio</span></span>
-      </div>
-      <svg class="footer-logo" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280"/>
-        <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280"/>
-        <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
-        <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC"/>
-        <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
+      <div class="powered">powered by</div>
+      <!-- Footer canonical lockup, print variant — half the hero size.
+           Geometry mirrors `web-portal/src/components/HomefitLogo.tsx`. -->
+      <svg class="lockup-footer" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <text
+          x="24"
+          y="4.6"
+          text-anchor="middle"
+          textLength="48"
+          lengthAdjust="spacingAndGlyphs"
+          font-family="Montserrat, sans-serif"
+          font-weight="600"
+          font-size="6.5"
+          letter-spacing="-0.1"
+        >
+          <tspan fill="#1A1D27">homefit</tspan>
+          <tspan fill="#FF6B35">.studio</tspan>
+        </text>
+        <rect x="0"    y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
+        <rect x="4"    y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="9"    y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+        <rect x="15"   y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="15"   y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="21.5" y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="21.5" y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="28"   y="6.5"  width="5"    height="3"   rx="1"   fill="#86EFAC"/>
+        <rect x="34.5" y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="40.5" y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="45.5" y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
       </svg>
     </div>
   </div>

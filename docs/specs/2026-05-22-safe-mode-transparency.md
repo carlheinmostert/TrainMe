@@ -247,11 +247,11 @@ Live at `manage.homefit.studio/premises/{id}/poster`. Owner-authenticated (only 
 
 See [docs/design/mockups/safe-mode-poster.html](../design/mockups/safe-mode-poster.html). A4 size, light mode, ink-friendly. Key elements:
 
-- **Header** — matrix logo (left) + practice name + location (right).
-- **Hero** — "**Recording** _is happening here._" + sub-line explaining bystander obscuring + practitioner identity disclosure.
-- **Body grid** — left column: "What this means for you" with two paragraphs + caveat box about reporting; right column: QR card with QR code + scan instruction + URL.
-- **Caveat box** — coral-bordered. "Worried about a practitioner's behavior? Scan the code, find their session, and tap 'Report'. The practice owner is notified directly via their listed contact and can act. homefit.studio is a backstop if the practice doesn't respond."
-- **Trust strip** — "Learn more at homefit.studio/what-we-share" (left) + "powered by homefit.studio" with matrix logo stacked below (right).
+- **Header** — canonical `HomefitLogoLockup` (print variant — `homefit` ink-dark `#1A1D27`, `.studio` coral) at hero scale (left) + practice name + location (right).
+- **Hero** — "**Safe recording** _is happening here._" + sub-line explaining bystander obscuring + practitioner identity disclosure.
+- **Body grid** — left column: "What this means for you" with three paragraphs (general obscuring → face-lock reassurance that the app locks the obscuring to the one registered client so anyone else, including bystanders, stays obscured → practitioner identity disclosure) + caveat box about reporting; right column: QR card with QR code + scan instruction + URL.
+- **Caveat box** — coral-bordered. "Worried about a practitioner's behavior? Scan the code, find their session, and tap 'Report'. The practice owner is notified directly via their listed contact and can act."
+- **Trust strip** — "Learn more at homefit.studio/what-we-share" (left) + "powered by" with the canonical `HomefitLogoLockup` (print variant) at footer scale stacked below (right).
 
 ### PDF download
 

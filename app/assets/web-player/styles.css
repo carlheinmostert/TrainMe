@@ -4211,6 +4211,9 @@ html.is-exporting .lobby-import-card { display: none; }
 }
 
 .v-logo {
+  /* Initials-fallback state — fixed 88x88 coral square so the letter
+     mark reads at hero scale. The image state below relaxes both
+     dimensions so wide / tall logos render at their natural aspect. */
   width: 88px;
   height: 88px;
   border-radius: 18px;
@@ -4228,14 +4231,27 @@ html.is-exporting .lobby-import-card { display: none; }
 }
 
 .v-logo--has-image {
-  background: var(--c-surface-base);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  /* Image state — let the uploaded logo display at its natural aspect
+     ratio inside sensible caps so very wide or very tall marks don't
+     blow out the hero rhythm. No coral background, no shadow — the
+     uploaded mark is the asset. */
+  width: auto;
+  height: auto;
+  max-width: 240px;
+  max-height: 80px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .v-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  /* contain (not cover) so the image is never cropped or stretched.
+     Auto width + capped max-* lets the image render as-uploaded. */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 80px;
+  object-fit: contain;
   display: block;
 }
 

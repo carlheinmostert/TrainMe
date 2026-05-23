@@ -156,11 +156,16 @@ export function LogoUploader({
         }`}
       >
         {currentUrl ? (
+          // The preview tile mirrors the bystander-page `.v-logo--has-image`
+          // rule: natural aspect inside max-width / max-height caps, no
+          // forced square, contain (not cover) so the image is never
+          // cropped or stretched. Square logos still render compactly;
+          // wide / tall logos render as uploaded.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={currentUrl}
             alt="Logo"
-            className="h-14 w-14 rounded object-contain bg-surface-base"
+            className="max-h-14 max-w-[180px] rounded object-contain bg-surface-base"
           />
         ) : (
           <div className="flex h-14 w-14 items-center justify-center rounded bg-surface-base text-2xl text-ink-muted">
@@ -172,7 +177,7 @@ export function LogoUploader({
             {currentUrl ? 'Replace logo' : 'Upload a logo'}
           </div>
           <div className="text-xs text-ink-muted">
-            PNG or JPG · ≤ 1 MB · square or landscape works
+            PNG or JPG · ≤ 1 MB · any aspect — wide or tall works
           </div>
         </div>
         {currentUrl && isOwner && (
