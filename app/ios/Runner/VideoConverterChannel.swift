@@ -1145,6 +1145,39 @@ class VideoConverterChannel {
         // Only allocated when the safe writer survived its init/start
         // pair, so the cost stays off for normal captures.
         //
+        // LATENT COORDINATE-FRAME ISSUE (2026-05-22, see PR
+        // "fix(safe-mode): photo bystander blur — normalise buffer to
+        // upright before Vision + segmentation"):
+        //
+        // The video path here has the same coordinate-space mismatch
+        // that the photo path used to have. AVAssetReader hands us
+        // buffers in raw sensor orientation (`videoWidth x videoHeight`
+        // is landscape for an iPhone portrait recording — the
+        // preferredTransform rotates to upright on the writer's OUTPUT
+        // side). We pass `safeOrientation` to SafeModeProcessor so
+        // Vision sees faces upright, but PersonSegmenter runs against
+        // the LANDSCAPE buffer without an orientation hint — its mask
+        // lives in landscape coords. Vision's face bbox is in upright
+        // normalized coords; multiplying it by the landscape buffer's
+        // pixel dims inside `SafeModeProcessor.processFrame` lands the
+        // anchor in the wrong region of the buffer. For a portrait
+        // recording the subject's segmented body pixels end up
+        // OUTSIDE the anchor → mis-classified as bystanders →
+        // Gaussian-blurred. Net effect: portrait-recorded videos blur
+        // the subject as well as the bystanders.
+        //
+        // Photo path was fixed by pre-rendering the UIImage upright
+        // via UIKit before allocating the pixel buffer (constant cost,
+        // single-frame). Video path is more invasive because the
+        // AVAssetWriter output is tied to the track's
+        // `naturalSize`/`preferredTransform`; rotating every frame on
+        // the GPU through CIAffineTransform before the Safe Mode pass
+        // is one option, and routing orientation through
+        // PersonSegmenter (`VNImageRequestHandler(cvPixelBuffer:
+        // orientation: options:)`) + remapping the Vision bbox back
+        // to landscape coords inside `processFrame` is another. Both
+        // are non-trivial enough to land in a follow-up PR.
+        //
         // Memory budget note: SafeModeProcessor allocates a width*height
         // 8-bit scratch mask plus the CoreImage render graph holds
         // intermediate floats per frame. At 1080p (1920x1080) the mask
@@ -2681,43 +2714,87 @@ class VideoConverterChannel {
               let cgImage = uiImage.cgImage else {
             return .failure("Could not decode source photo: \(srcPath)")
         }
-        let nativeWidth = cgImage.width
-        let nativeHeight = cgImage.height
-        guard nativeWidth > 0, nativeHeight > 0 else {
+        let nativeCgW = cgImage.width
+        let nativeCgH = cgImage.height
+        guard nativeCgW > 0, nativeCgH > 0 else {
             return .failure("Source photo has zero dimensions")
         }
 
-        // Clamp to 1920px max-dim. `workScale` is <= 1.0; for 4032x3024
-        // input we end up at 1920x1440. The aspect ratio is preserved.
+        // --- Coordinate-frame discipline ---
+        // The Vision + segmentation + composite pipeline only works when
+        // every actor agrees on what "upright" means.
+        //
+        // PR #427's photo path treated `cgImage.width/.height` as the
+        // working dimensions and forwarded `uiImage.imageOrientation` to
+        // Vision. For a portrait iPhone shot the raw bytes are landscape
+        // (e.g. 4032x3024) with the subject sideways, and EXIF tags it
+        // `.right` to be rotated 90° CW on display. Vision's bounding
+        // box is in normalized coords relative to the UPRIGHT (rotated)
+        // image; multiplying those upright normalized coords by the
+        // LANDSCAPE buffer's pixel dims lands the anchor box in the
+        // wrong region of the buffer. Combined with a PersonSegmenter
+        // run without an orientation hint (mask in landscape buffer
+        // coords), the anchor and segmentation mask end up in different
+        // coordinate spaces — the subject's pixels fall outside the
+        // anchor → mis-classified as bystanders → blurred. Carl's bug:
+        // single-subject portrait photo, whole body Gaussian-blurred.
+        //
+        // Fix: pre-render the UIImage in its UPRIGHT pixel orientation
+        // via UIKit (`UIGraphicsImageRenderer` honours EXIF via
+        // `uiImage.draw(in:)` automatically), then run Vision +
+        // segmentation against that upright buffer with orientation
+        // `.up`. Mask, anchor, and composite all live in the same
+        // coordinate space.
+        //
+        // Compute the DISPLAY (post-EXIF) dimensions of the source:
+        // for `.left/.right/.leftMirrored/.rightMirrored` the cgImage's
+        // width and height are swapped relative to display.
+        let displayW: Int
+        let displayH: Int
+        switch uiImage.imageOrientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            displayW = nativeCgH
+            displayH = nativeCgW
+        default:
+            displayW = nativeCgW
+            displayH = nativeCgH
+        }
+
+        // Clamp to 1920px max-dim on the DISPLAY dimensions. The
+        // resulting (width, height) are the UPRIGHT working dims —
+        // every downstream allocation and coord computation uses them.
         let maxWorkDim = 1920
-        let nativeMax = max(nativeWidth, nativeHeight)
-        let workScale = min(1.0, Double(maxWorkDim) / Double(nativeMax))
-        let width = max(1, Int((Double(nativeWidth) * workScale).rounded()))
-        let height = max(1, Int((Double(nativeHeight) * workScale).rounded()))
+        let displayMax = max(displayW, displayH)
+        let workScale = min(1.0, Double(maxWorkDim) / Double(displayMax))
+        let width = max(1, Int((Double(displayW) * workScale).rounded()))
+        let height = max(1, Int((Double(displayH) * workScale).rounded()))
 
-        // Derive EXIF orientation hint for Vision from the loaded
-        // UIImage. Front-camera portrait selfies typically encode as
-        // `.right`. UIImage.imageOrientation is the source of truth
-        // (it comes from the JPG's EXIF tag) — we forward it directly
-        // to Vision via CGImagePropertyOrientation so face detection
-        // happens in the human-upright frame. Without this hint the
-        // 4032x3024 sensor-natural rendering gets evaluated sideways
-        // and Vision returns no observations.
-        let photoOrientation: CGImagePropertyOrientation = {
-            switch uiImage.imageOrientation {
-            case .up: return .up
-            case .down: return .down
-            case .left: return .left
-            case .right: return .right
-            case .upMirrored: return .upMirrored
-            case .downMirrored: return .downMirrored
-            case .leftMirrored: return .leftMirrored
-            case .rightMirrored: return .rightMirrored
-            @unknown default: return .right
-            }
-        }()
+        // Render the source UIImage UPRIGHT into a CGImage at the
+        // working resolution. `UIGraphicsImageRenderer` + `draw(in:)`
+        // applies EXIF orientation automatically — the resulting bytes
+        // are top-left-origin and human-upright, regardless of the
+        // source's imageOrientation. `.up` is the only orientation
+        // Vision needs to know about from here on.
+        let renderFormat = UIGraphicsImageRendererFormat.default()
+        renderFormat.scale = 1.0
+        renderFormat.opaque = true
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: renderFormat
+        )
+        let uprightUIImage = renderer.image { _ in
+            uiImage.draw(in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        guard let uprightCG = uprightUIImage.cgImage else {
+            return .failure("UIGraphicsImageRenderer produced no cgImage")
+        }
 
-        // --- Render source CGImage into a BGRA CVPixelBuffer so Vision can read it. ---
+        // After upright pre-rendering the buffer is in display-natural
+        // orientation. Vision must run with `.up` so its normalized
+        // face bbox is in coords matching our buffer dimensions.
+        let photoOrientation: CGImagePropertyOrientation = .up
+
+        // --- Render the upright CGImage into a BGRA CVPixelBuffer. ---
         let attrs: [CFString: Any] = [
             kCVPixelBufferCGImageCompatibilityKey: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey: true,
@@ -2756,7 +2833,11 @@ class VideoConverterChannel {
             CVPixelBufferUnlockBaseAddress(srcBuf, [])
             return .failure("CGContext init failed (src)")
         }
-        srcCtx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        // Copy the upright CGImage bytes into the pixel buffer. Both
+        // the CGImage and the CGContext share the same dimensions and
+        // bitmap layout — this is a straight blit, not an orientation
+        // transform.
+        srcCtx.draw(uprightCG, in: CGRect(x: 0, y: 0, width: width, height: height))
         CVPixelBufferUnlockBaseAddress(srcBuf, [])
 
         // --- Destination buffer the SafeModeProcessor writes into. ---
@@ -2843,7 +2924,11 @@ class VideoConverterChannel {
         guard let outCG = outCtx.makeImage() else {
             return .failure("makeImage failed (dst)")
         }
-        let outUI = UIImage(cgImage: outCG, scale: uiImage.scale, orientation: uiImage.imageOrientation)
+        // The destination buffer's pixels are already upright (we
+        // pre-rendered via UIKit before the Vision/composite pass), so
+        // the output UIImage must NOT re-apply EXIF orientation. `.up`
+        // means "the bytes are already in display order; don't rotate".
+        let outUI = UIImage(cgImage: outCG, scale: uiImage.scale, orientation: .up)
         guard let jpgData = outUI.jpegData(compressionQuality: 0.9) else {
             return .failure("jpegData encoding failed")
         }
@@ -4188,6 +4273,34 @@ private class SafeModeProcessor {
         keepSourceMaskData.deallocate()
     }
 
+    /// Coordinate-frame contract:
+    ///
+    /// The caller MUST hand us a `source` CVPixelBuffer whose pixel
+    /// orientation matches the `orientation` passed to `init`. Vision
+    /// returns face bounding boxes in normalized coords relative to
+    /// the oriented (upright) image — `boundingBox * (width, height)`
+    /// only lands in the right region of the buffer when buffer pixels
+    /// and orientation agree. Similarly the `mask` (from
+    /// `PersonSegmenter`) must be in the SAME coordinate space as
+    /// `source` so anchor-vs-mask classification produces the right
+    /// keep/blur decision.
+    ///
+    /// Photo path: `applySafeModeToPhoto` pre-renders the source
+    /// UIImage upright via UIKit before allocating the pixel buffer,
+    /// then constructs this processor with `orientation: .up`.
+    /// Segmentation runs on the upright buffer without an orientation
+    /// hint (PersonSegmenter's default), which produces a mask in
+    /// the upright space — everyone agrees.
+    ///
+    /// Video path: the AVAssetReader hands us buffers in raw sensor
+    /// orientation (typically landscape for iPhone portrait recording)
+    /// and we pass the EXIF orientation derived from the track's
+    /// `preferredTransform`. The PersonSegmenter mask is in the
+    /// LANDSCAPE buffer's coords while Vision's bbox is in UPRIGHT
+    /// normalized coords — they disagree. See latent-issue comment at
+    /// the SafeModeProcessor construction site in the video pump for
+    /// the planned follow-up (either pre-rotate the buffer or pass
+    /// orientation through to PersonSegmenter + remap the bbox).
     func processFrame(
         source: CVPixelBuffer,
         mask: UnsafePointer<UInt8>?,

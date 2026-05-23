@@ -31,16 +31,21 @@ type Props = {
 /**
  * Top-of-page header for the web portal.
  *
- * Cosmetic pass (2026-05-22):
- *   - Logo now renders the matrix + wordmark LOCKUP (instead of the
- *     matrix-only mark + a separate text span). The `.studio` segment
- *     of the wordmark is coral — single canonical brand mark across
- *     the portal, web player, OG cards, and email templates.
- *   - Right cluster is now a two-line identity STACK (email above the
- *     practice line, sign-out as a tiny text link beneath) instead of
- *     two pill chips with dropdowns. Account settings moved to a
- *     dashboard tile, so the account-menu dropdown collapses to a
- *     plain text link.
+ * Cosmetic pass (2026-05-22, centred-lockup iteration):
+ *   - Lockup is pulled to the centre of the header and rendered large
+ *     enough to be the visual hero of the strip. The brand mark earns
+ *     the real-estate; nothing else competes with it on the centre line.
+ *   - Identity stack stays anchored to the top-right corner via absolute
+ *     positioning, so the centred lockup is free of layout pressure.
+ *   - Header min-height of 160px gives the lockup breathing room.
+ *
+ * Signed off at `docs/design/mockups/portal-header-options.html`
+ * (Option 1b · Final).
+ *
+ * Earlier pass kept the lockup top-left in a justify-between row; the
+ * right side felt visually heavy and the centre was a void. Centring
+ * the brand mark balances the header without inventing new graphic
+ * language (the lockup IS the brand language).
  *
  * R-02 (header purity): the only interactive content remains identity
  * + tenant-context. No page titles, breadcrumbs, or action buttons.
@@ -58,21 +63,23 @@ export function BrandHeader({
 }: Props) {
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
+      <div className="relative mx-auto flex min-h-40 max-w-5xl items-center justify-center px-6 py-6">
         <Link
           href="/"
-          className="flex items-center text-ink transition hover:opacity-90"
+          className="block text-ink transition hover:opacity-90"
           aria-label="homefit.studio home"
         >
-          <HomefitLogoLockup className="h-10 w-auto" />
+          <HomefitLogoLockup className="h-24 w-auto" />
         </Link>
 
         {showSignOut && (
-          <HeaderIdentityStack
-            email={userEmail}
-            practices={practices}
-            selectedId={practiceId ?? null}
-          />
+          <div className="absolute right-6 top-6">
+            <HeaderIdentityStack
+              email={userEmail}
+              practices={practices}
+              selectedId={practiceId ?? null}
+            />
+          </div>
         )}
       </div>
     </header>
