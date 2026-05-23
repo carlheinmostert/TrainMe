@@ -1822,6 +1822,85 @@ class ApiClient {
     }
   }
 
+  // ==========================================================================
+  // Capture audit events (2026-05-23, item 27 / PR B)
+  // ==========================================================================
+
+  /// `record_capture_event(p_practice_id, p_premises_id, p_kind,
+  /// p_started_at, p_ended_at, p_metadata)` — append-only audit row per
+  /// photo + per video (insert-on-stop) captured by the practitioner.
+  ///
+  /// Powers the 24h roster on the live view (`/v/{practice}/{premises}/now`)
+  /// and the bystander-transparency timeline. The RPC is SECURITY DEFINER,
+  /// validates that the caller is a member of [practiceId] via
+  /// `user_practice_ids()`, and is idempotent on
+  /// `(trainer_id, kind, started_at)` — duplicates UPDATE `ended_at` +
+  /// `metadata` rather than failing, so a retry from `pending_ops` after
+  /// the row already landed is a safe no-op.
+  ///
+  /// Contract (mirrors the SQL fn):
+  ///   * [kind] must be `'photo'` or `'video'`.
+  ///   * `kind == 'video'` requires non-null [endedAt].
+  ///   * `kind == 'photo'` must have null [endedAt].
+  /// Both invariants are also enforced client-side (`ArgumentError`) so
+  /// the bad call fails fast before hitting the wire.
+  ///
+  /// [premisesId] is nullable by design — captures outside any enforcing
+  /// polygon still log an audit row (with a NULL `premises_id`), which is
+  /// useful for the owner-facing portal drilldown even though the live
+  /// view roster filters by premises.
+  ///
+  /// Returns the new (or pre-existing, on idempotent replay) audit row id.
+  /// Errors propagate so the [SyncService] flush loop can classify them
+  /// (transient = retry, permanent = drop after [_maxAttempts]).
+  Future<String?> recordCaptureEvent({
+    required String practiceId,
+    String? premisesId,
+    required String kind,
+    required DateTime startedAt,
+    DateTime? endedAt,
+    Map<String, dynamic>? metadata,
+  }) async {
+    if (kind != 'photo' && kind != 'video') {
+      throw ArgumentError.value(
+        kind,
+        'kind',
+        'must be "photo" or "video"',
+      );
+    }
+    if (kind == 'video' && endedAt == null) {
+      throw ArgumentError.value(
+        endedAt,
+        'endedAt',
+        'kind=video requires endedAt',
+      );
+    }
+    if (kind == 'photo' && endedAt != null) {
+      throw ArgumentError.value(
+        endedAt,
+        'endedAt',
+        'kind=photo must not have endedAt',
+      );
+    }
+    // Postgres wants ISO-8601 UTC. .toUtc() is a no-op on already-UTC
+    // DateTimes; .toIso8601String() emits the trailing 'Z' on a UTC value
+    // so Postgres parses it as timestamptz correctly. Mirrors the wire-
+    // safety pattern from upload_service.dart (Wave 39.4).
+    final params = <String, dynamic>{
+      'p_practice_id': practiceId,
+      'p_premises_id': premisesId,
+      'p_kind': kind,
+      'p_started_at': startedAt.toUtc().toIso8601String(),
+      'p_ended_at': endedAt?.toUtc().toIso8601String(),
+      'p_metadata': metadata ?? const <String, dynamic>{},
+    };
+    final result = await _guardAuth(
+      () => raw.rpc('record_capture_event', params: params),
+    );
+    if (result is String && result.isNotEmpty) return result;
+    return null;
+  }
+
   /// Upload an avatar JPEG to the public `media` bucket at
   /// `avatars/{trainer_id}.jpg`. Returns the public URL on success,
   /// null on failure. Uses upsert so re-uploads overwrite.

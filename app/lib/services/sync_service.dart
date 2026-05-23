@@ -1099,6 +1099,78 @@ class SyncService {
     return updated;
   }
 
+  /// Queue a `record_capture_event` op (item 27 / PR B, 2026-05-23).
+  /// Fire-and-forget from the capture path:
+  ///
+  /// * Photo — call immediately after `takePicture()` succeeds (or
+  ///   after the raw file lands on disk — either is fine, the
+  ///   timestamp is whatever the caller passes as [startedAt]).
+  /// * Video — call after `stopVideoRecording()` succeeds. Caller
+  ///   holds the [startedAt] from the moment recording began;
+  ///   [endedAt] is `DateTime.now()` at stop.
+  ///
+  /// Doesn't `await` the network round-trip — the op enqueues into
+  /// SQLite, a best-effort [flush] kicks off in the background, and
+  /// the capture UI returns immediately. If offline, the op stays in
+  /// the queue until the next reconnect; the RPC's unique constraint
+  /// on `(trainer_id, kind, started_at)` makes replay safe.
+  ///
+  /// [premisesId] is nullable: a capture taken outside any enforcing
+  /// polygon still logs a row (NULL `premises_id`). The live-view
+  /// roster filters by premises but the audit drilldown reads all.
+  ///
+  /// [metadata] is optional jsonb for downstream consumers (`safe_mode_active`,
+  /// `exercise_id`, `local_id`, `app_version` etc.). Empty `{}` is fine.
+  Future<void> queueRecordCaptureEvent({
+    required String practiceId,
+    String? premisesId,
+    required String kind,
+    required DateTime startedAt,
+    DateTime? endedAt,
+    Map<String, dynamic>? metadata,
+  }) async {
+    // Belt-and-braces invariant check — also enforced in ApiClient +
+    // server. Throwing here would crash the capture flow; instead drop
+    // the call silently after a dev.log because the audit row is not
+    // load-bearing for the practitioner.
+    if (kind != 'photo' && kind != 'video') {
+      dev.log(
+        'queueRecordCaptureEvent: bad kind="$kind" — dropping',
+        name: 'SyncService',
+      );
+      return;
+    }
+    if (kind == 'video' && endedAt == null) {
+      dev.log(
+        'queueRecordCaptureEvent: kind=video missing endedAt — dropping',
+        name: 'SyncService',
+      );
+      return;
+    }
+    if (kind == 'photo' && endedAt != null) {
+      dev.log(
+        'queueRecordCaptureEvent: kind=photo with endedAt — dropping',
+        name: 'SyncService',
+      );
+      return;
+    }
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final op = PendingOp.recordCaptureEvent(
+      opId: _uuid.v4(),
+      practiceId: practiceId,
+      premisesId: premisesId,
+      kind: kind,
+      startedAtMs: startedAt.millisecondsSinceEpoch,
+      endedAtMs: endedAt?.millisecondsSinceEpoch,
+      metadata: metadata,
+      nowMs: nowMs,
+    );
+    await _storage.enqueuePendingOp(op);
+    await _refreshPendingCount();
+    // Best-effort immediate push — offline collapses to a quick no-op.
+    unawaited(flush());
+  }
+
   // ---------------------------------------------------------------------------
   // Drain
   // ---------------------------------------------------------------------------
@@ -1362,6 +1434,79 @@ class SyncService {
           planId: planId,
           newTitle: newTitle,
         );
+        return true;
+
+      case PendingOpType.recordCaptureEvent:
+        final practiceId = op.payload['practice_id'] as String?;
+        final kind = op.payload['kind'] as String?;
+        final startedIso = op.payload['started_at_iso'] as String?;
+        if (practiceId == null || kind == null || startedIso == null) {
+          // Malformed payload — drop. Never happens in production
+          // because the enqueue path validates, but stale-format ops
+          // from an older app build would otherwise wedge the queue.
+          return true;
+        }
+        final startedAt = DateTime.tryParse(startedIso);
+        if (startedAt == null) {
+          dev.log(
+            'recordCaptureEvent: unparseable started_at_iso="$startedIso" — dropping',
+            name: 'SyncService',
+          );
+          return true;
+        }
+        final endedIso = op.payload['ended_at_iso'] as String?;
+        final endedAt = endedIso == null ? null : DateTime.tryParse(endedIso);
+        if (endedIso != null && endedAt == null) {
+          dev.log(
+            'recordCaptureEvent: unparseable ended_at_iso="$endedIso" — dropping',
+            name: 'SyncService',
+          );
+          return true;
+        }
+        // Re-validate kind ↔ ended_at invariant before the wire so a
+        // payload that drifted somehow (concurrent schema change in a
+        // stale build) fails locally instead of bouncing off the server.
+        if (kind != 'photo' && kind != 'video') return true;
+        if (kind == 'video' && endedAt == null) return true;
+        if (kind == 'photo' && endedAt != null) return true;
+        final premisesId = op.payload['premises_id'] as String?;
+        final metaRaw = op.payload['metadata'];
+        final metadata = metaRaw is Map<String, dynamic>
+            ? metaRaw
+            : (metaRaw is Map
+                ? Map<String, dynamic>.from(metaRaw)
+                : null);
+        try {
+          await ApiClient.instance.recordCaptureEvent(
+            practiceId: practiceId,
+            premisesId: premisesId,
+            kind: kind,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            metadata: metadata,
+          );
+        } on PostgrestException catch (e) {
+          // Permanent 4xx classes — drop instead of retrying forever.
+          //   * 22023 / 42501 — validation or membership failure. The
+          //     row is unrecoverable; logging keeps the diagnostic
+          //     trail even though we don't surface it to the UI.
+          //   * 28000 — auth lost between enqueue and drain. The
+          //     session-revoke detector inside ApiClient will already
+          //     have flipped `sessionExpired`; the op is moot until the
+          //     user signs back in, and even then started_at is in the
+          //     past so the row's value-add is gone.
+          // Everything else (including 5xx + network) bubbles so the
+          // flush loop's retry path can handle it.
+          final code = e.code;
+          if (code == '22023' || code == '42501' || code == '28000') {
+            dev.log(
+              'recordCaptureEvent dropped: code=$code msg=${e.message}',
+              name: 'SyncService',
+            );
+            return true;
+          }
+          rethrow;
+        }
         return true;
     }
   }

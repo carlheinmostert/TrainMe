@@ -46,6 +46,17 @@ enum PendingOpType {
   /// Rename an existing session / plan (Wave 38). Dispatches
   /// `rename_session` RPC. Idempotent — last write wins.
   renameSession,
+
+  /// Per-capture audit row (item 27 / PR B, 2026-05-23). Dispatches
+  /// `record_capture_event` RPC. Idempotent — server upserts on
+  /// `(trainer_id, kind, started_at)`. Payload keys:
+  ///   * `practice_id` (required)
+  ///   * `premises_id` (nullable; null when captured outside any polygon)
+  ///   * `kind` ('photo' or 'video')
+  ///   * `started_at_iso` (ISO-8601 UTC)
+  ///   * `ended_at_iso` (ISO-8601 UTC; null for photo, required for video)
+  ///   * `metadata` (`Map<String,dynamic>`; optional, defaults to `{}`)
+  recordCaptureEvent,
 }
 
 String _opTypeToWire(PendingOpType t) {
@@ -66,6 +77,8 @@ String _opTypeToWire(PendingOpType t) {
       return 'set_avatar';
     case PendingOpType.renameSession:
       return 'rename_session';
+    case PendingOpType.recordCaptureEvent:
+      return 'record_capture_event';
   }
 }
 
@@ -87,6 +100,8 @@ PendingOpType? _opTypeFromWire(String s) {
       return PendingOpType.setAvatar;
     case 'rename_session':
       return PendingOpType.renameSession;
+    case 'record_capture_event':
+      return PendingOpType.recordCaptureEvent;
     default:
       return null;
   }
@@ -349,6 +364,57 @@ class PendingOp {
         'client_id': clientId,
         'field': field,
         'value': value,
+      },
+      createdAt: nowMs,
+    );
+  }
+
+  /// Queue a `record_capture_event` op (item 27 / PR B, 2026-05-23).
+  /// One op per captured photo OR per video stop. The server is
+  /// idempotent on `(trainer_id, kind, started_at)`, so a flush that
+  /// races with a successful prior delivery is safe — the row just
+  /// rewrites its own `ended_at` / `metadata` to the same value.
+  ///
+  /// [premisesId] is nullable by design: a capture taken outside any
+  /// enforcing polygon still produces an audit row (with NULL
+  /// `premises_id`). The live-view roster filters by premises but the
+  /// portal audit drilldown reads them all.
+  ///
+  /// [endedAtMs] must be null for `kind == 'photo'` and non-null for
+  /// `kind == 'video'`. SyncService validates on drain, but callers
+  /// should respect the invariant at enqueue time too.
+  factory PendingOp.recordCaptureEvent({
+    required String opId,
+    required String practiceId,
+    String? premisesId,
+    required String kind,
+    required int startedAtMs,
+    int? endedAtMs,
+    Map<String, dynamic>? metadata,
+    required int nowMs,
+  }) {
+    return PendingOp(
+      id: opId,
+      type: PendingOpType.recordCaptureEvent,
+      payload: <String, dynamic>{
+        'practice_id': practiceId,
+        'premises_id': premisesId,
+        'kind': kind,
+        // Store as ISO so SyncService can re-hydrate directly into a
+        // DateTime without juggling epoch-ms <-> tz conversions. Drain
+        // layer also forwards the string to ApiClient untouched after
+        // re-parse — keeps the payload self-describing.
+        'started_at_iso': DateTime.fromMillisecondsSinceEpoch(
+          startedAtMs,
+          isUtc: false,
+        ).toUtc().toIso8601String(),
+        'ended_at_iso': endedAtMs == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(endedAtMs, isUtc: false)
+                .toUtc()
+                .toIso8601String(),
+        // ignore: use_null_aware_elements
+        if (metadata != null) 'metadata': metadata,
       },
       createdAt: nowMs,
     );
