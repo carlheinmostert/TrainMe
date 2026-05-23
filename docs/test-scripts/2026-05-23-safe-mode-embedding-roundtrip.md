@@ -15,6 +15,7 @@ This script verifies the end-to-end round-trip: enrol on device → 2048 bytes l
 - [B. Withdraw consent zeroes the embedding](#b-withdraw-consent-zeroes-the-embedding)
 - [C. Capture screen unblocks once embedding ready](#c-capture-screen-unblocks-once-embedding-ready)
 - [D. Capture-time face matching (v2 photo pipeline)](#d-capture-time-face-matching-v2-photo-pipeline)
+- [E. Debug-gated v2 threshold tuning sheet](#e-debug-gated-v2-threshold-tuning-sheet)
 
 ## Prerequisites
 
@@ -60,3 +61,11 @@ Verifies the conversion service now routes capture-time photo Safe Mode through 
 - [ ] 15. Race-condition test: with consent ON + embedding cached, open Camera mode, take a photo, IMMEDIATELY force-quit the app (swipe up + flick) before the conversion has finished. Relaunch. The cached embedding may have been evicted on cold start before the queued conversion resumes. Expected: the exercise row is gone (rejected); a coral-bordered toast surfaces at the top of the viewfinder reading something like `Face fingerprint isn't ready — try again in a moment`. The half-converted exercise must NOT survive into the Studio list with `safeRawFilePath = null` (which would publish un-blurred bystanders).
 - [ ] 16. Re-take the same selfie burst from item 11. With threshold lowered to 0.5 + head-expansion clamped to 35% area, ALL captures should now render with face sharp (subject identified) rather than the whole frame blurred. Pull device logs via `xcrun devicectl device process view --device 00008150-001A31D40E88401C --console | grep "SafeMode v2"` during a capture to see per-face cosine similarities. Expected: cosSim values for self in the 0.45-0.70 range (above the new 0.5 threshold consistently).
 - [ ] 17. Cold-start rehydration: with embedding already enrolled for the active client, force-quit the app (swipe up + flick away). Relaunch and open the same client → new session. Safe Mode banner should immediately show ready (capture buttons enabled, no "Prepare a face fingerprint" CTA). Tap capture — the native call should fire with the rehydrated embedding without any re-generation. Confirmed via the `[SafeMode v2] face[0] cosSim=...` line appearing in the device log on the very first capture after relaunch.
+
+## E. Debug-gated v2 threshold tuning sheet
+
+Verifies the long-press tuning sheet that lets us iterate on the v2 face-match threshold without rebuilds. Gated by `debugTuningGateActive()` (`kDebugMode || AppConfig.env == 'staging'`) — release/prod builds get a no-op wrap and never see the affordance. Persists chosen values to SharedPreferences under `safe_mode_v2_threshold_override` so future captures pick them up automatically.
+
+- [ ] 18. With staging build installed: open Studio, long-press a Safe-Mode photo card. Tuning sheet slides up with a slider centered on 0.500 (or the last saved override). Photo thumbnail visible at top.
+- [ ] 19. Drag the slider down to ~0.30, release. Spinner appears briefly on the photo preview; preview updates to the new re-composited safe variant. The face that was previously coral'd as a bystander should now show as the subject (sharp) because the looser threshold accepted the match.
+- [ ] 20. Tap "Save default", close the sheet, take a fresh selfie. The new capture uses the saved 0.30 threshold automatically (verify by long-pressing the new exercise → slider initial value reads 0.30). Tap "Reset" to clear → next capture uses const 0.50 again.
