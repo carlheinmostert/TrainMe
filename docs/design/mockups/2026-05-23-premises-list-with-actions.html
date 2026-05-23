@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Premises list — live view + poster surfaced at the collection level — mockup 2026-05-23</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --base: #1A1D27;
+    --raised: #242733;
+    --border: #2E3140;
+    --ink: #F0F0F5;
+    --ink-muted: #9CA3AF;
+    --ink-dim: #6B7280;
+    --brand: #FF6B35;
+    --brand-dark: #E85A24;
+    --brand-tint-bg: rgba(255,107,53,0.12);
+    --brand-tint-border: rgba(255,107,53,0.30);
+    --error: #EF4444;
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; }
+  body { padding: 40px 24px 80px; }
+  .page { max-width: 980px; margin: 0 auto; }
+  .nav-crumb { font-size: 13px; color: var(--ink-muted); margin-bottom: 18px; }
+  .nav-crumb a { color: var(--ink-muted); text-decoration: none; }
+  .nav-crumb a:hover { color: var(--brand); }
+  h1 { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 32px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .subtitle { font-size: 14px; color: var(--ink-muted); margin: 0 0 24px; max-width: 640px; line-height: 1.55; }
+
+  /* Page-level actions row — surfaces practice-wide affordances */
+  .page-actions {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    margin: 0 0 28px;
+    padding: 14px 16px;
+    background: var(--base);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .page-actions .label {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-dim); margin-right: 4px;
+  }
+  .live-link {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    background: var(--brand-tint-bg);
+    border: 1px solid var(--brand-tint-border);
+    border-radius: 8px;
+    color: var(--brand);
+    font-size: 13px; font-weight: 600;
+    text-decoration: none;
+  }
+  .live-link::before {
+    content: '';
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--brand);
+    box-shadow: 0 0 0 4px rgba(255,107,53,0.18);
+  }
+  .live-link .url-hint {
+    color: var(--ink-muted); font-weight: 400; font-size: 12px; margin-left: 6px;
+  }
+  .live-link .arrow { color: var(--brand); margin-left: 2px; }
+
+  /* Premises card section */
+  .card {
+    background: var(--base);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; margin-bottom: 18px;
+  }
+  .card-header h2 {
+    font-family: Montserrat, sans-serif; font-size: 18px; font-weight: 700; margin: 0;
+  }
+  .card-header p { font-size: 12px; color: var(--ink-muted); margin: 4px 0 0; }
+  .add-btn {
+    background: var(--brand); color: var(--bg);
+    border: none; border-radius: 6px; padding: 9px 16px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+
+  .row-list { list-style: none; padding: 0; margin: 0; }
+  .row {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 16px 0;
+    border-top: 1px solid var(--border);
+  }
+  .row:first-child { border-top: none; padding-top: 8px; }
+  @media (min-width: 720px) {
+    .row { flex-direction: row; align-items: center; justify-content: space-between; }
+  }
+  .row-meta { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .name-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .name {
+    font-size: 15px; font-weight: 600; color: var(--ink);
+    text-decoration: none;
+  }
+  .name:hover { color: var(--brand); text-decoration: underline; text-underline-offset: 4px; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--ink-muted);
+  }
+  .badge.safe { background: var(--brand-tint-bg); border-color: var(--brand-tint-border); color: var(--brand); font-weight: 500; }
+  .badge.dashed { border-style: dashed; }
+  .meta-line { font-size: 12px; color: var(--ink-muted); }
+
+  /* Right-side row actions */
+  .row-actions {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    align-items: center;
+  }
+  .row-actions .group-sep {
+    width: 1px; height: 22px; background: var(--border); margin: 0 4px;
+  }
+  .icon-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .icon-btn:hover { background: var(--raised); }
+  .icon-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .icon-btn.danger { color: var(--error); border-color: rgba(239,68,68,0.35); }
+  .icon-btn.danger:hover { background: rgba(239,68,68,0.10); }
+  .icon-btn.poster { color: var(--brand); border-color: var(--brand-tint-border); }
+  .icon-btn.poster:hover { background: var(--brand-tint-bg); }
+
+  /* Annotations */
+  .annotation-callout {
+    margin-top: 36px;
+    background: var(--raised);
+    border: 1px dashed var(--brand-tint-border);
+    border-radius: 10px;
+    padding: 18px 22px;
+    font-size: 13px; color: var(--ink-muted); line-height: 1.6;
+  }
+  .annotation-callout strong { color: var(--ink); font-weight: 600; }
+  .annotation-callout ul { padding-left: 20px; margin: 8px 0 0; }
+  .annotation-callout li { margin: 6px 0; }
+  .annotation-callout li code {
+    background: var(--bg); padding: 1px 6px; border-radius: 4px;
+    color: var(--brand); font-size: 12px;
+  }
+  .annotation-callout .lede {
+    color: var(--ink); font-weight: 600; font-size: 14px;
+    margin-bottom: 8px;
+  }
+
+  .changes-banner {
+    background: var(--brand-tint-bg);
+    border: 1px solid var(--brand-tint-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--brand);
+    font-size: 13px;
+    margin: 0 0 24px;
+  }
+  .changes-banner strong { font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="nav-crumb"><a href="#">← Dashboard</a></div>
+  <h1>Premises</h1>
+  <p class="subtitle">Spaces where Safe Mode obscuring is enforced. Anyone scanning the printed poster sees who's recording right now and can report directly to the practice.</p>
+
+  <div class="changes-banner">
+    <strong>Mockup notes:</strong> Surfacing two new entry points the spec previously buried inside Edit — the live transparency view (practice-wide, page-level) and the poster download (per-premises). Practitioners shouldn't need to enter an Edit form to grab a public resource.
+  </div>
+
+  <!-- Page-level: live transparency view (practice-wide) -->
+  <div class="page-actions">
+    <span class="label">Public transparency</span>
+    <a class="live-link" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener">
+      Live view
+      <span class="url-hint">session.homefit.studio/v/homefit/now</span>
+      <span class="arrow">↗</span>
+    </a>
+  </div>
+
+  <!-- Premises collection -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>3 sites · 2 enforce Safe Mode</h2>
+        <p>Polygons saved per site. Each enforced site gets a printable transparency poster.</p>
+      </div>
+      <button class="add-btn">+ Add premises</button>
+    </div>
+
+    <ul class="row-list">
+
+      <!-- Row 1: enforced premises with all actions -->
+      <li class="row">
+        <div class="row-meta">
+          <div class="name-line">
+            <a class="name" href="#">Studio Floor</a>
+            <span class="badge safe">Safe Mode</span>
+            <span class="badge">142 m²</span>
+            <span class="badge dashed">GPS</span>
+          </div>
+          <span class="meta-line">123 Buitenkant Street · Cape Town</span>
+        </div>
+        <div class="row-actions">
+          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener" title="Open the live transparency view in a new tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/></svg>
+            Live
+          </a>
+          <a class="icon-btn poster" href="/premises/abc/poster?print=1" target="_blank" rel="noopener" title="Download the printable transparency poster">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Poster
+          </a>
+          <span class="group-sep"></span>
+          <button class="icon-btn" title="Edit premises">Edit</button>
+          <button class="icon-btn danger" title="Delete premises">Delete</button>
+        </div>
+      </li>
+
+      <!-- Row 2: enforced premises, second one -->
+      <li class="row">
+        <div class="row-meta">
+          <div class="name-line">
+            <a class="name" href="#">Outdoor Court</a>
+            <span class="badge safe">Safe Mode</span>
+            <span class="badge">680 m²</span>
+            <span class="badge dashed">GPS</span>
+          </div>
+          <span class="meta-line">Greenpoint park · open-air south corner</span>
+        </div>
+        <div class="row-actions">
+          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/></svg>
+            Live
+          </a>
+          <a class="icon-btn poster" href="/premises/def/poster?print=1" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Poster
+          </a>
+          <span class="group-sep"></span>
+          <button class="icon-btn">Edit</button>
+          <button class="icon-btn danger">Delete</button>
+        </div>
+      </li>
+
+      <!-- Row 3: registered-only (no Safe Mode) — no poster button, but live link still visible for the practice -->
+      <li class="row">
+        <div class="row-meta">
+          <div class="name-line">
+            <a class="name" href="#">Office (intake)</a>
+            <span class="badge">Registered only</span>
+            <span class="badge">38 m²</span>
+            <span class="badge dashed">GPS</span>
+          </div>
+          <span class="meta-line">Long Street office · reception</span>
+        </div>
+        <div class="row-actions">
+          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/></svg>
+            Live
+          </a>
+          <!-- No poster button: poster is only meaningful for enforced premises -->
+          <span class="group-sep"></span>
+          <button class="icon-btn">Edit</button>
+          <button class="icon-btn danger">Delete</button>
+        </div>
+      </li>
+
+    </ul>
+  </div>
+
+  <div class="annotation-callout">
+    <p class="lede">What's different vs. the shipped version</p>
+    <ul>
+      <li><strong>Live transparency view</strong> surfaces at the page level (top action bar). It's practice-wide — every premises in this list shares the same <code>/v/{slug}/now</code> URL — so a single prominent entry point makes sense. The per-row <code>Live</code> button is also there as a familiar in-row affordance for owners who scan row-by-row.</li>
+      <li><strong>Poster download</strong> moves out of the Edit form and onto each row directly. Only shown for <strong>Safe Mode enforced</strong> rows (a non-enforced premises has no bystander-trust artefact to print).</li>
+      <li><strong>Edit / Delete</strong> are visually separated from the public actions by a thin vertical rule, so practitioners can scan public-vs-private intent quickly. Edit stops being a gateway to public resources.</li>
+      <li>If the row becomes cramped on mobile, the public actions group ( <code>Live</code> + <code>Poster</code> ) collapses to a single overflow button. Edit / Delete stay visible.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>
