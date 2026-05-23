@@ -3223,6 +3223,14 @@ class VideoConverterChannel {
             subjectIdentified = false
         }
 
+        for (i, f) in faces.enumerated() {
+            NSLog("[SafeMode v2] face[%d] cosSim=%.3f", i, f.cosSim)
+        }
+        NSLog(
+            "[SafeMode v2] faces=%d threshold=%.2f bestSim=%.3f subjectIdentified=%@",
+            faces.count, threshold, bestSim, subjectIdentified ? "true" : "false"
+        )
+
         // --- Run PersonSegmenter on the upright buffer ---
         let segmenter = PersonSegmenter(width: width, height: height)
         let maskPtr = segmenter.generateMaskOneShot(for: srcBuf)
@@ -3281,7 +3289,8 @@ class VideoConverterChannel {
                     height: height,
                     pixelRect: f.pixelRectTopLeft,
                     headWidthFactor: 2.0,
-                    headHeightFactor: 1.5
+                    headHeightFactor: 1.5,
+                    maxAreaFraction: 0.35
                 )
             }
         } else {
@@ -3294,7 +3303,8 @@ class VideoConverterChannel {
                     height: height,
                     pixelRect: f.pixelRectTopLeft,
                     headWidthFactor: 2.0,
-                    headHeightFactor: 1.5
+                    headHeightFactor: 1.5,
+                    maxAreaFraction: 0.35
                 )
             }
         }
@@ -3585,12 +3595,32 @@ class VideoConverterChannel {
         height: Int,
         pixelRect: CGRect,
         headWidthFactor: CGFloat,
-        headHeightFactor: CGFloat
+        headHeightFactor: CGFloat,
+        maxAreaFraction: Double = 1.0
     ) {
+        // For close-up selfies a single face can occupy 40-60% of the
+        // frame; multiplying by 2.0 x 1.5 then paints 80-90% of the
+        // frame, which reads to the user as "everything is blurred".
+        // Clamp the expansion so any single face contributes at most
+        // `maxAreaFraction` of the frame area.
+        var wFactor = headWidthFactor
+        var hFactor = headHeightFactor
+        let frameArea = Double(width) * Double(height)
+        if frameArea > 0 && maxAreaFraction > 0 && maxAreaFraction < 1.0 {
+            let expandedW = Double(pixelRect.width) * Double(wFactor)
+            let expandedH = Double(pixelRect.height) * Double(hFactor)
+            let expandedArea = expandedW * expandedH
+            let allowedArea = frameArea * maxAreaFraction
+            if expandedArea > allowedArea && expandedArea > 0 {
+                let scale = (allowedArea / expandedArea).squareRoot()
+                wFactor *= CGFloat(scale)
+                hFactor *= CGFloat(scale)
+            }
+        }
         let cx = pixelRect.midX
         let cy = pixelRect.midY
-        let halfW = pixelRect.width * headWidthFactor * 0.5
-        let halfH = pixelRect.height * headHeightFactor * 0.5
+        let halfW = pixelRect.width * wFactor * 0.5
+        let halfH = pixelRect.height * hFactor * 0.5
         let x0 = max(0, Int((cx - halfW).rounded(.down)))
         let x1 = min(width, Int((cx + halfW).rounded(.up)))
         let y0 = max(0, Int((cy - halfH).rounded(.down)))

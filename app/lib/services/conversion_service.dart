@@ -29,6 +29,15 @@ import 'safe_mode_service.dart';
 /// removes the row.
 const double kSafeModeMaxMissRate = 0.05;
 
+/// Cosine-similarity threshold passed to `applySafeModeV2ToPhoto` for
+/// matching a detected face against the enrolled subject embedding.
+/// MobileFaceNet "same person" thresholds typically land in the 0.4-0.5
+/// range — 0.65 (the original v2 default) was too tight for natural
+/// selfie variation against an arms-length enrolment shot and caused
+/// every face after the first to drop into no-subject mode, which then
+/// blurred the entire frame via head-expansion. Revisit after device QA.
+const double kSafeModeV2FaceMatchThreshold = 0.5;
+
 /// Reason discriminator for [SafeModeRejection]. The capture screen
 /// branches its toast copy on this so the user knows whether a
 /// steadier shot will help or whether the embedding needs to be
@@ -1128,10 +1137,7 @@ class ConversionService extends ChangeNotifier {
                 'srcPath': exercise.absoluteRawFilePath,
                 'destPath': candidate,
                 'subjectEmbedding': subjectEmbedding,
-                // Matches `reprocessSafeMode` at line 2384 — the
-                // cosine-similarity threshold tuning is locked
-                // native-side until QA.
-                'threshold': 0.65,
+                'threshold': kSafeModeV2FaceMatchThreshold,
               },
             ).timeout(const Duration(seconds: 30));
             if (resp == null) {
@@ -2452,10 +2458,7 @@ class ConversionService extends ChangeNotifier {
               'srcPath': rawAbs,
               'destPath': destPath,
               'subjectEmbedding': embedding,
-              // Conservative default; the native pipeline interprets
-              // this as cosine-similarity threshold for matching the
-              // subject. Tuning is locked native-side until QA.
-              'threshold': 0.65,
+              'threshold': kSafeModeV2FaceMatchThreshold,
             },
           )
           .timeout(const Duration(seconds: 30));
