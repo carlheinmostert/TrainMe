@@ -2423,6 +2423,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       _cachedClientSnapshot = cached;
       _cachedClientLookupId = cid;
     });
+    // Cold-start rehydration: if the cached row already has a face
+    // embedding (server-side enrolment that was previously synced into
+    // local SQLite), prime FaceEmbeddingService so the Safe Mode banner
+    // skips the "Prepare a face fingerprint" CTA on relaunch.
+    final embedding = cached?.faceEmbedding;
+    if (embedding != null && embedding.isNotEmpty) {
+      FaceEmbeddingService.instance.hydrateFromBytes(cid, embedding);
+    }
   }
 
   /// Open the avatar capture flow (sets the client's avatar AND

@@ -16,6 +16,7 @@ import '../models/treatment.dart';
 import '../config.dart';
 import 'api_client.dart';
 import 'client_defaults_api.dart';
+import 'face_embedding_service.dart';
 import 'local_storage_service.dart';
 
 /// Orchestrator for the offline-first sync loop.
@@ -422,6 +423,16 @@ class SyncService {
         practiceId: practiceId,
         clients: cached,
       );
+      // Cold-start rehydration: prime FaceEmbeddingService for every
+      // client whose embedding was just pulled from the cloud, so the
+      // Safe Mode banner skips the "Prepare a face fingerprint" CTA on
+      // first session-open after sign-in / reconnect.
+      for (final c in cached) {
+        final emb = c.faceEmbedding;
+        if (emb != null && emb.isNotEmpty) {
+          FaceEmbeddingService.instance.hydrateFromBytes(c.id, emb);
+        }
+      }
       return _BranchOutcome.ok;
     } catch (e) {
       debugPrint('SyncService._pullClients: $e');
