@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
@@ -6,6 +6,7 @@ import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { PremisesDetailPanel } from '@/components/PremisesDetailPanel';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { playerOriginFromHost } from '@/lib/env';
 
 type SearchParams = { practice?: string };
 type RouteParams = { id: string };
@@ -62,6 +63,12 @@ export default async function PremisesDetailPage({
   const isOwner = role === 'owner';
   const qs = `?practice=${selected.id}`;
 
+  // Practice slug + player origin → live URL preview in the slug editor.
+  const profile = await api.getPracticePublicProfile(selected.id);
+  const practiceSlug = profile?.slug ?? null;
+  const reqHeaders = await headers();
+  const playerOrigin = playerOriginFromHost(reqHeaders.get('host'));
+
   return (
     <main className="flex min-h-screen flex-col">
       <BrandHeader
@@ -81,6 +88,8 @@ export default async function PremisesDetailPage({
         <PremisesDetailPanel
           initial={premises}
           practiceId={selected.id}
+          practiceSlug={practiceSlug}
+          playerOrigin={playerOrigin}
         />
       </div>
     </main>
