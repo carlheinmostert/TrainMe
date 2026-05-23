@@ -259,12 +259,21 @@ export default async function PosterPage({
           </div>
 
           <div className="poster-trust">
-            <div>
-              Learn more at{' '}
-              <strong className="poster-wm">
-                homefit<span className="poster-dot-studio">.studio</span>
-                /what-we-share
-              </strong>
+            <div className="poster-trust-links">
+              <div>
+                Learn more at{' '}
+                <strong className="poster-wm">
+                  homefit<span className="poster-dot-studio">.studio</span>
+                  /what-we-share
+                </strong>
+              </div>
+              <div>
+                How Safe Mode works:{' '}
+                <strong className="poster-wm">
+                  homefit<span className="poster-dot-studio">.studio</span>
+                  /safe-mode
+                </strong>
+              </div>
             </div>
             <div className="poster-powered-stack">
               <div className="poster-powered">powered by</div>
@@ -416,8 +425,11 @@ const posterCss = `
     display: flex; justify-content: space-between; align-items: flex-end;
     font-size: 9pt; color: #4B5563;
   }
+  .poster-trust-links {
+    display: flex; flex-direction: column; gap: 2mm;
+  }
   .poster-powered-stack {
-    display: flex; flex-direction: column; align-items: flex-end; gap: 4mm;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 3mm;
   }
   .poster-powered {
     font-family: 'Montserrat', sans-serif; font-weight: 600;
