@@ -4,14 +4,22 @@
  * Safe Mode Transparency — Phase B (2026-05-22) + Live-view cosmetic
  * + functional pass (2026-05-23, items 15-19 of stack file).
  *
+ * Architectural reversal (2026-05-23 evening): the map background is now
+ * a live Leaflet map with Esri World Imagery satellite tiles + the
+ * polygon as an L.polygon overlay, instead of a baked Mapbox Static
+ * Images snapshot. Matches the pattern in
+ * web-portal/src/components/PremisesPolygonEditor.tsx — free, key-less,
+ * vendor-consistent.
+ *
  * Polls `get_live_sessions(practiceSlug, premisesSlug)` every 12 seconds
  * and renders:
- *   - The practice's enforced-Safe-Mode polygon on a Mapbox satellite
- *     snapshot (with graceful fallback to a polygon-only SVG when the
- *     snapshot URL is NULL — e.g. MAPBOX_TOKEN secret missing).
- *   - Active practitioner cards floating at their last reported GPS
- *     position, projected over the polygon bounding box.
- *   - A sage "You are here" dot anchored to the viewer's own
+ *   - The practice's enforced-Safe-Mode polygon as a Leaflet polygon
+ *     overlay on top of the satellite tiles.
+ *   - Active practitioner cards as DOM elements absolute-positioned over
+ *     the Leaflet container; their pixel position is recomputed on every
+ *     Leaflet move/zoom event (and after each poll) via
+ *     map.latLngToContainerPoint.
+ *   - A sage "You are here" Leaflet marker anchored to the viewer's own
  *     geolocation (browser-only — never sent to our server).
  *   - Canonical brand lockup top-right + centred at bottom (per item
  *     15 + item 18 of the stack file).
@@ -30,9 +38,7 @@
   const elPracticeName = document.getElementById('live-practice-name');
   const elPracticeLoc = document.getElementById('live-practice-loc');
   const elMeta = document.getElementById('live-meta');
-  const elMapGrid = document.getElementById('live-map-grid');
-  const elMapSvg = document.getElementById('live-map-svg');
-  const elMapSnapshot = document.getElementById('live-map-snapshot');
+  const elMap = document.getElementById('live-map');
   const elCardLayer = document.getElementById('live-card-layer');
   const elReportModal = document.getElementById('live-report-modal');
   const elTopLogo = document.getElementById('live-top-logo');
@@ -42,10 +48,19 @@
 
   let pollTimer = null;
   let viewerPos = null; // { lat, lng } — never leaves the browser.
-  let lastBounds = null; // last computed polygon bounds for the "You" dot
   let lastUpdatedAt = 0;
   let metaTicker = null;
-  let lastSnapshotUrl = null;
+
+  // ---------------------------------------------------------------------
+  // Leaflet state — created lazily on first poll (after the live-content
+  // element is unhidden, so the map container has non-zero dimensions).
+  // ---------------------------------------------------------------------
+  let map = null;
+  let polygonLayer = null;
+  let viewerMarker = null;
+  let lastSessions = []; // most recent session payload — re-projected on Leaflet events
+  let mapFittedOnce = false; // only fit-bounds on the FIRST polygon paint
+  let lastPolygonKey = null; // skip re-paint when the same polygon repeats
 
   function slugsFromPath() {
     // Per-premises shape: /v/{practice-slug}/{premises-slug}/now.
@@ -66,8 +81,7 @@
   // Item 16 — practice mark: uploaded logo wins; else two-letter initials
   // derived from first letters of first two whitespace-separated tokens
   // of the practice name (uppercase). If only one token, first two
-  // letters of that token. Aspect rules mirror the LogoUploader (item 1):
-  // max-width/max-height caps + object-fit: contain.
+  // letters of that token.
   // ---------------------------------------------------------------------
   function deriveInitials(name) {
     const tokens = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -81,7 +95,6 @@
 
   function paintPracticeMark(name, logoUrl) {
     if (!elPracticeMark) return;
-    // Clear children + classes so we can swap between modes safely.
     while (elPracticeMark.firstChild) elPracticeMark.removeChild(elPracticeMark.firstChild);
     elPracticeMark.classList.remove('has-logo');
     if (logoUrl) {
@@ -89,8 +102,6 @@
       img.src = logoUrl;
       img.alt = '';
       img.loading = 'lazy';
-      // On image error, fall back to initials so we never show a broken
-      // image icon. Race-free because we read .has-logo at swap time.
       img.addEventListener('error', () => {
         elPracticeMark.classList.remove('has-logo');
         while (elPracticeMark.firstChild) elPracticeMark.removeChild(elPracticeMark.firstChild);
@@ -119,20 +130,15 @@
     const ghostMid = '#6B7280';
     const ghostInner = '#9CA3AF';
     return (
-      // Left ghost pills.
       `<rect x="0" y="${y(2.75)}" width="2.5" height="1.5" rx="0.5" fill="${ghostOuter}"/>` +
       `<rect x="4" y="${y(2.45)}" width="3.5" height="2.1" rx="0.7" fill="${ghostMid}"/>` +
       `<rect x="9" y="${y(2.15)}" width="4.5" height="2.7" rx="0.9" fill="${ghostInner}"/>` +
-      // Coral tint band.
       `<rect x="14.5" y="${y(1)}" width="12.5" height="8.5" rx="1.2" fill="${coral}" opacity="0.15"/>` +
-      // 2×2 circuit.
       `<rect x="15" y="${y(2)}" width="5" height="3" rx="1" fill="${coral}"/>` +
       `<rect x="15" y="${y(6.5)}" width="5" height="3" rx="1" fill="${coral}"/>` +
       `<rect x="21.5" y="${y(2)}" width="5" height="3" rx="1" fill="${coral}"/>` +
       `<rect x="21.5" y="${y(6.5)}" width="5" height="3" rx="1" fill="${coral}"/>` +
-      // Rest pill.
       `<rect x="28" y="${y(2)}" width="5" height="3" rx="1" fill="${sage}"/>` +
-      // Right ghost pills.
       `<rect x="34.5" y="${y(2.15)}" width="4.5" height="2.7" rx="0.9" fill="${ghostInner}"/>` +
       `<rect x="40.5" y="${y(2.45)}" width="3.5" height="2.1" rx="0.7" fill="${ghostMid}"/>` +
       `<rect x="45.5" y="${y(2.75)}" width="2.5" height="1.5" rx="0.5" fill="${ghostOuter}"/>`
@@ -161,9 +167,6 @@
 
   // ---------------------------------------------------------------------
   // Item 17 — dynamic hero headline with pluralisation.
-  //   N = 0 → "Nobody is recording right now"
-  //   N = 1 → "1 person is recording right now"
-  //   N ≥ 2 → "{N} people are recording right now"
   // ---------------------------------------------------------------------
   function paintHero(sessionCount) {
     if (!elHeroH1 || !elHeroTitle) return;
@@ -182,109 +185,158 @@
   }
 
   // ---------------------------------------------------------------------
-  // Polygon / projection math (unchanged from prior version)
+  // Leaflet map — initialised lazily on first poll. Defaults to satellite
+  // (matches the bystander mental model: "show me the venue"). The Esri
+  // World Imagery tiles are key-less and identical to the editor's
+  // satellite layer.
   // ---------------------------------------------------------------------
-  function computeBounds(premises) {
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLng = Infinity, maxLng = -Infinity;
-    premises.forEach((p) => {
-      (p.polygon || []).forEach((pt) => {
-        if (!Array.isArray(pt) || pt.length < 2) return;
-        const lng = Number(pt[0]);
-        const lat = Number(pt[1]);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        if (lat < minLat) minLat = lat;
-        if (lat > maxLat) maxLat = lat;
-        if (lng < minLng) minLng = lng;
-        if (lng > maxLng) maxLng = lng;
-      });
+  function ensureMap() {
+    if (map || !window.L || !elMap) return map;
+    // Pin a generous maxZoom so the layer switcher doesn't re-clamp the
+    // view mid-session. maxNativeZoom caps tile fetches at the highest
+    // zoom Esri actually has imagery for; beyond that Leaflet upscales.
+    const MAP_MAX_ZOOM = 19;
+    const ESRI_MAX_NATIVE = 18;
+
+    map = window.L.map(elMap, {
+      // Sensible default until the polygon arrives + we fitBounds it.
+      center: [-26.2041, 28.0473], // Johannesburg-ish; replaced on first polygon paint
+      zoom: 17,
+      maxZoom: MAP_MAX_ZOOM,
+      zoomControl: true,
+      attributionControl: true,
     });
-    if (!Number.isFinite(minLat) || !Number.isFinite(minLng)) return null;
-    const padLat = ((maxLat - minLat) || 0.0005) * 0.08;
-    const padLng = ((maxLng - minLng) || 0.0005) * 0.08;
-    return {
-      minLat: minLat - padLat,
-      maxLat: maxLat + padLat,
-      minLng: minLng - padLng,
-      maxLng: maxLng + padLng,
-    };
-  }
 
-  function project(bounds, lat, lng) {
-    if (!bounds) return null;
-    const x = ((lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100;
-    const y = ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * 125;
-    return { x, y };
-  }
+    const street = window.L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: MAP_MAX_ZOOM, attribution: '© OpenStreetMap contributors' },
+    );
+    const satellite = window.L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: MAP_MAX_ZOOM,
+        maxNativeZoom: ESRI_MAX_NATIVE,
+        attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',
+      },
+    );
+    const labels = window.L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: MAP_MAX_ZOOM,
+        maxNativeZoom: ESRI_MAX_NATIVE,
+        attribution: 'Labels © Esri',
+      },
+    );
+    // Default to satellite — bystanders want venue context.
+    satellite.addTo(map);
+    window.L.control
+      .layers(
+        { Satellite: satellite, Street: street },
+        { Labels: labels },
+        { collapsed: true },
+      )
+      .addTo(map);
 
-  function drawPolygons(bounds, premises) {
-    while (elMapSvg.firstChild) elMapSvg.removeChild(elMapSvg.firstChild);
-    if (!bounds) return;
-    premises.forEach((p) => {
-      const ring = (p.polygon || []).map((pt) => project(bounds, pt[1], pt[0])).filter(Boolean);
-      if (ring.length < 3) return;
-      const pointsAttr = ring.map((pt) => `${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ');
-      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-      poly.setAttribute('points', pointsAttr);
-      poly.setAttribute('fill', 'rgba(255, 107, 53, 0.06)');
-      poly.setAttribute('stroke', '#FF6B35');
-      poly.setAttribute('stroke-width', '0.6');
-      poly.setAttribute('stroke-dasharray', '2 1.5');
-      poly.setAttribute('vector-effect', 'non-scaling-stroke');
-      elMapSvg.appendChild(poly);
+    // Reproject practitioner cards + viewer dot whenever the map moves.
+    map.on('move zoom moveend zoomend', () => {
+      repositionCards();
+      repositionViewerDot();
     });
+
+    // First-paint sizing: Leaflet caches container size on init. If the
+    // live-content section was hidden when ensureMap() ran (it isn't
+    // today, but defensive), the map would render at 0×0. invalidateSize
+    // on the next frame covers that and any modal-ish wrappers.
+    requestAnimationFrame(() => {
+      if (map) map.invalidateSize();
+    });
+    return map;
   }
 
-  // ---------------------------------------------------------------------
-  // Item 19 — paint the satellite snapshot when present; fall back
-  // gracefully to the polygon-only grid SVG when NULL or on image load
-  // failure.
-  // ---------------------------------------------------------------------
-  function paintSnapshot(url) {
-    if (!elMapGrid || !elMapSnapshot) return;
-    if (!url) {
-      elMapGrid.classList.remove('has-snapshot');
-      elMapSnapshot.classList.remove('is-loaded');
-      elMapSnapshot.hidden = true;
-      elMapSnapshot.src = '';
-      lastSnapshotUrl = null;
-      return;
+  function paintPolygon(premises) {
+    if (!map || !window.L) return;
+    // Filter to the rings we actually have. Each premises entry has a
+    // polygon array of [lng, lat] pairs (matches the editor's storage
+    // shape).
+    const rings = premises
+      .map((p) => (p.polygon || [])
+        .map((pt) => Array.isArray(pt) && pt.length >= 2
+          ? [Number(pt[1]), Number(pt[0])] // Leaflet wants [lat, lng]
+          : null)
+        .filter(Boolean))
+      .filter((r) => r.length >= 3);
+
+    // Skip re-paint when the polygon hasn't changed (poll is every 12s;
+    // tearing down + re-creating the Leaflet polygon causes a slight
+    // flash). Cheap key: stringified ring coords.
+    const key = JSON.stringify(rings);
+    if (key === lastPolygonKey) return;
+    lastPolygonKey = key;
+
+    if (polygonLayer) {
+      polygonLayer.remove();
+      polygonLayer = null;
     }
-    if (lastSnapshotUrl === url) return; // already showing it.
-    lastSnapshotUrl = url;
-    elMapSnapshot.hidden = false;
-    elMapSnapshot.classList.remove('is-loaded');
-    elMapSnapshot.onload = () => {
-      elMapGrid.classList.add('has-snapshot');
-      elMapSnapshot.classList.add('is-loaded');
-    };
-    elMapSnapshot.onerror = () => {
-      // Mapbox upload / network failure → silent fallback to polygon-only.
-      elMapGrid.classList.remove('has-snapshot');
-      elMapSnapshot.classList.remove('is-loaded');
-      elMapSnapshot.hidden = true;
-      lastSnapshotUrl = null;
-    };
-    elMapSnapshot.src = url;
+    if (rings.length === 0) return;
+
+    polygonLayer = window.L.polygon(rings, {
+      color: '#FF6B35',
+      weight: 2,
+      dashArray: '4 3',
+      fillColor: '#FF6B35',
+      fillOpacity: 0.08,
+    }).addTo(map);
+
+    // Only auto-fit the FIRST time we see a polygon — subsequent re-paints
+    // would yank a user's manual zoom/pan around. Tiny pad inset so the
+    // dashed stroke isn't kissing the card edges.
+    if (!mapFittedOnce) {
+      try {
+        map.fitBounds(polygonLayer.getBounds(), {
+          padding: [20, 20],
+          maxZoom: 19,
+        });
+        mapFittedOnce = true;
+      } catch (_) { /* getBounds throws on empty ring */ }
+    }
   }
 
-  function drawSessions(bounds, sessions, practiceContact) {
-    // Clear all but the persistent "You" dot.
-    Array.from(elCardLayer.children).forEach((child) => {
-      if (!child.classList || !child.classList.contains('live-you')) {
-        elCardLayer.removeChild(child);
-      }
+  function repositionCards() {
+    if (!map || !elCardLayer) return;
+    const cards = elCardLayer.querySelectorAll('.live-pcard');
+    cards.forEach((card) => {
+      const lat = Number(card.dataset.lat);
+      const lng = Number(card.dataset.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const pt = map.latLngToContainerPoint([lat, lng]);
+      card.style.left = `${pt.x}px`;
+      card.style.top = `${pt.y}px`;
     });
+  }
+
+  function repositionViewerDot() {
+    // Viewer dot is a Leaflet marker — Leaflet itself handles repositioning
+    // on move/zoom. Nothing to do here. Kept as a hook in case we ever
+    // switch to a DOM-positioned dot.
+  }
+
+  function drawSessions(sessions, practiceContact) {
+    if (!elCardLayer) return;
+    // Clear existing practitioner cards. (Viewer dot is a Leaflet marker
+    // and lives separately, so no special handling needed.)
+    while (elCardLayer.firstChild) elCardLayer.removeChild(elCardLayer.firstChild);
+
     sessions.forEach((s) => {
       const card = document.createElement('div');
       card.className = 'live-pcard';
-      const proj = (Number.isFinite(s.latitude) && Number.isFinite(s.longitude))
-        ? project(bounds, s.latitude, s.longitude)
-        : null;
-      const cx = proj ? proj.x : 50;
-      const cy = proj ? proj.y : 62;
-      card.style.left = `${cx}%`;
-      card.style.top = `${(cy / 125) * 100}%`;
+
+      // Store the latlng on the element so reposition on move/zoom can
+      // recompute the pixel position without re-querying state.
+      const hasFix = Number.isFinite(s.latitude) && Number.isFinite(s.longitude);
+      if (hasFix) {
+        card.dataset.lat = String(s.latitude);
+        card.dataset.lng = String(s.longitude);
+      }
 
       const avatar = document.createElement('div');
       avatar.className = 'live-pcard-avatar';
@@ -323,6 +375,10 @@
       card.appendChild(report);
       elCardLayer.appendChild(card);
     });
+
+    // Position them once now — reposition handlers will keep them in
+    // sync on subsequent map events.
+    repositionCards();
   }
 
   function sessionInitials(first, last) {
@@ -331,18 +387,38 @@
     return (a + b) || '·';
   }
 
-  function drawViewerDot() {
-    Array.from(elCardLayer.querySelectorAll('.live-you')).forEach((n) => n.remove());
-    if (!viewerPos || !lastBounds) return;
-    const proj = project(lastBounds, viewerPos.lat, viewerPos.lng);
-    if (!proj) return;
-    if (proj.x < -10 || proj.x > 110 || proj.y < -10 || proj.y > 135) return;
-    const dot = document.createElement('div');
-    dot.className = 'live-you';
-    dot.title = 'You are here';
-    dot.style.left = `${proj.x}%`;
-    dot.style.top = `${(proj.y / 125) * 100}%`;
-    elCardLayer.appendChild(dot);
+  function paintViewerDot() {
+    if (!map || !window.L) return;
+    if (!viewerPos) {
+      if (viewerMarker) {
+        viewerMarker.remove();
+        viewerMarker = null;
+      }
+      return;
+    }
+    const icon = window.L.divIcon({
+      className: 'live-you-marker',
+      // Sage dot with a soft ring — mirrors the styles.css .live-you
+      // appearance (which we kept for fallback). Inline style so the
+      // marker is self-contained without needing another stylesheet hop.
+      html:
+        '<div style="width:16px;height:16px;border-radius:50%;' +
+        'background:#86EFAC;box-shadow:0 0 0 4px rgba(134,239,172,0.25);' +
+        '"></div>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    });
+    if (viewerMarker) {
+      viewerMarker.setLatLng([viewerPos.lat, viewerPos.lng]);
+      viewerMarker.setIcon(icon);
+    } else {
+      viewerMarker = window.L.marker([viewerPos.lat, viewerPos.lng], {
+        icon,
+        interactive: false,
+        keyboard: false,
+        title: 'You are here',
+      }).addTo(map);
+    }
   }
 
   function formatDuration(startedAtIso) {
@@ -399,25 +475,24 @@
 
     paintHeader(data);
 
-    // Snapshot URL — try the premises[0] copy first (more accurate when
-    // future variants land per-premises), fall back to the top-level
-    // copy from the head row.
-    const snapshotUrl =
-      (data.premises && data.premises[0] && data.premises[0].snapshotUrl) ||
-      data.premisesSnapshotUrl ||
-      null;
-    paintSnapshot(snapshotUrl);
+    // Map is created lazily AFTER live-content is unhidden so the
+    // container has non-zero dimensions on first paint.
+    ensureMap();
+    if (map) {
+      // Defensive: re-measure in case the parent only just became visible.
+      map.invalidateSize();
+    }
 
-    lastBounds = computeBounds(data.premises);
-    drawPolygons(lastBounds, data.premises);
+    paintPolygon(data.premises);
 
     if (!practiceContact) {
       practiceContact = await fetchPracticeContact(slugs.practiceSlug);
     }
 
-    drawSessions(lastBounds, data.sessions, practiceContact);
-    paintHero(data.sessions.length);
-    drawViewerDot();
+    lastSessions = data.sessions;
+    drawSessions(lastSessions, practiceContact);
+    paintHero(lastSessions.length);
+    paintViewerDot();
     lastUpdatedAt = Date.now();
     updateMetaTicker();
   }
@@ -541,7 +616,7 @@
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
           };
-          drawViewerDot();
+          paintViewerDot();
         },
         () => {},
         { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 },

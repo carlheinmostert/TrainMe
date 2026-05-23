@@ -880,7 +880,6 @@
         practiceSlug: head.practice_slug || practiceSlug,
         premisesSlug: head.premises_slug || premisesSlug,
         practiceLogoUrl: head.practice_logo_url || null,
-        premisesSnapshotUrl: head.premises_snapshot_url || null,
         premises: rows
           .filter((r) => r && r.kind === 'premises')
           .map((r) => ({
@@ -890,7 +889,6 @@
             polygon: Array.isArray(r.premises_polygon)
               ? r.premises_polygon
               : [],
-            snapshotUrl: r.premises_snapshot_url || null,
           })),
         sessions: rows
           .filter((r) => r && r.kind === 'session')
