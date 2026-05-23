@@ -31,39 +31,80 @@
       margin: 0;
     }
     .live-page { max-width: 640px; margin: 0 auto; }
+
     .live-top {
       display: flex; justify-content: space-between; align-items: center;
       padding-bottom: 20px; border-bottom: 1px solid var(--c-surface-border);
+      gap: 16px;
     }
     .live-practice {
       display: flex; align-items: center; gap: 12px;
+      min-width: 0;
     }
     .live-practice-mark {
-      width: 40px; height: 40px; border-radius: 8px;
+      width: 44px; height: 44px; border-radius: 10px;
       background: var(--c-surface-raised);
       display: flex; align-items: center; justify-content: center;
       font-family: 'Montserrat', sans-serif; font-weight: 700;
       color: var(--c-brand); font-size: 14px;
+      overflow: hidden; flex-shrink: 0;
+      letter-spacing: 0.02em;
+    }
+    /* Item 1 + item 16 — uploaded logo wins; aspect respected.
+       Mirror the LogoUploader cap rules so the live page treats the
+       logo the same way the editor preview does. */
+    .live-practice-mark.has-logo {
+      background: transparent; border-radius: 8px;
+      padding: 2px;
+    }
+    .live-practice-mark img {
+      max-width: 100%; max-height: 100%;
+      width: auto; height: auto;
+      object-fit: contain;
     }
     .live-practice-name {
       font-family: 'Montserrat', sans-serif; font-weight: 700;
       font-size: 16px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .live-practice-loc {
       font-size: 11px; color: var(--c-ink-secondary); margin-top: 2px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .live-matrix-logo svg { width: 56px; height: 12px; opacity: 0.7; }
+
+    /* Item 15 — top-right brand: lockup with "powered by" caption left.
+       Inline, tight spacing, lowercase. */
+    .live-brand-mark {
+      display: flex; align-items: center; gap: 8px;
+      flex-shrink: 0;
+    }
+    .live-brand-mark-caption {
+      font-family: 'Inter', sans-serif; font-weight: 500;
+      font-size: 10px; letter-spacing: 0.04em;
+      color: var(--c-ink-muted); opacity: 0.85;
+      white-space: nowrap;
+    }
+    .live-brand-mark-svg {
+      display: block; width: 64px; height: auto;
+    }
+    .live-brand-mark-svg svg { width: 100%; height: auto; display: block; }
 
     .live-hero { margin-top: 28px; }
     .live-hero h1 {
       font-family: 'Montserrat', sans-serif; font-weight: 800;
-      font-size: 28px; letter-spacing: -0.02em; line-height: 1.15;
+      font-size: 28px; letter-spacing: -0.02em; line-height: 1.18;
     }
     .live-hero h1 .live-dot {
       display: inline-block; width: 14px; height: 14px;
       border-radius: 50%; background: var(--c-brand); margin-right: 10px;
       vertical-align: middle; box-shadow: 0 0 0 4px var(--c-brand-tint-bg);
       animation: live-pulse 1.6s ease-in-out infinite;
+    }
+    /* When there's nobody recording the dot goes muted-grey so the
+       "Nobody is recording" headline doesn't shout. */
+    .live-hero h1.is-empty .live-dot {
+      background: var(--c-ink-muted); box-shadow: none;
+      animation: none; opacity: 0.45;
     }
     @keyframes live-pulse {
       0%, 100% { transform: scale(1); }
@@ -78,10 +119,14 @@
       letter-spacing: 0.04em; text-transform: uppercase;
     }
 
+    /* Item 19 — satellite map with snapshot background.
+       The snapshot <img> covers the box; the SVG polygon overlay sits
+       on top + practitioner cards float above that. Falls back to the
+       grid background if .has-snapshot is not set. */
     .live-map-card {
       margin-top: 24px; border: 1px solid var(--c-surface-border);
       background: var(--c-surface-raised); border-radius: 16px;
-      padding: 16px; overflow: hidden;
+      padding: 12px; overflow: hidden;
     }
     .live-map-grid {
       width: 100%; aspect-ratio: 4 / 5; position: relative;
@@ -91,6 +136,19 @@
         var(--c-surface-bg);
       border-radius: 12px; overflow: hidden;
     }
+    /* Snapshot fills the box; the polygon SVG overlays it. The snapshot
+       already has the polygon outline baked in by Mapbox, but we keep
+       the inline SVG outline on top for the dashed-coral active
+       affordance that matches the polygon-only fallback. */
+    .live-map-snapshot {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; display: block; opacity: 0;
+      transition: opacity 200ms ease-out;
+    }
+    .live-map-grid.has-snapshot {
+      background: var(--c-surface-bg);
+    }
+    .live-map-grid.has-snapshot .live-map-snapshot.is-loaded { opacity: 1; }
     .live-map-svg {
       position: absolute; inset: 0; width: 100%; height: 100%;
     }
@@ -147,18 +205,7 @@
       pointer-events: none;
     }
 
-    .live-empty {
-      margin-top: 24px; padding: 24px;
-      background: var(--c-surface-raised);
-      border: 1px solid var(--c-surface-border);
-      border-radius: 14px; text-align: center;
-      color: var(--c-ink-secondary);
-    }
-    .live-empty h2 {
-      font-family: 'Montserrat', sans-serif; font-weight: 700;
-      font-size: 16px; color: var(--c-ink-primary); margin-bottom: 6px;
-    }
-
+    /* Item 17 — explainer text (no button chrome). */
     .live-explainer {
       margin-top: 28px; padding: 18px;
       background: var(--c-surface-raised);
@@ -173,15 +220,25 @@
     .live-explainer p {
       font-size: 13px; line-height: 1.55; color: var(--c-ink-secondary);
     }
-    .live-explainer a {
+    .live-explainer-url {
+      display: block; margin-top: 12px;
+      font-size: 13px; line-height: 1.5;
+      color: var(--c-ink-secondary);
+    }
+    .live-explainer-url a {
       color: var(--c-brand); text-decoration: none; font-weight: 600;
     }
+    .live-explainer-url a:hover { text-decoration: underline; }
 
+    /* Item 18 — bottom footer with centred lockup, same scale as item 15. */
     .live-footer {
       margin-top: 36px; text-align: center;
-      font-size: 11px; color: var(--c-ink-muted);
     }
-    .live-footer-matrix { display: block; margin: 8px auto 0; opacity: 0.55; }
+    .live-footer-logo {
+      display: inline-block; width: 64px; height: auto; margin: 0 auto;
+      opacity: 0.85;
+    }
+    .live-footer-logo svg { width: 100%; height: auto; display: block; }
 
     /* Report modal — reuse the v.js modal pattern (dark backdrop +
        centered card with textarea + buttons). */
@@ -251,16 +308,19 @@
       <header class="live-top">
         <div class="live-practice">
           <div class="live-practice-mark" id="live-practice-mark">·</div>
-          <div>
+          <div style="min-width:0;">
             <div class="live-practice-name" id="live-practice-name">Practice</div>
             <div class="live-practice-loc" id="live-practice-loc"></div>
           </div>
         </div>
-        <div class="live-matrix-logo" id="live-top-logo" aria-hidden="true"></div>
+        <div class="live-brand-mark" aria-label="powered by homefit.studio">
+          <span class="live-brand-mark-caption">powered by</span>
+          <span class="live-brand-mark-svg" id="live-top-logo" aria-hidden="true"></span>
+        </div>
       </header>
 
       <section class="live-hero">
-        <h1><span class="live-dot"></span><span id="live-hero-title">Recording right now</span></h1>
+        <h1 id="live-hero-h1"><span class="live-dot"></span><span id="live-hero-title">Recording right now</span></h1>
         <p class="live-hero-sub" id="live-hero-sub">
           Safe Mode obscures every bystander captured by these practitioners.
           You see them — they don’t capture you.
@@ -270,14 +330,10 @@
 
       <section class="live-map-card">
         <div class="live-map-grid" id="live-map-grid">
+          <img class="live-map-snapshot" id="live-map-snapshot" alt="" aria-hidden="true" hidden>
           <svg class="live-map-svg" id="live-map-svg" viewBox="0 0 100 125" preserveAspectRatio="none"></svg>
           <div class="live-card-layer" id="live-card-layer"></div>
         </div>
-      </section>
-
-      <section id="live-empty" class="live-empty" hidden>
-        <h2>No one is recording right now</h2>
-        <p>This page updates automatically when a practitioner starts a session.</p>
       </section>
 
       <section class="live-explainer">
@@ -285,13 +341,15 @@
         <p>
           Recorded video processed on-device blurs anyone who isn’t the
           client. Practitioner identity is public; client identity is
-          obscured by default. <a href="/what-we-share">Learn more</a>.
+          obscured by default.
         </p>
+        <span class="live-explainer-url">
+          What is Safe Mode? — <a href="https://manage.homefit.studio/safe-mode">manage.homefit.studio/safe-mode</a>
+        </span>
       </section>
 
       <footer class="live-footer">
-        powered by homefit.studio
-        <span class="live-footer-matrix" id="live-footer-logo" aria-hidden="true"></span>
+        <span class="live-footer-logo" id="live-footer-logo" aria-label="homefit.studio"></span>
       </footer>
     </div>
 
