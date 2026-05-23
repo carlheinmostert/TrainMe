@@ -57,3 +57,4 @@ Verifies the conversion service now routes capture-time photo Safe Mode through 
   FROM exercises WHERE id = '<exercise_id>';
   ```
   Expected: `media_type = 'photo'`, `safe_mode_active = true`, `safe_mode_algorithm_version = 2`. Use `mcp__supabase__execute_sql` against staging project `vadjvkmldtoeyspyoqbx`.
+- [ ] 15. Race-condition test: with consent ON + embedding cached, open Camera mode, take a photo, IMMEDIATELY force-quit the app (swipe up + flick) before the conversion has finished. Relaunch. The cached embedding may have been evicted on cold start before the queued conversion resumes. Expected: the exercise row is gone (rejected); a coral-bordered toast surfaces at the top of the viewfinder reading something like `Face fingerprint isn't ready — try again in a moment`. The half-converted exercise must NOT survive into the Studio list with `safeRawFilePath = null` (which would publish un-blurred bystanders).

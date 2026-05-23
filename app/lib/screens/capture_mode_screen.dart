@@ -255,9 +255,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // can outlast a conversion (multiple captures queued); keep the
     // subscription for the whole screen lifetime.
     _safeRejectionSub = ConversionService.instance.onSafeModeRejection
-        .listen((_) {
+        .listen((rejection) {
       if (!mounted) return;
-      _showSafeRejectionToast();
+      _showSafeRejectionToast(rejection.reason);
     });
     // Camera-sticky Safe Mode (post 2026-05-22): reset any prior state
     // and re-query the moment the camera mounts. GPS is now a
@@ -322,11 +322,15 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// Surface the Safe Mode rejection toast at the top of the
   /// viewfinder. Coral-bordered inline banner — no modal (R-01,
   /// `feedback_no_popups_ever`). Auto-clears after 4 seconds.
-  void _showSafeRejectionToast() {
+  void _showSafeRejectionToast(SafeModeRejectionReason reason) {
     _safeToastClearTimer?.cancel();
     setState(() {
-      _safeToastMessage =
-          "Safe Mode couldn't track everyone — try a steadier shot or better lighting.";
+      _safeToastMessage = switch (reason) {
+        SafeModeRejectionReason.missRateExceeded =>
+          "Safe Mode couldn't track everyone — try a steadier shot or better lighting.",
+        SafeModeRejectionReason.missingFaceEmbedding =>
+          "Face fingerprint isn't ready — try again in a moment.",
+      };
     });
     _safeToastClearTimer = Timer(const Duration(seconds: 4), () {
       if (!mounted) return;
