@@ -80,6 +80,11 @@ export function AddressSearchInput({
   // True when the user just picked a result — suppresses the next debounce
   // cycle so we don't re-search the value we just wrote into the field.
   const skipNextSearchRef = useRef(false);
+  // True once the user has actually typed in the input. Until then, the
+  // initial `value` (often pre-filled on the premises edit page with the
+  // current address) does NOT trigger a search — otherwise the dropdown
+  // pops on mount, obscuring fields and the map. Carl flagged 2026-05-23.
+  const hasUserTypedRef = useRef(false);
 
   const runSearch = useCallback(async (query: string) => {
     const trimmed = query.trim();
@@ -156,6 +161,11 @@ export function AddressSearchInput({
       skipNextSearchRef.current = false;
       return;
     }
+    // No search until the user has typed at least once. The premises edit
+    // page mounts this component with the saved address pre-filled; without
+    // this guard the debounced effect would fire on mount and pop the
+    // dropdown over the form / map.
+    if (!hasUserTypedRef.current) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runSearch(value), DEBOUNCE_MS);
     return () => {
@@ -184,8 +194,14 @@ export function AddressSearchInput({
         <input
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onFocus={() => results.length > 0 && setOpen(true)}
+          onChange={(e) => {
+            hasUserTypedRef.current = true;
+            onChange(e.target.value);
+          }}
+          // Re-open the dropdown on focus ONLY if the user has typed and we
+          // already have results to show. Bare focus on a pre-filled field
+          // does nothing.
+          onFocus={() => hasUserTypedRef.current && results.length > 0 && setOpen(true)}
           // Delay blur so the click on a result button registers first.
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           placeholder={placeholder}

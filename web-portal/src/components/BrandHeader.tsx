@@ -35,9 +35,13 @@ type Props = {
  *   - Lockup is pulled to the centre of the header and rendered large
  *     enough to be the visual hero of the strip. The brand mark earns
  *     the real-estate; nothing else competes with it on the centre line.
- *   - Identity stack stays anchored to the top-right corner via absolute
- *     positioning, so the centred lockup is free of layout pressure.
- *   - Header min-height of 160px gives the lockup breathing room.
+ *   - Identity stack stays anchored to the right edge via absolute
+ *     positioning, vertically centred against the header height so the
+ *     centred lockup is free of layout pressure and the right-side
+ *     cluster optically aligns with the brand mark's midline.
+ *   - Header padding equalised top + bottom (py-4) so the lockup has
+ *     matching breathing room above and below (a tight bottom rule was
+ *     reading as the lockup "sitting on" the divider).
  *
  * Signed off at `docs/design/mockups/portal-header-options.html`
  * (Option 1b · Final).
@@ -63,7 +67,7 @@ export function BrandHeader({
 }: Props) {
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
-      <div className="relative mx-auto flex max-w-5xl items-center justify-center px-6 py-1">
+      <div className="relative mx-auto flex max-w-5xl items-center justify-center px-6 py-4">
         <Link
           href="/"
           className="block text-ink transition hover:opacity-90"
@@ -73,7 +77,7 @@ export function BrandHeader({
         </Link>
 
         {showSignOut && (
-          <div className="absolute right-6 top-2">
+          <div className="absolute inset-y-0 right-6 flex items-center">
             <HeaderIdentityStack
               email={userEmail}
               practices={practices}

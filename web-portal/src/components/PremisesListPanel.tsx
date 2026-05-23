@@ -11,6 +11,7 @@ import {
 
 type Toast =
   | { kind: 'deleted'; text: string; premises: PracticePremises }
+  | { kind: 'safe-mode-toggled'; text: string; premises: PracticePremises; from: boolean }
   | { kind: 'error'; text: string };
 
 type Props = {
@@ -59,6 +60,14 @@ export function PremisesListPanel({
   const [creating, startCreating] = useTransition();
   const [createError, setCreateError] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-premises in-flight flag for the Safe Mode toggle — drives the
+  // pulsing dim affordance during the RPC round-trip. We track this
+  // separately from the optimistic state in `premises` so the badge can
+  // show "saving" without flipping the displayed mode if the RPC ends
+  // up rolling back.
+  const [pendingSafeModeIds, setPendingSafeModeIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // Keep local state in sync if the server-rendered list changes
   // (e.g. after the detail page renames a row and router.refresh()).
@@ -73,9 +82,109 @@ export function PremisesListPanel({
     };
   }, []);
 
-  function scheduleToastDismiss() {
+  function scheduleToastDismiss(ms: number = 7000) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 7000);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  }
+
+  async function handleSafeModeToggle(p: PracticePremises) {
+    const from = p.safeModeEnforced;
+    const to = !from;
+
+    // Optimistic flip — update local state immediately so the badge swaps
+    // colour without waiting for the round-trip.
+    setPremises((prev) =>
+      prev.map((row) =>
+        row.id === p.id ? { ...row, safeModeEnforced: to } : row,
+      ),
+    );
+    setPendingSafeModeIds((prev) => {
+      const next = new Set(prev);
+      next.add(p.id);
+      return next;
+    });
+
+    try {
+      const api = createPortalApi(getBrowserClient());
+      await api.togglePremisesSafeMode({ premisesId: p.id, to });
+    } catch (e) {
+      // Rollback on failure.
+      setPremises((prev) =>
+        prev.map((row) =>
+          row.id === p.id ? { ...row, safeModeEnforced: from } : row,
+        ),
+      );
+      setPendingSafeModeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(p.id);
+        return next;
+      });
+      const msg =
+        e instanceof PremisesError && e.kind === 'not-member'
+          ? `You don't have permission to toggle Safe Mode on ${p.name}.`
+          : e instanceof Error
+            ? `Couldn't update Safe Mode — ${e.message}`
+            : "Couldn't update Safe Mode.";
+      setToast({ kind: 'error', text: msg });
+      scheduleToastDismiss();
+      return;
+    }
+
+    setPendingSafeModeIds((prev) => {
+      const next = new Set(prev);
+      next.delete(p.id);
+      return next;
+    });
+
+    // Undo toast — 5-second window per the brief. Single Undo click
+    // re-flips by calling the same RPC with the original value.
+    setToast({
+      kind: 'safe-mode-toggled',
+      text: to
+        ? `Safe Mode on for ${p.name}`
+        : `Safe Mode off for ${p.name}`,
+      premises: { ...p, safeModeEnforced: to },
+      from,
+    });
+    scheduleToastDismiss(5000);
+  }
+
+  async function handleSafeModeUndo(p: PracticePremises, restoreTo: boolean) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(null);
+    // Reuse the same flow but with the previous value as the target.
+    // Optimistic re-flip first.
+    setPremises((prev) =>
+      prev.map((row) =>
+        row.id === p.id ? { ...row, safeModeEnforced: restoreTo } : row,
+      ),
+    );
+    setPendingSafeModeIds((prev) => {
+      const next = new Set(prev);
+      next.add(p.id);
+      return next;
+    });
+    try {
+      const api = createPortalApi(getBrowserClient());
+      await api.togglePremisesSafeMode({ premisesId: p.id, to: restoreTo });
+    } catch (e) {
+      // Rollback the rollback — restore the post-toggle value.
+      setPremises((prev) =>
+        prev.map((row) =>
+          row.id === p.id ? { ...row, safeModeEnforced: !restoreTo } : row,
+        ),
+      );
+      const msg =
+        e instanceof Error ? `Couldn't undo — ${e.message}` : "Couldn't undo.";
+      setToast({ kind: 'error', text: msg });
+      scheduleToastDismiss();
+    } finally {
+      setPendingSafeModeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(p.id);
+        return next;
+      });
+    }
   }
 
   function handleAdd() {
@@ -226,14 +335,51 @@ export function PremisesListPanel({
                         <span className="rounded-full border border-dashed border-surface-border px-2 py-0.5 text-xs text-ink-muted">
                           Draft - no polygon yet
                         </span>
-                      ) : p.safeModeEnforced ? (
-                        <span className="rounded-full bg-brand/15 px-2 py-0.5 text-xs font-medium text-brand">
-                          Safe Mode on
-                        </span>
                       ) : (
-                        <span className="rounded-full border border-surface-border px-2 py-0.5 text-xs text-ink-muted">
-                          Registered only
-                        </span>
+                        // Interactive Safe Mode badge — one click flips the
+                        // state via the toggle_premises_safe_mode RPC. Styled
+                        // to look like the prior static badge so the visual
+                        // weight on the row is unchanged; only the affordance
+                        // is added.
+                        // R-01: no confirm modal; undo via toast (5s window).
+                        // Permission gating mirrors the Edit link (any practice
+                        // member or owner). Pending state during the RPC
+                        // round-trip dims + animates the badge subtly so the
+                        // user has feedback that the click registered.
+                        (() => {
+                          const pending = pendingSafeModeIds.has(p.id);
+                          const on = p.safeModeEnforced;
+                          const baseCls = on
+                            ? 'bg-brand/15 text-brand hover:bg-brand/25 border border-transparent'
+                            : 'border border-dashed border-surface-border text-ink-muted hover:border-brand/40 hover:text-ink';
+                          const pendingCls = pending
+                            ? 'opacity-60 animate-pulse cursor-wait'
+                            : 'cursor-pointer';
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (pending) return;
+                                void handleSafeModeToggle(p);
+                              }}
+                              disabled={pending}
+                              aria-pressed={on}
+                              aria-label={
+                                on
+                                  ? `Safe Mode is on for ${p.name}. Click to turn off.`
+                                  : `Safe Mode is off for ${p.name}. Click to turn on.`
+                              }
+                              title={
+                                on
+                                  ? 'Safe Mode on — click to turn off'
+                                  : 'Click to turn Safe Mode on'
+                              }
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${baseCls} ${pendingCls}`}
+                            >
+                              {on ? 'Safe Mode on' : 'Registered only'}
+                            </button>
+                          );
+                        })()
                       )}
                     </div>
                     {p.address && (
@@ -357,6 +503,15 @@ export function PremisesListPanel({
             <button
               type="button"
               onClick={() => handleUndo(toast.premises)}
+              className="rounded-md border border-brand px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
+            >
+              Undo
+            </button>
+          )}
+          {toast.kind === 'safe-mode-toggled' && (
+            <button
+              type="button"
+              onClick={() => handleSafeModeUndo(toast.premises, toast.from)}
               className="rounded-md border border-brand px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
             >
               Undo

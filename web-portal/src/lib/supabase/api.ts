@@ -822,6 +822,37 @@ export class PortalApi {
   }
 
   /**
+   * Flip `practice_premises.safe_mode_enforced` for a single row AND
+   * write a `practice.premises.safe_mode_toggled` audit_events entry
+   * atomically. Powers the one-click Safe Mode badge toggle on the
+   * /premises list (item 23 of the 2026-05-23 pass) — separate RPC from
+   * `updatePremisesMetadata` so the audit feed isn't spammed by the
+   * editor page's per-field autosaves.
+   *
+   * Throws `PremisesError` on validation / permission failure so the
+   * list panel can rollback its optimistic UI and surface a toast.
+   * Server is the source of truth — no-op when `to` already matches
+   * current state.
+   */
+  async togglePremisesSafeMode(input: {
+    premisesId: string;
+    to: boolean;
+  }): Promise<void> {
+    const { error } = await this.supabase.rpc('toggle_premises_safe_mode', {
+      p_premises_id: input.premisesId,
+      p_to: input.to,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code ?? '';
+    const message = error.message ?? '';
+    if (code === '42501') throw new PremisesError('not-member', message);
+    if (code === 'P0002') throw new PremisesError('not-found', message);
+    if (code === '28000') throw new PremisesError('invalid-input', message);
+    if (code === '22023') throw new PremisesError('invalid-input', message);
+    throw new Error(message);
+  }
+
+  /**
    * Stamp `first_poster_downloaded_at` on the premises (no-op if already
    * set). Owner-only inside the RPC. Fire-and-forget — never rethrows on
    * a non-owner caller; the poster page treats this as best-effort.
