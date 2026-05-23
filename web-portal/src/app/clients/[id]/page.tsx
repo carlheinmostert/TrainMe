@@ -1,12 +1,11 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { ClientDetailPanel } from '@/components/ClientDetailPanel';
 import { SessionsList } from '@/components/SessionsList';
-import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { resolveActivePractice } from '@/lib/server-page-utils';
 
 type SearchParams = { practice?: string };
 
@@ -46,9 +45,7 @@ export default async function ClientDetailPage({
   // the practice context and the page bounced through `/dashboard`.
   // The cookie set by middleware on the previous strip is the load-
   // bearing fallback once the qs is gone.
-  const cookieStore = await cookies();
-  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
-  const practiceId = query.practice ?? cookiePractice;
+  const practiceId = await resolveActivePractice(query.practice);
 
   // Without a practice we can't gate properly; route through the
   // dashboard default. The landing page will redirect into a real
