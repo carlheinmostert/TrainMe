@@ -207,6 +207,24 @@ class FaceEmbeddingService extends ChangeNotifier {
     return null;
   }
 
+  /// Cold-start rehydration entry point. Callers that already have the
+  /// embedding bytes from local SQLite (`cached_clients.face_embedding`)
+  /// can prime the in-memory state without re-running the native
+  /// generation pipeline.
+  ///
+  /// No-op if the state is already ready / loading / errored — never
+  /// downgrades an in-flight or successful state. Empty byte buffers are
+  /// ignored.
+  void hydrateFromBytes(String clientId, Uint8List bytes) {
+    if (bytes.isEmpty) return;
+    final existing = _states[clientId];
+    if (existing != null &&
+        (existing.isReady || existing.isLoading || existing.isError)) {
+      return;
+    }
+    _setState(clientId, EmbeddingState.ready(bytes));
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
