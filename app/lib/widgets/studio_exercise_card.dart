@@ -11,6 +11,7 @@ import '../models/treatment.dart';
 import '../services/api_client.dart';
 import '../services/media_prefetch_service.dart';
 import '../theme.dart';
+import 'debug/safe_mode_v2_tuning_sheet.dart';
 import 'exercise_editor_sheet.dart';
 import 'mini_preview.dart';
 
@@ -225,11 +226,15 @@ class StudioExerciseCard extends StatelessWidget {
               SizedBox(
                 width: cardHeight,
                 height: cardHeight,
-                child: MiniPreview(
+                child: _maybeWrapWithSafeModeV2LongPress(
+                  context: context,
                   exercise: exercise,
-                  width: double.infinity,
-                  borderRadius: BorderRadius.zero,
-                  staticHero: true,
+                  child: MiniPreview(
+                    exercise: exercise,
+                    width: double.infinity,
+                    borderRadius: BorderRadius.zero,
+                    staticHero: true,
+                  ),
                 ),
               ),
               // -----------------------------------------------------
@@ -300,6 +305,36 @@ class StudioExerciseCard extends StatelessWidget {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/// Safe Mode v2 debug-tuning long-press wrap. Adds a translucent
+/// gesture detector that fires the threshold-tuning sheet ONLY when
+/// all three conditions hold:
+///
+///   * [debugTuningGateActive] returns true (debug build or
+///     `ENV=staging`)
+///   * the exercise is a photo (v2 video Safe Mode is deferred)
+///   * the exercise was captured with Safe Mode active
+///
+/// Otherwise the child is returned untouched so the parent card's
+/// long-press still bubbles up to its own `ReorderableDelayedDrag-
+/// StartListener` for drag-to-reorder. `HitTestBehavior.deferToChild`
+/// keeps normal taps + drags flowing to the underlying MiniPreview
+/// without disturbing them.
+Widget _maybeWrapWithSafeModeV2LongPress({
+  required BuildContext context,
+  required ExerciseCapture exercise,
+  required Widget child,
+}) {
+  final eligible = debugTuningGateActive() &&
+      exercise.mediaType == MediaType.photo &&
+      exercise.safeModeActive;
+  if (!eligible) return child;
+  return GestureDetector(
+    behavior: HitTestBehavior.deferToChild,
+    onLongPress: () => showSafeModeV2TuningSheet(context, exercise),
+    child: child,
+  );
+}
 
 /// Right-column text content for the image-left card layout.
 ///

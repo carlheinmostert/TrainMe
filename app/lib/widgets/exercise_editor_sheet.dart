@@ -9,6 +9,7 @@ import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/safe_mode.dart';
 import '../theme.dart';
+import 'debug/safe_mode_v2_tuning_sheet.dart';
 import 'plan_table.dart';
 import 'inline_editable_text.dart';
 import 'media_viewer_body.dart';
@@ -749,13 +750,21 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
             // uses an mtime-keyed cache (see hero_file_image.dart) so the
             // glyph repaints the moment ConversionService finishes a
             // hero-frame regen — even though the JPG path doesn't change.
-            MiniPreview(
+            //
+            // Long-press wrap (debug + staging only) opens the Safe Mode
+            // v2 face-match threshold tuning sheet for the active photo
+            // exercise. Production builds get a no-op wrap.
+            _maybeWrapWithSafeModeV2LongPress(
+              context: context,
               exercise: _exercise,
-              width: 56,
-              height: 40,
-              borderRadius: BorderRadius.circular(8),
-              staticHero: true,
-              cropOffset: _exercise.heroCropOffset,
+              child: MiniPreview(
+                exercise: _exercise,
+                width: 56,
+                height: 40,
+                borderRadius: BorderRadius.circular(8),
+                staticHero: true,
+                cropOffset: _exercise.heroCropOffset,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -909,27 +918,37 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         ),
       );
     }
-    return MediaViewerBody(
-      // Force re-mount on chevron / dot navigation. MediaViewerBody owns
-      // its own VideoPlayerController and treatment-state — without a
-      // unique key it doesn't pick up the new exercise via didUpdateWidget.
-      key: ValueKey('demo-tab-${ex.id}'),
-      exercises: [ex],
-      initialIndex: 0,
-      session: widget.session,
-      onExerciseUpdate: (updated) {
-        _emit(updated);
-      },
-      onSessionUpdate: widget.onSessionUpdate,
-      // 2026-05-16 — Replace pill on the Demo embed. Sheet has only one
-      // exercise in scope (`ex`), but the viewer hands it back through
-      // the callback so the host can do its own id → dataIndex lookup.
-      onReplaceMedia: widget.onReplaceMedia,
-      // Round 3 — embedded mode hides the X button (the sheet's drag-down
-      // + tap-outside dismiss) and shifts the vertical treatment pill up
-      // so it doesn't collide with the bottom-left Body Focus + Rotate
-      // pills on the shorter sheet canvas.
-      embeddedInSheet: true,
+    // Long-press wrap (debug + staging only) on the Demo tab's full
+    // photo canvas. HitTestBehavior.deferToChild keeps every tap +
+    // drag inside MediaViewerBody's own handlers untouched; only the
+    // long-press fires the tuning sheet. No-op wrap in prod.
+    return _maybeWrapWithSafeModeV2LongPress(
+      context: context,
+      exercise: ex,
+      child: MediaViewerBody(
+        // Force re-mount on chevron / dot navigation. MediaViewerBody
+        // owns its own VideoPlayerController and treatment-state —
+        // without a unique key it doesn't pick up the new exercise via
+        // didUpdateWidget.
+        key: ValueKey('demo-tab-${ex.id}'),
+        exercises: [ex],
+        initialIndex: 0,
+        session: widget.session,
+        onExerciseUpdate: (updated) {
+          _emit(updated);
+        },
+        onSessionUpdate: widget.onSessionUpdate,
+        // 2026-05-16 — Replace pill on the Demo embed. Sheet has only
+        // one exercise in scope (`ex`), but the viewer hands it back
+        // through the callback so the host can do its own
+        // id → dataIndex lookup.
+        onReplaceMedia: widget.onReplaceMedia,
+        // Round 3 — embedded mode hides the X button (the sheet's drag-
+        // down + tap-outside dismiss) and shifts the vertical treatment
+        // pill up so it doesn't collide with the bottom-left Body Focus
+        // + Rotate pills on the shorter sheet canvas.
+        embeddedInSheet: true,
+      ),
     );
   }
 
@@ -1512,3 +1531,24 @@ class _CollapsibleSettingsRow extends StatelessWidget {
   }
 }
 
+/// Safe Mode v2 debug-tuning long-press wrap (editor-sheet twin of
+/// the helper in `studio_exercise_card.dart`). Adds a long-press
+/// gesture that opens the threshold-tuning sheet ONLY when the
+/// debug/staging gate passes AND the exercise is a Safe Mode photo.
+/// `HitTestBehavior.deferToChild` keeps every tap + drag flowing to
+/// the wrapped widget undisturbed.
+Widget _maybeWrapWithSafeModeV2LongPress({
+  required BuildContext context,
+  required ExerciseCapture exercise,
+  required Widget child,
+}) {
+  final eligible = debugTuningGateActive() &&
+      exercise.mediaType == MediaType.photo &&
+      exercise.safeModeActive;
+  if (!eligible) return child;
+  return GestureDetector(
+    behavior: HitTestBehavior.deferToChild,
+    onLongPress: () => showSafeModeV2TuningSheet(context, exercise),
+    child: child,
+  );
+}

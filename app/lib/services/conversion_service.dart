@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart' show decodeImageFromList;
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 import '../config.dart';
@@ -37,6 +38,34 @@ const double kSafeModeMaxMissRate = 0.05;
 /// every face after the first to drop into no-subject mode, which then
 /// blurred the entire frame via head-expansion. Revisit after device QA.
 const double kSafeModeV2FaceMatchThreshold = 0.5;
+
+/// SharedPreferences key for the debug-tuning sheet's persisted
+/// face-match threshold override (2026-05-23 debug-tuning wave). When
+/// set, both [ConversionService._convert]'s photo Safe Mode pass and
+/// [ConversionService.reprocessSafeMode] read this in preference to
+/// [kSafeModeV2FaceMatchThreshold] (an explicit `thresholdOverride`
+/// argument still wins over both). Cleared by the sheet's Reset
+/// button. Debug + staging only — release builds never write it
+/// because the sheet is gated by `debugTuningGateActive()`.
+const String kSafeModeV2ThresholdOverridePrefKey =
+    'safe_mode_v2_threshold_override';
+
+/// Resolve the threshold to pass into `applySafeModeV2ToPhoto`:
+///   1. explicit caller [override] (the tuning sheet's live slider)
+///   2. SharedPreferences-persisted override (the sheet's "Save as
+///      new default" — auto-applied to future captures)
+///   3. compile-time [kSafeModeV2FaceMatchThreshold] default
+Future<double> _resolveSafeModeV2Threshold(double? override) async {
+  if (override != null) return override;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getDouble(kSafeModeV2ThresholdOverridePrefKey);
+    if (stored != null) return stored;
+  } catch (_) {
+    // Fall through to the compile-time default.
+  }
+  return kSafeModeV2FaceMatchThreshold;
+}
 
 /// Reason discriminator for [SafeModeRejection]. The capture screen
 /// branches its toast copy on this so the user knows whether a
@@ -1130,6 +1159,7 @@ class ConversionService extends ChangeNotifier {
           try {
             final candidate =
                 p.join(convertedDir, '${exercise.id}_safe.jpg');
+            final threshold = await _resolveSafeModeV2Threshold(null);
             final resp = await _videoChannel
                 .invokeMethod<Map<dynamic, dynamic>>(
               'applySafeModeV2ToPhoto',
@@ -1137,7 +1167,7 @@ class ConversionService extends ChangeNotifier {
                 'srcPath': exercise.absoluteRawFilePath,
                 'destPath': candidate,
                 'subjectEmbedding': subjectEmbedding,
-                'threshold': kSafeModeV2FaceMatchThreshold,
+                'threshold': threshold,
               },
             ).timeout(const Duration(seconds: 30));
             if (resp == null) {
@@ -2410,7 +2440,16 @@ class ConversionService extends ChangeNotifier {
   /// Returns true on success, false on any failure (file missing,
   /// embedding missing, native call throws). Caller surfaces the
   /// result with a toast.
-  Future<bool> reprocessSafeMode(String exerciseId) async {
+  ///
+  /// [thresholdOverride] — debug-tuning sheet entry point. When non-null
+  /// it takes precedence over both the SharedPreferences-persisted
+  /// override and the compile-time [kSafeModeV2FaceMatchThreshold]
+  /// default. Production callers leave it null and the live-resolved
+  /// threshold falls back through the standard chain.
+  Future<bool> reprocessSafeMode(
+    String exerciseId, {
+    double? thresholdOverride,
+  }) async {
     final ex = await _storage.getExerciseById(exerciseId);
     if (ex == null) return false;
     if (ex.mediaType != MediaType.photo) return false;
@@ -2450,6 +2489,7 @@ class ConversionService extends ChangeNotifier {
     } catch (_) {}
     final destPath = p.join(convertedDir, '${ex.id}_safe.jpg');
 
+    final threshold = await _resolveSafeModeV2Threshold(thresholdOverride);
     try {
       final dynamic resp = await _videoChannel
           .invokeMethod<Map<dynamic, dynamic>>(
@@ -2458,7 +2498,7 @@ class ConversionService extends ChangeNotifier {
               'srcPath': rawAbs,
               'destPath': destPath,
               'subjectEmbedding': embedding,
-              'threshold': kSafeModeV2FaceMatchThreshold,
+              'threshold': threshold,
             },
           )
           .timeout(const Duration(seconds: 30));
