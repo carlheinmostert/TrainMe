@@ -459,3 +459,22 @@ Device QA capture: [`T2_DEVICE_QA_OUTCOMES_2026-05-01.md`](T2_DEVICE_QA_OUTCOMES
 **Optional bigger win:** rework the script to drive Xcode via the `xcodebuild` MCP (Sentry, already installed at user scope). Builds cached across sessions instead of being invalidated by every `git worktree add`. Not required for the three above to land.
 
 **Owner:** picked up after the current Safe Mode v2 device-QA wave closes.
+
+## Settings → Safe Mode tuning section (follow-up to 2026-05-23 Safe Mode v2 wave)
+
+**Status:** Discussed 2026-05-23 mid-debug-loop on the selfie-blur bug (whole frame Gaussian-blurred from the no-subject path when cosine similarity dropped below 0.65). Promote the tuning constants from hardcoded values into a `Settings → Safe Mode` panel once device-QA reveals stable defaults.
+
+**Knobs to lift, in priority order:**
+
+1. **Face-match cosine threshold** — Dart `kSafeModeV2FaceMatchThreshold` (0.5 after the threshold/bbox/log PR lands). Highest-value tunable; varies per practitioner, lighting, MobileFaceNet output drift.
+2. **Max paint-area fraction per face** — Swift clamp landing in the same PR (35%). Controls how aggressively the no-subject head-expansion can blur a close-up face.
+3. **Head-expansion factors (`headWidthFactor`, `headHeightFactor`)** — Swift constants (2.0× × 1.5×). Lower priority once the area clamp is in.
+4. **Miss-rate rejection threshold** — `kSafeModeMaxMissRate = 0.05`. Rarely needs touching; include for completeness.
+
+**Pairs naturally with the existing `reprocessSafeMode` affordance** at `conversion_service.dart:2333` (UI hook at `exercise_editor_sheet.dart:1241`): practitioner tweaks the slider in Settings → taps **Re-process Safe Mode** on any photo exercise → the v2 pipeline re-runs against the same raw original with the new value. Closes the diagnostic loop on-device, no app rebuild between iterations.
+
+**Wire-up shape:** values persist in `SharedPreferences`; `reprocessSafeMode` (and the capture-time path) read from the preference each invocation instead of the const. Defaults stay in code so a fresh install gets sensible behaviour.
+
+**Hidden vs surfaced:** keep behind a long-press or env-flag gate at first — risk is a practitioner cranking the threshold to 0.8 because "tighter sounds safer," then complaining the app blurs everything (exactly today's bug). Surface progressively once defaults are validated.
+
+**Sequencing:** do NOT build this until the current Safe Mode v2 device-QA wave produces evidence-based default values. Building tuning UI for guesses is wasted work. Encodes `feedback_consumption_vs_config_surfaces` — practitioner tuning lives on mobile, not web.
