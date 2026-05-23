@@ -441,8 +441,29 @@ const posterCss = `
   .poster-dot-studio { color: #FF6B35; }
 
   @media print {
-    .poster-root { background: white; padding: 0; min-height: 0; }
-    .poster-page { box-shadow: none; }
+    /* Print bug fix: without these resets, the on-screen layout's
+       min-height 100vh on .poster-root + min-height 297mm / width
+       210mm on .poster-page push content past the printable area
+       (A4 minus 16mm margins = 178 x 265mm), overflowing into a
+       second blank page (and sometimes a third with a hairline of
+       the footer). Strip the explicit dimensions in print — the
+       @page rule + the content's natural height take over. */
+    html, body { margin: 0; padding: 0; background: white; }
+    .poster-root {
+      background: white;
+      padding: 0;
+      min-height: 0;
+      display: block;
+    }
+    .poster-page {
+      box-shadow: none;
+      width: auto;
+      min-height: 0;
+      /* Print margins live on @page now; the inner padding can
+         drop substantially so the content sits cleanly inside the
+         printable area without doubling the margin band. */
+      padding: 0;
+    }
     .poster-warning { display: none; }
   }
 `;
