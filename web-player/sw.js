@@ -13,6 +13,16 @@
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
 //
+// Manual bump 2026-05-23 (live-view zoom + avatar-only pass): items 24
+// + 25 of the 2026-05-23 stack file. live.js + live.html. MAP_MAX_ZOOM
+// 19→21 with ESRI_MAX_NATIVE 18→19 (Esri has z19 native imagery in
+// most SA urban areas; z20-21 upscaled). drawSessions() now renders
+// 40×40 avatar pins (coral pulsing border) instead of full DOM cards;
+// tap opens an auto-flipping popover with the same name/duration/venue/
+// Report content. Single popover open at a time; reprojected on
+// Leaflet move/zoom. Bump invalidates the stale full-card live.js
+// bundle on returning bystanders.
+//
 // Manual bump 2026-05-23 (eager SW update check): PR adds reg.update()
 // on registration + on visibilitychange in app.js so Safari stops
 // serving stale bundles for hours. Pair with this comment bump.
