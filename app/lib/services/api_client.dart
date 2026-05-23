@@ -1253,10 +1253,17 @@ class ApiClient {
       final result = await _guardAuth(
         () => raw.rpc(
           'sign_storage_url',
+          // SQL signature is sign_storage_url(p_bucket text, p_path text,
+          // p_expires_in integer) — PostgREST matches RPC params by name
+          // against the SQL identifier, so a missing `p_` prefix surfaces
+          // as "function not found" and the catch silently returns null.
+          // Diagnosed 2026-05-23 during the Safe Mode v2 avatar-resolve
+          // hang: the camera reported "No avatar set yet" because this
+          // call 404'd on every retry.
           params: {
-            'bucket': rawArchiveBucket,
-            'path': avatarPath,
-            'expires_in': expiresIn,
+            'p_bucket': rawArchiveBucket,
+            'p_path': avatarPath,
+            'p_expires_in': expiresIn,
           },
         ),
       );
