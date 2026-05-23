@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live view — 24h roster + side drawer + timeline popover — mockup 2026-05-23</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #1A1D27;
+    --raised: #242733;
+    --border: #2E3140;
+    --ink: #F0F0F5;
+    --ink-muted: #9CA3AF;
+    --ink-dim: #6B7280;
+    --brand: #FF6B35;
+    --brand-dim: rgba(255,107,53,0.18);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; }
+  body { padding: 40px 24px 80px; }
+  .page { max-width: 1180px; margin: 0 auto; }
+  h1 { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 28px; margin: 0 0 6px; }
+  .subtitle { color: var(--ink-muted); font-size: 14px; margin: 0 0 28px; line-height: 1.55; }
+
+  /* Scenes — each is a self-contained "live view at a moment" demo */
+  .scene {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 28px;
+  }
+  .scene-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 14px; margin-bottom: 16px;
+  }
+  .scene-title {
+    font-family: Montserrat, sans-serif; font-size: 17px; font-weight: 700;
+  }
+  .scene-tag {
+    font-size: 11px; color: var(--ink-dim);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .scene-body { display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 760px) {
+    .scene-body { grid-template-columns: 1fr; }
+  }
+  .scene-explain { font-size: 13px; color: var(--ink-muted); line-height: 1.65; }
+  .scene-explain strong { color: var(--ink); font-weight: 600; }
+  .scene-explain ul { margin: 8px 0 0; padding-left: 18px; }
+  .scene-explain li { margin: 6px 0; }
+  .scene-explain code {
+    background: var(--bg); color: var(--brand); font-family: Menlo, monospace;
+    font-size: 12px; padding: 1px 6px; border-radius: 4px;
+  }
+
+  /* Map shell — emulates web-player/live.html's .live-map-card layout */
+  .map-shell {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    background:
+      repeating-linear-gradient(45deg, #2a3a2a 0, #2a3a2a 10px, #243024 10px, #243024 20px),
+      linear-gradient(180deg, #1f2a1f, #161e16);
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  /* Hint of "satellite imagery" — flat coloured patches simulating buildings + roads */
+  .map-shell::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 30% 35%, rgba(80,90,80,0.65) 0 14%, transparent 16%),
+      radial-gradient(circle at 70% 45%, rgba(70,80,70,0.55) 0 11%, transparent 13%),
+      radial-gradient(circle at 50% 70%, rgba(85,90,80,0.5) 0 18%, transparent 20%),
+      linear-gradient(120deg, transparent 40%, rgba(120,90,60,0.25) 45% 60%, transparent 65%);
+  }
+
+  /* Enforced polygon — coral dashed outline */
+  .polygon {
+    position: absolute;
+    border: 2px dashed var(--brand);
+    border-radius: 6px;
+    background: var(--brand-dim);
+    pointer-events: none;
+  }
+
+  /* Practitioner avatars (currently active) */
+  .pavatar {
+    position: absolute;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 2px solid var(--brand);
+    background: var(--bg);
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 0 0 4px rgba(255,107,53,0.18);
+    animation: pulse 1.8s ease-in-out infinite;
+    transform: translate(-50%, -50%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: Inter, sans-serif; font-weight: 700; font-size: 14px; color: var(--ink);
+  }
+  .pavatar img { width: 100%; height: 100%; object-fit: cover; }
+  .pavatar.--no-pulse { animation: none; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(255,107,53,0.18); }
+    50%      { box-shadow: 0 0 0 8px rgba(255,107,53,0.32); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pavatar { animation: none; }
+  }
+
+  /* Viewer "you are here" sage dot — with item-26's label pill */
+  .youdot {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .youdot-core {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--sage);
+    box-shadow: 0 0 0 4px rgba(134,239,172,0.25);
+  }
+  .youdot-label {
+    background: rgba(134,239,172,0.18);
+    color: var(--sage);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px; font-weight: 600;
+    border: 1px solid rgba(134,239,172,0.35);
+  }
+
+  /* Side drawer — closed state (the pill) */
+  .drawer-pill {
+    position: absolute;
+    left: 8px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: rgba(15,17,23,0.85);
+    color: var(--ink);
+    padding: 8px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 11px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .drawer-pill .count {
+    font-family: Montserrat, sans-serif; font-weight: 700;
+    font-size: 16px; color: var(--brand);
+    line-height: 1;
+  }
+  .drawer-pill .label {
+    font-size: 9px; color: var(--ink-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    line-height: 1.1; text-align: center;
+  }
+
+  /* Side drawer — open state */
+  .drawer {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 220px;
+    background: rgba(15,17,23,0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-right: 1px solid var(--border);
+    padding: 14px 10px;
+    display: flex; flex-direction: column; gap: 4px;
+    overflow-y: auto;
+  }
+  .drawer-head {
+    color: var(--ink-muted); font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.08em; font-weight: 600; padding: 0 6px 8px;
+    border-bottom: 1px solid var(--border); margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .drawer-head .x {
+    color: var(--ink-muted); cursor: pointer; font-size: 14px; font-weight: 400;
+  }
+  .drawer-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 6px; border-radius: 8px;
+    cursor: pointer;
+  }
+  .drawer-row:hover { background: var(--raised); }
+  .drawer-row.--selected { background: var(--raised); }
+  .drawer-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 1px solid var(--border);
+    overflow: hidden; flex-shrink: 0;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-family: Inter, sans-serif; font-weight: 700; font-size: 12px; color: var(--ink);
+  }
+  .drawer-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .drawer-meta {
+    display: flex; flex-direction: column; gap: 1px; min-width: 0;
+  }
+  .drawer-name {
+    font-size: 12px; font-weight: 600; color: var(--ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .drawer-last {
+    font-size: 10px; color: var(--ink-muted);
+  }
+
+  /* Timeline popover (when an avatar is tapped) */
+  .popover {
+    position: absolute;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    width: 240px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+    z-index: 10;
+  }
+  .popover-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+  }
+  .popover-head .pop-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid var(--border); overflow: hidden;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-family: Inter, sans-serif; font-weight: 700; font-size: 13px;
+  }
+  .popover-head .pop-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .popover-head .pop-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .popover-head .pop-name { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 13px; }
+  .popover-head .pop-sub { font-size: 11px; color: var(--ink-muted); }
+  .popover-list {
+    list-style: none; padding: 0; margin: 0 0 10px;
+    display: flex; flex-direction: column; gap: 4px;
+    max-height: 220px; overflow-y: auto;
+  }
+  .popover-list li {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 3px 0;
+    font-size: 11px;
+  }
+  .popover-list li .pop-when { color: var(--ink-muted); font-family: Menlo, monospace; }
+  .popover-list li .pop-what {
+    color: var(--ink); font-weight: 500;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .popover-list li .pop-icon {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  }
+  .popover-list li.--photo .pop-icon { background: var(--sage); }
+  .popover-list li.--video .pop-icon { background: var(--brand); }
+  .popover-report {
+    width: 100%;
+    background: transparent; color: var(--brand);
+    border: 1px solid var(--brand);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* Popover for currently-active avatar (when tapped on map) */
+  .popover.--from-map { /* same styling — different position */ }
+
+  /* Top + bottom chrome of the live page — to set the visual context */
+  .live-top {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
+  }
+  .live-pmark {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(255,107,53,0.16); color: var(--brand);
+    display: flex; align-items: center; justify-content: center;
+    font-family: Montserrat, sans-serif; font-weight: 700; font-size: 13px;
+  }
+  .live-pname { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 14px; }
+  .live-pmeta { font-size: 11px; color: var(--ink-muted); }
+  .live-hero {
+    padding: 14px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    text-align: center;
+  }
+  .live-hero-h1 {
+    font-family: Montserrat, sans-serif; font-weight: 700; font-size: 18px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .live-hero-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--brand);
+    animation: pulse 1.8s ease-in-out infinite;
+    box-shadow: 0 0 0 4px rgba(255,107,53,0.18);
+  }
+  .live-hero-sub { font-size: 12px; color: var(--ink-muted); margin-top: 4px; }
+  .live-map-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    padding: 12px;
+  }
+
+  .annotation {
+    margin-top: 24px;
+    background: var(--raised);
+    border: 1px dashed rgba(255,107,53,0.30);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-size: 12px; color: var(--ink-muted); line-height: 1.6;
+  }
+  .annotation strong { color: var(--ink); font-weight: 600; }
+  .annotation .lede { color: var(--ink); font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+  .annotation ul { padding-left: 18px; margin: 6px 0 0; }
+  .annotation li { margin: 4px 0; }
+
+  .ghost {
+    opacity: 0.4;
+    filter: saturate(0.5);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Live view — 24h roster mockup</h1>
+  <p class="subtitle">
+    Three scenes show the live view's behaviour as the active / recently-active state shifts. Pairs with stack item 27 (per-capture audit log + side drawer + timeline popover). All four locked decisions visible: full timeline to bystander, photo + video event kinds, premises-scoped roster, side drawer.
+  </p>
+
+  <!-- ============================================================ -->
+  <!-- Scene 1 — collapsed drawer, two currently-active practitioners -->
+  <!-- ============================================================ -->
+  <div class="scene">
+    <div class="scene-head">
+      <div class="scene-title">Scene 1 — default state, drawer collapsed</div>
+      <div class="scene-tag">DEFAULT</div>
+    </div>
+    <div class="scene-body">
+      <div>
+        <div class="live-top">
+          <div class="live-pmark">M</div>
+          <div>
+            <div class="live-pname">Muscle Works Gym</div>
+            <div class="live-pmeta">Johannesburg · Studio Floor</div>
+          </div>
+        </div>
+        <div class="live-hero">
+          <div class="live-hero-h1"><span class="live-hero-dot"></span>2 people are recording right now</div>
+          <div class="live-hero-sub">Updated 4s ago</div>
+        </div>
+        <div class="live-map-card">
+          <div class="map-shell">
+            <!-- polygon -->
+            <div class="polygon" style="left: 28%; top: 30%; right: 22%; bottom: 28%;"></div>
+            <!-- active avatars on map -->
+            <div class="pavatar" style="left: 45%; top: 50%;">CM</div>
+            <div class="pavatar" style="left: 60%; top: 60%; border-color: var(--brand); ">AP</div>
+            <!-- you dot -->
+            <div class="youdot" style="left: 35%; top: 70%;">
+              <div class="youdot-core"></div>
+              <div class="youdot-label">You</div>
+            </div>
+            <!-- drawer pill closed -->
+            <div class="drawer-pill" title="Tap to see 3 recently-active practitioners">
+              <div class="count">+3</div>
+              <div class="label">Recent<br>24h</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="scene-explain">
+        <p class="lede">What's on screen</p>
+        <ul>
+          <li><strong>2 active avatars</strong> floating on the map at GPS-projected positions, coral pulsing border (today's behaviour, item 25).</li>
+          <li><strong>Sage "You" dot</strong> with the new label (item 26) so the bystander knows it's them.</li>
+          <li><strong>Drawer pill</strong> at the left edge: <code>+3</code> means three practitioners recorded here in the last 24h but aren't currently active. Coral if any are within the last hour; neutral otherwise.</li>
+          <li>Hero count line dynamically reflects "2 people are recording right now" per item 17.</li>
+        </ul>
+        <p style="margin-top:12px;">Nothing competes with the map by default. The drawer pill is the smallest possible affordance until the bystander wants more.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- Scene 2 — drawer expanded, 3 recently-active practitioners listed -->
+  <!-- ============================================================ -->
+  <div class="scene">
+    <div class="scene-head">
+      <div class="scene-title">Scene 2 — drawer expanded</div>
+      <div class="scene-tag">TAPPED DRAWER PILL</div>
+    </div>
+    <div class="scene-body">
+      <div>
+        <div class="live-top">
+          <div class="live-pmark">M</div>
+          <div>
+            <div class="live-pname">Muscle Works Gym</div>
+            <div class="live-pmeta">Johannesburg · Studio Floor</div>
+          </div>
+        </div>
+        <div class="live-hero">
+          <div class="live-hero-h1"><span class="live-hero-dot"></span>2 people are recording right now</div>
+          <div class="live-hero-sub">Updated 4s ago</div>
+        </div>
+        <div class="live-map-card">
+          <div class="map-shell">
+            <!-- polygon -->
+            <div class="polygon" style="left: 28%; top: 30%; right: 22%; bottom: 28%;"></div>
+            <!-- active avatars on map — pushed right because drawer is open -->
+            <div class="pavatar ghost" style="left: 60%; top: 50%;">CM</div>
+            <div class="pavatar ghost" style="left: 72%; top: 60%;">AP</div>
+            <div class="youdot ghost" style="left: 52%; top: 70%;">
+              <div class="youdot-core"></div>
+              <div class="youdot-label">You</div>
+            </div>
+            <!-- expanded drawer -->
+            <div class="drawer">
+              <div class="drawer-head">
+                Recent (24h) <span class="x" title="Close drawer">✕</span>
+              </div>
+              <div class="drawer-row">
+                <div class="drawer-avatar">SK</div>
+                <div class="drawer-meta">
+                  <div class="drawer-name">Sarah Klein</div>
+                  <div class="drawer-last">12m ago · 4 captures</div>
+                </div>
+              </div>
+              <div class="drawer-row">
+                <div class="drawer-avatar">TM</div>
+                <div class="drawer-meta">
+                  <div class="drawer-name">Thabo Molefe</div>
+                  <div class="drawer-last">2h ago · 7 captures</div>
+                </div>
+              </div>
+              <div class="drawer-row">
+                <div class="drawer-avatar">JR</div>
+                <div class="drawer-meta">
+                  <div class="drawer-name">Jessica Roux</div>
+                  <div class="drawer-last">8h ago · 12 captures</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="scene-explain">
+        <p class="lede">Drawer expanded — 220px wide overlay</p>
+        <ul>
+          <li>Backdrop-blurred panel, vertical stack of recently-active practitioners. Sorted by <strong>last-seen DESC</strong>.</li>
+          <li>Each row: 32px avatar + name + <code>{ago} · {N captures}</code> summary.</li>
+          <li>Map content (avatars + You dot) <strong>dimmed</strong> while drawer is open — visual hint that the drawer is the focus right now.</li>
+          <li>Close affordances: the <code>✕</code>, Escape key, or tapping outside the drawer.</li>
+          <li>Tap a row → timeline popover (Scene 3).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- Scene 3 — timeline popover for a tapped drawer row -->
+  <!-- ============================================================ -->
+  <div class="scene">
+    <div class="scene-head">
+      <div class="scene-title">Scene 3 — timeline popover</div>
+      <div class="scene-tag">TAPPED DRAWER ROW</div>
+    </div>
+    <div class="scene-body">
+      <div>
+        <div class="live-top">
+          <div class="live-pmark">M</div>
+          <div>
+            <div class="live-pname">Muscle Works Gym</div>
+            <div class="live-pmeta">Johannesburg · Studio Floor</div>
+          </div>
+        </div>
+        <div class="live-hero">
+          <div class="live-hero-h1"><span class="live-hero-dot"></span>2 people are recording right now</div>
+          <div class="live-hero-sub">Updated 4s ago</div>
+        </div>
+        <div class="live-map-card">
+          <div class="map-shell">
+            <div class="polygon" style="left: 28%; top: 30%; right: 22%; bottom: 28%;"></div>
+            <div class="pavatar ghost" style="left: 60%; top: 50%;">CM</div>
+            <div class="pavatar ghost" style="left: 72%; top: 60%;">AP</div>
+            <div class="youdot ghost" style="left: 52%; top: 70%;">
+              <div class="youdot-core"></div>
+              <div class="youdot-label">You</div>
+            </div>
+            <!-- drawer with one row selected -->
+            <div class="drawer">
+              <div class="drawer-head">
+                Recent (24h) <span class="x">✕</span>
+              </div>
+              <div class="drawer-row --selected">
+                <div class="drawer-avatar">SK</div>
+                <div class="drawer-meta">
+                  <div class="drawer-name">Sarah Klein</div>
+                  <div class="drawer-last">12m ago · 4 captures</div>
+                </div>
+              </div>
+              <div class="drawer-row">
+                <div class="drawer-avatar">TM</div>
+                <div class="drawer-meta">
+                  <div class="drawer-name">Thabo Molefe</div>
+                  <div class="drawer-last">2h ago · 7 captures</div>
+                </div>
+              </div>
+              <div class="drawer-row">
+                <div class="drawer-avatar">JR</div>
+                <div class="drawer-meta">
+                  <div class="drawer-name">Jessica Roux</div>
+                  <div class="drawer-last">8h ago · 12 captures</div>
+                </div>
+              </div>
+            </div>
+            <!-- popover anchored beside selected row -->
+            <div class="popover" style="left: 232px; top: 60px;">
+              <div class="popover-head">
+                <div class="pop-avatar">SK</div>
+                <div class="pop-meta">
+                  <div class="pop-name">Sarah Klein</div>
+                  <div class="pop-sub">Last 24h · 4 captures</div>
+                </div>
+              </div>
+              <ul class="popover-list">
+                <li class="--video">
+                  <span class="pop-what"><span class="pop-icon"></span>Video (1m 12s)</span>
+                  <span class="pop-when">14:18 → 14:19</span>
+                </li>
+                <li class="--video">
+                  <span class="pop-what"><span class="pop-icon"></span>Video (38s)</span>
+                  <span class="pop-when">14:11 → 14:12</span>
+                </li>
+                <li class="--photo">
+                  <span class="pop-what"><span class="pop-icon"></span>Photo</span>
+                  <span class="pop-when">14:08</span>
+                </li>
+                <li class="--photo">
+                  <span class="pop-what"><span class="pop-icon"></span>Photo</span>
+                  <span class="pop-when">14:05</span>
+                </li>
+              </ul>
+              <button class="popover-report">Report Sarah's session</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="scene-explain">
+        <p class="lede">Timeline popover — anchored beside the drawer row</p>
+        <ul>
+          <li><strong>Full timeline visible</strong> per your decision #1. Photos show single timestamp; videos show start → end with duration in parens.</li>
+          <li><strong>Sage dot</strong> for photo, <strong>coral dot</strong> for video — same colour vocabulary as elsewhere on the page.</li>
+          <li>Sorted by most-recent first, scrollable if &gt; ~8 events.</li>
+          <li>Report button stays — same flow as currently-active card.</li>
+          <li>Auto-flip popover positioning so it doesn't render off the right edge on narrow viewports.</li>
+        </ul>
+        <p style="margin-top:12px;"><strong>Use case Carl named:</strong> bystander correlates against the venue's own CCTV. CCTV at 14:12 shows phone-in-hand; our timeline shows a video at 14:11 → 14:12; the recording was through homefit.studio. Or CCTV shows phone-in-hand at 14:30 and our timeline shows nothing — that recording wasn't through our app.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation">
+    <p class="lede">Implementation notes for the executor</p>
+    <ul>
+      <li><strong>Active vs recently-active is one query</strong> — <code>get_premises_active_roster(slug, slug, 24)</code> returns both, joined against <code>active_capture_sessions</code> for the <code>currently_active</code> boolean. Web-player splits in JS.</li>
+      <li><strong>Grace period (decision #6)</strong> — when <code>currently_active</code> flips false on next poll, hold the avatar on map for ~60s with a slow opacity fade before animating into the drawer stack slot. Mockup doesn't show the animation; live page should.</li>
+      <li><strong>Drawer state on mobile portrait</strong> — full 220px width covers ~60% of a 360px viewport, which is fine when expanded. Pill state takes only ~32px when closed.</li>
+      <li><strong>Polygon visible behind drawer</strong> — drawer uses backdrop blur, not solid background, so the venue context isn't lost.</li>
+      <li><strong>Currently-active avatar tap</strong> — same popover style (Scene 3) but anchored beside the avatar on map. Already covered by item 25's popover state machine; reuse.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>
