@@ -76,6 +76,13 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
   bool _initFailed = false;
   bool _processing = false;
 
+  /// Camera position currently running. Defaults to front (selfie) — the
+  /// dominant case for both practitioner self-capture and "snap your
+  /// client's avatar" where the practitioner is face-on with the client.
+  /// The flip button in the top-right corner swaps between front and
+  /// back at runtime.
+  String _cameraPosition = 'front';
+
   /// Absolute path to the composed PNG once processing succeeds. Drives
   /// the preview pane (Retake / Use this).
   String? _composedPath;
@@ -119,7 +126,10 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
   Future<void> _startCamera() async {
     try {
       final dynamic resp = await _camera
-          .invokeMethod<Object?>('avatarCameraStart')
+          .invokeMethod<Object?>(
+            'avatarCameraStart',
+            <String, dynamic>{'position': _cameraPosition},
+          )
           .timeout(const Duration(seconds: 5));
       if (resp is Map) {
         debugPrint(
@@ -217,6 +227,23 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
         File(stale).deleteSync();
       } catch (_) {}
     }
+  }
+
+  /// Toggle between front and back camera. Drops the current
+  /// `_initialised = true` state so the viewfinder shows the loading
+  /// shimmer while AVCaptureSession rebuilds (~200-500ms on real
+  /// device). The native side handles the actual teardown + rebuild —
+  /// see `AvatarCameraChannel.startSession` for the position-change
+  /// code path.
+  Future<void> _flipCamera() async {
+    if (!_initialised || _processing) return;
+    HapticFeedback.selectionClick();
+    final newPosition = _cameraPosition == 'front' ? 'back' : 'front';
+    setState(() {
+      _cameraPosition = newPosition;
+      _initialised = false;
+    });
+    await _startCamera();
   }
 
   Future<void> _useThis() async {
@@ -366,6 +393,21 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
                     color: Colors.white,
                   ),
                 ),
+              ),
+              // Flip-camera button — front (selfie) <-> back. Mirrors the
+              // close button's visual weight at the opposite edge of the
+              // top chrome. Disabled while processing so we don't rebuild
+              // the AVCaptureSession mid-capture.
+              IconButton(
+                icon: const Icon(
+                  Icons.cameraswitch_outlined,
+                  color: Colors.white,
+                  size: 28,
+                ),
+                tooltip: _cameraPosition == 'front'
+                    ? 'Switch to back camera'
+                    : 'Switch to selfie camera',
+                onPressed: (_initialised && !_processing) ? _flipCamera : null,
               ),
             ],
           ),

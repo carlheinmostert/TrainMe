@@ -64,6 +64,14 @@ final class AvatarCameraChannel: NSObject {
     private var captureDelegate: AvatarCapturePhotoDelegate?
     private var deviceInput: AVCaptureDeviceInput?
 
+    /// Position of the camera currently running. Defaults to `.front`
+    /// since avatars are overwhelmingly selfies (the practitioner
+    /// pointing the camera at themselves or their client, both face-on
+    /// to the device). The Dart side may override per call to
+    /// `avatarCameraStart` via the `position` arg, and flip between
+    /// front and back by re-calling start with the other value.
+    private var currentPosition: AVCaptureDevice.Position = .front
+
     private let channel: FlutterMethodChannel
 
     init(messenger: FlutterBinaryMessenger) {
@@ -84,8 +92,14 @@ final class AvatarCameraChannel: NSObject {
     private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "avatarCameraStart":
+            // Optional `position` arg: "front" (default) or "back". Anything
+            // else falls back to front rather than throwing — the Dart side
+            // should only ever send one of those two strings.
+            let posArg = (call.arguments as? [String: Any])?["position"] as? String
+            let position: AVCaptureDevice.Position =
+                (posArg == "back") ? .back : .front
             sessionQueue.async { [weak self] in
-                self?.startSession(result: result)
+                self?.startSession(position: position, result: result)
             }
         case "avatarCameraStop":
             sessionQueue.async { [weak self] in
@@ -116,13 +130,18 @@ final class AvatarCameraChannel: NSObject {
     /// video connection so EXIF orientation is upright regardless of
     /// device rotation.
     ///
-    /// Idempotent: if a session is already running, returns its info
-    /// without rebuilding. The Dart side calls `avatarCameraStart` from
-    /// `initState` AND `didChangeAppLifecycleState(.resumed)` so this
-    /// runs more than once per screen.
-    private func startSession(result: @escaping FlutterResult) {
-        if let existing = session, existing.isRunning {
-            os_log("startSession: already running, returning existing device info",
+    /// Idempotent on same-position: if a session is already running with
+    /// the requested `position`, returns its info without rebuilding. If
+    /// the running session is on the OTHER side (e.g. user just tapped
+    /// the flip-camera button), the existing session is torn down and a
+    /// new one built — same code path as a cold start.
+    ///
+    /// The Dart side calls `avatarCameraStart` from `initState` AND
+    /// `didChangeAppLifecycleState(.resumed)` so this runs more than
+    /// once per screen.
+    private func startSession(position: AVCaptureDevice.Position, result: @escaping FlutterResult) {
+        if let existing = session, existing.isRunning, currentPosition == position {
+            os_log("startSession: already running on same position, returning existing device info",
                    log: Self.log, type: .info)
             DispatchQueue.main.async {
                 result(self.payloadForRunningSession())
@@ -130,31 +149,53 @@ final class AvatarCameraChannel: NSObject {
             return
         }
 
+        // Tearing down the prior session before rebuilding — happens on
+        // the camera-flip path. AVCaptureSession is fine being stopped +
+        // re-built on the same queue; the strong refs cleared below so
+        // `Self.currentSession` gets repointed at the new one.
+        if let existing = session {
+            os_log("startSession: rebuilding for position change (was=%{public}@ requested=%{public}@)",
+                   log: Self.log, type: .info,
+                   currentPosition == .front ? "front" : "back",
+                   position == .front ? "front" : "back")
+            if existing.isRunning {
+                existing.stopRunning()
+            }
+            self.session = nil
+            self.photoOutput = nil
+            self.deviceInput = nil
+            self.captureDelegate = nil
+            Self.currentSession = nil
+        }
+
+        currentPosition = position
+
         // CANONICAL device pick — `.builtInWideAngleCamera` is the load-
         // bearing change vs Wave 33. This bypasses iPhone's virtual
-        // multi-cam devices entirely. On a single-lens iPhone this is
-        // the only back camera; on multi-lens iPhones it's the standard
-        // 26mm-equivalent wide.
+        // multi-cam devices entirely. Available on both front and back
+        // on every shipping iPhone — front side has no multi-lens
+        // virtual variants to dodge.
         guard let device = AVCaptureDevice.default(
             .builtInWideAngleCamera,
             for: .video,
-            position: .back
+            position: position
         ) else {
-            os_log("startSession: no .builtInWideAngleCamera available",
-                   log: Self.log, type: .error)
+            let label = position == .front ? "front" : "back"
+            os_log("startSession: no .builtInWideAngleCamera available on %{public}@",
+                   log: Self.log, type: .error, label)
             DispatchQueue.main.async {
                 result(FlutterError(
                     code: "NO_CAMERA",
-                    message: "No back wide-angle camera on this device",
+                    message: "No \(label) wide-angle camera on this device",
                     details: nil
                 ))
             }
             return
         }
 
-        // Diagnostic dump of EVERY back-facing device the system can see,
-        // so Carl can compare what AVFoundation reports vs what the
-        // Flutter `camera` plugin used to enumerate.
+        // Diagnostic dump of EVERY device on the chosen side the system
+        // can see, so Carl can compare what AVFoundation reports vs what
+        // the Flutter `camera` plugin used to enumerate.
         let discovery = AVCaptureDevice.DiscoverySession(
             deviceTypes: [
                 .builtInWideAngleCamera,
@@ -165,12 +206,13 @@ final class AvatarCameraChannel: NSObject {
                 .builtInTripleCamera,
             ],
             mediaType: .video,
-            position: .back
+            position: position
         )
         let availableTypes = discovery.devices.map { $0.deviceType.rawValue }
         let availableNames = discovery.devices.map { $0.localizedName }
-        os_log("startSession: available back devices types=%{public}@ names=%{public}@",
+        os_log("startSession: available %{public}@ devices types=%{public}@ names=%{public}@",
                log: Self.log, type: .info,
+               position == .front ? "front" : "back",
                availableTypes.description, availableNames.description)
 
         let newSession = AVCaptureSession()
