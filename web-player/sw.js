@@ -13,6 +13,14 @@
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
 //
+// Manual bump 2026-05-23 (post-Leaflet rewire): PR #449 swapped Mapbox
+// snapshot for Leaflet + Esri, but Carl's iPhone Safari kept serving
+// the pre-Leaflet inline-SVG live.js for over an hour after deploy.
+// Touching this file changes the SW byte content → forces a fresh
+// install on next page interaction → cache-name swap → stale bundle
+// evicted. Convention going forward: always bump this comment when a
+// player-page change ships (per Carl's 2026-05-23 instruction).
+//
 // 2026-05-15 — bumped for PNG-modal dead-code removal (lobby.js / index.html /
 // styles.css / app.js). PNG export was superseded by the PDF pipeline on
 // 2026-05-14; stale CSS / HTML for the old modal needs to flush from cached
