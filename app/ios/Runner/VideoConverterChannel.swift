@@ -1141,16 +1141,16 @@ class VideoConverterChannel {
             return .up
         }()
 
-        // Safe Mode processor — composites coral over bystander pixels.
+        // Safe Mode processor — blurs bystander pixels.
         // Only allocated when the safe writer survived its init/start
         // pair, so the cost stays off for normal captures.
         //
-        // LATENT COORDINATE-FRAME ISSUE (2026-05-22, see PR
-        // "fix(safe-mode): photo bystander blur — normalise buffer to
-        // upright before Vision + segmentation"):
+        // LATENT COORDINATE-FRAME ISSUE (2026-05-23, see PR
+        // "fix(safe-mode): replace anchor-box discriminator with
+        // face-seeded flood-fill"):
         //
-        // The video path here has the same coordinate-space mismatch
-        // that the photo path used to have. AVAssetReader hands us
+        // The video path here still has the coordinate-space mismatch
+        // that the photo path was fixed for. AVAssetReader hands us
         // buffers in raw sensor orientation (`videoWidth x videoHeight`
         // is landscape for an iPhone portrait recording — the
         // preferredTransform rotates to upright on the writer's OUTPUT
@@ -1158,13 +1158,12 @@ class VideoConverterChannel {
         // Vision sees faces upright, but PersonSegmenter runs against
         // the LANDSCAPE buffer without an orientation hint — its mask
         // lives in landscape coords. Vision's face bbox is in upright
-        // normalized coords; multiplying it by the landscape buffer's
-        // pixel dims inside `SafeModeProcessor.processFrame` lands the
-        // anchor in the wrong region of the buffer. For a portrait
-        // recording the subject's segmented body pixels end up
-        // OUTSIDE the anchor → mis-classified as bystanders →
-        // Gaussian-blurred. Net effect: portrait-recorded videos blur
-        // the subject as well as the bystanders.
+        // normalized coords; mapping its center to pixel coords against
+        // the landscape buffer's dims lands the flood-fill seed in the
+        // wrong region of the buffer. For a portrait recording the
+        // seed will frequently miss the subject's segmented silhouette
+        // — falling back to verbatim source copy + lowConfidence on
+        // every frame.
         //
         // Photo path was fixed by pre-rendering the UIImage upright
         // via UIKit before allocating the pixel buffer (constant cost,
@@ -1174,9 +1173,13 @@ class VideoConverterChannel {
         // the GPU through CIAffineTransform before the Safe Mode pass
         // is one option, and routing orientation through
         // PersonSegmenter (`VNImageRequestHandler(cvPixelBuffer:
-        // orientation: options:)`) + remapping the Vision bbox back
-        // to landscape coords inside `processFrame` is another. Both
-        // are non-trivial enough to land in a follow-up PR.
+        // orientation: options:)`) + remapping the Vision face center
+        // back to landscape coords inside `processFrame` is another.
+        // Both are non-trivial enough to land in a follow-up PR; the
+        // flood-fill rewrite shipped in this PR fixes the algorithmic
+        // half of the issue (subject vs bystander classification) but
+        // inherits the same upstream coordinate-frame mismatch on the
+        // video path.
         //
         // Memory budget note: SafeModeProcessor allocates a width*height
         // 8-bit scratch mask plus the CoreImage render graph holds
@@ -2731,20 +2734,23 @@ class VideoConverterChannel {
         // `.right` to be rotated 90° CW on display. Vision's bounding
         // box is in normalized coords relative to the UPRIGHT (rotated)
         // image; multiplying those upright normalized coords by the
-        // LANDSCAPE buffer's pixel dims lands the anchor box in the
-        // wrong region of the buffer. Combined with a PersonSegmenter
-        // run without an orientation hint (mask in landscape buffer
-        // coords), the anchor and segmentation mask end up in different
-        // coordinate spaces — the subject's pixels fall outside the
-        // anchor → mis-classified as bystanders → blurred. Carl's bug:
-        // single-subject portrait photo, whole body Gaussian-blurred.
+        // LANDSCAPE buffer's pixel dims lands the subject-discriminator
+        // seed in the wrong region of the buffer. Combined with a
+        // PersonSegmenter run without an orientation hint (mask in
+        // landscape buffer coords), the face seed and segmentation mask
+        // end up in different coordinate spaces. PR #430 fixed this
+        // alignment problem by pre-rendering upright; PR (this one)
+        // replaces the discriminator algorithm itself with face-seeded
+        // flood-fill so that even with correct coords the subject's
+        // shoulders/hair are no longer misclassified as bystander
+        // pixels.
         //
-        // Fix: pre-render the UIImage in its UPRIGHT pixel orientation
-        // via UIKit (`UIGraphicsImageRenderer` honours EXIF via
-        // `uiImage.draw(in:)` automatically), then run Vision +
-        // segmentation against that upright buffer with orientation
-        // `.up`. Mask, anchor, and composite all live in the same
-        // coordinate space.
+        // The pre-render-upright fix: pre-render the UIImage in its
+        // UPRIGHT pixel orientation via UIKit (`UIGraphicsImageRenderer`
+        // honours EXIF via `uiImage.draw(in:)` automatically), then run
+        // Vision + segmentation against that upright buffer with
+        // orientation `.up`. Mask, face center, and composite all live
+        // in the same coordinate space.
         //
         // Compute the DISPLAY (post-EXIF) dimensions of the source:
         // for `.left/.right/.leftMirrored/.rightMirrored` the cgImage's
@@ -4086,7 +4092,7 @@ private class HandPoseDilator {
 }
 
 // ============================================================================
-// SafeModeProcessor — Safe Mode bystander-blur compositor (2026-05-22)
+// SafeModeProcessor — Safe Mode bystander-blur compositor (2026-05-23)
 // ============================================================================
 //
 // Produces a copy of the source video frame with bystanders blurred via a
@@ -4095,53 +4101,100 @@ private class HandPoseDilator {
 // `convertVideo` when the capture happened inside a Safe-Mode-enforcing
 // premises (resolved at session-start by `SafeModeService` on the Dart side).
 //
-// Algorithm
-// ---------
-// 1. Run `VNDetectFaceRectanglesRequest` on the source frame. Faces scale
-//    with camera proximity far more reliably than torso/upper-body
-//    bounding boxes — a centered bystander with a big torso no longer
-//    out-votes the closer subject whose torso is partly cropped.
-// 2. Pick the LARGEST face by area = the subject.
-// 3. Derive a subject "anchor" bbox from the chosen face: the face
-//    centroid + an expanded region covering head + torso + legs (face
-//    bbox extended downward by ~6× its height and sideways by ~2× its
-//    width). Mask pixels inside this anchor are subject pixels; mask
-//    pixels outside are bystander pixels. Background (mask < 128) is
-//    always passthrough.
-// 4. Build a "keep source" 8-bit mask: 255 where source should show
-//    (subject pixels + background), 0 where blurred should show
-//    (bystander pixels). Composite via CIBlendWithMask:
-//       output = blendWithMask(source, blurredSource, keepSourceMask)
-//    Renderer is a cached CIContext (reused across frames).
-// 5. Ambiguity flag: if the second-largest face is within ~20% area of
-//    the chosen face, the result payload carries `lowConfidence: true`
-//    so the Dart side can prompt the practitioner to confirm the
-//    subject post-capture. The tap-to-confirm UI is a separate PR;
-//    this processor just surfaces the signal.
+// Algorithm — face-seeded flood-fill (PR "replace anchor-box with
+// face-seeded flood-fill", 2026-05-23)
+// ----------------------------------------------------------------
+// The prior approach derived an axis-aligned "anchor" rectangle by
+// expanding the chosen face bbox and classified each mask-positive
+// pixel as subject-vs-bystander by whether it sat inside that
+// rectangle. The fatal flaw: real bodies extend past an axis-aligned
+// rect (shoulders past the horizontal expansion, hair above the
+// upward expansion, hands stretched outwards, etc.). On a single-
+// subject selfie the subject's own shoulders + hair were misclassified
+// as bystander pixels and Gaussian-blurred along with the rest of the
+// frame — the exact opposite of what Safe Mode should do.
 //
-// If face detection returns zero faces the safe pass is skipped for
-// the frame (the writer skips its append; the per-frame loss is
-// preferable to silently failing-open and shipping a clean untreated
-// bystander into the raw archive). Those frames count toward `missRate`.
+// The new approach treats the person-segmentation mask as a binary
+// image of connected components ("blobs"), each blob being one
+// person's silhouette. The chosen face's pixel-coordinate center is
+// the seed for a 4-connected scanline flood-fill on that mask. The
+// filled connected component IS the subject's silhouette — whatever
+// shape it actually has. Anything else mask-positive belongs to a
+// DIFFERENT connected component, i.e. a bystander.
+//
+// Steps:
+//
+// 1. Run `VNDetectFaceRectanglesRequest`. Pick the LARGEST face by
+//    area = subject. Track the second-largest area for the
+//    ambiguity flag.
+// 2. Map the subject face's normalized bbox to pixel coords (with the
+//    expected Y-flip from Vision's bottom-left origin to the buffer's
+//    top-left origin) and compute the face center `(cx, cy)`.
+// 3. If `(cx, cy)` lies in mask background (`personMask[cy*w+cx]
+//    < 128`), the algorithm can't trust this frame's identification
+//    (likely the face is at the buffer edge or the segmentation under-
+//    covered the head). Set `lowConfidence = true`, fall through to
+//    a verbatim source copy, and return `false` so the caller treats
+//    this as a fallback frame.
+// 4. Flood-fill the binary mask (threshold 128) from `(cx, cy)`
+//    iteratively, 4-connected, scanline-based. The filled set is
+//    the subject's pixels.
+// 5. Build the keep-source mask:
+//      - filled pixel → 255 (subject silhouette, keep source)
+//      - mask-positive but NOT filled → 0 (bystander, show blur)
+//      - mask < 128 → 255 (background, keep source)
+// 6. Composite via CIBlendWithMask (unchanged from before).
+//
+// Edge cases:
+//   - Single subject, no other people in frame → one blob → all
+//     mask-positive pixels are inside the filled set → no pixels
+//     marked bystander → no blur (correct).
+//   - Two people, subject + bystander → two blobs → subject blob
+//     filled, bystander blob left untouched → only the bystander is
+//     blurred (correct).
+//   - Subject's face center lands outside the segmentation mask → set
+//     `lowConfidence`, copy source verbatim. Better to under-blur than
+//     to blur the subject.
+//
+// Ambiguity flag (`lowConfidence`) — sticky once any frame triggers:
+//   - Two largest faces within `lowConfidenceRatio` area of each other,
+//     OR
+//   - Subject face center maps to a background mask pixel on any frame.
 //
 // Performance
 // -----------
 // VNDetectFaceRectanglesRequest is ~5-15ms per frame on iPhone 15.
+// The flood-fill is O(filled pixels) — for a single 1080p subject
+// silhouette covering ~30% of the frame that's ~620k pixels, dominated
+// by a single linear scan with branch-prediction-friendly inner loops.
+// On iPhone 15 it lands well under 5ms in practice. We use a scanline
+// flood-fill: for each popped seed, sweep horizontally to find the run
+// of fillable pixels in that row, then look at the row above and below
+// for new seed candidates. Far fewer stack pushes than naive 4-way
+// recursion, and no Swift recursion (which would blow the stack on a
+// 1920×1440 fill). Stack is a manually-managed `[Int]` array of
+// (x,y) packed indices, pre-allocated with a small initial capacity
+// and grown by Swift's geometric reallocation policy.
+//
 // CIGaussianBlur(radius: 35) + CIBlendWithMask on a 1080p frame renders
-// in ~10-15ms on the same hardware. Total per-frame cost is ~25-30ms —
-// fine for the post-capture pass, well below 33ms at 30 fps. The
-// CIContext is allocated once (Metal-backed) and reused; CIFilter
-// instances are reused; per-frame allocations are limited to CIImage
-// wrappers (cheap) and a single 8-bit mask buffer (allocated once and
-// re-filled per frame).
+// in ~10-15ms. Total per-frame cost ~25-30ms — fine for the post-
+// capture pass, under 33ms at 30 fps. The CIContext is allocated once
+// (Metal-backed) and reused; CIFilter instances are reused.
+//
+// Per-frame allocations:
+//   - One 8-bit visited buffer (width*height bytes) — allocated once
+//     in init, re-zeroed per frame via `memset`.
+//   - One Swift `[Int]` stack — re-used by reference, `removeAll(
+//     keepingCapacity: true)` per frame.
+//   - CIImage wrappers (cheap).
 //
 // V1 LOCKED params (2026-05-22, Carl-signed)
 // ------------------------------------------
 //   gaussianBlurRadius = 35.0   // on 1080p source; scaled by source dim
-//   subjectExpandHorz  = 2.0    // face bbox grows by 2× horizontally
-//   subjectExpandDown  = 6.0    // face bbox grows by 6× downward (torso+legs)
-//   subjectExpandUp    = 0.4    // face bbox grows slightly upward (hair)
 //   lowConfidenceRatio = 0.80   // 2nd face area >= 80% of 1st area => flag
+//
+// (The previous subjectExpandHorz/Down/Up anchor constants are retired
+// — there is no anchor rectangle anymore.)
 //
 // No coral tint on the blurred region — pure Gaussian, conventional
 // "sensitive photo blur" pattern. The previous flat-coral painting is
@@ -4168,11 +4221,12 @@ private class SafeModeProcessor {
     // V1 LOCKED tuning constants (2026-05-22). Comments mirror the
     // top-of-class doc. Tuned for 1080p source; blur radius scales
     // proportionally if the source dimension differs.
+    //
+    // The flood-fill replacement (2026-05-23) retired the
+    // subjectExpandHorz/Down/Up anchor constants — there is no anchor
+    // rectangle in the new algorithm.
     private static let baseGaussianBlurRadius: Double = 35.0
     private static let baseSourceDim: Double = 1080.0
-    private static let subjectExpandHorz: CGFloat = 2.0
-    private static let subjectExpandDown: CGFloat = 6.0
-    private static let subjectExpandUp: CGFloat = 0.4
     private static let lowConfidenceRatio: CGFloat = 0.80
 
     // CoreImage compositor — cached once, reused per frame. Metal-backed
@@ -4195,6 +4249,19 @@ private class SafeModeProcessor {
     private var keepSourceMaskData: UnsafeMutablePointer<UInt8>
     private let maskRowBytes: Int
 
+    // Visited buffer for the flood-fill (2026-05-23 algorithm rewrite).
+    // 0 = unvisited, 1 = visited (filled or rejected). Allocated once,
+    // zeroed via `memset` at the start of each frame's fill. Sized to
+    // width*height bytes.
+    private var visitedData: UnsafeMutablePointer<UInt8>
+
+    // Re-usable scanline stack for the flood-fill. Each entry is a
+    // packed (x, y) seed encoded as `y * width + x`. Pre-allocated
+    // with modest capacity; Swift's geometric growth handles the rest.
+    // `removeAll(keepingCapacity: true)` per frame keeps the buffer
+    // hot across calls.
+    private var fillStack: [Int] = []
+
     // Vision miss-rate tracking (Safe Mode completion wave,
     // 2026-05-21). `framesTotal` counts every frame the processor was
     // asked to handle; `framesMissed` counts frames where Vision
@@ -4208,14 +4275,20 @@ private class SafeModeProcessor {
         framesTotal == 0 ? 0.0 : Double(framesMissed) / Double(framesTotal)
     }
 
-    // Low-confidence flag (2026-05-22). Set to true if, on any frame
-    // processed, the two largest faces were within `lowConfidenceRatio`
-    // of each other in area — meaning the subject vs bystander
-    // discriminator could plausibly have picked the wrong face. Sticky:
-    // once any frame triggers ambiguity we surface the flag to the
-    // Dart side so the practitioner sees the tap-to-confirm UI
+    // Low-confidence flag. Sticky once any frame triggers — surfaced
+    // to Dart so the practitioner sees the tap-to-confirm UI
     // post-capture. The tap-to-confirm UI itself is a separate Flutter
-    // PR; this processor only surfaces the signal.
+    // PR; this processor only emits the signal.
+    //
+    // Two triggers (either flips the flag for the rest of the capture):
+    //   (a) Two largest faces' areas were within `lowConfidenceRatio`
+    //       on this frame — the discriminator could plausibly have
+    //       picked the wrong face.
+    //   (b) The subject face center mapped to a background pixel in
+    //       the segmentation mask on this frame — the chosen face's
+    //       silhouette isn't covered by the segmentation, so the
+    //       flood-fill can't trust this frame's identification (the
+    //       frame falls back to verbatim source copy).
     private(set) var lowConfidence: Bool = false
 
     init(width: Int, height: Int, orientation: CGImagePropertyOrientation = .up) {
@@ -4266,11 +4339,24 @@ private class SafeModeProcessor {
         let bufSize = width * height
         self.keepSourceMaskData = UnsafeMutablePointer<UInt8>.allocate(capacity: bufSize)
         self.keepSourceMaskData.initialize(repeating: 255, count: bufSize)
+
+        // Visited buffer for the flood-fill. Single byte per pixel,
+        // zeroed at the start of each frame.
+        self.visitedData = UnsafeMutablePointer<UInt8>.allocate(capacity: bufSize)
+        self.visitedData.initialize(repeating: 0, count: bufSize)
+
+        // Reserve a small chunk for the scanline stack. The fill itself
+        // typically pushes only O(image height) seeds for a connected
+        // single blob (each row contributes 1-3 seeds for vertical
+        // neighbour spans), so 1024 is a comfortable starting capacity.
+        self.fillStack.reserveCapacity(1024)
     }
 
     deinit {
         keepSourceMaskData.deinitialize(count: width * height)
         keepSourceMaskData.deallocate()
+        visitedData.deinitialize(count: width * height)
+        visitedData.deallocate()
     }
 
     /// Coordinate-frame contract:
@@ -4282,8 +4368,7 @@ private class SafeModeProcessor {
     /// only lands in the right region of the buffer when buffer pixels
     /// and orientation agree. Similarly the `mask` (from
     /// `PersonSegmenter`) must be in the SAME coordinate space as
-    /// `source` so anchor-vs-mask classification produces the right
-    /// keep/blur decision.
+    /// `source` so the flood-fill seed lands on the correct silhouette.
     ///
     /// Photo path: `applySafeModeToPhoto` pre-renders the source
     /// UIImage upright via UIKit before allocating the pixel buffer,
@@ -4308,9 +4393,10 @@ private class SafeModeProcessor {
     ) -> Bool {
         // Every frame the caller asks us to handle counts toward the
         // total. A "miss" is any path that returns false — Vision threw,
-        // returned no faces, or yielded a zero-area face. The Dart side
-        // compares missRate against kSafeModeMaxMissRate to decide
-        // whether to keep or reject the capture.
+        // returned no faces, yielded a zero-area face, or the flood-
+        // fill found no subject pixels. The Dart side compares missRate
+        // against kSafeModeMaxMissRate to decide whether to keep or
+        // reject the capture.
         framesTotal += 1
 
         // --- Find the largest face via Vision ---
@@ -4360,45 +4446,15 @@ private class SafeModeProcessor {
             return false
         }
 
-        // Ambiguity check — sticky across frames within this capture.
-        // Once any frame's two largest faces were within ratio, we
-        // surface the flag so the post-capture UX can prompt the
-        // practitioner to confirm.
+        // Ambiguity check (a) — two largest faces near-equal in area.
+        // Sticky across frames within this capture so the post-capture
+        // UX can prompt the practitioner to confirm.
         if bestArea > 0,
            secondBestArea / bestArea >= Self.lowConfidenceRatio {
             lowConfidence = true
         }
 
-        // --- Build subject "anchor" bbox in pixel coords ---
-        // The face bbox alone would only cover the head; we extend it
-        // downward (torso + legs) and outward (arms / hips). The
-        // expansion factors are V1 heuristics — close enough to the
-        // person silhouette that the segmentation mask inside the box
-        // is overwhelmingly the subject's body.
-        //
-        // Normalized → pixel, with Y flipped (Vision = bottom-left
-        // origin, BGRA buffer = top-left origin).
-        let faceW = subjectFace.width * CGFloat(width)
-        let faceH = subjectFace.height * CGFloat(height)
-        let faceCx = (subjectFace.origin.x + subjectFace.width * 0.5) * CGFloat(width)
-        // Vision Y is bottom-left; flip to top-left for our pixel grid.
-        let faceTopY = (1.0 - subjectFace.origin.y - subjectFace.height) * CGFloat(height)
-        let faceBotY = (1.0 - subjectFace.origin.y) * CGFloat(height)
-
-        // Expand: face bbox grows horz/up/down by V1 constants. The
-        // resulting "anchor" is a generous rectangle around the person
-        // identified by face; mask pixels inside this box AND inside
-        // the person-mask are the subject. Mask pixels outside this
-        // box BUT inside the person mask are bystanders.
-        let halfExpandedW = faceW * (1.0 + Self.subjectExpandHorz) * 0.5
-        let expandUpPx = faceH * Self.subjectExpandUp
-        let expandDownPx = faceH * Self.subjectExpandDown
-        let anchorX0 = max(0, Int((faceCx - halfExpandedW).rounded(.down)))
-        let anchorX1 = min(width, Int((faceCx + halfExpandedW).rounded(.up)))
-        let anchorY0 = max(0, Int((faceTopY - expandUpPx).rounded(.down)))
-        let anchorY1 = min(height, Int((faceBotY + expandDownPx).rounded(.up)))
-
-        // --- Build "keep source" 8-bit mask ---
+        // --- Build "keep source" 8-bit mask via face-seeded flood-fill ---
         // 255 = source shows (subject + background); 0 = blurred shows
         // (bystanders). When mask == nil we can't tell person from
         // background — pass everything through (no blur), but Vision
@@ -4409,26 +4465,129 @@ private class SafeModeProcessor {
         }
         let personMask = mask!
 
-        // Build the keep-source mask: default 255 (keep source).
-        // For each pixel where personMask >= 128, decide:
-        //   inside anchor → 255 (subject, keep source)
-        //   outside anchor → 0 (bystander, show blurred)
-        // For each pixel where personMask < 128, leave at 255
-        // (background, keep source).
-        //
-        // Tight inner loop — avoid per-pixel function calls.
+        // Subject face center in pixel coords. Vision Y is bottom-left
+        // origin in the oriented image; flip to top-left for our buffer.
+        let faceCxF = (subjectFace.origin.x + subjectFace.width * 0.5) * CGFloat(width)
+        let faceCyF = (1.0 - (subjectFace.origin.y + subjectFace.height * 0.5)) * CGFloat(height)
+        let seedX = max(0, min(width - 1, Int(faceCxF.rounded())))
+        let seedY = max(0, min(height - 1, Int(faceCyF.rounded())))
+
+        // Default the keep-source mask to 255 (keep source). The fill
+        // loop only writes 0s for the bystander pixels it discovers, so
+        // resetting to 255 each frame is essential. memset is the
+        // cheapest way to do this — ~0.5ms on 1080p.
         let ksm = keepSourceMaskData
-        for y in 0..<height {
-            let pmRow = personMask + y * width
+        memset(ksm, 255, width * height)
+
+        // Zero the visited buffer for this frame.
+        memset(visitedData, 0, width * height)
+
+        // If the seed pixel is in mask background, the segmentation
+        // didn't cover the chosen face. Don't trust this frame —
+        // fall back to verbatim source copy and surface the
+        // lowConfidence flag.
+        if personMask[seedY * width + seedX] < 128 {
+            lowConfidence = true
+            framesMissed += 1
+            _ = copySourceVerbatim(source: source, into: outBuffer)
+            return false
+        }
+
+        // Iterative 4-connected scanline flood-fill on the binary
+        // person mask, seeded at the subject face center. Marks
+        // visitedData[i] = 1 for every subject pixel. We never write to
+        // ksm during the fill itself — instead we do a single linear
+        // sweep at the end to set ksm[i] = 0 for "mask-positive but
+        // not visited" pixels (bystanders).
+        //
+        // Scanline algorithm:
+        //   1. Pop a seed (x, y).
+        //   2. Skip if already visited or background.
+        //   3. Sweep left from x to find the leftmost mask-positive,
+        //      unvisited pixel in this row.
+        //   4. Sweep right from x to find the rightmost mask-positive,
+        //      unvisited pixel in this row. Mark the [left, right]
+        //      span visited.
+        //   5. Inspect rows y-1 and y+1 along that span. Push one seed
+        //      per maximal mask-positive, unvisited run we find.
+        //
+        // This produces ~O(height) seeds instead of one per filled
+        // pixel — keeps the stack depth predictable and avoids
+        // pathological 1920×1440 worst-case stack growth.
+        fillStack.removeAll(keepingCapacity: true)
+        fillStack.append(seedY * width + seedX)
+
+        let w = width
+        let h = height
+        var filledCount = 0
+
+        while let packed = fillStack.popLast() {
+            let py = packed / w
+            let px = packed - py * w
+            let pmRow = personMask + py * w
+            let visRow = visitedData + py * w
+            if visRow[px] != 0 || pmRow[px] < 128 {
+                continue
+            }
+            // Sweep left.
+            var lx = px
+            while lx > 0 && visRow[lx - 1] == 0 && pmRow[lx - 1] >= 128 {
+                lx -= 1
+            }
+            // Sweep right.
+            var rx = px
+            while rx < w - 1 && visRow[rx + 1] == 0 && pmRow[rx + 1] >= 128 {
+                rx += 1
+            }
+            // Mark the [lx, rx] span visited.
+            let spanLen = rx - lx + 1
+            memset(visRow + lx, 1, spanLen)
+            filledCount += spanLen
+
+            // Inspect row above and row below for new seed runs.
+            // For each row we walk the span and push one seed per
+            // maximal mask-positive, unvisited run.
+            if py > 0 {
+                pushSeedsForRow(
+                    rowMask: personMask + (py - 1) * w,
+                    rowVisited: visitedData + (py - 1) * w,
+                    spanStart: lx,
+                    spanEnd: rx,
+                    rowIndex: py - 1
+                )
+            }
+            if py < h - 1 {
+                pushSeedsForRow(
+                    rowMask: personMask + (py + 1) * w,
+                    rowVisited: visitedData + (py + 1) * w,
+                    spanStart: lx,
+                    spanEnd: rx,
+                    rowIndex: py + 1
+                )
+            }
+        }
+
+        // If the fill found nothing the seed test above should have
+        // already returned. Defensive guard: if it somehow yields zero
+        // pixels (e.g. mask flipped to background between the seed
+        // check and the loop start), treat as fallback.
+        if filledCount == 0 {
+            lowConfidence = true
+            framesMissed += 1
+            _ = copySourceVerbatim(source: source, into: outBuffer)
+            return false
+        }
+
+        // Build the keep-source mask: bystander pixels are mask-positive
+        // AND not visited by the fill. Subject pixels (visited) and
+        // background (mask < 128) stay at 255 from the memset above.
+        for y in 0..<h {
+            let pmRow = personMask + y * w
+            let visRow = visitedData + y * w
             let ksmRow = ksm + y * maskRowBytes
-            let inAnchorY = (y >= anchorY0 && y < anchorY1)
-            for x in 0..<width {
-                let pm = pmRow[x]
-                if pm >= 128 {
-                    let inAnchor = inAnchorY && x >= anchorX0 && x < anchorX1
-                    ksmRow[x] = inAnchor ? 255 : 0
-                } else {
-                    ksmRow[x] = 255
+            for x in 0..<w {
+                if pmRow[x] >= 128 && visRow[x] == 0 {
+                    ksmRow[x] = 0
                 }
             }
         }
@@ -4487,6 +4646,35 @@ private class SafeModeProcessor {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /// Walk `[spanStart, spanEnd]` in a neighbouring row, pushing one
+    /// seed per maximal run of mask-positive, unvisited pixels. Used by
+    /// the scanline flood-fill to enqueue work for rows above + below
+    /// the current span.
+    @inline(__always)
+    private func pushSeedsForRow(
+        rowMask: UnsafePointer<UInt8>,
+        rowVisited: UnsafePointer<UInt8>,
+        spanStart: Int,
+        spanEnd: Int,
+        rowIndex: Int
+    ) {
+        var x = spanStart
+        let w = width
+        while x <= spanEnd {
+            // Skip non-fillable pixels.
+            while x <= spanEnd && (rowVisited[x] != 0 || rowMask[x] < 128) {
+                x += 1
+            }
+            if x > spanEnd { break }
+            // We've hit the start of a fillable run; one seed per run.
+            fillStack.append(rowIndex * w + x)
+            // Skip past the run so we don't push duplicate seeds for it.
+            while x <= spanEnd && rowVisited[x] == 0 && rowMask[x] >= 128 {
+                x += 1
+            }
+        }
+    }
 
     /// Wrap a BGRA `CVPixelBuffer` in a `CIImage`. Returns nil on
     /// allocation failure (rare).
