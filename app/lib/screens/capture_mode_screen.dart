@@ -180,6 +180,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   Timer? _recordingTickTimer;
   int _recordingSeconds = 0;
 
+  /// Wall-clock instant the current video recording started, captured
+  /// the moment `startVideoRecording()` succeeds. Read at stop time to
+  /// stamp the `record_capture_event` audit row's `started_at`. Null
+  /// when not recording. Item 27 / PR B (2026-05-23).
+  DateTime? _recordingStartedAt;
+
   /// Orientation lock for the camera surface. Defaults to portrait +
   /// both landscapes. The moment a recording starts, this clamps to the
   /// orientation recording started in so AVFoundation's embedded
@@ -872,10 +878,24 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
     try {
       HomefitHaptics.medium();
+      // Snapshot wall-clock instant of the shutter fire — this is what
+      // the audit row's `started_at` records, NOT the per-disk-write
+      // moment further down (which can drift by tens of ms on a busy
+      // device). Item 27 / PR B.
+      final shutterFiredAt = DateTime.now();
       final xFile = await _cameraController!.takePicture();
       final exercise = await _persistCapture(xFile.path, MediaType.photo);
       if (exercise != null) {
         _onCaptureLanded(exercise);
+        // Fire-and-forget audit row. SyncService queues into
+        // `pending_ops` and flushes in the background; we never
+        // await the network here.
+        unawaited(_recordCaptureAuditEvent(
+          kind: 'photo',
+          startedAt: shutterFiredAt,
+          endedAt: null,
+          exercise: exercise,
+        ));
       }
     } catch (e) {
       // Silent failure — the count not incrementing is the signal.
@@ -1033,6 +1053,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
     try {
       await _cameraController!.startVideoRecording();
+      // Stamp the wall-clock instant for the audit row's
+      // `started_at`. Captured BEFORE the awaits below so a unmount
+      // race doesn't lose the timestamp. Item 27 / PR B.
+      _recordingStartedAt = DateTime.now();
       if (!mounted) return;
       setState(() {
         _isRecording = true;
@@ -1081,6 +1105,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     } catch (e) {
       debugPrint('Video recording start failed: $e');
       _pendingStopAfterStart = false;
+      _recordingStartedAt = null;
       if (mounted) {
         setState(() {
           _allowedOrientations = _kCameraDefaultOrientations;
@@ -1139,7 +1164,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
     try {
       final xFile = await controller.stopVideoRecording();
+      // Stamp the stop instant + read back the start instant BEFORE
+      // we clear local state. Audit row's `started_at` / `ended_at`
+      // pair is the practitioner's full recording window. Item 27 /
+      // PR B.
+      final recordingStoppedAt = DateTime.now();
+      final recordingStartedAt = _recordingStartedAt;
       _stopInFlight = false;
+      _recordingStartedAt = null;
       if (!mounted) return;
       setState(() {
         _isRecording = false;
@@ -1165,10 +1197,21 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       final exercise = await _persistCapture(xFile.path, MediaType.video);
       if (exercise != null) {
         _onCaptureLanded(exercise);
+        // Fire-and-forget audit row. Skip if we somehow lost the
+        // start instant — the row would be misleading.
+        if (recordingStartedAt != null) {
+          unawaited(_recordCaptureAuditEvent(
+            kind: 'video',
+            startedAt: recordingStartedAt,
+            endedAt: recordingStoppedAt,
+            exercise: exercise,
+          ));
+        }
       }
     } catch (e) {
       debugPrint('Video recording stop failed: $e');
       _stopInFlight = false;
+      _recordingStartedAt = null;
       if (mounted) {
         setState(() {
           _isRecording = false;
@@ -1291,6 +1334,70 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     } catch (e) {
       debugPrint('persistCapture failed: $e');
       return null;
+    }
+  }
+
+  /// Queue a `record_capture_event` audit row for the just-landed
+  /// capture (item 27 / PR B, 2026-05-23). Fire-and-forget: the
+  /// SyncService queues into `pending_ops` and flushes in the
+  /// background. The capture UI never waits on the network.
+  ///
+  /// Sources `practice_id` from [AuthService.currentPracticeId] (the
+  /// same source `upload_service.dart` uses) and `premises_id` from
+  /// the active SafeModeService — null when the practitioner is
+  /// outside any enforcing polygon, which is a valid state (the audit
+  /// row still lands; live-view roster filters by premises but the
+  /// portal audit drilldown reads all).
+  ///
+  /// Skips silently when there's no signed-in practice — there's
+  /// nothing to scope the audit row to, and the SECURITY DEFINER RPC
+  /// would reject the call anyway.
+  Future<void> _recordCaptureAuditEvent({
+    required String kind,
+    required DateTime startedAt,
+    required DateTime? endedAt,
+    required ExerciseCapture exercise,
+  }) async {
+    try {
+      final practiceId = AuthService.instance.currentPracticeId.value;
+      if (practiceId == null || practiceId.isEmpty) {
+        // Should never happen — capture is always within a signed-in
+        // session — but bail rather than enqueue a row that the server
+        // will reject. The exercise itself is already on disk.
+        return;
+      }
+
+      String? premisesId;
+      bool safeModeActive = false;
+      try {
+        final svc = SafeModeService.instance;
+        safeModeActive = svc.isActive;
+        premisesId = svc.premisesId;
+      } catch (_) {
+        // Service not initialised — fine, both stay null/false.
+      }
+
+      // Metadata is optional and consumers (live view, portal) handle
+      // missing keys gracefully. Keep the payload small but include
+      // the fields most useful for downstream diagnostics.
+      final metadata = <String, dynamic>{
+        'safe_mode_active': safeModeActive,
+        'exercise_id': exercise.id,
+        'app_version': AppConfig.buildSha,
+      };
+
+      await SyncService.instance.queueRecordCaptureEvent(
+        practiceId: practiceId,
+        premisesId: premisesId,
+        kind: kind,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        metadata: metadata,
+      );
+    } catch (e) {
+      // Audit logging is non-blocking. Failure to enqueue is logged
+      // but never surfaced to the practitioner.
+      debugPrint('recordCaptureAuditEvent failed: $e');
     }
   }
 
