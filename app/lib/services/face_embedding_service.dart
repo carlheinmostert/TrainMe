@@ -218,13 +218,27 @@ class FaceEmbeddingService extends ChangeNotifier {
     final avatarPath = cached.avatarPath;
     if (avatarPath == null || avatarPath.isEmpty) return null;
 
-    // Step 1: try the local body-focus avatar JPG that the avatar
-    // capture flow writes alongside the upload. The relative path
-    // shape mirrors the cloud storage key.
+    // Step 1: try the local body-focus avatar PNG that the avatar
+    // capture flow writes via client_avatar_capture_screen._useThis().
+    // The local file ALWAYS lives at `{docs}/avatars/{clientId}.png`
+    // regardless of the cloud-side `avatarPath` shape (which is
+    // `{practiceId}/{clientId}/avatar.png` to match the bucket policy).
+    // Earlier versions joined docsDir + avatarPath here, which never
+    // hit the actual file and always fell through to the cloud
+    // signed-URL fallback. Diagnosed 2026-05-23.
     final docsDir = await getApplicationDocumentsDirectory();
-    final localCandidate = File(p.join(docsDir.path, avatarPath));
-    if (await localCandidate.exists()) {
-      return localCandidate.path;
+    final canonicalLocal = File(
+      p.join(docsDir.path, 'avatars', '$clientId.png'),
+    );
+    if (await canonicalLocal.exists()) {
+      return canonicalLocal.path;
+    }
+    // Defensive: if a future avatar-save path ever writes the cloud-
+    // shaped layout under docs/ directly, prefer that file. Cheap to
+    // check; not load-bearing.
+    final legacyLocal = File(p.join(docsDir.path, avatarPath));
+    if (await legacyLocal.exists()) {
+      return legacyLocal.path;
     }
 
     // Step 2: fall back to a signed-URL download. Best-effort — if
