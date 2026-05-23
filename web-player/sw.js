@@ -13,6 +13,10 @@
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
 //
+// Manual bump 2026-05-23 (eager SW update check): PR adds reg.update()
+// on registration + on visibilitychange in app.js so Safari stops
+// serving stale bundles for hours. Pair with this comment bump.
+//
 // Manual bump 2026-05-23 (post-Leaflet rewire): PR #449 swapped Mapbox
 // snapshot for Leaflet + Esri, but Carl's iPhone Safari kept serving
 // the pre-Leaflet inline-SVG live.js for over an hour after deploy.
