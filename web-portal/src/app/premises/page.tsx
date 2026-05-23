@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
@@ -6,6 +6,7 @@ import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { PremisesListPanel } from '@/components/PremisesListPanel';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { playerOriginFromHost } from '@/lib/env';
 
 type SearchParams = { practice?: string };
 
@@ -49,12 +50,19 @@ export default async function PremisesPage({
 
   // Public-profile data no longer fetched here — moved to its own
   // /public-profile route in v2. /premises is now site-management
-  // only (physical premises + Safe Mode enforcement).
-  const [role, premises] = await Promise.all([
+  // only (physical premises + Safe Mode enforcement). The practice
+  // slug IS fetched here so each Safe-Mode-enforced row can surface
+  // a per-premises Live + Poster URL at the collection level (no
+  // Edit detour needed).
+  const [role, premises, profile] = await Promise.all([
     api.getCurrentUserRole(selected.id, user.id),
     api.listPracticePremises(selected.id),
+    api.getPracticePublicProfile(selected.id),
   ]);
   const isOwner = role === 'owner';
+  const reqHeaders = await headers();
+  const playerOrigin = playerOriginFromHost(reqHeaders.get('host'));
+  const practiceSlug = profile?.listed ? (profile.slug ?? null) : null;
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -86,6 +94,8 @@ export default async function PremisesPage({
           practiceId={selected.id}
           isOwner={isOwner}
           initialPremises={premises}
+          practiceSlug={practiceSlug}
+          playerOrigin={playerOrigin}
         />
       </div>
     </main>
