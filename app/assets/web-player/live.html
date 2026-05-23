@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0F1117">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Recording right now — homefit.studio">
+  <meta property="og:description" content="See who is recording in Safe Mode at this venue, right now.">
+  <meta property="og:site_name" content="homefit.studio">
+  <meta name="twitter:card" content="summary">
+  <meta name="robots" content="noindex,nofollow">
+
+  <title>Recording right now — homefit.studio</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    /* Live page-specific tokens. Keep the surface in line with the rest
+       of the player so re-use of styles.css buttons / chips Just Works. */
+    body.live-body {
+      background: var(--c-surface-bg);
+      color: var(--c-ink-primary);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      padding: 28px 20px 80px;
+      margin: 0;
+    }
+    .live-page { max-width: 640px; margin: 0 auto; }
+    .live-top {
+      display: flex; justify-content: space-between; align-items: center;
+      padding-bottom: 20px; border-bottom: 1px solid var(--c-surface-border);
+    }
+    .live-practice {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .live-practice-mark {
+      width: 40px; height: 40px; border-radius: 8px;
+      background: var(--c-surface-raised);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      color: var(--c-brand); font-size: 14px;
+    }
+    .live-practice-name {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 16px;
+    }
+    .live-practice-loc {
+      font-size: 11px; color: var(--c-ink-secondary); margin-top: 2px;
+    }
+    .live-matrix-logo svg { width: 56px; height: 12px; opacity: 0.7; }
+
+    .live-hero { margin-top: 28px; }
+    .live-hero h1 {
+      font-family: 'Montserrat', sans-serif; font-weight: 800;
+      font-size: 28px; letter-spacing: -0.02em; line-height: 1.15;
+    }
+    .live-hero h1 .live-dot {
+      display: inline-block; width: 14px; height: 14px;
+      border-radius: 50%; background: var(--c-brand); margin-right: 10px;
+      vertical-align: middle; box-shadow: 0 0 0 4px var(--c-brand-tint-bg);
+      animation: live-pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes live-pulse {
+      0%, 100% { transform: scale(1); }
+      50%      { transform: scale(0.88); }
+    }
+    .live-hero-sub {
+      margin-top: 8px; font-size: 14px; color: var(--c-ink-secondary);
+      line-height: 1.5;
+    }
+    .live-meta {
+      margin-top: 12px; font-size: 11px; color: var(--c-ink-muted);
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+
+    .live-map-card {
+      margin-top: 24px; border: 1px solid var(--c-surface-border);
+      background: var(--c-surface-raised); border-radius: 16px;
+      padding: 16px; overflow: hidden;
+    }
+    .live-map-grid {
+      width: 100%; aspect-ratio: 4 / 5; position: relative;
+      background:
+        linear-gradient(var(--c-surface-border) 1px, transparent 1px) 0 0 / 24px 24px,
+        linear-gradient(90deg, var(--c-surface-border) 1px, transparent 1px) 0 0 / 24px 24px,
+        var(--c-surface-bg);
+      border-radius: 12px; overflow: hidden;
+    }
+    .live-map-svg {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+    }
+    .live-card-layer {
+      position: absolute; inset: 0; pointer-events: none;
+    }
+    .live-pcard {
+      position: absolute; pointer-events: auto;
+      transform: translate(-50%, -50%);
+      display: flex; align-items: center; gap: 10px;
+      background: var(--c-surface-base);
+      border: 2px solid var(--c-brand);
+      border-radius: 14px; padding: 8px 12px 8px 8px;
+      box-shadow: 0 0 0 5px var(--c-brand-tint-bg);
+      animation: live-pulse-ring 2.4s ease-in-out infinite;
+      max-width: 260px;
+    }
+    @keyframes live-pulse-ring {
+      0%, 100% { box-shadow: 0 0 0 5px var(--c-brand-tint-bg); }
+      50%      { box-shadow: 0 0 0 9px rgba(255, 107, 53, 0.08); }
+    }
+    .live-pcard-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--c-surface-raised);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--c-brand); font-family: 'Montserrat', sans-serif;
+      font-weight: 700; font-size: 14px; overflow: hidden; flex-shrink: 0;
+    }
+    .live-pcard-avatar img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .live-pcard-name {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 14px; line-height: 1.25; color: var(--c-ink-primary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .live-pcard-meta {
+      font-size: 10px; color: var(--c-ink-secondary); margin-top: 2px;
+      letter-spacing: 0.02em;
+    }
+    .live-pcard-report {
+      background: transparent; border: 1px solid var(--c-surface-border);
+      color: var(--c-ink-primary); font-family: 'Inter', sans-serif;
+      font-size: 11px; font-weight: 600; border-radius: 8px;
+      padding: 5px 10px; cursor: pointer; flex-shrink: 0;
+    }
+    .live-pcard-report:hover { border-color: var(--c-brand); color: var(--c-brand); }
+
+    .live-you {
+      position: absolute; transform: translate(-50%, -50%);
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--c-sage);
+      box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.25);
+      pointer-events: none;
+    }
+
+    .live-empty {
+      margin-top: 24px; padding: 24px;
+      background: var(--c-surface-raised);
+      border: 1px solid var(--c-surface-border);
+      border-radius: 14px; text-align: center;
+      color: var(--c-ink-secondary);
+    }
+    .live-empty h2 {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 16px; color: var(--c-ink-primary); margin-bottom: 6px;
+    }
+
+    .live-explainer {
+      margin-top: 28px; padding: 18px;
+      background: var(--c-surface-raised);
+      border: 1px solid var(--c-surface-border);
+      border-radius: 14px;
+    }
+    .live-explainer h3 {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 14px; color: var(--c-ink-primary);
+      margin-bottom: 8px;
+    }
+    .live-explainer p {
+      font-size: 13px; line-height: 1.55; color: var(--c-ink-secondary);
+    }
+    .live-explainer a {
+      color: var(--c-brand); text-decoration: none; font-weight: 600;
+    }
+
+    .live-footer {
+      margin-top: 36px; text-align: center;
+      font-size: 11px; color: var(--c-ink-muted);
+    }
+    .live-footer-matrix { display: block; margin: 8px auto 0; opacity: 0.55; }
+
+    /* Report modal — reuse the v.js modal pattern (dark backdrop +
+       centered card with textarea + buttons). */
+    .live-report-backdrop {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px; z-index: 100;
+    }
+    .live-report-card {
+      background: var(--c-surface-base); border-radius: 16px;
+      border: 1px solid var(--c-surface-border);
+      padding: 22px; max-width: 420px; width: 100%;
+    }
+    .live-report-card h2 {
+      font-family: 'Montserrat', sans-serif; font-weight: 700;
+      font-size: 18px; margin-bottom: 12px;
+    }
+    .live-report-routes {
+      font-size: 13px; color: var(--c-ink-secondary);
+      margin-bottom: 12px; line-height: 1.5;
+    }
+    .live-report-routes strong { color: var(--c-ink-primary); }
+    .live-report-textarea {
+      width: 100%; min-height: 110px;
+      background: var(--c-surface-raised);
+      border: 1px solid var(--c-surface-border);
+      border-radius: 10px; color: var(--c-ink-primary);
+      font-family: 'Inter', sans-serif; font-size: 14px;
+      padding: 12px; resize: vertical;
+    }
+    .live-report-actions {
+      display: flex; justify-content: flex-end; gap: 10px;
+      margin-top: 14px;
+    }
+    .live-btn {
+      font-family: 'Inter', sans-serif; font-size: 14px;
+      font-weight: 600; padding: 10px 18px; border-radius: 10px;
+      border: 1px solid var(--c-surface-border); cursor: pointer;
+      background: transparent; color: var(--c-ink-primary);
+    }
+    .live-btn-primary {
+      background: var(--c-brand); border-color: var(--c-brand);
+      color: #0F1117;
+    }
+    .live-btn-primary:disabled {
+      opacity: 0.5; cursor: not-allowed;
+    }
+    .live-toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      background: var(--c-surface-raised);
+      border: 1px solid var(--c-surface-border);
+      color: var(--c-ink-primary); padding: 10px 18px;
+      border-radius: 999px; font-size: 13px; z-index: 200;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    }
+    .live-toast.error { border-color: var(--c-brand); color: var(--c-brand); }
+  </style>
+</head>
+<body class="live-body">
+  <main class="live-page">
+    <div id="live-loading" style="text-align:center;padding:40px;color:var(--c-ink-secondary);">
+      Loading…
+    </div>
+
+    <div id="live-content" hidden>
+      <header class="live-top">
+        <div class="live-practice">
+          <div class="live-practice-mark" id="live-practice-mark">·</div>
+          <div>
+            <div class="live-practice-name" id="live-practice-name">Practice</div>
+            <div class="live-practice-loc" id="live-practice-loc"></div>
+          </div>
+        </div>
+        <div class="live-matrix-logo" id="live-top-logo" aria-hidden="true"></div>
+      </header>
+
+      <section class="live-hero">
+        <h1><span class="live-dot"></span><span id="live-hero-title">Recording right now</span></h1>
+        <p class="live-hero-sub" id="live-hero-sub">
+          Safe Mode obscures every bystander captured by these practitioners.
+          You see them — they don’t capture you.
+        </p>
+        <div class="live-meta" id="live-meta">Updated just now</div>
+      </section>
+
+      <section class="live-map-card">
+        <div class="live-map-grid" id="live-map-grid">
+          <svg class="live-map-svg" id="live-map-svg" viewBox="0 0 100 125" preserveAspectRatio="none"></svg>
+          <div class="live-card-layer" id="live-card-layer"></div>
+        </div>
+      </section>
+
+      <section id="live-empty" class="live-empty" hidden>
+        <h2>No one is recording right now</h2>
+        <p>This page updates automatically when a practitioner starts a session.</p>
+      </section>
+
+      <section class="live-explainer">
+        <h3>What is Safe Mode?</h3>
+        <p>
+          Recorded video processed on-device blurs anyone who isn’t the
+          client. Practitioner identity is public; client identity is
+          obscured by default. <a href="/what-we-share">Learn more</a>.
+        </p>
+      </section>
+
+      <footer class="live-footer">
+        powered by homefit.studio
+        <span class="live-footer-matrix" id="live-footer-logo" aria-hidden="true"></span>
+      </footer>
+    </div>
+
+    <div id="live-not-found" style="text-align:center;padding:60px 24px;color:var(--c-ink-secondary);" hidden>
+      <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:22px;color:var(--c-ink-primary);margin-bottom:12px;">
+        Page not found
+      </h2>
+      <p style="font-size:14px;line-height:1.5;">
+        This venue isn’t listed. Visit
+        <a href="https://homefit.studio" style="color:var(--c-brand);text-decoration:none;font-weight:600;">homefit.studio</a>
+        to learn more.
+      </p>
+    </div>
+  </main>
+
+  <div id="live-report-modal" hidden></div>
+
+  <noscript>
+    <div style="text-align:center;padding:48px 24px;color:#9CA3AF;font-family:Inter,sans-serif;">
+      This page requires JavaScript.
+    </div>
+  </noscript>
+
+  <script src="/config.js"></script>
+  <script src="/api.js"></script>
+  <script src="/live.js"></script>
+</body>
+</html>

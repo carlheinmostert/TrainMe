@@ -849,8 +849,8 @@
   // -------------------------------------------------------------------
   // Safe Mode Transparency — Phase B (2026-05-22)
   // -------------------------------------------------------------------
-  async function getLiveSessions(slug) {
-    if (!slug || isLocalSurface()) return null;
+  async function getLiveSessions(practiceSlug, premisesSlug) {
+    if (!practiceSlug || !premisesSlug || isLocalSurface()) return null;
     try {
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/rpc/get_live_sessions`,
@@ -861,26 +861,30 @@
             'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ p_slug: String(slug).toLowerCase() }),
+          body: JSON.stringify({
+            p_practice_slug: String(practiceSlug).toLowerCase(),
+            p_premises_slug: String(premisesSlug).toLowerCase(),
+          }),
         },
       );
       if (!response.ok) return null;
       const rows = await response.json();
       if (!Array.isArray(rows)) return null;
-      // The RPC returns one row per premises (kind === 'premises')
-      // plus one row per active session (kind === 'session'); the
-      // practice metadata (name, slug) is duplicated on every row, so
-      // we sample it from the first available row.
+      // The RPC returns at most one 'premises' row (the one we asked
+      // for) + one row per active session there. Practice + premises
+      // metadata is duplicated on every row; sample it from the head.
       const head = rows[0] || {};
       return {
         practiceId: head.practice_id || null,
         practiceName: head.practice_name || null,
-        practiceSlug: head.practice_slug || slug,
+        practiceSlug: head.practice_slug || practiceSlug,
+        premisesSlug: head.premises_slug || premisesSlug,
         premises: rows
           .filter((r) => r && r.kind === 'premises')
           .map((r) => ({
             id: r.premises_id,
             name: r.premises_name,
+            slug: r.premises_slug,
             polygon: Array.isArray(r.premises_polygon)
               ? r.premises_polygon
               : [],
