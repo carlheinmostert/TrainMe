@@ -793,6 +793,7 @@ export class PortalApi {
     name?: string | null;
     address?: string | null;
     safeModeEnforced?: boolean | null;
+    publicSlug?: string | null;
   }): Promise<void> {
     const { error } = await this.supabase.rpc('update_premises_metadata', {
       p_premises_id: input.premisesId,
@@ -802,18 +803,40 @@ export class PortalApi {
         input.safeModeEnforced === undefined || input.safeModeEnforced === null
           ? null
           : input.safeModeEnforced,
+      p_public_slug: input.publicSlug ?? null,
     });
     if (!error) return;
     const code = (error as { code?: string }).code ?? '';
     const message = error.message ?? '';
     if (code === '42501') throw new PremisesError('not-member', message);
     if (code === 'P0002') throw new PremisesError('not-found', message);
+    if (code === '23505') throw new PremisesError('slug-taken', message);
     if (code === '22023') {
       if (/name required/i.test(message)) throw new PremisesError('name-empty', message);
       if (/name too long/i.test(message)) throw new PremisesError('name-too-long', message);
+      if (/slug is locked/i.test(message)) throw new PremisesError('slug-locked', message);
+      if (/slug must be/i.test(message)) throw new PremisesError('slug-invalid', message);
       throw new PremisesError('invalid-input', message);
     }
     throw new Error(message);
+  }
+
+  /**
+   * Stamp `first_poster_downloaded_at` on the premises (no-op if already
+   * set). Owner-only inside the RPC. Fire-and-forget — never rethrows on
+   * a non-owner caller; the poster page treats this as best-effort.
+   */
+  async markPosterDownloaded(premisesId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('mark_poster_downloaded', {
+      p_premises_id: premisesId,
+    });
+    // Swallow 42501 (not owner) silently — the poster page route is
+    // gated by getPremises membership; if a non-owner member somehow
+    // lands here we don't want a crash.
+    if (!error) return;
+    const code = (error as { code?: string }).code ?? '';
+    if (code === '42501' || code === '28000') return;
+    throw new Error(error.message ?? 'mark_poster_downloaded failed');
   }
 
   /**
@@ -1003,6 +1026,19 @@ export type PracticePremises = {
   areaM2: number;
   safeModeEnforced: boolean;
   signalType: 'gps' | 'gps+wifi' | 'gps+beacon';
+  /**
+   * Per-premises public slug used in the live transparency URL
+   * `session.homefit.studio/v/{practice-slug}/{premises-slug}/now`.
+   * Always non-null on live rows (backfilled by migration
+   * 20260523085031_premises_public_slugs.sql).
+   */
+  publicSlug: string;
+  /**
+   * Stamped the first time the owner downloads the printed poster
+   * (`/poster?print=1`). NULL until the slug is committed to print; once
+   * stamped, the slug is locked (printed QR codes depend on it).
+   */
+  firstPosterDownloadedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1025,6 +1061,11 @@ function mapPracticePremisesRow(r: Record<string, unknown>): PracticePremises {
     signalType: (r.signal_type === 'gps+wifi' || r.signal_type === 'gps+beacon')
       ? r.signal_type
       : 'gps',
+    publicSlug: typeof r.public_slug === 'string' ? r.public_slug : '',
+    firstPosterDownloadedAt:
+      typeof r.first_poster_downloaded_at === 'string' && r.first_poster_downloaded_at.length > 0
+        ? r.first_poster_downloaded_at
+        : null,
     createdAt: String(r.created_at ?? ''),
     updatedAt: String(r.updated_at ?? ''),
   };
@@ -1051,6 +1092,9 @@ export type PremisesErrorKind =
   | 'not-enough-vertices'
   | 'polygon-too-large'
   | 'polygon-too-small'
+  | 'slug-taken'
+  | 'slug-invalid'
+  | 'slug-locked'
   | 'invalid-input';
 
 export class PremisesError extends Error {
