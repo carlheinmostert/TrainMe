@@ -176,17 +176,7 @@
   <p class="subtitle">Spaces where Safe Mode obscuring is enforced. Anyone scanning the printed poster sees who's recording right now and can report directly to the practice.</p>
 
   <div class="changes-banner">
-    <strong>Mockup notes:</strong> Surfacing two new entry points the spec previously buried inside Edit — the live transparency view (practice-wide, page-level) and the poster download (per-premises). Practitioners shouldn't need to enter an Edit form to grab a public resource.
-  </div>
-
-  <!-- Page-level: live transparency view (practice-wide) -->
-  <div class="page-actions">
-    <span class="label">Public transparency</span>
-    <a class="live-link" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener">
-      Live view
-      <span class="url-hint">session.homefit.studio/v/homefit/now</span>
-      <span class="arrow">↗</span>
-    </a>
+    <strong>Mockup notes:</strong> Surfacing two new entry points the spec previously buried inside Edit — the live transparency view and the poster download. Both are per-premises now (one URL per physical location), so they sit on each row rather than at the page level. Practitioners shouldn't need to enter an Edit form to grab a public resource.
   </div>
 
   <!-- Premises collection -->
@@ -213,7 +203,7 @@
           <span class="meta-line">123 Buitenkant Street · Cape Town</span>
         </div>
         <div class="row-actions">
-          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener" title="Open the live transparency view in a new tab">
+          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/studio-floor/now" target="_blank" rel="noopener" title="Open the live transparency view for this premises in a new tab">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/></svg>
             Live
           </a>
@@ -239,7 +229,7 @@
           <span class="meta-line">Greenpoint park · open-air south corner</span>
         </div>
         <div class="row-actions">
-          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener">
+          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/outdoor-court/now" target="_blank" rel="noopener">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/></svg>
             Live
           </a>
@@ -265,10 +255,7 @@
           <span class="meta-line">Long Street office · reception</span>
         </div>
         <div class="row-actions">
-          <a class="icon-btn" href="https://session.homefit.studio/v/homefit/now" target="_blank" rel="noopener">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/></svg>
-            Live
-          </a>
+          <!-- No Live button: registered-only premises has no enforced polygon, so the live transparency page would render an empty map. Hidden until the owner enables Safe Mode here. -->
           <!-- No poster button: poster is only meaningful for enforced premises -->
           <span class="group-sep"></span>
           <button class="icon-btn">Edit</button>
@@ -282,10 +269,12 @@
   <div class="annotation-callout">
     <p class="lede">What's different vs. the shipped version</p>
     <ul>
-      <li><strong>Live transparency view</strong> surfaces at the page level (top action bar). It's practice-wide — every premises in this list shares the same <code>/v/{slug}/now</code> URL — so a single prominent entry point makes sense. The per-row <code>Live</code> button is also there as a familiar in-row affordance for owners who scan row-by-row.</li>
-      <li><strong>Poster download</strong> moves out of the Edit form and onto each row directly. Only shown for <strong>Safe Mode enforced</strong> rows (a non-enforced premises has no bystander-trust artefact to print).</li>
+      <li><strong>Live transparency view is per-premises</strong> — each row opens its own <code>/v/{practice-slug}/{premises-slug}/now</code> URL. A bystander standing at <em>Studio Floor</em> sees only people recording there, not at <em>Outdoor Court</em> 10 km away. The earlier page-level practice-wide Live link is retired.</li>
+      <li><strong>Poster download</strong> moves out of the Edit form and onto each row directly. Only shown for <strong>Safe Mode enforced</strong> rows (a non-enforced premises has no bystander-trust artefact to print). The QR code on each poster encodes that premises' own URL.</li>
       <li><strong>Edit / Delete</strong> are visually separated from the public actions by a thin vertical rule, so practitioners can scan public-vs-private intent quickly. Edit stops being a gateway to public resources.</li>
+      <li><strong>Registered-only rows</strong> show neither Live nor Poster — no enforced polygon means no public surface to point at. Enabling Safe Mode on the row re-surfaces both actions.</li>
       <li>If the row becomes cramped on mobile, the public actions group ( <code>Live</code> + <code>Poster</code> ) collapses to a single overflow button. Edit / Delete stay visible.</li>
+      <li><strong>Slug locking:</strong> the premises slug becomes immutable the first time its poster is downloaded — printed QR codes in the field would break otherwise. Pre-publish, the owner can rename freely.</li>
     </ul>
   </div>
 
