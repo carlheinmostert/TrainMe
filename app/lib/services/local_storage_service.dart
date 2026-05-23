@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 44;
+  static const _dbVersion = 45;
 
   Database? _db;
 
@@ -136,6 +136,11 @@ class LocalStorageService {
         safe_mode_active INTEGER NOT NULL DEFAULT 0,
         captured_in_premises_id TEXT,
         safe_raw_file_path TEXT,
+        -- Safe Mode v2 (2026-05-23): stamps which algorithm produced the
+        -- safe variant. NULL = non-Safe-Mode capture; 1 = bbox (legacy);
+        -- 2 = face-rec MobileFaceNet. Mirrors cloud
+        -- exercises.safe_mode_algorithm_version.
+        safe_mode_algorithm_version INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -217,6 +222,13 @@ class LocalStorageService {
         client_exercise_defaults TEXT NOT NULL DEFAULT '{}',
         consent_confirmed_at INTEGER,
         consent_explicitly_set_at INTEGER,
+        -- Safe Mode v2 (2026-05-23): per-client MobileFaceNet enrolment.
+        -- face_embedding is 512 bytes (128 FP32 LE floats) when present.
+        -- NULL = not enrolled OR consent withdrawn (the v2 consent toggle
+        -- zeros the embedding). face_embedding_model_version identifies
+        -- the generator (1 = MobileFaceNet v1, only version today).
+        face_embedding BLOB,
+        face_embedding_model_version INTEGER,
         synced_at INTEGER,
         dirty INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
@@ -1281,6 +1293,37 @@ class LocalStorageService {
         'exercises',
         'safe_raw_file_path',
         'TEXT',
+      );
+    }
+
+    if (oldVersion < 45) {
+      // 2026-05-23 — Safe Mode v2 (face-recognition rewrite).
+      //
+      // Mirror the new cloud columns from
+      // supabase/migrations/20260523102954_safe_mode_v2.sql so the
+      // offline-first cache can carry per-client face-embedding
+      // enrolment state + per-exercise algorithm-version stamps. Spec
+      // at docs/specs/2026-05-23-safe-mode-face-rec.md.
+      //
+      // - cached_clients.face_embedding (BLOB): 128 FP32 little-endian
+      //   floats = 512 bytes. NULL = unenrolled OR consent withdrawn.
+      // - cached_clients.face_embedding_model_version (INTEGER):
+      //   generator version. 1 = MobileFaceNet v1 (only version today).
+      // - exercises.safe_mode_algorithm_version (INTEGER): stamped at
+      //   capture time. NULL = non-Safe-Mode capture. 1 = bbox (never
+      //   shipped). 2 = face-rec (current). Audit feed surfaces this.
+      await _addColumnIfMissing(db, 'cached_clients', 'face_embedding', 'BLOB');
+      await _addColumnIfMissing(
+        db,
+        'cached_clients',
+        'face_embedding_model_version',
+        'INTEGER',
+      );
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'safe_mode_algorithm_version',
+        'INTEGER',
       );
     }
   }
