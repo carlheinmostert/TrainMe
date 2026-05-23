@@ -37,12 +37,15 @@
 
   /* Coral camera graphic — clean line-art between header and hero.
      Stroke-first geometry matches the canonical matrix logo's
-     restrained vocabulary. */
+     restrained vocabulary. Doubled from 110px → 220px so the mark
+     reads as a substantial visual anchor at A4 viewing distance;
+     vertical margins (18mm/4mm) give it its own breathing band
+     instead of crowding the headline. */
   .camera-icon {
     display: block;
-    width: 110px;
+    width: 220px;
     height: auto;
-    margin: 14mm auto 0;
+    margin: 18mm auto 4mm;
   }
 
   /* Header */
@@ -72,10 +75,11 @@
   }
   .practice-mark .name { font-size: 16px; color: var(--c-ink); }
 
-  /* Hero — margin trimmed from 24mm → 12mm; camera graphic above
-     now carries the visual separation between header and headline. */
+  /* Hero — margin trimmed from 24mm → 8mm; the larger camera graphic
+     above carries the visual separation (its own 4mm bottom margin +
+     8mm here = the same ~12mm air the smaller graphic needed). */
   .hero {
-    margin-top: 12mm;
+    margin-top: 8mm;
     text-align: center;
   }
   .hero h1 {
@@ -285,7 +289,7 @@
 
   <!-- Hero -->
   <div class="hero">
-    <h1>Recording <span class="accent">is happening here.</span></h1>
+    <h1>Safe recording <span class="accent">is happening here.</span></h1>
     <p class="sub">
       Practitioners film exercise demos for their clients. Anyone in the background — including you — is automatically obscured by <span class="wm">homefit<span class="dot-studio">.studio</span></span> Safe Mode.
     </p>

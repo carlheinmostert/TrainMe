@@ -172,7 +172,7 @@ export default async function PosterPage({
 
           <div className="poster-hero">
             <h1>
-              Recording <span className="poster-accent">is happening here.</span>
+              Safe recording <span className="poster-accent">is happening here.</span>
             </h1>
             <p className="poster-sub">
               Practitioners film exercise demos for their clients. Anyone in
@@ -307,13 +307,19 @@ const posterCss = `
     padding-bottom: 16mm; border-bottom: 1px solid #E5E7EB;
   }
   /* Coral camera graphic — sits between the header and the hero,
-     centred horizontally. Height tuned to ~100px-equivalent so it
-     reads as a substantial brand mark without dominating the page. */
+     centred horizontally. Doubled from the original 110px so the
+     mark reads as a substantial visual anchor at A4 viewing
+     distance — at ~220px the body + lens silhouette is unmistakable
+     from a few metres away (poster context, not screen context).
+     Vertical margins bumped to give the larger graphic its own
+     breathing band: 18mm above (vs 14mm) clears the header
+     border-rule, 4mm below balances against the trimmed hero
+     margin so the camera doesn't crowd the headline. */
   .poster-camera-icon {
     display: block;
-    width: 110px;
+    width: 220px;
     height: auto;
-    margin: 14mm auto 0;
+    margin: 18mm auto 4mm;
   }
   /* Hero-size canonical lockup at the top of the poster. The lockup's
      intrinsic aspect is 48:16 (≈ 3:1), so a 120px width yields a 40px
@@ -329,9 +335,11 @@ const posterCss = `
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 600;
     font-size: 12px; color: #4B5563; letter-spacing: 0.3px; margin-top: 2px;
   }
-  /* Hero margin trimmed from 24mm → 12mm because the camera graphic
-     now provides the visual separation between header and headline. */
-  .poster-hero { margin-top: 12mm; text-align: center; }
+  /* Hero margin trimmed from 24mm → 8mm because the larger camera
+     graphic now carries the visual separation between header and
+     headline (its own 4mm bottom margin + 8mm here = the same ~12mm
+     air the smaller graphic needed). */
+  .poster-hero { margin-top: 8mm; text-align: center; }
   .poster-hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 800;
     font-size: 44pt; line-height: 1.05; letter-spacing: -0.5px; color: #0F1117;
