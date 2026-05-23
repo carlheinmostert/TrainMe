@@ -278,14 +278,13 @@ export default async function PosterPage({
           </div>
 
           <div className="poster-trust">
+            {/* Stack item 10: the "Learn more at .../what-we-share"
+                line is dropped entirely. The page is now /safe-mode
+                (PR #444's addition) which is the bystander's
+                authoritative entry point — /what-we-share is a
+                client-facing analytics-opt-out page that doesn't
+                belong in front of bystanders. No replacement copy. */}
             <div className="poster-trust-links">
-              <div>
-                Learn more at{' '}
-                <strong className="poster-wm">
-                  homefit<span className="poster-dot-studio">.studio</span>
-                  /what-we-share
-                </strong>
-              </div>
               <div>
                 How Safe Mode works:{' '}
                 <strong className="poster-wm">
