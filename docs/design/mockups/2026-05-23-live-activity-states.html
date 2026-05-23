@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live Activity — lock screen + Dynamic Island states</title>
+<style>
+  :root {
+    --coral: #FF6B35;
+    --coral-dim: rgba(255, 107, 53, 0.18);
+    --coral-border: rgba(255, 107, 53, 0.55);
+    --sage: #86EFAC;
+    --bg: #0B0D11;
+    --surface: #15181F;
+    --surface-raised: #1C2029;
+    --hairline: rgba(255, 255, 255, 0.08);
+    --text: #F4F5F7;
+    --text-muted: rgba(244, 245, 247, 0.62);
+    --text-dim: rgba(244, 245, 247, 0.38);
+    --wallpaper: linear-gradient(155deg, #1d2530 0%, #0f1419 55%, #060709 100%);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Inter", system-ui, sans-serif; }
+  body { padding: 48px 32px 96px; }
+  h1 { font-family: "Montserrat", -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.01em; margin: 0 0 8px; }
+  h2 { font-family: "Montserrat", sans-serif; font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 24px; }
+  .preamble { max-width: 820px; color: var(--text-muted); line-height: 1.55; font-size: 14px; margin-bottom: 56px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 480px)); gap: 56px 48px; justify-content: center; }
+  .panel { display: flex; flex-direction: column; align-items: center; }
+  .panel-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 14px; }
+  .panel-caption { margin-top: 16px; font-size: 12px; color: var(--text-dim); line-height: 1.5; text-align: center; max-width: 360px; }
+
+  /* === Phone frame === */
+  .phone {
+    position: relative;
+    width: 360px;
+    height: 740px;
+    border-radius: 52px;
+    background: #0a0b0e;
+    box-shadow: 0 0 0 6px #1a1c20, 0 30px 60px rgba(0,0,0,0.55);
+    overflow: hidden;
+  }
+  .phone-screen {
+    position: absolute;
+    inset: 8px;
+    border-radius: 44px;
+    background: var(--wallpaper);
+    overflow: hidden;
+  }
+
+  /* === Dynamic Island === */
+  .island {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #000;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: white;
+    transition: all 200ms;
+    z-index: 5;
+  }
+  .island-default { width: 124px; height: 36px; }
+  .island-compact {
+    width: 220px;
+    height: 38px;
+    padding: 0 8px 0 6px;
+  }
+  .island-minimal {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .island-expanded {
+    width: 332px;
+    height: 168px;
+    border-radius: 38px;
+    padding: 16px 18px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  /* === Lock-screen status bar === */
+  .lock-status {
+    position: absolute;
+    top: 60px;
+    left: 0; right: 0;
+    text-align: center;
+    color: white;
+    font-weight: 300;
+  }
+  .lock-time { font-size: 78px; letter-spacing: -0.03em; line-height: 1; margin: 0; font-family: "SF Pro Display", -apple-system, sans-serif; font-weight: 300; }
+  .lock-date { font-size: 18px; margin-top: 8px; font-weight: 500; opacity: 0.92; }
+
+  /* === Lock-screen Activity card === */
+  .activity-card {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 110px;
+    background: rgba(20, 22, 28, 0.78);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border-radius: 24px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    color: white;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .activity-card.safe-on {
+    border: 1.5px solid var(--coral-border);
+    box-shadow: 0 0 0 4px var(--coral-dim);
+  }
+  .activity-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .activity-avatar {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: var(--coral);
+    display: flex; align-items: center; justify-content: center;
+    color: white;
+    font-weight: 700; font-size: 16px;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+  }
+  .activity-id { flex: 1; min-width: 0; }
+  .activity-client {
+    font-size: 15px; font-weight: 600; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .activity-meta {
+    font-size: 12px; color: var(--text-muted); margin-top: 2px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .activity-app-badge {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: var(--coral);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .activity-app-badge svg { width: 12px; height: 12px; }
+  .safe-banner {
+    background: var(--coral);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 8px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .safe-banner svg { width: 12px; height: 12px; }
+  .activity-camera-btn {
+    background: var(--coral);
+    color: white;
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .activity-camera-btn svg { width: 16px; height: 16px; }
+
+  /* === Dynamic Island content === */
+  .di-avatar {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--coral);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: white;
+    flex-shrink: 0;
+  }
+  .di-trailing-count {
+    color: var(--coral);
+    font-size: 16px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding-right: 4px;
+  }
+  .di-trailing-shield {
+    background: var(--coral);
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin-right: 2px;
+  }
+  .di-trailing-shield svg { width: 12px; height: 12px; }
+  .di-minimal-chip {
+    background: var(--coral);
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: white;
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  /* === Expanded island layout === */
+  .di-exp-row {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .di-exp-avatar {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--coral);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: white;
+    flex-shrink: 0;
+  }
+  .di-exp-id { flex: 1; min-width: 0; }
+  .di-exp-client { font-size: 15px; font-weight: 600; color: white; }
+  .di-exp-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .di-exp-safe {
+    background: var(--coral);
+    color: white;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    align-self: center;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .di-exp-safe svg { width: 10px; height: 10px; }
+  .di-exp-cta {
+    background: var(--coral);
+    border-radius: 14px;
+    padding: 10px;
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .di-exp-cta svg { width: 14px; height: 14px; }
+
+  /* === Notch placeholder for non-expanded === */
+  .island::before { content: ""; }
+
+  /* === Spec card === */
+  .spec {
+    margin-top: 80px;
+    padding: 24px 28px;
+    background: var(--surface);
+    border-radius: 16px;
+    border: 1px solid var(--hairline);
+    max-width: 820px;
+    margin-left: auto; margin-right: auto;
+  }
+  .spec h3 { font-family: "Montserrat", sans-serif; font-size: 16px; margin: 0 0 12px; }
+  .spec ul { margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 13px; line-height: 1.7; }
+  .spec li strong { color: var(--text); }
+  .spec code { background: var(--surface-raised); padding: 2px 6px; border-radius: 4px; font-size: 12px; color: var(--coral); }
+</style>
+</head>
+<body>
+
+<div style="max-width: 1100px; margin: 0 auto 56px;">
+  <h1>Live Activity — homefit session shell</h1>
+  <h2>Lock screen card · Dynamic Island compact / minimal / expanded</h2>
+  <p class="preamble">
+    Activity pins for the duration of a session shell. Identity-first: the client's
+    avatar (or initials) is the load-bearing visual so the practitioner can confirm
+    at a glance who they're capturing without unlocking. Safe Mode swaps the trailing
+    glyph in compact and wraps the lock-screen card in a coral border + banner.
+  </p>
+</div>
+
+<div class="grid">
+
+  <!-- ============================================== -->
+  <!-- LOCK SCREEN — Safe Mode OFF                    -->
+  <!-- ============================================== -->
+  <div class="panel">
+    <div class="panel-label">Lock screen · Safe Mode off</div>
+    <div class="phone">
+      <div class="phone-screen">
+        <!-- Dynamic Island (default, empty) -->
+        <div class="island island-default"></div>
+
+        <!-- Clock -->
+        <div class="lock-status">
+          <div class="lock-time">9:41</div>
+          <div class="lock-date">Saturday, May 23</div>
+        </div>
+
+        <!-- Activity card -->
+        <div class="activity-card">
+          <div class="activity-header">
+            <div class="activity-app-badge">
+              <svg viewBox="0 0 24 24" fill="white"><path d="M9 4l-1.5 2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></svg>
+            </div>
+            <div class="activity-id">
+              <div class="activity-client">Sarah Smith</div>
+              <div class="activity-meta">4 captured · 23 May 14:30</div>
+            </div>
+            <div class="activity-avatar">SS</div>
+          </div>
+          <div class="activity-camera-btn">
+            <svg viewBox="0 0 24 24" fill="white"><path d="M9 4l-1.5 2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></svg>
+            Capture next
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-caption">Identity (avatar + name) leads. Counter and session
+      title sit secondary. Coral CTA tap-target spans the card width.</div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- LOCK SCREEN — Safe Mode ON                     -->
+  <!-- ============================================== -->
+  <div class="panel">
+    <div class="panel-label">Lock screen · Safe Mode on</div>
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="island island-default"></div>
+
+        <div class="lock-status">
+          <div class="lock-time">9:41</div>
+          <div class="lock-date">Saturday, May 23</div>
+        </div>
+
+        <div class="activity-card safe-on">
+          <div class="activity-header">
+            <div class="activity-app-badge">
+              <svg viewBox="0 0 24 24" fill="white"><path d="M9 4l-1.5 2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></svg>
+            </div>
+            <div class="activity-id">
+              <div class="activity-client">Sarah Smith</div>
+              <div class="activity-meta">4 captured · 23 May 14:30</div>
+            </div>
+            <div class="activity-avatar">SS</div>
+          </div>
+          <div class="safe-banner">
+            <svg viewBox="0 0 24 24" fill="white"><path d="M12 2L4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5l-8-3zm-1 14l-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z"/></svg>
+            Safe Mode · bystanders blurred
+          </div>
+          <div class="activity-camera-btn">
+            <svg viewBox="0 0 24 24" fill="white"><path d="M9 4l-1.5 2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></svg>
+            Capture next
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-caption">Coral border + glow + dedicated banner. Visible
+      without unlocking. Carries the Safe Mode visual language onto the lock screen.</div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- DYNAMIC ISLAND — Compact (Safe Mode OFF)       -->
+  <!-- ============================================== -->
+  <div class="panel">
+    <div class="panel-label">Dynamic Island · compact · Safe Mode off</div>
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="island island-compact">
+          <div class="di-avatar">SS</div>
+          <div class="di-trailing-count">4</div>
+        </div>
+        <div class="lock-status">
+          <div class="lock-time">9:41</div>
+          <div class="lock-date">Saturday, May 23</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-caption">Avatar leads (identity-first). Trailing capture count
+      in coral, tabular numerics so it doesn't shift width as it grows.</div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- DYNAMIC ISLAND — Compact (Safe Mode ON)        -->
+  <!-- ============================================== -->
+  <div class="panel">
+    <div class="panel-label">Dynamic Island · compact · Safe Mode on</div>
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="island island-compact">
+          <div class="di-avatar">SS</div>
+          <div class="di-trailing-shield">
+            <svg viewBox="0 0 24 24" fill="white"><path d="M12 2L4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5l-8-3zm-1 14l-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z"/></svg>
+          </div>
+        </div>
+        <div class="lock-status">
+          <div class="lock-time">9:41</div>
+          <div class="lock-date">Saturday, May 23</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-caption">Trailing swaps to coral shield when Safe Mode active.
+      Two-state trailing pulls weight; counter hidden in this state by design.</div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- DYNAMIC ISLAND — Minimal                       -->
+  <!-- ============================================== -->
+  <div class="panel">
+    <div class="panel-label">Dynamic Island · minimal</div>
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="island island-minimal">
+          <div class="di-minimal-chip">SS</div>
+        </div>
+        <div class="lock-status">
+          <div class="lock-time">9:41</div>
+          <div class="lock-date">Saturday, May 23</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-caption">Renders when another app shares the island. Single
+      coral initials chip. Still identity-first — no generic camera glyph.</div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- DYNAMIC ISLAND — Expanded                      -->
+  <!-- ============================================== -->
+  <div class="panel">
+    <div class="panel-label">Dynamic Island · expanded · Safe Mode on</div>
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="island island-expanded">
+          <div class="di-exp-row">
+            <div class="di-exp-avatar">SS</div>
+            <div class="di-exp-id">
+              <div class="di-exp-client">Sarah Smith</div>
+              <div class="di-exp-meta">4 captured · last: Glute bridge</div>
+            </div>
+            <div class="di-exp-safe">
+              <svg viewBox="0 0 24 24" fill="white"><path d="M12 2L4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5l-8-3z"/></svg>
+              Safe
+            </div>
+          </div>
+          <div class="di-exp-cta">
+            <svg viewBox="0 0 24 24" fill="white"><path d="M9 4l-1.5 2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></svg>
+            Capture next
+          </div>
+        </div>
+        <div class="lock-status">
+          <div class="lock-time">9:41</div>
+          <div class="lock-date">Saturday, May 23</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-caption">Long-press expanded state. Reuses lock-screen card
+      layout — last-captured exercise name added (only visible when phone unlocked
+      + practitioner-in-hand, so PHI-adjacent is OK here).</div>
+  </div>
+
+</div>
+
+<div class="spec">
+  <h3>Content state contract</h3>
+  <ul>
+    <li><strong>Attributes (immutable):</strong> <code>sessionId</code>, <code>practiceId</code></li>
+    <li><strong>Content state (mutable):</strong>
+      <code>clientName</code>, <code>clientInitials</code>,
+      <code>avatarFilePath</code> (App Group container), <code>captureCount</code>,
+      <code>lastCapturedName</code>, <code>safeModeActive</code>,
+      <code>sessionTitle</code></li>
+    <li><strong>Updates fire on:</strong> capture completed (count++ + lastName),
+      Safe Mode flip (debounced 5s), publish (then end), session-shell exit (end)</li>
+    <li><strong>Tap target:</strong> entire card + the "Capture next" button →
+      <code>OpenCameraIntent</code> App Intent (iOS 17+) or
+      <code>defaultLaunchURL</code> (iOS 16.1+)</li>
+    <li><strong>Launch payload:</strong> session UUID handed to Dart via
+      <code>HomefitLaunchChannel</code>; SessionShellScreen lands on Camera mode</li>
+  </ul>
+</div>
+
+</body>
+</html>
