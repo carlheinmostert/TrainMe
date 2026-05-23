@@ -840,27 +840,6 @@ export class PortalApi {
   }
 
   /**
-   * Fire the Mapbox satellite snapshot regen for this premises
-   * (live-view item 19 — wired to the "Regenerate satellite snapshot"
-   * button on the premises editor). Returns true if pg_net dispatch
-   * fired, false if it couldn't (vault secret missing / no polygon
-   * yet / pg_net error). Owner-only inside the RPC; non-owners get
-   * 42501 → not-member.
-   */
-  async regeneratePremisesSnapshot(premisesId: string): Promise<boolean> {
-    const { data, error } = await this.supabase.rpc(
-      'regenerate_premises_snapshot',
-      { p_premises_id: premisesId },
-    );
-    if (!error) return Boolean(data);
-    const code = (error as { code?: string }).code ?? '';
-    const message = error.message ?? '';
-    if (code === '42501') throw new PremisesError('not-member', message);
-    if (code === 'P0002') throw new PremisesError('not-found', message);
-    throw new Error(message);
-  }
-
-  /**
    * Soft-delete a premises (idempotent on an already-deleted row).
    */
   async deletePremises(premisesId: string): Promise<void> {
