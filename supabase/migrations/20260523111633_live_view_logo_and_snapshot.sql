@@ -44,10 +44,7 @@ ALTER TABLE public.practice_premises
   ADD COLUMN IF NOT EXISTS snapshot_url text;
 
 COMMENT ON COLUMN public.practice_premises.snapshot_url IS
-  'Public URL of the Mapbox satellite-tile snapshot for this premises ' ||
-  '(populated by regen-premises-snapshot edge function). Stable per ' ||
-  '(practice_id, premises_id) — service worker caches naturally. NULL ' ||
-  'until the polygon is first set or the regen flow runs.';
+  'Public URL of the Mapbox satellite-tile snapshot for this premises (populated by regen-premises-snapshot edge function). Stable per (practice_id, premises_id) — service worker caches naturally. NULL until the polygon is first set or the regen flow runs.';
 
 -- ---------------------------------------------------------------------------
 -- 2. get_live_sessions — extended with practice_logo_url +
