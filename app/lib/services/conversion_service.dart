@@ -29,23 +29,51 @@ import 'safe_mode_service.dart';
 /// removes the row.
 const double kSafeModeMaxMissRate = 0.05;
 
-/// Thrown by [ConversionService] when Safe Mode was active for a
-/// capture but the native Vision pass missed more than
-/// [kSafeModeMaxMissRate] of frames. The capture screen listens for
-/// this exception via the conversion update stream and removes the
-/// exercise row + shows an inline coral-bordered toast.
+/// Reason discriminator for [SafeModeRejection]. The capture screen
+/// branches its toast copy on this so the user knows whether a
+/// steadier shot will help or whether the embedding needs to be
+/// re-prepared.
+enum SafeModeRejectionReason {
+  /// Vision miss-rate exceeded [kSafeModeMaxMissRate] — the native
+  /// pass couldn't track the subject through enough frames. A
+  /// steadier shot or better lighting usually resolves.
+  missRateExceeded,
+
+  /// Safe Mode v2 needs the bound client's cached face embedding to
+  /// identify the subject vs bystanders. If conversion runs and the
+  /// cache is empty (app killed between capture and conversion,
+  /// embedding evicted, etc) there's no safe variant we can produce —
+  /// uploading the un-blurred raw archive would breach the privacy
+  /// contract, so we reject the capture instead.
+  missingFaceEmbedding,
+}
+
+/// Thrown by [ConversionService] when a Safe Mode capture cannot be
+/// completed safely. The capture screen listens via
+/// [ConversionService.onSafeModeRejection] and removes the exercise
+/// row + shows an inline coral-bordered toast.
 ///
 /// Not a control-flow shortcut — this is a real bubble for an error
 /// condition the user must be told about. Per
 /// `feedback_no_exception_control_flow`, the upstream catch must
 /// surface the rejection to the user, NOT swallow it as "success".
+///
+/// Per `feedback_no_silent_fallbacks`, the missing-embedding branch
+/// MUST NOT fall through to a "publish without blurring" mode — the
+/// practitioner expects bystanders to be coral'd and silently
+/// degrading erodes that trust.
 class SafeModeRejection implements Exception {
   final String exerciseId;
   final double missRate;
-  const SafeModeRejection(this.exerciseId, this.missRate);
+  final SafeModeRejectionReason reason;
+  const SafeModeRejection(
+    this.exerciseId,
+    this.missRate, {
+    this.reason = SafeModeRejectionReason.missRateExceeded,
+  });
   @override
   String toString() =>
-      'SafeModeRejection($exerciseId, missRate='
+      'SafeModeRejection($exerciseId, reason=$reason, missRate='
       '${(missRate * 100).toStringAsFixed(1)}%)';
 }
 
@@ -633,16 +661,17 @@ class ConversionService extends ChangeNotifier {
         // here must not disturb the main conversion flow.
         unawaited(_archiveRawVideo(done));
       } on SafeModeRejection catch (rejection) {
-        // Safe Mode fail-closed (Safe Mode completion wave,
-        // 2026-05-21). The capture exceeded the Vision miss-rate
-        // threshold — delete the row from SQLite and broadcast on the
-        // rejection stream so the capture screen can show the toast.
-        // Best-effort SQLite delete; failure logs but doesn't
-        // re-throw (the row will become an orphan but the user gets
-        // the toast either way).
-        debugPrint(
-            'Safe Mode rejected ${rejection.exerciseId}: '
-            'missRate=${(rejection.missRate * 100).toStringAsFixed(1)}%');
+        // Safe Mode fail-closed. Two reasons today:
+        // [SafeModeRejectionReason.missRateExceeded] from the video
+        // path when the native Vision pass missed too many frames, and
+        // [SafeModeRejectionReason.missingFaceEmbedding] from the
+        // photo path when the cached subject embedding is gone at
+        // conversion time. Both delete the row from SQLite and
+        // broadcast on the rejection stream so the capture screen can
+        // show the toast. Best-effort SQLite delete; failure logs but
+        // doesn't re-throw (the row will become an orphan but the
+        // user gets the toast either way).
+        debugPrint('Safe Mode rejected ${rejection.exerciseId}: $rejection');
         try {
           await _storage.deleteExercise(rejection.exerciseId);
         } catch (e) {
@@ -1056,14 +1085,11 @@ class ConversionService extends ChangeNotifier {
         // Safe Mode v2 (2026-05-23) — resolve the bound client's face
         // embedding through the session. Capture-screen gating in
         // `_shouldGateOnSafeModeV2` normally guarantees the embedding
-        // is cached by shutter time; if it's missing here the capture
-        // raced ahead or the session has no client. The native v1
-        // anchor-box handler was removed in this wave, so there is no
-        // fallback compositor — skip the safe pass and let publish
-        // upload the un-blurred raw archive. This matches the
-        // existing fail-soft contract the upload swap at
-        // `upload_service.dart:2197` already handles
-        // (`safeModeActive && safeRawFilePath == null`).
+        // is cached by shutter time. The narrow race the capture-time
+        // gate cannot cover: app killed between shutter and
+        // conversion + cold-start cache miss before the queued
+        // conversion resumes. Hard-refuse rather than fall through to
+        // an un-blurred upload (`feedback_no_silent_fallbacks`).
         final session = exercise.sessionId == null
             ? null
             : await _storage.getSession(exercise.sessionId!);
@@ -1074,25 +1100,23 @@ class ConversionService extends ChangeNotifier {
                 : FaceEmbeddingService.instance.getEmbedding(clientId);
 
         if (subjectEmbedding == null || subjectEmbedding.isEmpty) {
-          debugPrint(
-            'Photo Safe Mode pass skipped for ${exercise.id}: no cached '
-            'subject embedding for client=${clientId ?? "<none>"} — '
-            'downstream passes will run against the raw capture and '
-            'the safe variant will not be produced (publish will '
-            'upload the un-blurred raw archive).',
-          );
           try {
             final logDir = await getApplicationDocumentsDirectory();
             final logFile =
                 File(p.join(logDir.path, 'conversion_error.log'));
             await logFile.writeAsString(
-              '${DateTime.now()} [applySafeModeV2ToPhoto skipped: '
+              '${DateTime.now()} [applySafeModeV2ToPhoto refused: '
               'no embedding for client=${clientId ?? "<none>"}]\n\n',
               mode: FileMode.append,
             );
           } catch (_) {
             // Sanctioned log-of-log swallow.
           }
+          throw SafeModeRejection(
+            exercise.id,
+            0.0,
+            reason: SafeModeRejectionReason.missingFaceEmbedding,
+          );
         } else {
           try {
             final candidate =
