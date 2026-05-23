@@ -136,6 +136,12 @@ export default async function PosterPage({
                 includes you.
               </p>
               <p>
+                The app uses face recognition to lock the obscuring to the one
+                client registered at the start of each session. Anyone else who
+                walks into the frame — including you passing by — stays
+                obscured.
+              </p>
+              <p>
                 Every practitioner recording here has identified themselves
                 publicly.{' '}
                 <strong>
