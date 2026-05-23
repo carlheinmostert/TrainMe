@@ -78,6 +78,20 @@ class CachedClient {
   /// trip. See migration `20260513065845_consent_explicitly_set_at.sql`.
   final int? consentExplicitlySetAt;
 
+  /// Safe Mode v2 (2026-05-23) — 128-dim FP32 little-endian face
+  /// embedding produced on-device by MobileFaceNet. Exactly 512 bytes
+  /// when present. NULL means the client has not been enrolled OR
+  /// consent was withdrawn (the safe-mode consent RPC zeros this
+  /// alongside the consent flip). Mirrors cloud
+  /// `clients.face_embedding bytea`.
+  final Uint8List? faceEmbedding;
+
+  /// Safe Mode v2 (2026-05-23) — generator version for [faceEmbedding].
+  /// 1 = MobileFaceNet v1 (only version today). NULL when
+  /// [faceEmbedding] is NULL. Mirrors cloud
+  /// `clients.face_embedding_model_version smallint`.
+  final int? faceEmbeddingModelVersion;
+
   /// Epoch-ms of the last successful cloud pull that confirmed this
   /// row. Null for offline-created rows that haven't synced yet.
   final int? syncedAt;
@@ -103,6 +117,8 @@ class CachedClient {
     this.clientExerciseDefaults = const <String, dynamic>{},
     this.consentConfirmedAt,
     this.consentExplicitlySetAt,
+    this.faceEmbedding,
+    this.faceEmbeddingModelVersion,
     this.syncedAt,
     this.dirty = false,
     this.deleted = false,
@@ -137,6 +153,14 @@ class CachedClient {
       explicitMs = explicit;
     }
     final pathRaw = json['avatar_path'];
+    final embedding = _decodeFaceEmbedding(json['face_embedding']);
+    final modelVersionRaw = json['face_embedding_model_version'];
+    int? modelVersion;
+    if (modelVersionRaw is int) {
+      modelVersion = modelVersionRaw;
+    } else if (modelVersionRaw is num) {
+      modelVersion = modelVersionRaw.toInt();
+    }
     return CachedClient(
       id: json['id'] as String,
       practiceId: (json['practice_id'] ?? '') as String,
@@ -150,10 +174,57 @@ class CachedClient {
       clientExerciseDefaults: defaultsMap,
       consentConfirmedAt: confirmedMs,
       consentExplicitlySetAt: explicitMs,
+      faceEmbedding: embedding,
+      faceEmbeddingModelVersion: embedding == null ? null : modelVersion,
       syncedAt: nowMs,
       dirty: false,
       deleted: false,
     );
+  }
+
+  /// Decode the `face_embedding` column from a `list_practice_clients`
+  /// JSON row. PostgREST encodes Postgres `bytea` as a hex-prefixed
+  /// string (`\x...`) on the default settings, but some configurations
+  /// emit base64. Already-typed `List<int>` / `Uint8List` payloads pass
+  /// straight through. Anything that doesn't decode to exactly 512
+  /// bytes is rejected (treated as NULL) — the cloud-side RPC enforces
+  /// the size, so a mismatch implies the wire was tampered with or the
+  /// column shape changed underfoot.
+  static Uint8List? _decodeFaceEmbedding(Object? raw) {
+    if (raw == null) return null;
+    Uint8List? bytes;
+    if (raw is Uint8List) {
+      bytes = raw;
+    } else if (raw is List<int>) {
+      bytes = Uint8List.fromList(raw);
+    } else if (raw is String) {
+      if (raw.isEmpty) return null;
+      if (raw.startsWith(r'\x') || raw.startsWith(r'\\x')) {
+        final hex = raw.startsWith(r'\\x')
+            ? raw.substring(3)
+            : raw.substring(2);
+        bytes = _hexToBytes(hex);
+      } else {
+        try {
+          bytes = base64Decode(raw);
+        } catch (_) {
+          bytes = null;
+        }
+      }
+    }
+    if (bytes == null || bytes.length != 512) return null;
+    return bytes;
+  }
+
+  static Uint8List? _hexToBytes(String hex) {
+    if (hex.length.isOdd) return null;
+    final out = Uint8List(hex.length ~/ 2);
+    for (var i = 0; i < out.length; i++) {
+      final byte = int.tryParse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+      if (byte == null) return null;
+      out[i] = byte;
+    }
+    return out;
   }
 
   /// Hydrate from a SQLite row.
@@ -192,6 +263,13 @@ class CachedClient {
     }
 
     final pathRaw = row['avatar_path'];
+    final embeddingRaw = row['face_embedding'];
+    Uint8List? embedding;
+    if (embeddingRaw is Uint8List && embeddingRaw.length == 512) {
+      embedding = embeddingRaw;
+    } else if (embeddingRaw is List<int> && embeddingRaw.length == 512) {
+      embedding = Uint8List.fromList(embeddingRaw);
+    }
     return CachedClient(
       id: row['id'] as String,
       practiceId: row['practice_id'] as String,
@@ -205,6 +283,9 @@ class CachedClient {
       clientExerciseDefaults: defaults,
       consentConfirmedAt: row['consent_confirmed_at'] as int?,
       consentExplicitlySetAt: row['consent_explicitly_set_at'] as int?,
+      faceEmbedding: embedding,
+      faceEmbeddingModelVersion:
+          embedding == null ? null : row['face_embedding_model_version'] as int?,
       syncedAt: row['synced_at'] as int?,
       dirty: (row['dirty'] as int? ?? 0) == 1,
       deleted: (row['deleted'] as int? ?? 0) == 1,
@@ -228,6 +309,8 @@ class CachedClient {
       'client_exercise_defaults': jsonEncode(clientExerciseDefaults),
       'consent_confirmed_at': consentConfirmedAt,
       'consent_explicitly_set_at': consentExplicitlySetAt,
+      'face_embedding': faceEmbedding,
+      'face_embedding_model_version': faceEmbeddingModelVersion,
       'synced_at': syncedAt,
       'dirty': dirty ? 1 : 0,
       'deleted': deleted ? 1 : 0,
@@ -262,6 +345,9 @@ class CachedClient {
     Map<String, dynamic>? clientExerciseDefaults,
     int? consentConfirmedAt,
     int? consentExplicitlySetAt,
+    Uint8List? faceEmbedding,
+    bool clearFaceEmbedding = false,
+    int? faceEmbeddingModelVersion,
     int? syncedAt,
     bool? dirty,
     bool? deleted,
@@ -280,6 +366,11 @@ class CachedClient {
       consentConfirmedAt: consentConfirmedAt ?? this.consentConfirmedAt,
       consentExplicitlySetAt:
           consentExplicitlySetAt ?? this.consentExplicitlySetAt,
+      faceEmbedding:
+          clearFaceEmbedding ? null : (faceEmbedding ?? this.faceEmbedding),
+      faceEmbeddingModelVersion: clearFaceEmbedding
+          ? null
+          : (faceEmbeddingModelVersion ?? this.faceEmbeddingModelVersion),
       syncedAt: syncedAt ?? this.syncedAt,
       dirty: dirty ?? this.dirty,
       deleted: deleted ?? this.deleted,

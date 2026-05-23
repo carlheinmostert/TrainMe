@@ -398,6 +398,14 @@ class SyncService {
       // `ApiClient.listPracticeClientsOrThrow` drops the defaults
       // through the `PracticeClient` projection; the raw read
       // preserves them on the wire map.
+      //
+      // 2026-05-23 — Safe Mode v2: the same raw read now also carries
+      // `face_embedding` (bytea) + `face_embedding_model_version`
+      // (smallint) for every client.
+      // `CachedClient.fromCloudJson` decodes the embedding (PostgREST
+      // hex-prefixed string or base64) and persists into the
+      // cached_clients.face_embedding BLOB column.
+      // See supabase/migrations/20260523102954_safe_mode_v2.sql.
       final rawRows = await ClientDefaultsApi.instance.listPracticeClientsRaw(
         practiceId,
       );
