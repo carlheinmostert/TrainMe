@@ -153,6 +153,72 @@
       border-color: var(--c-surface-border);
     }
     .live-map .leaflet-control-zoom a:hover { background: var(--c-surface-raised); }
+
+    /* Item 28 (2026-05-23) — manual fit-to-polygon button, sits below
+       the Leaflet +/- zoom control in the topleft chrome stack. Same
+       dark-glass look as the zoom buttons so the chrome reads as one
+       coherent control group. */
+    .live-fit-control {
+      margin-top: 6px; /* separate from zoom +/- group */
+      border: 1px solid var(--c-surface-border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .live-fit-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px;
+      background: rgba(15, 17, 23, 0.85);
+      color: #F0F0F5;
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 120ms ease, background 120ms ease;
+    }
+    .live-fit-btn:hover {
+      background: var(--c-surface-raised);
+      color: var(--c-brand);
+    }
+    .live-fit-btn:focus-visible {
+      outline: 2px solid var(--c-brand);
+      outline-offset: -2px;
+    }
+    .live-fit-control.is-disabled .live-fit-btn {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Item 26 (2026-05-23) — viewer dot's "You" label. Permanently
+       visible pill to the right of the sage dot so a bystander
+       landing fresh on the page reads the dot as self-location
+       (Google / Apple Maps convention). The wrapper packs dot +
+       label horizontally; the marker iconAnchor pins the dot center
+       on the GPS coord, label flows right. */
+    .live-you-wrap {
+      display: flex; align-items: center; gap: 6px;
+      pointer-events: none; /* marker is non-interactive */
+      white-space: nowrap;
+    }
+    .live-you-dot {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #86EFAC;
+      box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.25);
+      flex: 0 0 auto;
+    }
+    .live-you-label {
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 10px;
+      line-height: 1;
+      color: #86EFAC;
+      background: rgba(134, 239, 172, 0.20);
+      border: 1px solid rgba(134, 239, 172, 0.45);
+      padding: 4px 6px;
+      border-radius: 999px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+      letter-spacing: 0.02em;
+      flex: 0 0 auto;
+    }
+
     .live-card-layer {
       position: absolute; inset: 0; pointer-events: none; z-index: 500;
     }

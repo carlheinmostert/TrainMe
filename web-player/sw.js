@@ -13,6 +13,23 @@
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
 //
+// Manual bump 2026-05-23 (live-view UX bundle, items 26/28/29 of
+// the 2026-05-23 stack): live.js + live.html.
+//   - Item 26: viewer's sage dot now carries a permanent "You" pill
+//     label to its right (Google/Apple Maps convention) so a fresh
+//     bystander reads it as self-location without context.
+//   - Item 28: new Leaflet custom control below the +/- zoom group —
+//     30×30 dark-glass button with a square-with-inward-arrows glyph.
+//     Tap → re-runs the same fitMapToPolygon() shared helper the
+//     first-paint auto-fit uses. Disabled state when no polygon
+//     loaded yet.
+//   - Item 29: tightened first-paint fitBounds padding 20→10 and
+//     raised maxZoom 19→20 so small residential polygons fill the
+//     screen instead of taking ~25% of the visible area. Display
+//     cap MAP_MAX_ZOOM=21 unchanged; users still manually lean in
+//     to z21 via wheel/pinch. Bumped so the stale full-card
+//     bundle flushes from returning bystanders' caches.
+//
 // Manual bump 2026-05-23 (per-capture audit + 24h roster, PR A —
 // item 27 of the stack): live.js + live.html add the left-edge
 // collapsed pill, backdrop-blurred expanded drawer, and per-
