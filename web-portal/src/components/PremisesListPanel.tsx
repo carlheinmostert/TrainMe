@@ -17,6 +17,20 @@ type Props = {
   practiceId: string;
   isOwner: boolean;
   initialPremises: PracticePremises[];
+  /**
+   * Practice public slug (from `practices.public_slug`). When non-empty,
+   * each Safe-Mode-enforced row surfaces a "Live" button opening the
+   * per-premises transparency URL `session.homefit.studio/v/{practice-slug}/{premises-slug}/now`.
+   * When the practice slug isn't set (owner hasn't filled in /public-profile),
+   * Live + Poster buttons are hidden — there's no public URL to link to.
+   */
+  practiceSlug: string | null;
+  /**
+   * Origin of the web player (`session.homefit.studio` on prod). Computed
+   * server-side from the request host so dev / staging point at the
+   * matching player deployment.
+   */
+  playerOrigin: string;
 };
 
 /**
@@ -35,6 +49,8 @@ type Props = {
 export function PremisesListPanel({
   practiceId,
   initialPremises,
+  practiceSlug,
+  playerOrigin,
 }: Props) {
   const router = useRouter();
   const [premises, setPremises] = useState<PracticePremises[]>(initialPremises);
@@ -181,6 +197,18 @@ export function PremisesListPanel({
             {visiblePremises.map((p) => {
               const detailHref = `/premises/${p.id}?practice=${practiceId}`;
               const isDraft = !p.polygonGeoJson;
+              // Live + Poster URLs require both the practice slug AND
+              // the premises slug to resolve. Drafts have no polygon
+              // (the live page would render an empty map) so suppress
+              // Live there too.
+              const hasPublicUrls =
+                Boolean(practiceSlug) &&
+                Boolean(p.publicSlug) &&
+                !isDraft;
+              const liveUrl = hasPublicUrls
+                ? `${playerOrigin}/v/${practiceSlug}/${p.publicSlug}/now`
+                : null;
+              const posterHref = `/premises/${p.id}/poster?print=1`;
               return (
                 <li
                   key={p.id}
@@ -217,7 +245,77 @@ export function PremisesListPanel({
                         : `${fmtArea(p.areaM2)} - ${p.signalType.toUpperCase()}`}
                     </span>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {/* Public actions: Live + Poster.
+                        Hidden on mobile (sm:flex) — see overflow menu below. */}
+                    {liveUrl && (
+                      <a
+                        href={liveUrl}
+                        target="_blank"
+                        rel="noopener"
+                        title="Open the live transparency view in a new tab"
+                        className="hidden items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1.5 text-xs text-ink hover:bg-surface-raised sm:inline-flex"
+                      >
+                        <EyeIcon />
+                        Live
+                      </a>
+                    )}
+                    {p.safeModeEnforced && hasPublicUrls && (
+                      <a
+                        href={posterHref}
+                        target="_blank"
+                        rel="noopener"
+                        title="Download the printable transparency poster"
+                        className="hidden items-center gap-1.5 rounded-md border border-brand/30 px-2.5 py-1.5 text-xs text-brand hover:bg-brand/10 sm:inline-flex"
+                      >
+                        <DownloadIcon />
+                        Poster
+                      </a>
+                    )}
+                    {/* Mobile overflow: Live + Poster combined into a
+                        single dropdown so the row stays scannable. The
+                        Edit + Delete pair always stays visible. */}
+                    {hasPublicUrls && (
+                      <details className="relative inline-block sm:hidden">
+                        <summary
+                          className="cursor-pointer list-none rounded-md border border-surface-border px-2.5 py-1.5 text-xs text-ink hover:bg-surface-raised"
+                          aria-label="Public actions menu"
+                        >
+                          Public ▾
+                        </summary>
+                        <div className="absolute right-0 top-full z-10 mt-1 flex w-44 flex-col gap-1 rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg">
+                          <a
+                            href={liveUrl ?? '#'}
+                            target="_blank"
+                            rel="noopener"
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink hover:bg-surface-base"
+                          >
+                            <EyeIcon />
+                            Live view
+                          </a>
+                          {p.safeModeEnforced && (
+                            <a
+                              href={posterHref}
+                              target="_blank"
+                              rel="noopener"
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-brand hover:bg-surface-base"
+                            >
+                              <DownloadIcon />
+                              Poster
+                            </a>
+                          )}
+                        </div>
+                      </details>
+                    )}
+                    {/* Thin vertical rule separator — public actions
+                        (left) vs private actions (right). Per the
+                        mockup. */}
+                    {hasPublicUrls && (
+                      <span
+                        aria-hidden="true"
+                        className="hidden h-5 w-px bg-surface-border sm:inline-block"
+                      />
+                    )}
                     <a
                       href={detailHref}
                       className="rounded-md border border-surface-border px-3 py-1.5 text-xs text-ink hover:bg-surface-raised"
@@ -273,4 +371,41 @@ export function PremisesListPanel({
 function fmtArea(m2: number): string {
   if (m2 < 10_000) return `${Math.round(m2).toLocaleString()} m²`;
   return `${(m2 / 1_000_000).toFixed(3)} km²`;
+}
+
+function EyeIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5 flex-shrink-0"
+      aria-hidden="true"
+    >
+      <circle cx={12} cy={12} r={3} />
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5 flex-shrink-0"
+      aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1={12} y1={15} x2={12} y2={3} />
+    </svg>
+  );
 }

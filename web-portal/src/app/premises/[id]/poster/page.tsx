@@ -44,17 +44,24 @@ export default async function PosterPage({
   const profile = await api.getPracticePublicProfile(premises.practiceId);
   if (!profile) notFound();
 
-  // Resolve the live page URL the QR encodes. Falls back to the public
-  // host when the slug isn't set (the QR still scans but lands on a
-  // "not found" page; the poster page itself will surface a warning
-  // banner so the owner knows to set the slug first).
+  // Resolve the live page URL the QR encodes. The URL is per-premises:
+  // `/v/{practice-slug}/{premises-slug}/now`. Falls back to a clearly
+  // placeholder URL when either slug is missing — the QR still scans
+  // but lands on a "not found" page; the warning banner below tells
+  // the owner what to fix.
   const reqHeaders = await headers();
   const playerOrigin = playerOriginFromHost(reqHeaders.get('host'));
-  const slug = profile.slug ?? '';
-  const liveUrl = slug
-    ? `${playerOrigin}/v/${slug}/now`
-    : `${playerOrigin}/v/your-slug/now`;
-  const slugMissing = !slug;
+  const practiceSlug = profile.slug ?? '';
+  const premisesSlug = premises.publicSlug ?? '';
+  const slugMissing = !practiceSlug || !premisesSlug;
+  const liveUrl = slugMissing
+    ? `${playerOrigin}/v/${practiceSlug || 'your-practice'}/${premisesSlug || 'your-premises'}/now`
+    : `${playerOrigin}/v/${practiceSlug}/${premisesSlug}/now`;
+
+  // Stamp first_poster_downloaded_at on ?print=1 — this is the contract
+  // that locks the slug for printed QR codes. Fire-and-forget; never
+  // blocks the render. Idempotent server-side (only stamps when NULL).
+  const shouldStampDownload = searchParamsPrint(query) && !slugMissing;
 
   // Render the QR as an inline SVG string. errorCorrectionLevel 'M'
   // is enough for the on-paper scan distance; margin 2 leaves the
@@ -72,6 +79,12 @@ export default async function PosterPage({
   const venueLine = premises.name || '';
   const address = premises.address || '';
 
+  // Lock the slug for printed posters. Fire-and-forget so a vault /
+  // RPC hiccup never blocks the print dialog.
+  if (shouldStampDownload) {
+    void api.markPosterDownloaded(id).catch(() => undefined);
+  }
+
   return (
     <>
       {/* Tailwind's preflight doesn't fight us here — the poster owns
@@ -88,9 +101,14 @@ export default async function PosterPage({
       <div className="poster-root">
         {slugMissing && (
           <div className="poster-warning">
-            <strong>Set a public slug first.</strong> Open the public-profile
-            editor and pick a slug — without it, the QR code on this poster
-            won&rsquo;t resolve to a real live page.
+            <strong>
+              {!practiceSlug
+                ? 'Set a public practice slug first.'
+                : 'Set a public premises slug first.'}
+            </strong>{' '}
+            {!practiceSlug
+              ? 'Open /public-profile and pick a slug for your practice — without it, the QR code on this poster won’t resolve to a real live page.'
+              : 'Open the premises editor and confirm the public URL slug — without it, the QR code on this poster won’t resolve to a real live page.'}
           </div>
         )}
 
@@ -416,3 +434,7 @@ const posterCss = `
     .poster-warning { display: none; }
   }
 `;
+
+function searchParamsPrint(query: SearchParams): boolean {
+  return query.print === '1';
+}

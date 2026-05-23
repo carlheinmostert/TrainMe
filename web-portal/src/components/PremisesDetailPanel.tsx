@@ -34,6 +34,18 @@ type FieldSaveState =
 type Props = {
   initial: PracticePremises;
   practiceId: string;
+  /**
+   * The parent practice's public slug. Used to render the URL preview
+   * `session.homefit.studio/v/{practice}/{premises}/now` in the slug
+   * editor. NULL when the practice hasn't set a public slug yet — we
+   * fall back to a placeholder in the preview but still allow the
+   * premises slug to be edited (the URL won't resolve until the
+   * practice slug is set, but that's the same trade as the poster
+   * warning banner).
+   */
+  practiceSlug: string | null;
+  /** Web player origin (host-derived). Prefixes the URL preview. */
+  playerOrigin: string;
 };
 
 /**
@@ -46,9 +58,70 @@ type Props = {
  *
  * Replaces the old modal-dialog flow (R-01 + no-popups-ever).
  */
-export function PremisesDetailPanel({ initial, practiceId }: Props) {
+export function PremisesDetailPanel({
+  initial,
+  practiceId,
+  practiceSlug,
+  playerOrigin,
+}: Props) {
   const router = useRouter();
   const api = useCallback(() => createPortalApi(getBrowserClient()), []);
+
+  // ---------------------------------------------------------------------
+  // Public slug (per-premises URL slug, 3-40 chars, lowercase + hyphens)
+  // ---------------------------------------------------------------------
+  const slugLocked = Boolean(initial.firstPosterDownloadedAt);
+  const [slugDraft, setSlugDraft] = useState(initial.publicSlug);
+  const [slugState, setSlugState] = useState<FieldSaveState>({ kind: 'idle' });
+  const slugBaseline = useRef(initial.publicSlug);
+
+  useEffect(() => {
+    if (slugState.kind === 'idle' || slugState.kind === 'saving') return;
+    const ttl = slugState.kind === 'err' ? 4000 : 2000;
+    const id = window.setTimeout(() => setSlugState({ kind: 'idle' }), ttl);
+    return () => window.clearTimeout(id);
+  }, [slugState]);
+
+  const SLUG_RX = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
+
+  async function commitSlug() {
+    const next = slugDraft.trim().toLowerCase();
+    if (next === slugBaseline.current) {
+      setSlugDraft(slugBaseline.current);
+      return;
+    }
+    if (slugLocked) {
+      setSlugState({
+        kind: 'err',
+        message:
+          "Locked — printed QR codes depend on this slug. Generate a new premises if you need a new slug.",
+      });
+      setSlugDraft(slugBaseline.current);
+      return;
+    }
+    if (!SLUG_RX.test(next)) {
+      setSlugState({
+        kind: 'err',
+        message:
+          'Slug must be 3-40 chars: lowercase letters, digits, hyphens; start and end with a letter or digit.',
+      });
+      return;
+    }
+    setSlugState({ kind: 'saving' });
+    try {
+      await api().updatePremisesMetadata({
+        premisesId: initial.id,
+        publicSlug: next,
+      });
+      slugBaseline.current = next;
+      setSlugDraft(next);
+      setSlugState({ kind: 'ok' });
+      router.refresh();
+    } catch (e) {
+      setSlugState({ kind: 'err', message: mapErr(e, 'save URL slug') });
+      setSlugDraft(slugBaseline.current);
+    }
+  }
 
   // ---------------------------------------------------------------------
   // Name (inline dashed-underline — mirrors PracticeNameField pattern)
@@ -497,6 +570,82 @@ export function PremisesDetailPanel({ initial, practiceId }: Props) {
           )}
         </div>
 
+        {/* Public URL slug — the {premises-slug} half of
+            session.homefit.studio/v/{practice-slug}/{premises-slug}/now.
+            Per item 6 of the 2026-05-23 feedback stack: the live
+            transparency URL is per-premises so each polygon has its own
+            bystander-facing page + QR poster. Once the poster has been
+            downloaded once, the slug is locked (printed QR codes depend
+            on it). */}
+        <div className="mt-5 flex flex-col gap-1.5">
+          <label
+            htmlFor="premises-slug-input"
+            className="text-sm font-medium text-ink"
+          >
+            Public URL slug
+          </label>
+          <div className="flex flex-col gap-1 rounded-md border border-surface-border bg-surface-raised px-3 py-2 sm:flex-row sm:items-center">
+            <span className="font-mono text-xs text-ink-muted">
+              {playerOrigin.replace(/^https?:\/\//, '')}/v/
+              {practiceSlug ?? 'your-practice'}/
+            </span>
+            <input
+              id="premises-slug-input"
+              type="text"
+              value={slugDraft}
+              onChange={(e) => {
+                // Live-lowercase + drop disallowed chars while typing,
+                // matching the regex shape. Trim to 40.
+                const cleaned = e.target.value
+                  .toLowerCase()
+                  .replace(/[^a-z0-9-]+/g, '')
+                  .slice(0, 40);
+                setSlugDraft(cleaned);
+                if (slugState.kind !== 'idle' && slugState.kind !== 'saving') {
+                  setSlugState({ kind: 'idle' });
+                }
+              }}
+              onBlur={commitSlug}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitSlug();
+                }
+              }}
+              disabled={slugLocked || slugState.kind === 'saving'}
+              maxLength={40}
+              aria-invalid={slugState.kind === 'err'}
+              className="flex-1 bg-transparent font-mono text-xs text-ink placeholder:text-ink-dim focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              placeholder="studio-floor"
+            />
+            <span className="font-mono text-xs text-ink-muted">/now</span>
+          </div>
+          {slugLocked ? (
+            <p className="text-xs text-ink-muted">
+              Locked — printed QR codes depend on this slug. Generate a new
+              premises if you need a new slug.
+            </p>
+          ) : (
+            <p className="text-xs text-ink-dim">
+              3-40 chars: lowercase letters, digits, hyphens. Locks once the
+              poster has been downloaded.
+            </p>
+          )}
+          {slugState.kind === 'ok' && (
+            <p role="status" className="text-xs text-success">
+              URL slug saved.
+            </p>
+          )}
+          {slugState.kind === 'err' && (
+            <p
+              role="alert"
+              className="rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
+            >
+              {slugState.message}
+            </p>
+          )}
+        </div>
+
         {/* Safe Mode Transparency — Phase C (2026-05-22).
             Printable A4 poster the owner tapes up at the venue. Carries
             the QR code that points at the live transparency page. */}
@@ -655,6 +804,12 @@ function messageForPremisesError(err: PremisesError): string {
       return 'Polygon too small (min 25 m²).';
     case 'not-found':
       return 'Premises not found.';
+    case 'slug-taken':
+      return 'That URL slug is already in use on another premises in this practice.';
+    case 'slug-invalid':
+      return 'Slug must be 3-40 chars: lowercase letters, digits, hyphens; start and end with a letter or digit.';
+    case 'slug-locked':
+      return "Locked — printed QR codes depend on this slug. Generate a new premises if you need a new slug.";
     default:
       return err.message;
   }

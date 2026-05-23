@@ -1,6 +1,7 @@
 # Safe Mode Transparency — design
 
 **Status:** approved 2026-05-22 (Carl) · ready for implementation plan
+**Revised 2026-05-23:** live transparency URL went per-premises (was per-practice). See the [Schema (v2)](#schema-v2--per-premises-public-slugs-2026-05-23) note below.
 **Predecessor:** Safe Mode Phase 1 + Phase 2 (PR #389), Safe Mode completion (PR #402 + #403), Persistent banner + hysteresis (PR #413 + #420). This design adds the externally-verifiable layer on top: identity disclosure, public transparency, and reporting routed to the venue.
 **Mockups:**
 - [docs/design/mockups/safe-mode-poster.html](../design/mockups/safe-mode-poster.html) — printable A4 poster.
@@ -20,6 +21,7 @@
 - [Heartbeat + polling cadence](#heartbeat--polling-cadence)
 - [Practice profile gate (owner-side)](#practice-profile-gate-owner-side)
 - [Migration plan](#migration-plan)
+- [Schema (v2) — per-premises public slugs (2026-05-23)](#schema-v2--per-premises-public-slugs-2026-05-23)
 - [Phasing](#phasing)
 - [Risks](#risks)
 - [Out of scope for V1](#out-of-scope-for-v1)
@@ -36,7 +38,7 @@ The trade is symmetric: bystanders give up some privacy (their image, even obscu
 
 - Practitioner identity becomes mandatory before Safe Mode can activate (auto or manual).
 - Practice public profile becomes mandatory before any practitioner in that practice can use Safe Mode in any enforced polygon.
-- New live transparency page at `session.homefit.studio/v/{slug}/now` shows active sessions in real-time with name + photo + position + report button.
+- New live transparency page at `session.homefit.studio/v/{practice-slug}/{premises-slug}/now` shows active sessions at THAT venue in real-time with name + photo + position + report button. (Per-premises, not per-practice — see [Schema (v2)](#schema-v2--per-premises-public-slugs-2026-05-23).)
 - New printable poster, downloadable from the portal premises editor as a PDF (via browser print dialog).
 - Reporting routes to the practice owner's listed contact — homefit.studio is escalation backstop only.
 - Existing polled retry cycle (30s normal / 15s trailing) gains a compliance check; failures trigger the existing hysteresis deactivation.
@@ -193,7 +195,7 @@ This is forced-flow (not blocking) — the practitioner can fix it inline and pr
 
 ## Live transparency page
 
-Live at `session.homefit.studio/v/{slug}/now`. Anonymous-readable (no auth required).
+Live at `session.homefit.studio/v/{practice-slug}/{premises-slug}/now`. Anonymous-readable (no auth required). The practice-wide rollup `session.homefit.studio/v/{practice-slug}/now` is RETIRED — it returns the practice profile page (404 of the live overview).
 
 ### IA + mockup
 
@@ -211,13 +213,16 @@ See [docs/design/mockups/safe-mode-live-page.html](../design/mockups/safe-mode-l
 Page polls a new anonymous-readable RPC every 10-15 seconds:
 
 ```sql
-CREATE OR REPLACE FUNCTION public.get_live_sessions(p_slug text)
+CREATE OR REPLACE FUNCTION public.get_live_sessions(
+  p_practice_slug text,
+  p_premises_slug text
+)
   RETURNS TABLE (...) -- session id, practitioner name + avatar, started_at, lat/lng, ...
   LANGUAGE plpgsql SECURITY DEFINER
 AS $$
-  -- Resolve practice_id from slug
-  -- Return active_capture_sessions where last_heartbeat_at >= now() - 60s
-  -- And ended_at IS NULL
+  -- Resolve practice_id from practice_slug + premises_id from premises_slug.
+  -- Return active_capture_sessions WHERE premises_id matches
+  -- AND last_heartbeat_at >= now() - 60s AND ended_at IS NULL.
 $$;
 ```
 
@@ -329,10 +334,35 @@ Single migration: `supabase/migrations/{timestamp}_safe_mode_transparency.sql`.
    - `start_capture_session(p_practice_id, p_premises_id, p_lat, p_lng, p_manual)` — insert into `active_capture_sessions`, return id.
    - `heartbeat_capture_session(p_session_id, p_lat, p_lng)` — update `last_heartbeat_at`, `last_latitude`, `last_longitude`.
    - `end_capture_session(p_session_id)` — stamp `ended_at`.
-   - `get_live_sessions(p_slug)` — anonymous-readable, returns active sessions for the slug's practice.
+   - `get_live_sessions(p_practice_slug, p_premises_slug)` — anonymous-readable, returns active sessions for THAT specific premises. (2026-05-23 revision — was `get_live_sessions(p_slug)`.)
    - `report_session(p_session_id, p_reason, p_fingerprint)` — insert into `safe_mode_session_reports`, trigger notification edge function.
 
 All new RPCs are SECURITY DEFINER + scoped via `user_practice_ids()` helper for any authenticated calls. Anonymous-readable RPCs (`get_live_sessions`) are explicitly safe — they return only public-by-design fields (practitioner name + avatar, session start time, position, no client data).
+
+## Schema (v2) — per-premises public slugs (2026-05-23)
+
+The original Phase B shipped a per-practice live URL `/v/{practice-slug}/now`. Carl's feedback on the device QA wave (stack item 6, 2026-05-23) established that bystanders only care about who's recording AT THIS VENUE — a single practice-wide rollup is misleading (the poster at "Studio Floor" would show people recording at "Outdoor Court" 10 km away).
+
+The URL is now per-premises: `session.homefit.studio/v/{practice-slug}/{premises-slug}/now`.
+
+**New columns on `practice_premises`** (migration `20260523085031_premises_public_slugs.sql`):
+
+- `public_slug text NOT NULL` — same shape as `practices.public_slug` (`^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$`, 3-40 chars). Unique within a practice via partial index `(practice_id, public_slug) WHERE deleted_at IS NULL` — tombstoned rows free their slug for reuse.
+- `first_poster_downloaded_at timestamptz NULL` — stamped on the first `?print=1` view of the poster. While NULL the slug is freely renameable; once stamped the slug is locked (printed QR codes depend on it). New RPC `mark_poster_downloaded(p_premises_id)` does the stamping (owner-only, idempotent).
+
+**Slug behavior:**
+
+- Auto-generated from premises name on `create_default_premises` (e.g. "Studio Floor 2nd Level" → `studio-floor-2nd-level`). If the auto-slug exceeds 40 chars it's truncated and trailing hyphens stripped.
+- Owner can rename the slug pre-lock via `update_premises_metadata(..., p_public_slug)`. Slug change rejected with 22023 if `first_poster_downloaded_at IS NOT NULL`.
+- Collision within a practice: auto-suffixed `-2`, `-3`, … by the backfill DO-block and the same logic in `create_default_premises`.
+
+**Practice-wide rollup `/v/{practice-slug}/now`** — RETIRED. The Vercel rewrite at `web-player/vercel.json` now sends that path to `/v.html` (the practice profile page), so old QR codes / bookmarks land on a useful page instead of a 404.
+
+**Soft-deleted premises** — `/v/{practice-slug}/{premises-slug}/now` returns the empty "not found" state when the premises is soft-deleted (the RPC simply returns an empty rowset).
+
+**`get_live_sessions` signature change** — `(p_slug text)` → `(p_practice_slug text, p_premises_slug text)`. The old function is DROPPED in the same migration; the web-player + portal call sites are updated in the same PR. Filters `active_capture_sessions` to the specific premises (`acs.premises_id = pp.id`).
+
+**Portal premises list redesign** — surfaces Live + Poster as collection-level actions on each row (per stack item 5 + the approved mockup `docs/design/mockups/2026-05-23-premises-list-with-actions.html`). Live link opens THAT premises' URL; Poster button only renders on Safe-Mode-enforced rows. A thin vertical rule separates public actions (Live + Poster) from private actions (Edit + Delete). The page-level "Live view" link that the original mockup showed is dropped — since the URL is per-premises, a single practice-wide link no longer has a meaning.
 
 ## Phasing
 
@@ -348,14 +378,14 @@ All new RPCs are SECURITY DEFINER + scoped via `user_practice_ids()` helper for 
 **Phase B — Live page + heartbeat**:
 - New `active_capture_sessions` table.
 - `start_capture_session` / `heartbeat_capture_session` / `end_capture_session` RPCs.
-- New `/v/{slug}/now` page on web player.
+- New `/v/{practice-slug}/{premises-slug}/now` page on web player.
 - Practitioner-side: 20s heartbeat ticker while Safe Mode active.
-- Persistent banner sub-line gains a hint: "Visible at /v/{slug}/now" when in an enforced polygon.
+- Persistent banner sub-line gains a hint: "Visible at /v/{practice-slug}/{premises-slug}/now" when in an enforced polygon.
 
 **Phase C — QR code + printable poster**:
 - New `/premises/{id}/poster` route on the portal.
 - Premises editor row gets "Download poster" button → opens poster URL in new tab → auto-prints.
-- QR code generation: pure server-side SVG (no external service) — render QR for `/v/{slug}/now` URL.
+- QR code generation: pure server-side SVG (no external service) — render QR for the per-premises `/v/{practice-slug}/{premises-slug}/now` URL.
 
 **Phase D — Reporting + escalation**:
 - New `safe_mode_session_reports` table.

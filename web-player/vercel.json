@@ -11,8 +11,12 @@
       "destination": "/index.html"
     },
     {
-      "source": "/v/:slug/now",
+      "source": "/v/:practiceSlug/:premisesSlug/now",
       "destination": "/live.html"
+    },
+    {
+      "source": "/v/:slug/now",
+      "destination": "/v.html"
     },
     {
       "source": "/v/:slug*",
