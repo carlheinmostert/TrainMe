@@ -41,10 +41,14 @@
     padding-bottom: 16mm;
     border-bottom: 1px solid var(--c-rule);
   }
-  .matrix-logo {
-    width: 56px;
-    height: 12px;
-    color: var(--c-brand);
+  /* Hero-size canonical lockup at the top edge — print variant
+     (`homefit` ink-dark, `.studio` coral). Matches what
+     `web-portal/src/app/premises/[id]/poster/page.tsx` renders via
+     <HomefitLogoLockup print />. */
+  .lockup-hero {
+    width: 120px;
+    height: auto;
+    display: block;
   }
   .practice-mark {
     text-align: right;
@@ -169,9 +173,12 @@
     font-weight: 600;
   }
   .trust .powered .accent { color: var(--c-brand); }
-  .trust .footer-logo {
-    width: 72px;
-    height: 16px;
+  /* Footer-scale canonical lockup — about half the hero size,
+     signature treatment at the bottom-right. */
+  .trust .lockup-footer {
+    width: 60px;
+    height: auto;
+    display: block;
   }
 
   /* Canonical inline wordmark: "homefit" body color + ".studio" coral. */
@@ -204,23 +211,40 @@
 
 <div class="page">
 
-  <!-- Header -->
+  <!-- Header — canonical HomefitLogoLockup, print variant.
+       Geometry sourced byte-for-byte from
+       `web-portal/src/components/HomefitLogo.tsx`. The `homefit`
+       portion of the wordmark uses #1A1D27 (print ink) instead of the
+       canonical #F0F0F5 (near-white, dark-surface only); `.studio`
+       stays coral. Pill geometry, ghost greys, sage rest unchanged. -->
   <div class="header">
-    <svg class="matrix-logo" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280"/>
-      <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280"/>
-      <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
-      <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-      <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC"/>
-      <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-      <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
+    <svg class="lockup-hero" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <text
+        x="24"
+        y="4.6"
+        text-anchor="middle"
+        textLength="48"
+        lengthAdjust="spacingAndGlyphs"
+        font-family="Montserrat, sans-serif"
+        font-weight="600"
+        font-size="6.5"
+        letter-spacing="-0.1"
+      >
+        <tspan fill="#1A1D27">homefit</tspan>
+        <tspan fill="#FF6B35">.studio</tspan>
+      </text>
+      <rect x="0"    y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
+      <rect x="4"    y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+      <rect x="9"    y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+      <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+      <rect x="15"   y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="15"   y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="21.5" y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="21.5" y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+      <rect x="28"   y="6.5"  width="5"    height="3"   rx="1"   fill="#86EFAC"/>
+      <rect x="34.5" y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+      <rect x="40.5" y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+      <rect x="45.5" y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
     </svg>
     <div class="practice-mark">
       <div class="name">MUSCLE WORKS GYM</div>
@@ -248,7 +272,7 @@
       </p>
 
       <div class="caveat">
-        <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act. <span class="wm">homefit<span class="dot-studio">.studio</span></span> is a backstop if the practice doesn't respond.
+        <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act.
       </div>
     </div>
 
@@ -263,25 +287,36 @@
   <div class="trust">
     <div>Learn more at <strong class="wm">homefit<span class="dot-studio">.studio</span>/what-we-share</strong></div>
     <div class="powered-stack">
-      <div class="powered">
-        <span>powered by </span>
-        <span class="wm">homefit<span class="dot-studio">.studio</span></span>
-      </div>
-      <svg class="footer-logo" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280"/>
-        <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280"/>
-        <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
-        <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
-        <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC"/>
-        <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF"/>
-        <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF"/>
+      <div class="powered">powered by</div>
+      <!-- Footer canonical lockup, print variant — half the hero size.
+           Geometry mirrors `web-portal/src/components/HomefitLogo.tsx`. -->
+      <svg class="lockup-footer" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <text
+          x="24"
+          y="4.6"
+          text-anchor="middle"
+          textLength="48"
+          lengthAdjust="spacingAndGlyphs"
+          font-family="Montserrat, sans-serif"
+          font-weight="600"
+          font-size="6.5"
+          letter-spacing="-0.1"
+        >
+          <tspan fill="#1A1D27">homefit</tspan>
+          <tspan fill="#FF6B35">.studio</tspan>
+        </text>
+        <rect x="0"    y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
+        <rect x="4"    y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="9"    y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+        <rect x="15"   y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="15"   y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="21.5" y="6.5"  width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="21.5" y="11"   width="5"    height="3"   rx="1"   fill="#FF6B35"/>
+        <rect x="28"   y="6.5"  width="5"    height="3"   rx="1"   fill="#86EFAC"/>
+        <rect x="34.5" y="6.65" width="4.5"  height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="40.5" y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="45.5" y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
       </svg>
     </div>
   </div>
