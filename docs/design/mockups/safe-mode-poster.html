@@ -233,6 +233,21 @@
     font-family: 'Montserrat', sans-serif;
     font-weight: 700;
   }
+  /* Inline practice-contact details inside the caveat (stack item 13).
+     Plain-text labels (no icons) for print safety; Phone + WhatsApp
+     collapse to one line when the same number serves both. */
+  .caveat-contacts {
+    display: block;
+    margin-top: 3mm;
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+  .caveat-contacts .caveat-contact { display: block; }
+  .caveat-contacts .caveat-contact-label {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    margin-right: 0.4em;
+  }
 
   /* Print — must reset the on-screen sizing or the layout overflows
      into a second blank page (and sometimes a third with a hairline
@@ -352,6 +367,10 @@
        QR card. -->
   <div class="caveat">
     <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act.
+    <span class="caveat-contacts">
+      <span class="caveat-contact"><span class="caveat-contact-label">Email:</span>owner@muscle-works.example</span>
+      <span class="caveat-contact"><span class="caveat-contact-label">Phone / WhatsApp:</span>+27 82 555 1234</span>
+    </span>
   </div>
 
   <!-- Trust strip — drops the "Learn more / what-we-share" link

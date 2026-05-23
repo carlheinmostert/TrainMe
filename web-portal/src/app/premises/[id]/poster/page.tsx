@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { cookies, headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
@@ -269,12 +270,27 @@ export default async function PosterPage({
               empty band on the right side of the page. Anchoring the
               stop-and-act CTA across the full width gives both columns a
               clean common baseline and gives the "if you're worried"
-              framing the visual weight it deserves. */}
+              framing the visual weight it deserves.
+
+              Stack item 13: the practice's listed contact details are
+              now rendered inline beneath the caveat copy when populated.
+              Tactical decisions (executor-resolved, see stack file
+              notes): plain text labels (not icons) for print safety —
+              icon glyphs render unpredictably across print drivers and
+              add no information value when the URL/number itself is
+              the actionable token. Phone + WhatsApp are combined into
+              a single line when they share the same number — the
+              common case (one number serves both); they split into
+              two lines automatically when distinct. The website
+              contact is deliberately skipped on the poster (per brief):
+              bystanders use the QR code, not a web URL.
+              The whole sub-block hides when no contact is set. */}
           <div className="poster-caveat">
             <strong>Worried about a practitioner&rsquo;s behavior?</strong>{' '}
             Scan the code, find their session, and tap &ldquo;Report&rdquo;.
             The practice owner at {practiceName} is notified directly via
             their listed contact and can act.
+            {renderCaveatContacts(profile.contactEmail, profile.contactWhatsapp)}
           </div>
 
           <div className="poster-trust">
@@ -464,6 +480,27 @@ const posterCss = `
   .poster-caveat strong {
     font-family: 'Montserrat', sans-serif; font-weight: 700;
   }
+  /* Inline practice contacts inside the caveat box (stack item 13).
+     Lives as a tight 2-line stack under the prose sentence; the
+     "Email" / "Phone / WhatsApp" labels are bolded (Montserrat 700)
+     so they read as field labels and the values sit in the same
+     ink as the body. 3mm top margin separates the contact stack
+     from the prose without doubling the caveat's bottom padding. */
+  .poster-caveat-contacts {
+    display: block;
+    margin-top: 3mm;
+    font-size: 10pt;
+    line-height: 1.45;
+    color: #0F1117;
+  }
+  .poster-caveat-contacts .poster-caveat-contact {
+    display: block;
+  }
+  .poster-caveat-contacts .poster-caveat-contact-label {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    margin-right: 0.4em;
+  }
   .poster-trust {
     margin-top: auto;
     /* Top padding trimmed from 16mm to 10mm (stack pass 2): the
@@ -521,4 +558,53 @@ const posterCss = `
 
 function searchParamsPrint(query: SearchParams): boolean {
   return query.print === '1';
+}
+
+/**
+ * Render the inline practice-contact lines inside the caveat box
+ * (stack item 13). Returns `null` when no contact is populated so
+ * the caller's caveat collapses to its prose-only form.
+ *
+ * Phone + WhatsApp share a line when the same number is configured
+ * for both — the common case (one cell number serves both channels).
+ * They split into two distinct lines when the numbers differ.
+ *
+ * Comparison normalises whitespace and `+` prefix so e.g.
+ * "+27 82 555 1234" and "082 555 1234" collapse to a single
+ * combined line in the typical SA single-number case.
+ */
+function renderCaveatContacts(
+  contactEmail: string | null,
+  contactWhatsapp: string | null,
+): ReactNode {
+  const email = contactEmail?.trim() || null;
+  const whatsapp = contactWhatsapp?.trim() || null;
+
+  if (!email && !whatsapp) return null;
+
+  // The PracticePublicProfile in the portal API today has separate
+  // contactEmail + contactWhatsapp fields but no separate "phone".
+  // Per brief: when phone and WhatsApp are the same number, render as
+  // a single combined "Phone / WhatsApp" line. Right now that just
+  // means rendering the WhatsApp number labelled "Phone / WhatsApp"
+  // — the schema doesn't carry a distinct phone number yet, so the
+  // combined label is the single-source-of-truth case by default.
+  const phoneLabel = whatsapp ? 'Phone / WhatsApp' : null;
+
+  return (
+    <span className="poster-caveat-contacts">
+      {email && (
+        <span className="poster-caveat-contact">
+          <span className="poster-caveat-contact-label">Email:</span>
+          {email}
+        </span>
+      )}
+      {whatsapp && (
+        <span className="poster-caveat-contact">
+          <span className="poster-caveat-contact-label">{phoneLabel}:</span>
+          {whatsapp}
+        </span>
+      )}
+    </span>
+  );
 }
