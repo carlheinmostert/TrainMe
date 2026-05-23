@@ -62,6 +62,7 @@
   let lastSessions = []; // most recent session payload — re-projected on Leaflet events
   let mapFittedOnce = false; // only fit-bounds on the FIRST polygon paint
   let lastPolygonKey = null; // skip re-paint when the same polygon repeats
+  let fitControlEl = null;   // item 28: container for the fit-to-polygon button
 
   // ---------------------------------------------------------------------
   // Item 25 (2026-05-23): avatar-only practitioner pins + tap-to-expand
@@ -287,6 +288,57 @@
       )
       .addTo(map);
 
+    // Item 28 (2026-05-23): manual "fit to polygon" button. Sits in the
+    // topleft chrome stack below the +/- zoom control. Re-runs the same
+    // fitMapToPolygon() call the auto-fit-on-first-paint uses so framing
+    // is identical. Disabled until polygonLayer is loaded.
+    const FitControl = window.L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const container = window.L.DomUtil.create(
+          'div',
+          'leaflet-bar live-fit-control',
+        );
+        const btn = window.L.DomUtil.create('a', 'live-fit-btn', container);
+        btn.href = '#';
+        btn.setAttribute('role', 'button');
+        btn.setAttribute('aria-label', 'Fit polygon to view');
+        btn.setAttribute('title', 'Fit polygon to view');
+        // Square-with-inward-arrows glyph (corners collapse / fit-to-view
+        // convention). Stroke uses currentColor so CSS hover colour
+        // applies without touching the SVG.
+        btn.innerHTML =
+          '<svg viewBox="0 0 16 16" width="16" height="16" ' +
+          'fill="none" stroke="currentColor" stroke-width="1.6" ' +
+          'stroke-linecap="round" stroke-linejoin="round" ' +
+          'aria-hidden="true" focusable="false">' +
+          '<path d="M2 5.5V2h3.5"/>' +
+          '<path d="M14 5.5V2h-3.5"/>' +
+          '<path d="M2 10.5V14h3.5"/>' +
+          '<path d="M14 10.5V14h-3.5"/>' +
+          '</svg>';
+        // Initial state — disabled until paintPolygon() runs.
+        if (!polygonLayer) {
+          container.classList.add('is-disabled');
+          btn.setAttribute('aria-disabled', 'true');
+          btn.setAttribute('title', 'No polygon to fit yet');
+        }
+        fitControlEl = container;
+        window.L.DomEvent.on(btn, 'click', (e) => {
+          window.L.DomEvent.preventDefault(e);
+          window.L.DomEvent.stopPropagation(e);
+          if (container.classList.contains('is-disabled')) return;
+          fitMapToPolygon();
+        });
+        // Prevent map-drag / dblclick-zoom when interacting with the
+        // button area.
+        window.L.DomEvent.disableClickPropagation(container);
+        window.L.DomEvent.disableScrollPropagation(container);
+        return container;
+      },
+    });
+    new FitControl().addTo(map);
+
     // Reproject practitioner cards + viewer dot whenever the map moves.
     map.on('move zoom moveend zoomend', () => {
       repositionCards();
@@ -328,7 +380,18 @@
       polygonLayer.remove();
       polygonLayer = null;
     }
-    if (rings.length === 0) return;
+    if (rings.length === 0) {
+      // No polygon → disable the manual fit button (item 28).
+      if (fitControlEl) {
+        fitControlEl.classList.add('is-disabled');
+        const fitBtn = fitControlEl.querySelector('.live-fit-btn');
+        if (fitBtn) {
+          fitBtn.setAttribute('aria-disabled', 'true');
+          fitBtn.setAttribute('title', 'No polygon to fit yet');
+        }
+      }
+      return;
+    }
 
     polygonLayer = window.L.polygon(rings, {
       color: '#FF6B35',
@@ -338,20 +401,50 @@
       fillOpacity: 0.08,
     }).addTo(map);
 
+    // Item 28: enable the manual fit-to-polygon button now that the
+    // polygon layer exists.
+    if (fitControlEl) {
+      fitControlEl.classList.remove('is-disabled');
+      const fitBtn = fitControlEl.querySelector('.live-fit-btn');
+      if (fitBtn) {
+        fitBtn.removeAttribute('aria-disabled');
+        fitBtn.setAttribute('title', 'Fit polygon to view');
+      }
+    }
+
     // Only auto-fit the FIRST time we see a polygon — subsequent re-paints
-    // would yank a user's manual zoom/pan around. Tiny pad inset so the
-    // dashed stroke isn't kissing the card edges.
+    // would yank a user's manual zoom/pan around. Tight pad inset so the
+    // polygon fills the visible area on small residential plots.
+    //
+    // 2026-05-23 (item 29): tightened padding 20→10 + raised maxZoom 19→20.
+    // The previous 20px-per-edge inset left small polygons taking ~25% of
+    // the visible map area (Carl's screenshot 2026-05-23). Z20 trades a
+    // small upscale-sharpness cost on close-up fits for filling the
+    // screen. Z21 stays reserved for manual user wheel/pinch.
     if (!mapFittedOnce) {
       try {
         map.fitBounds(polygonLayer.getBounds(), {
-          padding: [20, 20],
-          // Match the satellite native cap so initial fit lands on crisp
-          // tiles; users can lean to z20-21 (upscaled) via the +
-          // control if they want closer.
-          maxZoom: 19,
+          padding: [10, 10],
+          maxZoom: 20,
         });
         mapFittedOnce = true;
       } catch (_) { /* getBounds throws on empty ring */ }
+    }
+  }
+
+  // Shared bounds-fit helper used by both the auto-fit-on-first-paint and
+  // the item 28 manual "fit to polygon" button. Single source of truth
+  // means the two callsites can never drift on padding / maxZoom.
+  function fitMapToPolygon() {
+    if (!map || !polygonLayer) return false;
+    try {
+      map.fitBounds(polygonLayer.getBounds(), {
+        padding: [10, 10],
+        maxZoom: 20,
+      });
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -667,16 +760,22 @@
       }
       return;
     }
+    // Item 26 (2026-05-23): sage dot now carries a permanent "You" pill
+    // to its right so a fresh bystander immediately reads it as
+    // self-location (mainstream Google/Apple Maps convention). The
+    // wrapper is positioned so the dot stays exactly on the GPS coord
+    // (iconAnchor pins the dot center, label flows right).
     const icon = window.L.divIcon({
       className: 'live-you-marker',
-      // Sage dot with a soft ring — mirrors the styles.css .live-you
-      // appearance (which we kept for fallback). Inline style so the
-      // marker is self-contained without needing another stylesheet hop.
       html:
-        '<div style="width:16px;height:16px;border-radius:50%;' +
-        'background:#86EFAC;box-shadow:0 0 0 4px rgba(134,239,172,0.25);' +
-        '"></div>',
-      iconSize: [16, 16],
+        '<div class="live-you-wrap">'
+          + '<div class="live-you-dot"></div>'
+          + '<div class="live-you-label">You</div>'
+        + '</div>',
+      // Wrapper is wider than the dot to accommodate the label. The dot
+      // sits at the left edge of the wrapper; anchor at (8, 8) keeps the
+      // dot center on the GPS coord regardless of label width.
+      iconSize: [72, 16],
       iconAnchor: [8, 8],
     });
     if (viewerMarker) {
