@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { playerOriginFromHost } from '@/lib/env';
+import { HomefitLogoLockup } from '@/components/HomefitLogo';
 import QRCode from 'qrcode';
 
 type RouteParams = { id: string };
@@ -95,27 +96,11 @@ export default async function PosterPage({
 
         <div className="poster-page">
           <div className="poster-header">
-            <svg
-              className="poster-matrix"
-              viewBox="0 0 48 9.5"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-              <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-              <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15" />
-              <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-              <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC" />
-              <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-              <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-              <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-            </svg>
+            {/* Canonical brand lockup, print variant — `homefit` ink-dark
+                so it reads on the white poster background; `.studio`
+                stays coral. Single source of truth in
+                `web-portal/src/components/HomefitLogo.tsx`. */}
+            <HomefitLogoLockup className="poster-lockup-hero" print />
             <div className="poster-practice">
               <div className="poster-practice-name">{practiceName}</div>
               {(venueLine || address) && (
@@ -164,11 +149,7 @@ export default async function PosterPage({
                 <strong>Worried about a practitioner&rsquo;s behavior?</strong>{' '}
                 Scan the code, find their session, and tap &ldquo;Report&rdquo;.
                 The practice owner at {practiceName} is notified directly via
-                their listed contact and can act.{' '}
-                <span className="poster-wm">
-                  homefit<span className="poster-dot-studio">.studio</span>
-                </span>{' '}
-                is a backstop if the practice doesn&rsquo;t respond.
+                their listed contact and can act.
               </div>
             </div>
 
@@ -196,33 +177,11 @@ export default async function PosterPage({
               </strong>
             </div>
             <div className="poster-powered-stack">
-              <div className="poster-powered">
-                powered by{' '}
-                <span className="poster-wm">
-                  homefit<span className="poster-dot-studio">.studio</span>
-                </span>
-              </div>
-              <svg
-                className="poster-footer-logo"
-                viewBox="0 0 48 9.5"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
-              >
-                <rect x="0" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-                <rect x="0" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-                <rect x="6.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="6.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15" />
-                <rect x="15" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="15" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="21.5" y="2" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35" />
-                <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC" />
-                <rect x="34.5" y="2" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="34.5" y="6.5" width="5" height="3" rx="1" fill="#6B7280" />
-                <rect x="41" y="2" width="5" height="3" rx="1" fill="#9CA3AF" />
-                <rect x="41" y="6.5" width="5" height="3" rx="1" fill="#9CA3AF" />
-              </svg>
+              <div className="poster-powered">powered by</div>
+              {/* Canonical brand lockup, print variant — half the
+                  hero-size. Single source of truth in
+                  `web-portal/src/components/HomefitLogo.tsx`. */}
+              <HomefitLogoLockup className="poster-lockup-footer" print />
             </div>
           </div>
         </div>
@@ -271,7 +230,11 @@ const posterCss = `
     display: flex; justify-content: space-between; align-items: center;
     padding-bottom: 16mm; border-bottom: 1px solid #E5E7EB;
   }
-  .poster-matrix { width: 56px; height: 12px; }
+  /* Hero-size canonical lockup at the top of the poster. The lockup's
+     intrinsic aspect is 48:16 (≈ 3:1), so a 120px width yields a 40px
+     tall mark — substantial brand presence at the top edge without
+     stealing weight from the practice name beside it. */
+  .poster-lockup-hero { width: 120px; height: auto; display: block; }
   .poster-practice { text-align: right; }
   .poster-practice-name {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 700;
@@ -343,7 +306,9 @@ const posterCss = `
   .poster-powered {
     font-family: 'Montserrat', sans-serif; font-weight: 600;
   }
-  .poster-footer-logo { width: 72px; height: 16px; }
+  /* Footer-scale canonical lockup — about half the hero size.
+     Signature treatment at the bottom-right of the poster. */
+  .poster-lockup-footer { width: 60px; height: auto; display: block; }
   .poster-wm { font-family: 'Montserrat', sans-serif; font-weight: 700; }
   .poster-dot-studio { color: #FF6B35; }
 
