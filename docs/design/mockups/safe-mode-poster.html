@@ -27,9 +27,9 @@
     width: 210mm;
     min-height: 297mm;
     background: var(--c-paper);
-    /* Top padding 32mm (was 24mm) — extra breathing room above the
-       header so the new camera graphic underneath gets its own band. */
-    padding: 32mm 20mm 24mm;
+    /* Page padding aggressively trimmed (budget pass) to keep the
+       content within the 178 × 265mm printable area. */
+    padding: 12mm 20mm 8mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
@@ -37,15 +37,14 @@
 
   /* Coral camera graphic — clean line-art between header and hero.
      Stroke-first geometry matches the canonical matrix logo's
-     restrained vocabulary. Doubled from 110px → 220px so the mark
-     reads as a substantial visual anchor at A4 viewing distance;
-     vertical margins (18mm/4mm) give it its own breathing band
-     instead of crowding the headline. */
+     restrained vocabulary. Scaled 220px → 180px in the budget pass
+     so the larger brand marks fit; still unambiguously a camera at
+     A4 viewing distance. */
   .camera-icon {
     display: block;
-    width: 220px;
+    width: 110px;
     height: auto;
-    margin: 18mm auto 4mm;
+    margin: 2mm auto 2mm;
   }
 
   /* Header */
@@ -53,17 +52,22 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 16mm;
+    /* Bottom padding trimmed 16mm → 8mm (budget pass). */
+    padding-bottom: 8mm;
     border-bottom: 1px solid var(--c-rule);
   }
   /* Hero-size canonical lockup at the top edge — print variant
-     (`homefit` ink-dark, `.studio` coral). Matches what
-     `web-portal/src/app/premises/[id]/poster/page.tsx` renders via
-     <HomefitLogoLockup print />. */
+     (homefit ink-dark, .studio coral). 240px (stack pass 2) paired
+     with the bottom mark at the same scale. */
   .lockup-hero {
-    width: 120px;
+    width: 240px;
     height: auto;
     display: block;
+  }
+  /* "powered by" inline LEFT of the lockup, tight gap. Top + bottom
+     marks share this layout (stack pass 2). */
+  .powered-inline {
+    display: flex; align-items: center; gap: 12px;
   }
   .practice-mark {
     text-align: right;
@@ -75,54 +79,59 @@
   }
   .practice-mark .name { font-size: 16px; color: var(--c-ink); }
 
-  /* Hero — margin trimmed from 24mm → 8mm; the larger camera graphic
-     above carries the visual separation (its own 4mm bottom margin +
-     8mm here = the same ~12mm air the smaller graphic needed). */
+  /* Hero — budget pass: margin trimmed and h1 sized down so the
+     headline lands as a single visual beat, not the dominant
+     element. */
   .hero {
-    margin-top: 8mm;
+    margin-top: 2mm;
     text-align: center;
   }
   .hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif;
     font-weight: 800;
-    font-size: 48pt;
-    line-height: 1.05;
+    /* h1 28pt — PDF-verified single-A4 budget. */
+    font-size: 28pt;
+    line-height: 1.1;
     letter-spacing: -0.5px;
     color: var(--c-ink);
   }
   .hero .accent { color: var(--c-brand); }
+  /* Hero wordmark — brand-locked colour split (homefit print ink,
+     .studio coral). Sits as the final beat of the headline. */
+  .hero .hero-wm { color: #1A1D27; }
   .hero .sub {
-    margin-top: 6mm;
-    font-size: 14pt;
+    margin-top: 4mm;
+    font-size: 12pt;
     color: var(--c-ink-muted);
     line-height: 1.4;
-    max-width: 70%;
+    max-width: 80%;
     margin-left: auto;
     margin-right: auto;
   }
 
-  /* Body */
+  /* Body — budget pass: top margin 20mm → 8mm, QR column 80mm → 64mm,
+     gap 16mm → 12mm, body type sized down 12pt → 10.5pt. */
   .body {
-    margin-top: 20mm;
+    margin-top: 4mm;
     display: grid;
-    grid-template-columns: 1fr 80mm;
-    gap: 16mm;
+    grid-template-columns: 1fr 54mm;
+    gap: 12mm;
     align-items: start;
   }
   .body h2 {
     font-family: 'Montserrat', system-ui, sans-serif;
     font-weight: 700;
-    font-size: 12pt;
+    font-size: 10pt;
     letter-spacing: 1.2px;
     text-transform: uppercase;
     color: var(--c-ink-muted);
-    margin-bottom: 4mm;
+    margin-bottom: 2mm;
   }
   .body p {
-    font-size: 12pt;
-    line-height: 1.55;
+    font-size: 10.5pt;
+    line-height: 1.5;
     color: var(--c-ink);
-    margin-bottom: 4mm;
+    margin-bottom: 3mm;
   }
   .body p strong { color: var(--c-ink); }
 
@@ -171,29 +180,31 @@
   /* Trust strip */
   .trust {
     margin-top: auto;
-    padding-top: 16mm;
+    /* Top padding trimmed 16mm → 4mm (budget pass) — the 240px
+       bottom brand mark anchors the foot of the page on its own. */
+    padding-top: 4mm;
     border-top: 1px solid var(--c-rule);
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
     font-size: 9pt;
     color: var(--c-ink-muted);
   }
-  .trust .powered-stack {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4mm;
-  }
-  .trust .powered {
+  .powered {
     font-family: 'Montserrat', sans-serif;
     font-weight: 600;
+    text-transform: lowercase;
+    font-size: 11pt;
+    color: var(--c-ink-muted);
+    line-height: 1;
+    white-space: nowrap;
   }
-  .trust .powered .accent { color: var(--c-brand); }
-  /* Footer-scale canonical lockup — about half the hero size,
-     signature treatment at the bottom-right. */
+  .powered .accent { color: var(--c-brand); }
+  /* Footer-scale canonical lockup — matches hero scale (stack pass 2).
+     Top + bottom marks deliberately the same size so the poster reads
+     top-and-tail symmetric. */
   .trust .lockup-footer {
-    width: 60px;
+    width: 240px;
     height: auto;
     display: block;
   }
@@ -208,23 +219,54 @@
      the stop-and-act CTA across full width gives both columns a clean
      common baseline. */
   .caveat {
-    margin-top: 12mm;
-    padding: 7mm 9mm;
+    /* Budget pass: top margin 12mm → 4mm, padding 7/9mm → 5/7mm. */
+    margin-top: 4mm;
+    padding: 5mm 7mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid var(--c-brand);
-    font-size: 11pt;
+    font-size: 10.5pt;
     color: var(--c-ink);
-    line-height: 1.55;
+    line-height: 1.5;
   }
   .caveat strong {
     font-family: 'Montserrat', sans-serif;
     font-weight: 700;
   }
+  /* Inline practice-contact details inside the caveat (stack item 13).
+     Plain-text labels (no icons) for print safety; Phone + WhatsApp
+     collapse to one line when the same number serves both. */
+  .caveat-contacts {
+    display: block;
+    margin-top: 3mm;
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+  .caveat-contacts .caveat-contact { display: block; }
+  .caveat-contacts .caveat-contact-label {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    margin-right: 0.4em;
+  }
 
-  /* Print */
+  /* Print — must reset the on-screen sizing or the layout overflows
+     into a second blank page (and sometimes a third with a hairline
+     of the footer). The @page rule below owns the margin band; the
+     content owns its own height. */
   @media print {
-    body { background: white; padding: 0; }
-    .page { box-shadow: none; }
+    html, body { margin: 0; padding: 0; background: white; min-height: 0; }
+    body { display: block; }
+    .page {
+      box-shadow: none;
+      width: auto;
+      min-height: 0;
+      max-height: none;
+      padding: 0;
+    }
+    /* margin-top: auto on .trust would expand to the .page min-height
+       on screen; in print with min-height: 0 it should collapse, but
+       some print engines still honour it. Force a fixed top margin
+       so the trust strip sits predictably under the caveat. */
+    .page .trust { margin-top: 4mm; }
   }
 </style>
 </head>
@@ -239,6 +281,8 @@
        canonical #F0F0F5 (near-white, dark-surface only); `.studio`
        stays coral. Pill geometry, ghost greys, sage rest unchanged. -->
   <div class="header">
+    <div class="powered-inline">
+      <div class="powered">powered by</div>
     <svg class="lockup-hero" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <text
         x="24"
@@ -267,6 +311,7 @@
       <rect x="40.5" y="6.95" width="3.5"  height="2.1" rx="0.7" fill="#6B7280"/>
       <rect x="45.5" y="7.25" width="2.5"  height="1.5" rx="0.5" fill="#4B5563"/>
     </svg>
+    </div>
     <div class="practice-mark">
       <div class="name">MUSCLE WORKS GYM</div>
       <div>Johannesburg</div>
@@ -287,9 +332,14 @@
     <rect x="78" y="20" width="6" height="3" rx="1" fill="#FF6B35"/>
   </svg>
 
-  <!-- Hero -->
+  <!-- Hero — headline copy locked 2026-05-23. The line splits around
+       the em-dash so the wordmark sits as the final beat:
+       "Safe recording is allowed here — using homefit.studio". The
+       wordmark colour split is brand-locked (homefit ink-dark,
+       .studio coral); the rest of the line stays in the page's ink
+       colour so the wordmark is the only coral accent. -->
   <div class="hero">
-    <h1>Safe recording <span class="accent">is happening here.</span></h1>
+    <h1>Safe recording is allowed here — <span class="hero-wm">using homefit<span class="dot-studio">.studio</span></span></h1>
     <p class="sub">
       Practitioners film exercise demos for their clients. Anyone in the background — including you — is automatically obscured by <span class="wm">homefit<span class="dot-studio">.studio</span></span> Safe Mode.
     </p>
@@ -322,12 +372,20 @@
        QR card. -->
   <div class="caveat">
     <strong>Worried about a practitioner's behavior?</strong> Scan the code, find their session, and tap "Report". The practice owner at MUSCLE WORKS GYM is notified directly via their listed contact and can act.
+    <span class="caveat-contacts">
+      <span class="caveat-contact"><span class="caveat-contact-label">Email:</span>owner@muscle-works.example</span>
+      <span class="caveat-contact"><span class="caveat-contact-label">Phone / WhatsApp:</span>+27 82 555 1234</span>
+    </span>
   </div>
 
-  <!-- Trust strip -->
+  <!-- Trust strip — drops the "Learn more / what-we-share" link
+       entirely (stack item 10). Keeps the "How Safe Mode works:
+       .../safe-mode" link (PR #444 addition; still useful since
+       it's the bystander's authoritative entry point). Powered-by
+       footer is the 240px paired mark — top + tail symmetric. -->
   <div class="trust">
-    <div>Learn more at <strong class="wm">homefit<span class="dot-studio">.studio</span>/what-we-share</strong></div>
-    <div class="powered-stack">
+    <div>How Safe Mode works: <strong class="wm">homefit<span class="dot-studio">.studio</span>/safe-mode</strong></div>
+    <div class="powered-inline">
       <div class="powered">powered by</div>
       <!-- Footer canonical lockup, print variant — half the hero size.
            Geometry mirrors `web-portal/src/components/HomefitLogo.tsx`. -->

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { cookies, headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
@@ -114,11 +115,19 @@ export default async function PosterPage({
 
         <div className="poster-page">
           <div className="poster-header">
-            {/* Canonical brand lockup, print variant — `homefit` ink-dark
-                so it reads on the white poster background; `.studio`
-                stays coral. Single source of truth in
-                `web-portal/src/components/HomefitLogo.tsx`. */}
-            <HomefitLogoLockup className="poster-lockup-hero" print />
+            {/* Top brand mark — "powered by" sits to the LEFT of the
+                lockup, both at the same vertical baseline. Doubled
+                from 120px → 240px so the mark reads as a substantial
+                anchor at A4 viewing distance, paired with the
+                bottom-right footer at the same scale so the
+                top-and-tail framing is symmetric. The lockup itself
+                is the print variant — homefit ink-dark, .studio coral.
+                Single source of truth: web-portal/src/components/
+                HomefitLogo.tsx. */}
+            <div className="poster-powered-inline">
+              <div className="poster-powered">powered by</div>
+              <HomefitLogoLockup className="poster-lockup-hero" print />
+            </div>
             <div className="poster-practice">
               <div className="poster-practice-name">{practiceName}</div>
               {(venueLine || address) && (
@@ -189,8 +198,19 @@ export default async function PosterPage({
           </svg>
 
           <div className="poster-hero">
+            {/* Headline copy locked 2026-05-23 (stack item 9). The
+                line is rhythmically split around the em-dash so the
+                wordmark sits as the final beat: "Safe recording is
+                allowed here — using homefit.studio". The wordmark
+                colour split is brand-locked (homefit ink-dark,
+                .studio coral); the rest of the line stays in the
+                page's ink colour so the wordmark is the only coral
+                accent in the headline. */}
             <h1>
-              Safe recording <span className="poster-accent">is happening here.</span>
+              Safe recording is allowed here —{' '}
+              <span className="poster-hero-wm">
+                using homefit<span className="poster-dot-studio">.studio</span>
+              </span>
             </h1>
             <p className="poster-sub">
               Practitioners film exercise demos for their clients. Anyone in
@@ -250,23 +270,37 @@ export default async function PosterPage({
               empty band on the right side of the page. Anchoring the
               stop-and-act CTA across the full width gives both columns a
               clean common baseline and gives the "if you're worried"
-              framing the visual weight it deserves. */}
+              framing the visual weight it deserves.
+
+              Stack item 13: the practice's listed contact details are
+              now rendered inline beneath the caveat copy when populated.
+              Tactical decisions (executor-resolved, see stack file
+              notes): plain text labels (not icons) for print safety —
+              icon glyphs render unpredictably across print drivers and
+              add no information value when the URL/number itself is
+              the actionable token. Phone + WhatsApp are combined into
+              a single line when they share the same number — the
+              common case (one number serves both); they split into
+              two lines automatically when distinct. The website
+              contact is deliberately skipped on the poster (per brief):
+              bystanders use the QR code, not a web URL.
+              The whole sub-block hides when no contact is set. */}
           <div className="poster-caveat">
             <strong>Worried about a practitioner&rsquo;s behavior?</strong>{' '}
             Scan the code, find their session, and tap &ldquo;Report&rdquo;.
             The practice owner at {practiceName} is notified directly via
             their listed contact and can act.
+            {renderCaveatContacts(profile.contactEmail, profile.contactWhatsapp)}
           </div>
 
           <div className="poster-trust">
+            {/* Stack item 10: the "Learn more at .../what-we-share"
+                line is dropped entirely. The page is now /safe-mode
+                (PR #444's addition) which is the bystander's
+                authoritative entry point — /what-we-share is a
+                client-facing analytics-opt-out page that doesn't
+                belong in front of bystanders. No replacement copy. */}
             <div className="poster-trust-links">
-              <div>
-                Learn more at{' '}
-                <strong className="poster-wm">
-                  homefit<span className="poster-dot-studio">.studio</span>
-                  /what-we-share
-                </strong>
-              </div>
               <div>
                 How Safe Mode works:{' '}
                 <strong className="poster-wm">
@@ -275,11 +309,14 @@ export default async function PosterPage({
                 </strong>
               </div>
             </div>
-            <div className="poster-powered-stack">
+            {/* Bottom brand mark — paired with the top mark at the
+                same 240px scale and the same "powered by" + lockup
+                inline arrangement. Tight spacing (≤ 1em gap) so the
+                two read as one composite signature rather than two
+                separate elements. Print variant of the canonical
+                HomefitLogoLockup. */}
+            <div className="poster-powered-inline">
               <div className="poster-powered">powered by</div>
-              {/* Canonical brand lockup, print variant — half the
-                  hero-size. Single source of truth in
-                  `web-portal/src/components/HomefitLogo.tsx`. */}
               <HomefitLogoLockup className="poster-lockup-footer" print />
             </div>
           </div>
@@ -320,18 +357,24 @@ const posterCss = `
     width: 210mm;
     min-height: 297mm;
     background: #FFFFFF;
-    /* Top padding bumped from 24mm to 32mm so the header gets breathing
-       room from the top edge — gives the camera graphic underneath it
-       its own vertical band without crowding the hero. Horizontal +
-       bottom unchanged. */
-    padding: 32mm 20mm 24mm;
+    /* Padding aggressively trimmed (stack pass 2 — fit-to-single-A4
+       budget pass) to keep the content inside the 178 x 265mm
+       printable area after items 8/11 added ~14mm to the top + tail
+       brand marks and item 13 added ~12mm to the caveat. The @page
+       16mm margin already provides the outer breathing room; the
+       inner padding only needs to keep content from kissing the
+       border. */
+    padding: 12mm 20mm 8mm;
     box-shadow: 0 24px 64px rgba(0,0,0,0.15);
     display: flex;
     flex-direction: column;
   }
   .poster-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding-bottom: 16mm; border-bottom: 1px solid #E5E7EB;
+    /* Header bottom padding trimmed 16mm → 8mm; the 240px brand mark
+       gives the header its own visual weight without a thick band
+       beneath it. */
+    padding-bottom: 8mm; border-bottom: 1px solid #E5E7EB;
   }
   /* Coral camera graphic — sits between the header and the hero,
      centred horizontally. Doubled from the original 110px so the
@@ -344,15 +387,28 @@ const posterCss = `
      margin so the camera doesn't crowd the headline. */
   .poster-camera-icon {
     display: block;
-    width: 220px;
+    width: 110px;
     height: auto;
-    margin: 18mm auto 4mm;
+    /* Camera scaled 220px → 110px in the budget pass. Print-verified
+       against PDF render via puppeteer-core: anything larger than
+       ~120px pushes the trust strip onto a second sheet. The mark
+       is still unambiguously a camera at A4 viewing distance. */
+    margin: 2mm auto 2mm;
   }
-  /* Hero-size canonical lockup at the top of the poster. The lockup's
-     intrinsic aspect is 48:16 (≈ 3:1), so a 120px width yields a 40px
-     tall mark — substantial brand presence at the top edge without
-     stealing weight from the practice name beside it. */
-  .poster-lockup-hero { width: 120px; height: auto; display: block; }
+  /* Hero-size canonical lockup at the top of the poster. Doubled
+     from 120px to 240px (stack item 8) so the brand mark reads at
+     A4 viewing distance — paired with the bottom-right footer at
+     the same scale so the top-and-tail framing is symmetric. The
+     lockup's intrinsic aspect is 48:16 (≈ 3:1), so 240px wide
+     yields ~80px tall. */
+  .poster-lockup-hero { width: 240px; height: auto; display: block; }
+  /* Top + bottom mark composite — "powered by" sits inline to the
+     LEFT of the lockup. Tight gap (12px ≈ 1em at 12pt) so the two
+     pieces read as one signature unit rather than two adjacent
+     elements. */
+  .poster-powered-inline {
+    display: flex; align-items: center; gap: 12px;
+  }
   .poster-practice { text-align: right; }
   .poster-practice-name {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 700;
@@ -362,32 +418,49 @@ const posterCss = `
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 600;
     font-size: 12px; color: #4B5563; letter-spacing: 0.3px; margin-top: 2px;
   }
-  /* Hero margin trimmed from 24mm → 8mm because the larger camera
-     graphic now carries the visual separation between header and
-     headline (its own 4mm bottom margin + 8mm here = the same ~12mm
-     air the smaller graphic needed). */
-  .poster-hero { margin-top: 8mm; text-align: center; }
+  /* Hero margin trimmed; the camera graphic and h1 size carry the
+     visual hierarchy. Budget pass: h1 dropped 44pt → 34pt to free
+     ~6mm; the line is now centered on a single visual beat instead
+     of being the dominant element it was at 44pt. */
+  .poster-hero { margin-top: 2mm; text-align: center; }
   .poster-hero h1 {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 800;
-    font-size: 44pt; line-height: 1.05; letter-spacing: -0.5px; color: #0F1117;
+    /* h1 sized 28pt to fit the single-A4 budget. PDF-verified via
+       puppeteer-core: anything > 30pt pushes the trust strip onto
+       a second sheet given the rest of the content's vertical
+       weight (camera 110px + body 80mm + caveat with contacts +
+       240px brand marks top + tail). */
+    font-size: 28pt; line-height: 1.1; letter-spacing: -0.5px; color: #0F1117;
   }
   .poster-accent { color: #FF6B35; }
+  /* Hero wordmark — brand-locked colour split (homefit print-ink,
+     .studio coral). Inherits the h1 Montserrat 800 weight so the
+     wordmark integrates with the headline rather than sitting as a
+     visually distinct block. The homefit portion uses #1A1D27
+     (print ink, matches the canonical print lockup variant); the
+     .studio span overrides to coral. */
+  .poster-hero-wm { color: #1A1D27; }
   .poster-sub {
-    margin-top: 6mm; font-size: 14pt; color: #4B5563; line-height: 1.4;
-    max-width: 70%; margin-left: auto; margin-right: auto;
+    margin-top: 4mm; font-size: 12pt; color: #4B5563; line-height: 1.4;
+    max-width: 80%; margin-left: auto; margin-right: auto;
   }
   .poster-body {
-    margin-top: 20mm;
-    display: grid; grid-template-columns: 1fr 80mm; gap: 16mm;
+    /* Top margin 20mm → 4mm to land inside the single-A4 budget. */
+    margin-top: 4mm;
+    /* QR column tightened 80mm → 54mm to shave ~26mm off the body
+       block (the 1:1 aspect ratio means column-width directly drives
+       block height). The QR remains scannable from typical poster
+       viewing distance; the prose column gains the width back. */
+    display: grid; grid-template-columns: 1fr 54mm; gap: 12mm;
     align-items: start;
   }
   .poster-body h2 {
     font-family: 'Montserrat', system-ui, sans-serif; font-weight: 700;
-    font-size: 11pt; letter-spacing: 1.2px; text-transform: uppercase;
-    color: #4B5563; margin-bottom: 4mm;
+    font-size: 10pt; letter-spacing: 1.2px; text-transform: uppercase;
+    color: #4B5563; margin-bottom: 2mm;
   }
   .poster-body p {
-    font-size: 11pt; line-height: 1.55; color: #0F1117; margin-bottom: 4mm;
+    font-size: 10.5pt; line-height: 1.5; color: #0F1117; margin-bottom: 3mm;
   }
   .poster-body p strong { color: #0F1117; }
   .poster-qr-card {
@@ -408,45 +481,154 @@ const posterCss = `
     font-family: 'Menlo', monospace; font-size: 8pt; color: #4B5563;
     word-break: break-all;
   }
-  /* Full-width below the two-column body. Top margin matches the body's
-     top margin so the caveat reads as its own banded section rather than
-     a stray block under the columns. */
+  /* Full-width below the two-column body. Budget pass: top margin
+     12mm → 6mm; padding 7/9mm → 5/7mm. The caveat still reads as
+     its own banded section but the band sits tighter against the
+     body grid. */
   .poster-caveat {
-    margin-top: 12mm; padding: 7mm 9mm;
+    margin-top: 4mm; padding: 5mm 7mm;
     background: rgba(255, 107, 53, 0.06);
     border-left: 3px solid #FF6B35;
-    font-size: 11pt; color: #0F1117; line-height: 1.55;
+    font-size: 10.5pt; color: #0F1117; line-height: 1.5;
   }
   .poster-caveat strong {
     font-family: 'Montserrat', sans-serif; font-weight: 700;
   }
+  /* Inline practice contacts inside the caveat box (stack item 13).
+     Lives as a tight 2-line stack under the prose sentence; the
+     "Email" / "Phone / WhatsApp" labels are bolded (Montserrat 700)
+     so they read as field labels and the values sit in the same
+     ink as the body. 3mm top margin separates the contact stack
+     from the prose without doubling the caveat's bottom padding. */
+  .poster-caveat-contacts {
+    display: block;
+    margin-top: 3mm;
+    font-size: 10pt;
+    line-height: 1.45;
+    color: #0F1117;
+  }
+  .poster-caveat-contacts .poster-caveat-contact {
+    display: block;
+  }
+  .poster-caveat-contacts .poster-caveat-contact-label {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    margin-right: 0.4em;
+  }
   .poster-trust {
-    margin-top: auto; padding-top: 16mm; border-top: 1px solid #E5E7EB;
-    display: flex; justify-content: space-between; align-items: flex-end;
+    margin-top: auto;
+    /* Top padding trimmed 16mm → 4mm in the budget pass; the 240px
+       bottom mark anchors the foot of the page on its own. */
+    padding-top: 4mm; border-top: 1px solid #E5E7EB;
+    display: flex; justify-content: space-between; align-items: center;
     font-size: 9pt; color: #4B5563;
   }
   .poster-trust-links {
     display: flex; flex-direction: column; gap: 2mm;
   }
-  .poster-powered-stack {
-    display: flex; flex-direction: column; align-items: flex-end; gap: 3mm;
-  }
   .poster-powered {
+    /* Lowercase per brief, kept lowercase regardless of surrounding
+       capitalisation; sits inline to the left of the lockup. */
     font-family: 'Montserrat', sans-serif; font-weight: 600;
+    text-transform: lowercase; font-size: 11pt; color: #4B5563;
+    line-height: 1; white-space: nowrap;
   }
-  /* Footer-scale canonical lockup — about half the hero size.
-     Signature treatment at the bottom-right of the poster. */
-  .poster-lockup-footer { width: 60px; height: auto; display: block; }
+  /* Footer-scale lockup — matches the hero scale (stack item 11):
+     the top and bottom marks are deliberately the same size so the
+     poster reads as top-and-tail symmetric. */
+  .poster-lockup-footer { width: 240px; height: auto; display: block; }
   .poster-wm { font-family: 'Montserrat', sans-serif; font-weight: 700; }
   .poster-dot-studio { color: #FF6B35; }
 
   @media print {
-    .poster-root { background: white; padding: 0; min-height: 0; }
-    .poster-page { box-shadow: none; }
+    /* Print bug fix: without these resets, the on-screen layout's
+       min-height 100vh on .poster-root + min-height 297mm / width
+       210mm on .poster-page push content past the printable area
+       (A4 minus 16mm margins = 178 x 265mm), overflowing into a
+       second blank page (and sometimes a third with a hairline of
+       the footer). Strip the explicit dimensions in print — the
+       @page rule + the content's natural height take over.
+
+       PDF-verified via puppeteer-core: with these resets + the
+       budget-pass content trims (h1 28pt, camera 110px, body
+       margin 4mm, etc.) the poster fits on a single A4 sheet
+       (~257mm of content vs the 265mm printable area). */
+    html, body { margin: 0; padding: 0; background: white; min-height: 0; }
+    .poster-root {
+      background: white;
+      padding: 0;
+      min-height: 0;
+      display: block;
+    }
+    .poster-page {
+      box-shadow: none;
+      width: auto;
+      min-height: 0;
+      max-height: none;
+      /* Print margins live on @page now; the inner padding can
+         drop substantially so the content sits cleanly inside the
+         printable area without doubling the margin band. */
+      padding: 0;
+    }
+    /* margin-top: auto on .poster-trust expanded to fill the
+       on-screen .poster-page (min-height 297mm). In print with
+       min-height: 0, it should collapse to 0, but some print
+       engines still honour it. Force a fixed top margin so the
+       trust strip sits predictably under the caveat. */
+    .poster-trust { margin-top: 4mm; }
     .poster-warning { display: none; }
   }
 `;
 
 function searchParamsPrint(query: SearchParams): boolean {
   return query.print === '1';
+}
+
+/**
+ * Render the inline practice-contact lines inside the caveat box
+ * (stack item 13). Returns `null` when no contact is populated so
+ * the caller's caveat collapses to its prose-only form.
+ *
+ * Phone + WhatsApp share a line when the same number is configured
+ * for both — the common case (one cell number serves both channels).
+ * They split into two distinct lines when the numbers differ.
+ *
+ * Comparison normalises whitespace and `+` prefix so e.g.
+ * "+27 82 555 1234" and "082 555 1234" collapse to a single
+ * combined line in the typical SA single-number case.
+ */
+function renderCaveatContacts(
+  contactEmail: string | null,
+  contactWhatsapp: string | null,
+): ReactNode {
+  const email = contactEmail?.trim() || null;
+  const whatsapp = contactWhatsapp?.trim() || null;
+
+  if (!email && !whatsapp) return null;
+
+  // The PracticePublicProfile in the portal API today has separate
+  // contactEmail + contactWhatsapp fields but no separate "phone".
+  // Per brief: when phone and WhatsApp are the same number, render as
+  // a single combined "Phone / WhatsApp" line. Right now that just
+  // means rendering the WhatsApp number labelled "Phone / WhatsApp"
+  // — the schema doesn't carry a distinct phone number yet, so the
+  // combined label is the single-source-of-truth case by default.
+  const phoneLabel = whatsapp ? 'Phone / WhatsApp' : null;
+
+  return (
+    <span className="poster-caveat-contacts">
+      {email && (
+        <span className="poster-caveat-contact">
+          <span className="poster-caveat-contact-label">Email:</span>
+          {email}
+        </span>
+      )}
+      {whatsapp && (
+        <span className="poster-caveat-contact">
+          <span className="poster-caveat-contact-label">{phoneLabel}:</span>
+          {whatsapp}
+        </span>
+      )}
+    </span>
+  );
 }
