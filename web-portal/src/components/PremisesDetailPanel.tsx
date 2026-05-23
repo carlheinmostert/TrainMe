@@ -584,7 +584,12 @@ export function PremisesDetailPanel({
           >
             Public URL slug
           </label>
-          <div className="flex flex-col gap-1 rounded-md border border-surface-border bg-surface-raised px-3 py-2 sm:flex-row sm:items-center">
+          {/* Inline left-aligned URL preview — practice prefix +
+              editable slug + "/now" suffix all flow as one string from
+              the left edge. Earlier the input had flex-1 which justified
+              the row, pushing "/now" to the right rim with a dead gap
+              between the slug and the suffix. Carl flagged 2026-05-23. */}
+          <div className="flex flex-row flex-wrap items-center gap-y-1 rounded-md border border-surface-border bg-surface-raised px-3 py-2">
             <span className="font-mono text-xs text-ink-muted">
               {playerOrigin.replace(/^https?:\/\//, '')}/v/
               {practiceSlug ?? 'your-practice'}/
@@ -614,8 +619,9 @@ export function PremisesDetailPanel({
               }}
               disabled={slugLocked || slugState.kind === 'saving'}
               maxLength={40}
+              size={Math.max(slugDraft.length || 1, 12)}
               aria-invalid={slugState.kind === 'err'}
-              className="flex-1 bg-transparent font-mono text-xs text-ink placeholder:text-ink-dim focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-auto min-w-0 bg-transparent font-mono text-xs text-ink placeholder:text-ink-dim focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               placeholder="studio-floor"
             />
             <span className="font-mono text-xs text-ink-muted">/now</span>
