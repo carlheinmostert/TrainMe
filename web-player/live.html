@@ -157,14 +157,17 @@
     /* Item 28 (2026-05-23) — manual fit-to-polygon button, sits below
        the Leaflet +/- zoom control in the topleft chrome stack. Same
        dark-glass look as the zoom buttons so the chrome reads as one
-       coherent control group. */
-    .live-fit-control {
+       coherent control group. Selectors carry the `.live-map ` prefix
+       so specificity (0,2,1) matches `.live-map .leaflet-control-zoom a`
+       above — otherwise Leaflet's default `.leaflet-bar a` white-on-dark
+       style (0,1,1) wins and the fit button renders inverted. */
+    .live-map .live-fit-control {
       margin-top: 6px; /* separate from zoom +/- group */
       border: 1px solid var(--c-surface-border);
       border-radius: 4px;
       overflow: hidden;
     }
-    .live-fit-btn {
+    .live-map .live-fit-btn {
       display: flex; align-items: center; justify-content: center;
       width: 30px; height: 30px;
       background: rgba(15, 17, 23, 0.85);
@@ -173,15 +176,15 @@
       cursor: pointer;
       transition: color 120ms ease, background 120ms ease;
     }
-    .live-fit-btn:hover {
+    .live-map .live-fit-btn:hover {
       background: var(--c-surface-raised);
       color: var(--c-brand);
     }
-    .live-fit-btn:focus-visible {
+    .live-map .live-fit-btn:focus-visible {
       outline: 2px solid var(--c-brand);
       outline-offset: -2px;
     }
-    .live-fit-control.is-disabled .live-fit-btn {
+    .live-map .live-fit-control.is-disabled .live-fit-btn {
       opacity: 0.4;
       cursor: not-allowed;
       pointer-events: none;
