@@ -110,6 +110,55 @@ Future<double> _resolveSafeModeV2Threshold(double? override) async {
   return kSafeModeV2SoloFloor;
 }
 
+/// Resolve the subject face embedding(s) for [clientId] (Safe Mode v2
+/// Wave-D, 2026-05-24).
+///
+/// Preference order:
+///   1. Multi-reference cache via [LocalStorageService.getCachedClientFaceEmbeddings].
+///      Returns 3-8 vectors when the client has been enrolled via the
+///      Face-ID-style sweep flow.
+///   2. Legacy single-embedding cache via [FaceEmbeddingService.getEmbedding].
+///      Covers clients enrolled before the multi-reference wave landed —
+///      they have one row at slot_index=0 mirrored into the legacy
+///      `clients.face_embedding` column during back-compat.
+///
+/// Empty list = unenrolled / consent withdrawn / cold-start cache miss.
+/// Caller decides whether that's fatal (Safe Mode active → reject) or
+/// fine (Safe Mode off → no embedding needed).
+///
+/// [storage] is the conversion service's [LocalStorageService] handle —
+/// passed in rather than a singleton lookup so test fixtures can swap
+/// in an in-memory DB without monkey-patching globals.
+Future<List<Uint8List>> _resolveSubjectEmbeddings(
+  LocalStorageService storage,
+  String? clientId,
+) async {
+  if (clientId == null || clientId.isEmpty) return const [];
+  // Step 1 — multi-reference slot bundle (preferred).
+  try {
+    final slots =
+        await storage.getCachedClientFaceEmbeddings(clientId: clientId);
+    if (slots.isNotEmpty) {
+      final filtered = slots
+          .where((s) => s.embedding.isNotEmpty)
+          .map((s) => s.embedding)
+          .toList(growable: false);
+      if (filtered.isNotEmpty) return filtered;
+    }
+  } catch (e) {
+    debugPrint(
+      '_resolveSubjectEmbeddings: multi-ref read failed — '
+      'falling back to legacy single embedding ($e)',
+    );
+  }
+  // Step 2 — legacy single-embedding cache.
+  final legacy = FaceEmbeddingService.instance.getEmbedding(clientId);
+  if (legacy != null && legacy.isNotEmpty) {
+    return <Uint8List>[legacy];
+  }
+  return const [];
+}
+
 /// Reason discriminator for [SafeModeRejection]. The capture screen
 /// branches its toast copy on this so the user knows whether a
 /// steadier shot will help or whether the embedding needs to be
@@ -1175,12 +1224,14 @@ class ConversionService extends ChangeNotifier {
             ? null
             : await _storage.getSession(exercise.sessionId!);
         final clientId = session?.clientId;
-        final Uint8List? subjectEmbedding =
-            (clientId == null || clientId.isEmpty)
-                ? null
-                : FaceEmbeddingService.instance.getEmbedding(clientId);
+        // Wave-D (2026-05-24): resolve the subject embedding(s) from
+        // the multi-reference cache first; fall back to the legacy
+        // single-embedding cache during the back-compat window so
+        // clients enrolled before this wave keep working.
+        final List<Uint8List> subjectEmbeddings =
+            await _resolveSubjectEmbeddings(_storage, clientId);
 
-        if (subjectEmbedding == null || subjectEmbedding.isEmpty) {
+        if (subjectEmbeddings.isEmpty) {
           try {
             final logDir = await getApplicationDocumentsDirectory();
             final logFile =
@@ -1203,20 +1254,17 @@ class ConversionService extends ChangeNotifier {
             final candidate =
                 p.join(convertedDir, '${exercise.id}_safe.jpg');
             final threshold = await _resolveSafeModeV2Threshold(null);
-            // Multi-reference (2026-05-24): native signature is now
-            // `subjectEmbeddings: List<Data>`. During the back-compat
-            // window — while Wave-A schema + Wave-D enrolment screen are
-            // still landing — the cached embedding is the single legacy
-            // avatar vector. Wrap it in a one-element list so the native
-            // path's multi-reference max-cosSim degenerates to the
-            // original single-reference cosSim.
+            // Multi-reference (2026-05-24, Wave-D): native takes
+            // `subjectEmbeddings: List<Data>`. Pass the full slot set
+            // when available (3-8 vectors); during back-compat the
+            // legacy single avatar embedding lives at index 0 alone.
             final resp = await _videoChannel
                 .invokeMethod<Map<dynamic, dynamic>>(
               'applySafeModeV2ToPhoto',
               <String, dynamic>{
                 'srcPath': exercise.absoluteRawFilePath,
                 'destPath': candidate,
-                'subjectEmbeddings': <Uint8List>[subjectEmbedding],
+                'subjectEmbeddings': subjectEmbeddings,
                 'threshold': threshold,
               },
             ).timeout(const Duration(seconds: 30));
@@ -2519,21 +2567,19 @@ class ConversionService extends ChangeNotifier {
     final rawFile = File(rawAbs);
     if (!await rawFile.exists()) return false;
 
-    // Step 2: resolve the subject embedding. The capture's session
-    // carries the client_id; the FaceEmbeddingService caches the
-    // bytes after the most-recent ensureForClient run. Caller is
-    // expected to have triggered that already (the UI hands off
-    // only when the bound client's embedding is ready), but if
-    // it's missing here we bail rather than re-running with a
-    // stale fingerprint.
+    // Step 2: resolve the subject embedding(s). Wave-D (2026-05-24)
+    // prefers the multi-reference local cache (3-8 vectors) and falls
+    // back to the legacy single-embedding cache for clients enrolled
+    // before this wave landed. If neither has bytes, bail rather than
+    // running with a stale fingerprint.
     final session = ex.sessionId == null
         ? null
         : await _storage.getSession(ex.sessionId!);
     final clientId = session?.clientId;
     if (clientId == null || clientId.isEmpty) return false;
-    final Uint8List? embedding =
-        FaceEmbeddingService.instance.getEmbedding(clientId);
-    if (embedding == null || embedding.isEmpty) return false;
+    final List<Uint8List> embeddings =
+        await _resolveSubjectEmbeddings(_storage, clientId);
+    if (embeddings.isEmpty) return false;
 
     // Step 3: invoke the native pass.
     final docsDir = await getApplicationDocumentsDirectory();
@@ -2545,18 +2591,17 @@ class ConversionService extends ChangeNotifier {
 
     final threshold = await _resolveSafeModeV2Threshold(thresholdOverride);
     try {
-      // Multi-reference (2026-05-24): native expects `subjectEmbeddings`
-      // (plural — List<Data>). During the back-compat window the cached
-      // embedding is the single legacy avatar vector; wrap in a one-element
-      // list so the native multi-reference max-cosSim degenerates to the
-      // original single-reference behaviour.
+      // Multi-reference (2026-05-24, Wave-D): native takes
+      // `subjectEmbeddings: List<Data>`. We pass whatever the slot
+      // resolver returned — a fully-enrolled client has 3-8 vectors;
+      // a back-compat legacy client has the single avatar vector.
       final dynamic resp = await _videoChannel
           .invokeMethod<Map<dynamic, dynamic>>(
             'applySafeModeV2ToPhoto',
             <String, dynamic>{
               'srcPath': rawAbs,
               'destPath': destPath,
-              'subjectEmbeddings': <Uint8List>[embedding],
+              'subjectEmbeddings': embeddings,
               'threshold': threshold,
             },
           )

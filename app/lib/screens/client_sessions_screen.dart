@@ -18,7 +18,7 @@ import '../widgets/client_avatar_glyph.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/session_card.dart';
-import 'client_avatar_capture_screen.dart';
+import 'face_enrolment_screen.dart';
 import 'session_shell_screen.dart';
 
 /// One client's page. Lists every local session that belongs to this
@@ -374,39 +374,187 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     }
   }
 
-  /// Tap on the avatar glyph next to the client name. Two paths:
+  /// Tap on the avatar glyph next to the client name.
   ///
-  ///   * `client.avatarAllowed == false`: open the consent sheet with
-  ///     the avatar row highlighted. Capture only proceeds after consent.
-  ///   * `client.avatarAllowed == true`: open the dedicated single-shot
-  ///     [ClientAvatarCaptureScreen]. Confirmation reloads the local
-  ///     [_client] so the new avatar paints immediately.
+  /// Wave-D (2026-05-24) — the avatar slot is now also the entry point
+  /// for Safe Mode v2 multi-reference face enrolment. The single-shot
+  /// avatar capture is replaced by the Face-ID-style rotating-head
+  /// sweep (`FaceEnrolmentScreen`) which produces 3-8 face embeddings
+  /// AND writes the most-frontal frame as the avatar JPG. Spec:
+  /// docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md
   ///
-  /// Long-tapping is reserved for a future "remove avatar" flow; today
-  /// it's a no-op. Single tap is the only affordance.
+  /// Flow per spec [Re-enrol affordance]:
+  ///
+  ///   1. `client.avatarAllowed == false` → open the consent sheet
+  ///      highlighted on the avatar row (display consent for the web
+  ///      player — orthogonal to face-recognition consent below).
+  ///   2. `client.safeModeFaceRecognitionAllowed == false` → inline
+  ///      coral toast nudging the practitioner to enable Safe Mode
+  ///      face recognition in the consent sheet first. No enrolment
+  ///      UI rendered.
+  ///   3. No existing avatar → push [FaceEnrolmentScreen] directly.
+  ///   4. Existing avatar → bottom sheet with "Replace avatar and
+  ///      re-enrol" → push [FaceEnrolmentScreen].
+  ///
+  /// Per R-01 (no modal confirmations) the bottom sheet is dismiss-
+  /// able by tapping outside / pulling down. The coral button fires
+  /// immediately without an "are you sure" interstitial.
   Future<void> _openAvatarFlow() async {
     HapticFeedback.selectionClick();
+
+    // Step 1 — display consent gate (web-player avatar share).
     if (!_client.avatarAllowed) {
       await _openConsent(highlightAvatar: true);
       return;
     }
-    final outcome = await pushClientAvatarCapture(context, client: _client);
-    if (outcome == null) return;
+
+    // Step 2 — Safe Mode face-recognition consent gate. Without this
+    // we cannot store the enrolment embeddings at all (the RPC
+    // refuses + the discriminator has nothing to match against). Show
+    // a coral toast pointing the practitioner at the consent sheet
+    // rather than silently dropping into a single-photo capture.
+    if (!_client.safeModeFaceRecognitionAllowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            "Enable Safe Mode face recognition in Client consent first.",
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14),
+          ),
+          backgroundColor: AppColors.surfaceBase,
+          duration: const Duration(seconds: 4),
+          shape: RoundedRectangleBorder(
+            side: const BorderSide(color: AppColors.primary, width: 1.5),
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          ),
+          action: SnackBarAction(
+            label: 'Open consent',
+            textColor: AppColors.primary,
+            onPressed: () {
+              if (!mounted) return;
+              unawaited(_openConsent(highlightAvatar: true));
+            },
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Step 3 / 4 — empty avatar slot → enrol straight away. Existing
+    // avatar → confirm via bottom sheet first (single-button R-01
+    // sheet, no "are you sure").
+    final hasExistingAvatar =
+        _client.avatarPath != null && _client.avatarPath!.isNotEmpty;
+    bool shouldEnrol = !hasExistingAvatar;
+    if (hasExistingAvatar) {
+      shouldEnrol = await _confirmReEnrolSheet() ?? false;
+    }
+    if (!shouldEnrol || !mounted) return;
+
+    final ok = await FaceEnrolmentScreen.push(context, client: _client);
     if (!mounted) return;
-    // Optimistically reflect the new path locally; SyncService has
-    // already queued the cloud-side write. The avatar glyph sees the
-    // new path on rebuild + finds the local PNG file in the avatars/
-    // directory immediately.
-    setState(() {
-      _client = _client.copyWith(avatarPath: outcome.cloudPath);
-    });
-    if (!outcome.uploadedToCloud) {
+    if (ok) {
+      // The enrolment service has already written to local SQLite +
+      // queued the cloud avatar upload. Reload the client snapshot so
+      // the avatar glyph paints the new bytes immediately on rebuild.
+      try {
+        final refreshed = await SyncService.instance.storage
+            .getCachedClientById(_client.id);
+        if (!mounted) return;
+        if (refreshed != null) {
+          setState(() {
+            _client = refreshed.toPracticeClient();
+          });
+        }
+      } catch (e) {
+        debugPrint('Avatar reload after enrolment failed: $e');
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Saved locally — we'll upload when you're back online."),
+          content: Text('Face enrolment saved.'),
+          duration: Duration(seconds: 2),
         ),
       );
     }
+  }
+
+  /// R-01-compliant bottom sheet for the re-enrol case. Single coral
+  /// "Replace and re-enrol" CTA + a Cancel text button. Returns true
+  /// if the practitioner committed.
+  Future<bool?> _confirmReEnrolSheet() {
+    return showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surfaceBase,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  "Replace avatar and re-enrol",
+                  style: TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  "Capture a fresh set of face angles. The old "
+                  "avatar and embeddings will be replaced.",
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: AppColors.textSecondaryOnDark,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(AppTheme.radiusMd),
+                    ),
+                  ),
+                  child: const Text(
+                    'Replace avatar and re-enrol',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondaryOnDark,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _startEditingName() {
