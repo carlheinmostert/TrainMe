@@ -316,8 +316,8 @@ class SyncService {
     _lastPracticeId = practiceId;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
-    // Fire all five in parallel. Each catches its own errors so a
-    // single failure doesn't poison the others.
+    // Fire the practice-scoped pulls in parallel first. Each catches its
+    // own errors so a single failure doesn't poison the others.
     final results = await Future.wait<_BranchOutcome>([
       _pullPractices(),
       _pullClients(practiceId, nowMs),
@@ -325,9 +325,18 @@ class SyncService {
       _backfillSessionClientIds(practiceId),
       _pullSessions(practiceId),
     ]);
+
+    // Sequenced after _pullClients because it iterates the freshly-
+    // pulled cached_clients rows for this practice. Per
+    // feedback_offline_first_pull_branches — every cloud-mirrored table
+    // gets an explicit pull branch.
+    final faceOutcome = await _pullClientFaceEmbeddings(practiceId);
+
     return SyncPullOutcome(
-      anySucceeded: results.any((r) => r == _BranchOutcome.ok),
-      hadError: results.any((r) => r == _BranchOutcome.error),
+      anySucceeded: results.any((r) => r == _BranchOutcome.ok)
+          || faceOutcome == _BranchOutcome.ok,
+      hadError: results.any((r) => r == _BranchOutcome.error)
+          || faceOutcome == _BranchOutcome.error,
     );
   }
 
@@ -436,6 +445,68 @@ class SyncService {
       return _BranchOutcome.ok;
     } catch (e) {
       debugPrint('SyncService._pullClients: $e');
+      return _BranchOutcome.error;
+    }
+  }
+
+  /// Safe Mode v2 multi-reference enrolment (2026-05-24, Wave-A).
+  /// Mirror every client's `client_face_embeddings` rows into the local
+  /// SQLite cache so cold-start hydration + the in-flight discriminator
+  /// can resolve a slot set without a per-capture cloud round-trip.
+  ///
+  /// Runs sequentially AFTER `_pullClients` (the iteration source) so
+  /// newly-synced clients are present before we query their slot sets.
+  /// Each client RPC is independent — one failure doesn't abort the
+  /// loop. Returns ok if at least one client synced, noop if there were
+  /// zero clients to sync, error if every attempt threw.
+  ///
+  /// Spec: docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md.
+  Future<_BranchOutcome> _pullClientFaceEmbeddings(String practiceId) async {
+    try {
+      final clients = await _storage.getCachedClientsForPractice(practiceId);
+      if (clients.isEmpty) {
+        return _BranchOutcome.noop;
+      }
+      bool anyOk = false;
+      bool anyError = false;
+      for (final c in clients) {
+        try {
+          final slots = await ApiClient.instance.getClientFaceEmbeddings(
+            clientId: c.id,
+          );
+          // Replace the local slot set even when the cloud returns
+          // empty — that's the cloud's view of "unenrolled" / "consent
+          // withdrawn" and the local cache must mirror it. The
+          // transactional delete + insert in
+          // setCachedClientFaceEmbeddings handles the empty case.
+          await _storage.setCachedClientFaceEmbeddings(
+            clientId: c.id,
+            slots: slots
+                .map(
+                  (s) => (
+                    slotIndex: s.slotIndex,
+                    embedding: s.embedding,
+                    modelVersion: s.modelVersion,
+                    isFrontalPick: s.isFrontalPick,
+                    poseYaw: null as double?,
+                    posePitch: null as double?,
+                  ),
+                )
+                .toList(growable: false),
+          );
+          anyOk = true;
+        } catch (e) {
+          anyError = true;
+          debugPrint(
+            'SyncService._pullClientFaceEmbeddings client=${c.id}: $e',
+          );
+        }
+      }
+      if (anyOk) return _BranchOutcome.ok;
+      if (anyError) return _BranchOutcome.error;
+      return _BranchOutcome.noop;
+    } catch (e) {
+      debugPrint('SyncService._pullClientFaceEmbeddings: $e');
       return _BranchOutcome.error;
     }
   }
