@@ -143,9 +143,23 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         }
         // Toggled OFF → clear cached embedding state so a subsequent
         // toggle-ON re-runs the inline capture flow rather than
-        // reusing a stale local snapshot.
+        // reusing a stale local snapshot. Also nulls the
+        // cached_clients.face_embedding BLOB so cold-start hydration
+        // doesn't rehydrate from stale local bytes before the next
+        // SyncService pull catches up with the server-side zero.
         if (!_safeModeFaceRecognitionAllowed) {
           FaceEmbeddingService.instance.resetFor(widget.client.id);
+          try {
+            await SyncService.instance.storage.updateClientFaceEmbedding(
+              clientId: widget.client.id,
+              embedding: null,
+              modelVersion: null,
+            );
+          } catch (e) {
+            debugPrint(
+              'ClientConsentSheet: local face embedding clear failed: $e',
+            );
+          }
         }
       }
 
@@ -174,6 +188,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         );
       }
 
+      if (!mounted) return;
       setState(() => _saving = false);
       widget.onSaved?.call(updated);
       Navigator.of(context).pop(updated);
