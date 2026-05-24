@@ -105,12 +105,22 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   final FocusNode _nameFocusNode = FocusNode();
   String? _renameError;
 
+  /// Number of locally-cached face embedding slots for this client.
+  /// Drives the "Improve face recognition" nudge chip: rendered only
+  /// when the count is exactly 1 (legacy single-vector clients from
+  /// the 2026-05-23 wave, backfilled into slot_index=0 by the
+  /// Wave-A migration). 0 = no enrolment at all (the Safe Mode banner
+  /// in the capture screen handles that case). 2+ = already
+  /// multi-reference, chip absent. Null = not yet loaded.
+  int? _faceEmbeddingSlotCount;
+
   @override
   void initState() {
     super.initState();
     _client = widget.client;
     _nameController = TextEditingController(text: _client.name);
     _loadSessions();
+    unawaited(_loadFaceEmbeddingSlotCount());
 
     // 2026-05-13 — subscribe to conversion-state updates so the session
     // card filmstrip refreshes when a fresh capture's thumbnail lands.
@@ -156,6 +166,32 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   // ---------------------------------------------------------------------------
   // Data
   // ---------------------------------------------------------------------------
+
+  /// Read the local cached embedding slots for this client and update
+  /// [_faceEmbeddingSlotCount]. Cheap SQLite lookup; the chip's
+  /// visibility derives from the slot count + the
+  /// `safe_mode_face_recognition` consent toggle.
+  ///
+  /// Per `feedback_no_silent_fallbacks`, a query failure is reported in
+  /// debug logs rather than silently producing a 0 count — that would
+  /// make the chip silently disappear instead of letting the
+  /// practitioner see an "Improve face recognition" affordance they
+  /// could legitimately tap.
+  Future<void> _loadFaceEmbeddingSlotCount() async {
+    try {
+      final slots = await widget.storage
+          .getCachedClientFaceEmbeddings(clientId: _client.id);
+      if (!mounted) return;
+      setState(() {
+        _faceEmbeddingSlotCount = slots.length;
+      });
+    } catch (e) {
+      // Don't poison the UI on a transient SQLite blip — but DO log so
+      // we can spot it in Console.app. The chip will stay hidden until
+      // a successful read populates the count.
+      debugPrint('[ClientSessions] face-embedding slot count read failed: $e');
+    }
+  }
 
   Future<void> _loadSessions() async {
     if (_loadError != null || !_loading) {
@@ -468,6 +504,10 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       } catch (e) {
         debugPrint('Avatar reload after enrolment failed: $e');
       }
+      // Refresh the slot count so the "Improve face recognition" nudge
+      // chip disappears once the practitioner upgrades a legacy
+      // single-slot client to a multi-reference enrolment.
+      unawaited(_loadFaceEmbeddingSlotCount());
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Face enrolment saved.'),
@@ -755,6 +795,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   ///     taps the AppBar title (it's too small to host a TextField at
   ///     the brand size and to fit the error+cancel cluster).
   Widget _buildConsentRow() {
+    final showImproveChip = _shouldShowImproveFaceRecognitionChip();
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
       child: Column(
@@ -778,9 +819,34 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
               // itself is the count; doubling it here was redundant.
             ],
           ),
+          if (showImproveChip) ...[
+            const SizedBox(height: 8),
+            _ImproveFaceRecognitionChip(
+              onTap: _openAvatarFlow,
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  /// Wave-E (2026-05-24) — the "Improve face recognition" nudge chip
+  /// renders only when:
+  ///   * the slot count is exactly 1 (legacy single-vector client,
+  ///     backfilled by the 2026-05-23 wave's migration); AND
+  ///   * the practitioner has Safe Mode face-recognition consent
+  ///     granted for this client (without it the chip would lead to a
+  ///     SnackBar dead-end, which contradicts feedback_no_silent_fallbacks).
+  ///
+  /// Returns false while the slot count is still loading
+  /// (`_faceEmbeddingSlotCount == null`) so the chip never flashes on
+  /// the screen during the SQLite read.
+  bool _shouldShowImproveFaceRecognitionChip() {
+    final count = _faceEmbeddingSlotCount;
+    if (count == null) return false;
+    if (count != 1) return false;
+    if (!_client.safeModeFaceRecognitionAllowed) return false;
+    return true;
   }
 
   /// Dashed-underline label rendered in the AppBar title slot. Tap →
@@ -1177,6 +1243,68 @@ class _ConsentChip extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF86EFAC),
                   ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Wave-E (2026-05-24) — soft nudge for legacy single-slot face-
+/// recognition enrolments to upgrade to the full multi-reference set.
+/// Surfaces on the client detail screen below the consent chip when
+/// the client has exactly one cached embedding slot AND Safe Mode
+/// face-recognition consent is granted. Tapping it routes through the
+/// same `_openAvatarFlow` as the avatar glyph itself, so the re-enrol
+/// bottom sheet appears and the practitioner ends up in the
+/// FaceEnrolmentScreen.
+class _ImproveFaceRecognitionChip extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ImproveFaceRecognitionChip({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceRaised,
+      shape: StadiumBorder(
+        side: BorderSide(color: AppColors.primary.withValues(alpha: 0.55)),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(
+                Icons.auto_awesome_outlined,
+                size: 14,
+                color: AppColors.primary,
+              ),
+              SizedBox(width: 6),
+              Text(
+                'Improve face recognition',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textOnDark,
+                ),
+              ),
+              SizedBox(width: 6),
+              Text(
+                're-enrol in 15 seconds',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSecondaryOnDark,
                 ),
               ),
             ],

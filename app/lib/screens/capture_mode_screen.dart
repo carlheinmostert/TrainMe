@@ -28,7 +28,7 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import '../widgets/orientation_lock_guard.dart';
-import 'client_avatar_capture_screen.dart';
+import 'face_enrolment_screen.dart';
 import 'public_profile_screen.dart';
 import '../models/cached_client.dart';
 import '../widgets/safe_mode_icon.dart';
@@ -2553,26 +2553,36 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
   }
 
-  /// Open the avatar capture flow (sets the client's avatar AND
-  /// triggers embedding generation). Used by the inline-capture-flow
-  /// CTA when no avatar exists yet for this client.
+  /// Open the multi-reference face enrolment flow from the capture
+  /// screen's Safe Mode banner "Set face" CTA.
+  ///
+  /// Wave-E (2026-05-24) — replaces the legacy single-shot
+  /// `pushClientAvatarCapture` call. The Face-ID-style rotating-head
+  /// sweep (3–8 face embeddings + most-frontal frame as avatar JPG)
+  /// is now the only enrolment entry point on both this screen and the
+  /// client-detail screen. Spec:
+  /// docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md
+  ///
+  /// `FaceEnrolmentService` writes embeddings to SQLite + the cloud
+  /// RPC AND primes [FaceEmbeddingService] via `hydrateFromBytes` on
+  /// success, so after the screen pops we only need to refresh the
+  /// cached-client snapshot for the banner to advance to `ready`.
   Future<void> _openInlineAvatarFlow() async {
     final cached = _cachedClientSnapshot;
     final cid = widget.session.clientId;
     if (cached == null || cid == null || cid.isEmpty) return;
     HomefitHaptics.selection();
-    final outcome = await pushClientAvatarCapture(
+    final ok = await FaceEnrolmentScreen.push(
       context,
       client: cached.toPracticeClient(),
     );
     if (!mounted) return;
-    if (outcome == null) return;
-    // Refresh the cache so the banner state advances to
-    // `needsEmbedding` (or directly to `loading` if the
-    // FaceEmbeddingService kicks off on its own).
+    if (!ok) return;
+    // Force a re-read of the cached row so the new avatar path lands
+    // in the banner immediately; FaceEnrolmentService has already
+    // primed FaceEmbeddingService with the frontal-pick embedding.
+    _cachedClientLookupId = null;
     await _refreshCachedClient();
-    if (!mounted) return;
-    unawaited(FaceEmbeddingService.instance.ensureForClient(cid));
   }
 
   /// Trigger embedding generation explicitly (Retry CTA after error,

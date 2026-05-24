@@ -663,9 +663,8 @@ class FaceEnrolmentService extends ChangeNotifier {
     } catch (_) {}
     await File(sourcePath).copy(localAbs);
 
-    // Queue cloud avatar upload via SyncService — same pattern as
-    // ClientAvatarCaptureScreen._useThis(). The cloud path encodes
-    // the practice scope so RLS approves the bucket write.
+    // Queue cloud avatar upload via SyncService — the cloud path
+    // encodes the practice scope so RLS approves the bucket write.
     try {
       final cached =
           await SyncService.instance.storage.getCachedClientById(clientId);
