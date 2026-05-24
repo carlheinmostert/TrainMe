@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Safe Mode v2 — Face Enrolment (Face ID-style)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0F1117;
+      --base: #1A1D27;
+      --raised: #242733;
+      --border: #2E3140;
+      --ink: #F0F0F5;
+      --ink-secondary: #9CA3AF;
+      --ink-muted: #6B7280;
+      --coral: #FF6B35;
+      --coral-dark: #E85A24;
+      --coral-light: #FF8F5E;
+      --coral-tint-bg: rgba(255, 107, 53, 0.12);
+      --coral-tint-border: rgba(255, 107, 53, 0.30);
+      --sage: #86EFAC;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #060709;
+      color: var(--ink);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px 64px;
+      gap: 24px;
+    }
+
+    h1.page-title {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 800;
+      font-size: 22px;
+      letter-spacing: -0.3px;
+      color: var(--ink);
+      margin: 0;
+      text-align: center;
+    }
+
+    p.page-sub {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: -16px 0 0;
+      text-align: center;
+      max-width: 520px;
+      line-height: 1.5;
+    }
+
+    .stage-row {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .stage-label {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    /* iPhone-sized frame */
+    .device {
+      width: 390px;
+      height: 844px;
+      background: var(--bg);
+      border-radius: 48px;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6), 0 0 0 8px #1a1a1a;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .notch {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 110px;
+      height: 32px;
+      background: #000;
+      border-radius: 999px;
+      z-index: 20;
+    }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    /* ===== Enrolment screen ===== */
+    .viewfinder {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 50% 42%, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0.55) 75%, rgba(0,0,0,0.85) 100%),
+        linear-gradient(180deg, #1a1f2a 0%, #0c0e14 100%);
+    }
+
+    /* Placeholder face silhouette behind the ring */
+    .face-mock {
+      position: absolute;
+      left: 50%;
+      top: 42%;
+      transform: translate(-50%, -50%);
+      width: 220px;
+      height: 280px;
+      opacity: 0.55;
+      filter: blur(0.3px);
+    }
+
+    .face-mock svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Outer arc progress ring */
+    .ring-wrap {
+      position: absolute;
+      left: 50%;
+      top: 42%;
+      transform: translate(-50%, -50%);
+      width: 300px;
+      height: 300px;
+      pointer-events: none;
+    }
+
+    .ring-wrap svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    /* Coral inner circle "place your face here" guide */
+    .face-guide {
+      stroke: var(--coral);
+      stroke-width: 3;
+      fill: none;
+      animation: breathe 2s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.84; }
+    }
+
+    /* Progress ring track */
+    .ring-track {
+      stroke: rgba(255, 107, 53, 0.18);
+      stroke-width: 6;
+      fill: none;
+    }
+
+    /* Filled portion */
+    .ring-fill {
+      stroke: var(--coral);
+      stroke-width: 6;
+      fill: none;
+      stroke-linecap: round;
+      transform-origin: 150px 150px;
+      transform: rotate(-90deg); /* start at 12 o'clock */
+      transition: stroke-dashoffset 250ms ease-out;
+    }
+
+    /* Tick marks */
+    .tick {
+      stroke: rgba(255, 107, 53, 0.40);
+      stroke-width: 1.5;
+      transition: stroke 200ms ease-out, stroke-width 200ms ease-out;
+    }
+
+    .tick.filled {
+      stroke: var(--coral);
+      stroke-width: 2.5;
+    }
+
+    /* Cancel chip */
+    .cancel-chip {
+      position: absolute;
+      top: 64px;
+      left: 16px;
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      background: rgba(36, 39, 51, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    .cancel-chip svg {
+      width: 18px;
+      height: 18px;
+      stroke: var(--ink);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+
+    /* Instruction text */
+    .instruction {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(42% + 192px);
+      text-align: center;
+      padding: 0 32px;
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 17px;
+      letter-spacing: -0.2px;
+      color: var(--ink);
+      line-height: 1.35;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+      z-index: 5;
+    }
+
+    .instruction-sub {
+      margin-top: 8px;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 400;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+    }
+
+    /* Progress counter pill */
+    .progress-pill {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      top: calc(42% + 248px);
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: var(--coral-tint-bg);
+      border: 1px solid var(--coral-tint-border);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--coral-light);
+      letter-spacing: 0.2px;
+      z-index: 5;
+    }
+
+    /* Bottom advance button (mockup-only — real flow auto-advances) */
+    .advance {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 56px;
+      padding: 12px 22px;
+      border-radius: 999px;
+      background: rgba(36, 39, 51, 0.92);
+      border: 1px solid var(--border);
+      color: var(--ink-secondary);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12px;
+      cursor: pointer;
+      z-index: 8;
+      letter-spacing: 0.2px;
+    }
+
+    .advance:hover { color: var(--ink); border-color: var(--coral-tint-border); }
+
+    /* ===== Confirm screen ===== */
+    .screen.confirm {
+      background: var(--bg);
+      padding: 0;
+    }
+
+    .confirm-header {
+      padding: 80px 24px 0;
+    }
+
+    .confirm-title {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 700;
+      font-size: 24px;
+      color: var(--ink);
+      letter-spacing: -0.4px;
+      margin: 0 0 8px;
+    }
+
+    .confirm-sub {
+      font-size: 14px;
+      color: var(--ink-secondary);
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .confirm-body {
+      margin-top: 32px;
+      padding: 0 24px;
+    }
+
+    .section-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin: 0 0 12px;
+    }
+
+    .frames-row {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px 0 16px;
+    }
+
+    .frames-row::-webkit-scrollbar { display: none; }
+
+    .frame-thumb {
+      flex: 0 0 auto;
+      width: 56px;
+      height: 70px;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #2a2f3d 0%, #161922 100%);
+      border: 2px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .frame-thumb svg {
+      width: 70%;
+      height: 80%;
+      opacity: 0.7;
+    }
+
+    .frame-thumb.frontal-pick {
+      border-color: var(--coral);
+      box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.25);
+    }
+
+    .frame-thumb .pose-label {
+      position: absolute;
+      bottom: 2px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+    }
+
+    .frame-thumb.frontal-pick .pose-label {
+      color: var(--coral-light);
+    }
+
+    .star-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: var(--coral);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .star-badge svg {
+      width: 9px;
+      height: 9px;
+      fill: white;
+      opacity: 1;
+    }
+
+    .avatar-preview-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      background: var(--base);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      margin-top: 20px;
+    }
+
+    .avatar-preview {
+      width: 56px;
+      height: 56px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #2a2f3d 0%, #161922 100%);
+      border: 2px solid var(--coral);
+      overflow: hidden;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .avatar-preview svg { width: 80%; height: 90%; opacity: 0.85; }
+
+    .avatar-meta-title {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .avatar-meta-sub {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      margin: 4px 0 0;
+      line-height: 1.4;
+    }
+
+    .done-button {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 56px;
+      padding: 16px 20px;
+      border-radius: 16px;
+      background: var(--coral);
+      color: white;
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 700;
+      font-size: 16px;
+      text-align: center;
+      letter-spacing: -0.1px;
+      cursor: pointer;
+      border: none;
+      transition: background 120ms ease;
+    }
+
+    .done-button:hover { background: var(--coral-dark); }
+
+    .restart-link {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--ink-muted);
+      cursor: pointer;
+    }
+
+    .restart-link:hover { color: var(--ink-secondary); }
+
+    /* Hidden state utility */
+    .hidden { display: none !important; }
+
+    /* Sweep stage marker */
+    .stage-marker {
+      position: absolute;
+      top: 64px;
+      right: 16px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(36, 39, 51, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+      z-index: 10;
+    }
+
+    /* Caption under each stage */
+    .stage-caption {
+      max-width: 390px;
+      font-size: 12px;
+      color: var(--ink-muted);
+      line-height: 1.5;
+      text-align: center;
+      padding: 0 8px;
+    }
+
+    .stage-caption strong { color: var(--ink-secondary); font-weight: 600; }
+
+    /* Spec link footer */
+    .footer-link {
+      margin-top: 24px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.3px;
+    }
+
+    .footer-link a {
+      color: var(--coral-light);
+      text-decoration: none;
+    }
+
+    .footer-link a:hover { color: var(--coral); text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1 class="page-title">Safe Mode v2 — Face Enrolment</h1>
+  <p class="page-sub">Face ID-style multi-reference sweep that replaces today's single-photo avatar capture. Captures 5–8 face embeddings spanning the client's pose space in ~10–15 seconds.</p>
+
+  <div class="stage-row">
+
+    <!-- Stage A: enrolment in progress -->
+    <div class="stage">
+      <div class="stage-label">A — Rotating-head sweep</div>
+      <div class="device">
+        <div class="notch"></div>
+        <div class="screen" id="screen-enrol">
+          <div class="viewfinder"></div>
+
+          <!-- Cancel chip -->
+          <div class="cancel-chip" title="Cancel enrolment">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6L18 18M18 6L6 18"/>
+            </svg>
+          </div>
+
+          <!-- Stage marker -->
+          <div class="stage-marker" id="stage-marker-a">SWEEP 1 OF 2</div>
+
+          <!-- Placeholder face silhouette behind the ring -->
+          <div class="face-mock">
+            <svg viewBox="0 0 220 280" aria-hidden="true">
+              <defs>
+                <linearGradient id="faceGradA" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3a4050" stop-opacity="0.9"/>
+                  <stop offset="100%" stop-color="#1f2330" stop-opacity="0.5"/>
+                </linearGradient>
+              </defs>
+              <!-- Stylised head silhouette -->
+              <ellipse cx="110" cy="120" rx="78" ry="98" fill="url(#faceGradA)"/>
+              <!-- Subtle facial features -->
+              <ellipse cx="86" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <ellipse cx="134" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <path d="M95 162 Q110 172 125 162" stroke="#0c0e14" stroke-width="2" stroke-opacity="0.4" fill="none" stroke-linecap="round"/>
+              <!-- Neck/shoulders hint -->
+              <path d="M52 240 Q110 200 168 240 L180 280 L40 280 Z" fill="url(#faceGradA)" opacity="0.6"/>
+            </svg>
+          </div>
+
+          <!-- Ring + ticks + fill -->
+          <div class="ring-wrap">
+            <svg viewBox="0 0 300 300" aria-hidden="true">
+              <!-- Track -->
+              <circle class="ring-track" cx="150" cy="150" r="142"/>
+              <!-- Filled portion (stroke-dasharray controlled by JS) -->
+              <circle class="ring-fill" cx="150" cy="150" r="142"
+                stroke-dasharray="892.2" stroke-dashoffset="892.2" id="ring-fill-circle"/>
+              <!-- Tick marks at 8 positions around the ring -->
+              <g id="ticks-group"></g>
+              <!-- Inner coral face guide -->
+              <circle class="face-guide" cx="150" cy="150" r="118"/>
+            </svg>
+          </div>
+
+          <!-- Instruction copy -->
+          <div class="instruction">
+            <div id="instruction-text">Slowly turn your head from left to right</div>
+            <div class="instruction-sub" id="instruction-sub">Keep your face inside the coral circle</div>
+          </div>
+
+          <!-- Progress counter -->
+          <div class="progress-pill" id="progress-pill">0 / 6 angles captured</div>
+
+          <!-- Mockup-only: advance button to simulate progress -->
+          <div class="advance" id="advance-btn">Tap to simulate sweep progress</div>
+        </div>
+      </div>
+      <p class="stage-caption">Coral circle outlines the face guide. The arc progress ring fills as the client rotates head <strong>L → centre → R</strong> then <strong>up → down</strong>. Tick marks light up as each pose bucket gets a frame committed.</p>
+    </div>
+
+    <!-- Stage B: confirm -->
+    <div class="stage">
+      <div class="stage-label">B — Confirm</div>
+      <div class="device">
+        <div class="notch"></div>
+        <div class="screen confirm" id="screen-confirm">
+          <div class="confirm-header">
+            <h2 class="confirm-title">All done</h2>
+            <p class="confirm-sub">6 angles captured. The most-frontal frame becomes the avatar.</p>
+          </div>
+
+          <div class="confirm-body">
+            <p class="section-label">Captured angles</p>
+            <div class="frames-row" id="frames-row">
+              <!-- frame thumbs injected by JS -->
+            </div>
+
+            <div class="avatar-preview-row">
+              <div class="avatar-preview">
+                <svg viewBox="0 0 220 280" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="faceGradB" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#3a4050" stop-opacity="0.95"/>
+                      <stop offset="100%" stop-color="#1f2330" stop-opacity="0.7"/>
+                    </linearGradient>
+                  </defs>
+                  <ellipse cx="110" cy="120" rx="80" ry="100" fill="url(#faceGradB)"/>
+                  <ellipse cx="86" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.6"/>
+                  <ellipse cx="134" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.6"/>
+                  <path d="M95 162 Q110 172 125 162" stroke="#0c0e14" stroke-width="2" stroke-opacity="0.4" fill="none" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div>
+                <p class="avatar-meta-title">New avatar selected</p>
+                <p class="avatar-meta-sub">Most-frontal frame · slot 3 · highest landmark symmetry</p>
+              </div>
+            </div>
+          </div>
+
+          <button class="done-button" id="done-btn">Done</button>
+          <div class="restart-link" id="restart-link">Re-do enrolment</div>
+        </div>
+      </div>
+      <p class="stage-caption">All 5–8 captured angles in a horizontal row, the auto-picked frontal frame highlighted with a coral border + star. Tapping <strong>Done</strong> writes the embeddings + avatar JPG and pops back to client detail.</p>
+    </div>
+
+  </div>
+
+  <p class="footer-link">Spec: <a href="../specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md">docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md</a></p>
+
+  <script>
+    (function () {
+      const TOTAL_BUCKETS = 6;
+      const CIRCUMFERENCE = 2 * Math.PI * 142; // ~892.2
+
+      const ringFill = document.getElementById('ring-fill-circle');
+      const ticksGroup = document.getElementById('ticks-group');
+      const instructionText = document.getElementById('instruction-text');
+      const instructionSub = document.getElementById('instruction-sub');
+      const progressPill = document.getElementById('progress-pill');
+      const advanceBtn = document.getElementById('advance-btn');
+      const stageMarker = document.getElementById('stage-marker-a');
+
+      // Lay down 6 tick marks evenly spaced around the ring
+      // (tick at angle θ goes from r=136 to r=148 along the radial)
+      const cx = 150, cy = 150;
+      for (let i = 0; i < TOTAL_BUCKETS; i++) {
+        const angle = (i / TOTAL_BUCKETS) * 2 * Math.PI - Math.PI / 2; // start at top
+        const x1 = cx + 136 * Math.cos(angle);
+        const y1 = cy + 136 * Math.sin(angle);
+        const x2 = cx + 148 * Math.cos(angle);
+        const y2 = cy + 148 * Math.sin(angle);
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x1);
+        line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2);
+        line.setAttribute('y2', y2);
+        line.setAttribute('class', 'tick');
+        line.setAttribute('data-bucket', i);
+        ticksGroup.appendChild(line);
+      }
+
+      const ticks = ticksGroup.querySelectorAll('.tick');
+
+      let filled = 0;
+
+      function setProgress(n) {
+        filled = Math.min(n, TOTAL_BUCKETS);
+        const offset = CIRCUMFERENCE - (CIRCUMFERENCE * filled / TOTAL_BUCKETS);
+        ringFill.setAttribute('stroke-dashoffset', offset);
+
+        ticks.forEach((t, i) => {
+          if (i < filled) t.classList.add('filled');
+          else t.classList.remove('filled');
+        });
+
+        progressPill.textContent = filled + ' / ' + TOTAL_BUCKETS + ' angles captured';
+
+        // Stage / instruction switch
+        if (filled === 0) {
+          instructionText.textContent = 'Slowly turn your head from left to right';
+          instructionSub.textContent = 'Keep your face inside the coral circle';
+          stageMarker.textContent = 'SWEEP 1 OF 2';
+        } else if (filled < 4) {
+          instructionText.textContent = 'Slowly turn your head from left to right';
+          instructionSub.textContent = filled + ' angle' + (filled === 1 ? '' : 's') + ' captured';
+          stageMarker.textContent = 'SWEEP 1 OF 2';
+        } else if (filled < TOTAL_BUCKETS) {
+          instructionText.textContent = 'Now look up, then down';
+          instructionSub.textContent = filled + ' angles captured · keep going';
+          stageMarker.textContent = 'SWEEP 2 OF 2';
+        } else {
+          instructionText.textContent = 'Almost there';
+          instructionSub.textContent = 'Processing references…';
+          stageMarker.textContent = 'COMPLETE';
+        }
+      }
+
+      advanceBtn.addEventListener('click', function () {
+        if (filled >= TOTAL_BUCKETS) {
+          // Reset for a second play-through
+          setProgress(0);
+        } else {
+          setProgress(filled + 1);
+        }
+      });
+
+      // Confirm screen — render 6 frame thumbs, third one is the frontal pick.
+      const POSES = [
+        { label: 'L-90°', cx: 132, ry: 100 },     // far left profile
+        { label: 'L-30°', cx: 122, ry: 100 },     // soft left
+        { label: 'FRONT', cx: 110, ry: 100, pick: true },
+        { label: 'R-30°', cx: 98, ry: 100 },      // soft right
+        { label: 'UP', cx: 110, ry: 92 },         // pitch up — narrower face
+        { label: 'DOWN', cx: 110, ry: 108 }       // pitch down — taller
+      ];
+
+      const framesRow = document.getElementById('frames-row');
+      POSES.forEach(function (pose, i) {
+        const div = document.createElement('div');
+        div.className = 'frame-thumb' + (pose.pick ? ' frontal-pick' : '');
+
+        // Stylised face oriented per pose
+        div.innerHTML = (
+          '<svg viewBox="0 0 220 280" aria-hidden="true">' +
+            '<defs>' +
+              '<linearGradient id="fg' + i + '" x1="0" y1="0" x2="0" y2="1">' +
+                '<stop offset="0%" stop-color="#3a4050" stop-opacity="0.9"/>' +
+                '<stop offset="100%" stop-color="#1f2330" stop-opacity="0.6"/>' +
+              '</linearGradient>' +
+            '</defs>' +
+            '<ellipse cx="' + pose.cx + '" cy="120" rx="76" ry="' + pose.ry + '" fill="url(#fg' + i + ')"/>' +
+            '<ellipse cx="' + (pose.cx - 24) + '" cy="118" rx="5" ry="3" fill="#0c0e14" opacity="0.55"/>' +
+            '<ellipse cx="' + (pose.cx + 24) + '" cy="118" rx="5" ry="3" fill="#0c0e14" opacity="0.55"/>' +
+          '</svg>' +
+          (pose.pick
+            ? '<div class="star-badge"><svg viewBox="0 0 12 12"><polygon points="6,1 7.4,4.5 11,4.7 8.3,7.1 9.2,10.7 6,8.8 2.8,10.7 3.7,7.1 1,4.7 4.6,4.5"/></svg></div>'
+            : ''
+          ) +
+          '<div class="pose-label">' + pose.label + '</div>'
+        );
+
+        framesRow.appendChild(div);
+      });
+
+      document.getElementById('done-btn').addEventListener('click', function () {
+        // Visual ack only — this is a mockup
+        const btn = this;
+        const orig = btn.textContent;
+        btn.textContent = 'Saved ✓';
+        btn.style.background = '#22C55E';
+        setTimeout(function () {
+          btn.textContent = orig;
+          btn.style.background = '';
+        }, 1100);
+      });
+
+      document.getElementById('restart-link').addEventListener('click', function () {
+        setProgress(0);
+        // Scroll back to the enrolment device
+        document.getElementById('screen-enrol').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+
+      // Initial state
+      setProgress(0);
+    })();
+  </script>
+</body>
+</html>
