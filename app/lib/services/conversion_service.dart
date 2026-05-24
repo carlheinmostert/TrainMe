@@ -52,6 +52,32 @@ const double kSafeModeMaxMissRate = 0.05;
 /// (0.15-0.40 for unrelated faces against the enrolled embedding).
 const double kSafeModeV2SoloFloor = 0.10;
 
+/// Multi-reference cosSim floor for Safe Mode v2 enrolment built via
+/// the rotating-head Face-ID-style sweep (see
+/// `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`).
+///
+/// Semantically distinct from [kSafeModeV2SoloFloor] — that constant is
+/// the solo-face floor (consulted only when exactly one face is
+/// detected in a frame). This constant is the post-multi-reference
+/// solo-floor: once a client has been enrolled across multiple pose
+/// references, the per-face cosSim is the MAX across all stored
+/// references, which lifts the worst-case subject-self score from
+/// ~0.25 (single frontal reference) to ~0.70 (well-enrolled set).
+/// 0.55 sits comfortably between the worst-enrolled subject self-score
+/// and the highest observed bystander score (0.36).
+///
+/// PLUMBING NOTE (Wave-BC 2026-05-24): this constant is declared but
+/// NOT yet consumed by [_resolveSafeModeV2Threshold]. The native
+/// `applySafeModeV2ToPhoto` solo-floor branch uses whatever threshold
+/// the caller supplies, and during the back-compat window the cached
+/// embedding is still the legacy single-reference vector. Wave-D
+/// (enrolment screen + flow) switches the resolver to consult this
+/// constant whenever the bound client's enrolment slot count is >= 2
+/// (i.e. the client was re-enrolled via the new sweep flow). Until
+/// then this constant is referenced only by future code; no behaviour
+/// change in this PR.
+const double kSafeModeV2MultiRefThreshold = 0.55;
+
 /// SharedPreferences key for the debug-tuning sheet's persisted
 /// solo-floor override (2026-05-23 debug-tuning wave; semantics
 /// updated 2026-05-24 to solo-floor). When set, both
@@ -1177,13 +1203,20 @@ class ConversionService extends ChangeNotifier {
             final candidate =
                 p.join(convertedDir, '${exercise.id}_safe.jpg');
             final threshold = await _resolveSafeModeV2Threshold(null);
+            // Multi-reference (2026-05-24): native signature is now
+            // `subjectEmbeddings: List<Data>`. During the back-compat
+            // window — while Wave-A schema + Wave-D enrolment screen are
+            // still landing — the cached embedding is the single legacy
+            // avatar vector. Wrap it in a one-element list so the native
+            // path's multi-reference max-cosSim degenerates to the
+            // original single-reference cosSim.
             final resp = await _videoChannel
                 .invokeMethod<Map<dynamic, dynamic>>(
               'applySafeModeV2ToPhoto',
               <String, dynamic>{
                 'srcPath': exercise.absoluteRawFilePath,
                 'destPath': candidate,
-                'subjectEmbedding': subjectEmbedding,
+                'subjectEmbeddings': <Uint8List>[subjectEmbedding],
                 'threshold': threshold,
               },
             ).timeout(const Duration(seconds: 30));
@@ -2448,7 +2481,10 @@ class ConversionService extends ChangeNotifier {
   ///      future work; today raw photos stay on-device under their
   ///      `archive/` directory).
   ///   2. Invoke the native `applySafeModeV2ToPhoto(srcPath, destPath,
-  ///      subjectEmbedding, threshold)` with the new subject embedding.
+  ///      subjectEmbeddings, threshold)` with the new subject embedding(s).
+  ///      Multi-reference (2026-05-24): the embedding list contains 1–8
+  ///      vectors; during the back-compat window the single legacy avatar
+  ///      embedding is wrapped in a one-element list.
   ///   3. Overwrite the safe-variant JPG at `{exerciseId}_safe.jpg`.
   ///   4. Stamp `safeModeAlgorithmVersion = kSafeModeAlgorithmVersion`
   ///      on the SQLite row + mark thumbnails dirty so the next publish
@@ -2509,13 +2545,18 @@ class ConversionService extends ChangeNotifier {
 
     final threshold = await _resolveSafeModeV2Threshold(thresholdOverride);
     try {
+      // Multi-reference (2026-05-24): native expects `subjectEmbeddings`
+      // (plural — List<Data>). During the back-compat window the cached
+      // embedding is the single legacy avatar vector; wrap in a one-element
+      // list so the native multi-reference max-cosSim degenerates to the
+      // original single-reference behaviour.
       final dynamic resp = await _videoChannel
           .invokeMethod<Map<dynamic, dynamic>>(
             'applySafeModeV2ToPhoto',
             <String, dynamic>{
               'srcPath': rawAbs,
               'destPath': destPath,
-              'subjectEmbedding': embedding,
+              'subjectEmbeddings': <Uint8List>[embedding],
               'threshold': threshold,
             },
           )

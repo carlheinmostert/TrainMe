@@ -2,12 +2,21 @@
 //  main.swift  (SafeModeBench)
 //
 //  CLI front-end for the Safe Mode v2 photo-pipeline bench. Reads a
-//  source JPG + a raw FP32 embedding blob, runs the pipeline with the
-//  supplied threshold + head-expansion params, writes the safe variant
-//  to destPath, and prints the diagnostic block to stdout.
+//  source JPG + one or more raw FP32 embedding blobs, runs the pipeline
+//  with the supplied threshold + head-expansion params, writes the safe
+//  variant to destPath, and prints the diagnostic block to stdout.
 //
 //  Stdout format is line-oriented (one fact per line) so sweep.sh +
 //  summary.py can parse it without an extra serialisation layer.
+//
+//  Multi-reference (2026-05-24): the bench now accepts an N-way
+//  reference set via `--embeddings file1,file2,...` mirroring the
+//  iOS native multi-reference signature. The legacy `--embedding file`
+//  flag stays for back-compat — it's internally wrapped in a one-element
+//  list before being handed to the pipeline. The `--smoke-test` mode
+//  asserts that --embedding === --embeddings with the same file
+//  duplicated (byte-equality of the output JPG) — a regression guard
+//  on the per-face max degeneration to single-cosSim when N=1.
 
 import Foundation
 
@@ -15,7 +24,13 @@ import Foundation
 
 struct ParsedArgs {
     var photo: String = ""
+    /// Singular --embedding path. Kept for back-compat. When present
+    /// it's wrapped in a one-element list before being handed to the
+    /// pipeline.
     var embedding: String = ""
+    /// Plural --embeddings comma-separated paths. When present it
+    /// takes precedence over --embedding.
+    var embeddings: [String] = []
     var output: String = ""
     var threshold: Double = 0.5
     var areaClamp: Double = 0.35
@@ -23,6 +38,10 @@ struct ParsedArgs {
     var headExpandH: Double = 1.5
     var maxWorkDim: Int = 1920
     var showHelp: Bool = false
+    /// When true: run the pipeline TWICE — once with --embedding (single)
+    /// and once with --embeddings <same file>,<same file> — and assert
+    /// the output JPG byte-equality. Exits non-zero on mismatch.
+    var smokeTest: Bool = false
 }
 
 func parseArgs(_ raw: [String]) -> (ParsedArgs, String?) {
@@ -41,6 +60,16 @@ func parseArgs(_ raw: [String]) -> (ParsedArgs, String?) {
         case "--embedding":
             guard i + 1 < args.count else { return (a, "--embedding requires a value") }
             a.embedding = args[i + 1]; i += 2
+        case "--embeddings":
+            guard i + 1 < args.count else { return (a, "--embeddings requires a value") }
+            // Comma-separated list of file paths.
+            let listArg = args[i + 1]
+            let paths = listArg.split(separator: ",", omittingEmptySubsequences: true).map { String($0) }
+            if paths.isEmpty {
+                return (a, "--embeddings requires a non-empty comma-separated list")
+            }
+            a.embeddings = paths
+            i += 2
         case "--output":
             guard i + 1 < args.count else { return (a, "--output requires a value") }
             a.output = args[i + 1]; i += 2
@@ -59,6 +88,9 @@ func parseArgs(_ raw: [String]) -> (ParsedArgs, String?) {
         case "--max-work-dim":
             guard i + 1 < args.count, let v = Int(args[i + 1]) else { return (a, "--max-work-dim requires an integer") }
             a.maxWorkDim = v; i += 2
+        case "--smoke-test":
+            a.smokeTest = true
+            i += 1
         default:
             return (a, "Unknown argument: \(arg)")
         }
@@ -78,7 +110,7 @@ cycles.
 USAGE:
   swift run SafeModeBench \\
     --photo <path.jpg> \\
-    --embedding <path.bin> \\
+    (--embedding <path.bin> | --embeddings <p1.bin,p2.bin,...,pN.bin>) \\
     [--threshold 0.5] \\
     [--area-clamp 0.35] \\
     [--head-expand-w 2.0] \\
@@ -86,10 +118,21 @@ USAGE:
     [--max-work-dim 1920] \\
     --output <safe.jpg>
 
+  swift run SafeModeBench --smoke-test \\
+    --photo <path.jpg> \\
+    --embedding <path.bin> \\
+    --output <safe-tmp.jpg>
+
 ARGS:
   --photo          Source JPG (selfie / capture frame to debug).
   --embedding      Raw FP32 little-endian face embedding (2048 bytes).
+                   Internally wrapped in a one-element list. Back-compat
+                   path — new sweeps should prefer --embeddings.
                    See fetch_embedding.sh for pulling it from Supabase.
+  --embeddings     Comma-separated list of 1–8 raw FP32 embedding files
+                   (each 2048 bytes). Mirrors the iOS native
+                   `subjectEmbeddings: [Data]` parameter shape. Per-face
+                   cosSim is taken as the MAX across all references.
   --output         Where to write the safe-variant JPG.
   --threshold      Solo-face cosSim floor (default 0.5 for back-compat
                    with prior sweep scripts; production iOS now defaults
@@ -101,6 +144,13 @@ ARGS:
   --head-expand-w  Face bbox horizontal multiplier (default 2.0).
   --head-expand-h  Face bbox vertical multiplier   (default 1.5).
   --max-work-dim   Max working pixel dim (default 1920 matches iOS).
+  --smoke-test     Regression guard for the multi-reference change.
+                   Runs the pipeline TWICE — once with --embedding (a
+                   single reference) and once with --embeddings <same
+                   file>,<same file> — then byte-compares the output
+                   JPGs. Exits 0 if identical, 5 if they differ. Use
+                   to confirm the per-face max degenerates to single
+                   cosSim when N=1.
 
 DIAGNOSTIC OUTPUT:
   Per detected face: bbox + cosSim + rank.
@@ -125,42 +175,157 @@ if let err = parseErr {
     exit(2)
 }
 
-if parsed.photo.isEmpty || parsed.embedding.isEmpty || parsed.output.isEmpty {
-    FileHandle.standardError.write("error: --photo, --embedding, and --output are all required.\n\n".data(using: .utf8)!)
+if parsed.photo.isEmpty || parsed.output.isEmpty {
+    FileHandle.standardError.write("error: --photo and --output are required.\n\n".data(using: .utf8)!)
+    print(usage)
+    exit(2)
+}
+if parsed.embedding.isEmpty && parsed.embeddings.isEmpty {
+    FileHandle.standardError.write(
+        "error: one of --embedding or --embeddings is required.\n\n".data(using: .utf8)!
+    )
     print(usage)
     exit(2)
 }
 
-// MARK: - Load embedding
+// MARK: - Load embeddings
 
-let embeddingURL = URL(fileURLWithPath: parsed.embedding)
-let embeddingData: Data
-do {
-    embeddingData = try Data(contentsOf: embeddingURL)
-} catch {
-    FileHandle.standardError.write("error: could not read embedding at \(parsed.embedding): \(error.localizedDescription)\n".data(using: .utf8)!)
-    exit(3)
-}
-
-if embeddingData.count != MobileFaceNetEmbedder.embeddingByteLength {
-    FileHandle.standardError.write(
-        "error: embedding wrong size — got \(embeddingData.count) bytes, expected \(MobileFaceNetEmbedder.embeddingByteLength) (= 512 FP32).\n"
-            .data(using: .utf8)!
-    )
-    exit(3)
-}
-
-// Sanity-check: an L2-normalized FP32 vector should have norm ~= 1.0.
-// Print as part of the diagnostic block so a corrupted embedding (e.g.
-// hex-decoded vs raw bytes) is immediately visible.
-let embeddingNorm: Double = embeddingData.withUnsafeBytes { buf -> Double in
-    let ptr = buf.bindMemory(to: Float32.self)
-    var s: Double = 0
-    for i in 0..<MobileFaceNetEmbedder.embeddingDimension {
-        let v = Double(ptr[i])
-        s += v * v
+/// Read one embedding file from disk + sanity-check its size.
+func loadEmbedding(_ path: String) -> Data? {
+    let url = URL(fileURLWithPath: path)
+    do {
+        let data = try Data(contentsOf: url)
+        if data.count != MobileFaceNetEmbedder.embeddingByteLength {
+            FileHandle.standardError.write(
+                "error: embedding at \(path) wrong size — got \(data.count) bytes, expected \(MobileFaceNetEmbedder.embeddingByteLength) (= 512 FP32).\n"
+                    .data(using: .utf8)!
+            )
+            return nil
+        }
+        return data
+    } catch {
+        FileHandle.standardError.write(
+            "error: could not read embedding at \(path): \(error.localizedDescription)\n"
+                .data(using: .utf8)!
+        )
+        return nil
     }
-    return s.squareRoot()
+}
+
+/// L2 norm of an FP32 embedding for the sanity-print at the top of the
+/// diagnostic block. Should be ~1.0 for a properly L2-normalised vector;
+/// any large deviation means the bytes are wrong (hex vs raw, partial
+/// download, etc.).
+func l2Norm(_ data: Data) -> Double {
+    return data.withUnsafeBytes { buf -> Double in
+        let ptr = buf.bindMemory(to: Float32.self)
+        var s: Double = 0
+        for i in 0..<MobileFaceNetEmbedder.embeddingDimension {
+            let v = Double(ptr[i])
+            s += v * v
+        }
+        return s.squareRoot()
+    }
+}
+
+// MARK: - Smoke-test branch
+
+if parsed.smokeTest {
+    if parsed.embedding.isEmpty {
+        FileHandle.standardError.write(
+            "error: --smoke-test requires --embedding (the single reference is duplicated for the N=2 leg).\n"
+                .data(using: .utf8)!
+        )
+        exit(2)
+    }
+    guard let baseEmbed = loadEmbedding(parsed.embedding) else { exit(3) }
+
+    var params = SafeModeV2PipelineParams()
+    params.threshold = parsed.threshold
+    params.headWidthFactor = CGFloat(parsed.headExpandW)
+    params.headHeightFactor = CGFloat(parsed.headExpandH)
+    params.maxAreaFraction = parsed.areaClamp
+    params.maxWorkDim = parsed.maxWorkDim
+
+    let singleOutPath = parsed.output + ".smoke-single.jpg"
+    let dupOutPath = parsed.output + ".smoke-duplicated.jpg"
+
+    print("SMOKE-TEST: running pipeline twice — N=1 (single reference) then N=2 (duplicated reference).")
+    print("  pass 1: --embedding -> \(singleOutPath)")
+    do {
+        _ = try SafeModeV2Pipeline.run(
+            srcPath: parsed.photo,
+            destPath: singleOutPath,
+            subjectEmbeddings: [baseEmbed],
+            params: params
+        )
+    } catch {
+        FileHandle.standardError.write(
+            "smoke-test pipeline 1 error: \(error)\n".data(using: .utf8) ?? Data()
+        )
+        exit(4)
+    }
+    print("  pass 2: --embeddings <same>,<same> -> \(dupOutPath)")
+    do {
+        _ = try SafeModeV2Pipeline.run(
+            srcPath: parsed.photo,
+            destPath: dupOutPath,
+            subjectEmbeddings: [baseEmbed, baseEmbed],
+            params: params
+        )
+    } catch {
+        FileHandle.standardError.write(
+            "smoke-test pipeline 2 error: \(error)\n".data(using: .utf8) ?? Data()
+        )
+        exit(4)
+    }
+
+    guard let bytesSingle = try? Data(contentsOf: URL(fileURLWithPath: singleOutPath)) else {
+        FileHandle.standardError.write(
+            "smoke-test: could not read \(singleOutPath)\n".data(using: .utf8) ?? Data()
+        )
+        exit(5)
+    }
+    guard let bytesDup = try? Data(contentsOf: URL(fileURLWithPath: dupOutPath)) else {
+        FileHandle.standardError.write(
+            "smoke-test: could not read \(dupOutPath)\n".data(using: .utf8) ?? Data()
+        )
+        exit(5)
+    }
+    if bytesSingle == bytesDup {
+        print("SMOKE-TEST PASS: N=1 and N=2 (duplicated reference) produced byte-identical output (\(bytesSingle.count) bytes).")
+        exit(0)
+    } else {
+        FileHandle.standardError.write(
+            "SMOKE-TEST FAIL: N=1 (\(bytesSingle.count) bytes) and N=2 (\(bytesDup.count) bytes) outputs differ — per-face max does not degenerate to single cosSim correctly.\n"
+                .data(using: .utf8) ?? Data()
+        )
+        exit(5)
+    }
+}
+
+// MARK: - Standard (non-smoke-test) branch
+
+var subjectEmbeddings: [Data] = []
+var embeddingLabels: [String] = []
+
+if !parsed.embeddings.isEmpty {
+    if parsed.embeddings.count > 8 {
+        FileHandle.standardError.write(
+            "error: --embeddings supports at most 8 references (got \(parsed.embeddings.count)).\n"
+                .data(using: .utf8)!
+        )
+        exit(2)
+    }
+    for path in parsed.embeddings {
+        guard let data = loadEmbedding(path) else { exit(3) }
+        subjectEmbeddings.append(data)
+        embeddingLabels.append(path)
+    }
+} else {
+    guard let data = loadEmbedding(parsed.embedding) else { exit(3) }
+    subjectEmbeddings.append(data)
+    embeddingLabels.append(parsed.embedding)
 }
 
 // MARK: - Run pipeline
@@ -173,9 +338,13 @@ params.maxAreaFraction = parsed.areaClamp
 params.maxWorkDim = parsed.maxWorkDim
 
 print("------------------------------------------------------------")
-print("SafeModeBench v1")
+print("SafeModeBench v2 (multi-reference)")
 print("photo:        \(parsed.photo)")
-print("embedding:    \(parsed.embedding) (\(embeddingData.count) bytes, L2 norm=\(String(format: "%.4f", embeddingNorm)))")
+print("references:   \(subjectEmbeddings.count)")
+for (i, label) in embeddingLabels.enumerated() {
+    let norm = l2Norm(subjectEmbeddings[i])
+    print("  [\(i)] \(label) (\(subjectEmbeddings[i].count) bytes, L2 norm=\(String(format: "%.4f", norm)))")
+}
 print("threshold:    \(String(format: "%.3f", parsed.threshold))")
 print("areaClamp:    \(String(format: "%.3f", parsed.areaClamp))")
 print("headExpand:   w=\(String(format: "%.2f", parsed.headExpandW)) h=\(String(format: "%.2f", parsed.headExpandH))")
@@ -187,7 +356,7 @@ do {
     let report = try SafeModeV2Pipeline.run(
         srcPath: parsed.photo,
         destPath: parsed.output,
-        subjectEmbedding: embeddingData,
+        subjectEmbeddings: subjectEmbeddings,
         params: params
     )
     let elapsedMs = Date().timeIntervalSince(startTs) * 1000.0

@@ -424,15 +424,18 @@ class VideoConverterChannel {
             }
 
         case "applySafeModeV2ToPhoto":
-            // Safe Mode v2 (2026-05-23) — per-client face-recognition
-            // discriminator. Caller supplies the subject's 2048-byte
-            // L2-normalized FP32 embedding (derived from the client's
-            // avatar JPG via `generateFaceEmbedding`). We run face
-            // detection + person segmentation on the photo, embed every
-            // detected face, pick the one with max cosine similarity to
-            // the subject embedding (if any meets threshold), then
-            // composite per the algorithm in
-            // `docs/specs/2026-05-23-safe-mode-face-rec.md`.
+            // Safe Mode v2 (2026-05-23, multi-reference 2026-05-24) —
+            // per-client face-recognition discriminator. Caller supplies
+            // 1–8 L2-normalized FP32 face embeddings (derived from a live
+            // Face-ID-style enrolment sweep via
+            // `generateFaceEmbeddingsFromFrames`, or — during the
+            // backward-compat window — a one-element array wrapping the
+            // legacy single avatar embedding). We run face detection +
+            // person segmentation on the photo, embed every detected
+            // face, compute the per-face MAX cosSim across all provided
+            // references, then pick the face with the highest score per
+            // the hybrid pick-highest rule in
+            // `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`.
             //
             // Returns the same SafeModePhotoOutcome shape the v1 path
             // used so the Dart side's `kSafeModeMaxMissRate` decision
@@ -449,26 +452,76 @@ class VideoConverterChannel {
                 ))
                 return
             }
-            // subjectEmbedding arrives as FlutterStandardTypedData on the
-            // platform channel; Swift surfaces it as FlutterStandardTypedData
-            // which has a `.data: Data` property. Accept Data too for
-            // forwards-compat. Required — Dart side must block capture
-            // until the embedding is generated.
-            let embedData: Data?
-            if let typed = args["subjectEmbedding"] as? FlutterStandardTypedData {
-                embedData = typed.data
-            } else if let raw = args["subjectEmbedding"] as? Data {
-                embedData = raw
-            } else {
-                embedData = nil
-            }
-            guard let subjectEmbedding = embedData else {
+            // subjectEmbeddings arrives as List<FlutterStandardTypedData>
+            // on the platform channel. The multi-reference signature
+            // change (2026-05-24) replaces the single `subjectEmbedding`
+            // blob with an array of 1–8 blobs. Per
+            // feedback_no_silent_fallbacks the input validation is
+            // strict — empty arrays, oversize arrays, or wrong-byte-length
+            // elements are rejected loudly rather than silently degrading.
+            //
+            // Back-compat: legacy callers (single avatar embedding) wrap
+            // their Data in a one-element list before invoking. The
+            // deprecated `subjectEmbedding` (singular) parameter is no
+            // longer accepted — Dart callers must use the new shape.
+            let rawEmbeddings: Any? = args["subjectEmbeddings"]
+            var subjectEmbeddings: [Data] = []
+            if let list = rawEmbeddings as? [Any] {
+                for element in list {
+                    if let typed = element as? FlutterStandardTypedData {
+                        subjectEmbeddings.append(typed.data)
+                    } else if let raw = element as? Data {
+                        subjectEmbeddings.append(raw)
+                    } else {
+                        result(FlutterError(
+                            code: "INVALID_ARGS",
+                            message: "subjectEmbeddings list contains a non-bytes element (\(type(of: element)))",
+                            details: nil
+                        ))
+                        return
+                    }
+                }
+            } else if rawEmbeddings == nil {
                 result(FlutterError(
                     code: "INVALID_ARGS",
-                    message: "Missing or invalid subjectEmbedding for applySafeModeV2ToPhoto",
+                    message: "Missing subjectEmbeddings for applySafeModeV2ToPhoto",
                     details: nil
                 ))
                 return
+            } else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddings must be a list of bytes; got \(type(of: rawEmbeddings!))",
+                    details: nil
+                ))
+                return
+            }
+            if subjectEmbeddings.isEmpty {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddings must contain at least one embedding (got 0)",
+                    details: nil
+                ))
+                return
+            }
+            if subjectEmbeddings.count > 8 {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddings must contain at most 8 embeddings (got \(subjectEmbeddings.count))",
+                    details: nil
+                ))
+                return
+            }
+            let expectedByteLen = MobileFaceNetEmbedder.embeddingByteLength
+            for (idx, emb) in subjectEmbeddings.enumerated() {
+                if emb.count != expectedByteLen {
+                    result(FlutterError(
+                        code: "INVALID_ARGS",
+                        message: "subjectEmbeddings[\(idx)] wrong size — got \(emb.count) bytes, expected \(expectedByteLen)",
+                        details: nil
+                    ))
+                    return
+                }
             }
             let threshold = (args["threshold"] as? Double) ?? 0.6
             processingQueue.async {
@@ -476,7 +529,7 @@ class VideoConverterChannel {
                     let outcome = Self.applySafeModeV2ToPhoto(
                         srcPath: srcPath,
                         destPath: destPath,
-                        subjectEmbedding: subjectEmbedding,
+                        subjectEmbeddings: subjectEmbeddings,
                         threshold: threshold
                     )
                     DispatchQueue.main.async {
@@ -559,6 +612,126 @@ class VideoConverterChannel {
                                 code: "FILE_NOT_FOUND",
                                 message: "Avatar JPG not found at \(srcPath)",
                                 details: nil
+                            ))
+                        case .failure(let msg):
+                            result(FlutterError(
+                                code: "FACE_EMBED_FAILED",
+                                message: msg,
+                                details: nil
+                            ))
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UNSUPPORTED_OS",
+                            message: "Face embedding requires iOS 15+",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
+        case "generateFaceEmbeddingsFromFrames":
+            // Safe Mode v2 multi-reference enrolment (2026-05-24) —
+            // produce N face embeddings from a set of frame paths
+            // captured during the Face-ID-style rotating-head sweep.
+            // Native does Vision face landmarks per frame (extracting
+            // pose yaw/pitch), accepts frames with exactly one face,
+            // runs greedy farthest-point selection in (yaw, pitch)
+            // space to pick `expectedSlotCount` slots that maximally
+            // span the pose space, then runs MobileFaceNet on each
+            // picked frame.
+            //
+            // Inputs (per
+            // `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`):
+            //   - framePaths: List<String>, non-empty, each must exist
+            //   - expectedSlotCount: Int, optional (default 6), clamped to [3, 8]
+            //
+            // Returns a map:
+            //   {
+            //     "embeddings":       List<FlutterStandardTypedData>,   // slot-ordered
+            //     "frontalPickSlot":  Int,                              // index into the arrays
+            //     "posesYaw":         List<Double>,                     // radians, slot-ordered
+            //     "posesPitch":       List<Double>,                     // radians, slot-ordered
+            //   }
+            //
+            // Per feedback_no_silent_fallbacks: every input validation
+            // failure or model error surfaces as a FlutterError with a
+            // clear code; the Dart side never receives a partial result.
+            guard let args = call.arguments as? [String: Any] else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing arguments map for generateFaceEmbeddingsFromFrames",
+                    details: nil
+                ))
+                return
+            }
+            let framePaths: [String]
+            if let list = args["framePaths"] as? [String] {
+                framePaths = list
+            } else if let list = args["framePaths"] as? [Any] {
+                var coerced: [String] = []
+                for el in list {
+                    if let s = el as? String { coerced.append(s) }
+                }
+                if coerced.count != list.count {
+                    result(FlutterError(
+                        code: "INVALID_ARGS",
+                        message: "framePaths must be a list of strings",
+                        details: nil
+                    ))
+                    return
+                }
+                framePaths = coerced
+            } else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing or invalid framePaths for generateFaceEmbeddingsFromFrames",
+                    details: nil
+                ))
+                return
+            }
+            if framePaths.isEmpty {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "framePaths must be non-empty",
+                    details: nil
+                ))
+                return
+            }
+            for p in framePaths {
+                if !FileManager.default.fileExists(atPath: p) {
+                    result(FlutterError(
+                        code: "FILE_NOT_FOUND",
+                        message: "Frame not found at path: \(p)",
+                        details: nil
+                    ))
+                    return
+                }
+            }
+            let requestedSlotCount = (args["expectedSlotCount"] as? Int) ?? 6
+            let clampedSlotCount = max(3, min(8, requestedSlotCount))
+            processingQueue.async {
+                if #available(iOS 15.0, *) {
+                    let outcome = Self.generateFaceEmbeddingsFromFrames(
+                        framePaths: framePaths,
+                        expectedSlotCount: clampedSlotCount
+                    )
+                    DispatchQueue.main.async {
+                        switch outcome {
+                        case .success(let embeddings, let frontalPickIndex, let posesYaw, let posesPitch):
+                            result([
+                                "embeddings": embeddings.map { FlutterStandardTypedData(bytes: $0) },
+                                "frontalPickSlot": frontalPickIndex,
+                                "posesYaw": posesYaw,
+                                "posesPitch": posesPitch,
+                            ])
+                        case .notEnoughFrames(let accepted, let needed):
+                            result(FlutterError(
+                                code: "NOT_ENOUGH_FRAMES",
+                                message: "not enough valid frames for enrolment — got \(accepted), need \(needed)",
+                                details: ["accepted": accepted, "needed": needed]
                             ))
                         case .failure(let msg):
                             result(FlutterError(
@@ -2829,16 +3002,23 @@ class VideoConverterChannel {
     //
     // Replaces the v1 anchor-box approach (`applySafeModeToPhoto`, removed
     // in this wave). The contract is per
-    // `docs/specs/2026-05-23-safe-mode-face-rec.md`:
+    // `docs/specs/2026-05-23-safe-mode-face-rec.md` with the multi-reference
+    // update `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`:
     //
-    //   1. `generateFaceEmbeddingFromJpg(srcPath:)` — called on avatar
-    //      upload + lazy backfill. Produces the 2048-byte
-    //      MobileFaceNet embedding from the client's avatar JPG.
-    //   2. `applySafeModeV2ToPhoto(srcPath:destPath:subjectEmbedding:threshold:)`
+    //   1. `generateFaceEmbeddingFromJpg(srcPath:)` — DEPRECATED, kept
+    //      for one release cycle of back-compat. Produces a single
+    //      2048-byte MobileFaceNet embedding from a single avatar JPG.
+    //   2. `generateFaceEmbeddingsFromFrames(framePaths:expectedSlotCount:)`
+    //      — current enrolment path. Takes the 5-8 captured sweep frames
+    //      and returns an array of 2048-byte embeddings spanning the
+    //      subject's pose space, plus the index of the most-frontal slot
+    //      (used as the avatar JPG source).
+    //   3. `applySafeModeV2ToPhoto(srcPath:destPath:subjectEmbeddings:threshold:)`
     //      — called at capture time. Identifies the subject face by
-    //      cosine similarity vs the supplied embedding; blurs every
-    //      other face's head-expanded region + (in subject identified
-    //      mode) every non-subject silhouette.
+    //      taking the MAX cosine similarity over every embedding in
+    //      `subjectEmbeddings`; blurs every other face's head-expanded
+    //      region + (in subject identified mode) every non-subject
+    //      silhouette.
     //
     // The v1 code path (`SafeModeProcessor.processFrame` invoked via the
     // old anchor-box pipeline) is still used by the VIDEO writer pump
@@ -2859,6 +3039,15 @@ class VideoConverterChannel {
     }
 
     /// Generate the MobileFaceNet embedding for the supplied JPG.
+    ///
+    /// DEPRECATED (2026-05-24) — use `generateFaceEmbeddingsFromFrames`
+    /// instead. Kept for one release cycle of back-compat with the
+    /// legacy single-avatar enrolment path; Dart callers that still
+    /// invoke `generateFaceEmbedding` (singular) continue to work, and
+    /// the resulting Data can be wrapped in a one-element list before
+    /// being passed to `applySafeModeV2ToPhoto`. Removed in a follow-up
+    /// wave once all enrolment paths route through the multi-frame
+    /// method.
     ///
     /// Pipeline:
     ///   1. Load the JPG via UIImage; pre-render upright via
@@ -3002,17 +3191,291 @@ class VideoConverterChannel {
         }
     }
 
+    // MARK: - Safe Mode v2 multi-reference enrolment (2026-05-24)
+
+    /// Outcome of `generateFaceEmbeddingsFromFrames`. The channel handler
+    /// maps each case to a structured FlutterError so the Dart side can
+    /// surface a clear UX message instead of a generic failure.
+    enum FaceEmbeddingsOutcome {
+        case success(embeddings: [Data], frontalPickIndex: Int, posesYaw: [Double], posesPitch: [Double])
+        case notEnoughFrames(accepted: Int, needed: Int)
+        case failure(String)
+    }
+
+    /// Multi-reference face enrolment — produce 1 embedding per "slot"
+    /// from a set of captured frames covering the subject's pose space.
+    ///
+    /// Pipeline (per
+    /// `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`):
+    ///   1. For each `framePaths[i]`: load via UIImage, pre-render upright
+    ///      (EXIF-respecting), run `VNDetectFaceLandmarksRequest`.
+    ///   2. Reject frames with 0 or >1 face (sweep noise / bystander) —
+    ///      they don't enter the pose-bucket pool.
+    ///   3. For each accepted frame: read pose yaw + pitch (radians,
+    ///      iOS 15+) from the VNFaceObservation.
+    ///   4. Greedy farthest-point selection in (yaw, pitch) 2D space:
+    ///      seed with the most-frontal frame (smallest |yaw| + |pitch|),
+    ///      then iteratively add the frame whose (yaw, pitch) maximises
+    ///      Euclidean distance to the nearest already-picked frame.
+    ///      Stop at `expectedSlotCount` (caller-clamped to [3, 8]).
+    ///   5. Reject the whole batch with `.notEnoughFrames` if fewer than
+    ///      3 frames have a single detectable face — per
+    ///      feedback_no_silent_fallbacks we refuse loudly rather than
+    ///      shipping a one-slot pseudo-enrolment.
+    ///   6. For each picked frame: crop the face bbox with a 20% pad
+    ///      (same as the singular path), run MobileFaceNet, collect the
+    ///      512-FP32 embedding.
+    ///   7. Return all arrays in slot order along with the index of the
+    ///      most-frontal pick (smallest |yaw| + |pitch| AMONG the slots,
+    ///      which by construction equals slot 0 in the greedy seeding
+    ///      above but is recomputed defensively in case of ties).
+    @available(iOS 15.0, *)
+    static func generateFaceEmbeddingsFromFrames(
+        framePaths: [String],
+        expectedSlotCount: Int
+    ) -> FaceEmbeddingsOutcome {
+        // ---------------------------------------------------------------
+        // Defence: arguments are pre-validated by the channel handler
+        // (non-empty + each file exists + slot count clamped) but we
+        // re-clamp here to keep the function self-contained for the
+        // bench tool / unit tests that call it directly.
+        // ---------------------------------------------------------------
+        let clampedSlotCount = max(3, min(8, expectedSlotCount))
+
+        struct AcceptedFrame {
+            let pathIndex: Int            // back-reference into framePaths
+            let uprightCG: CGImage        // upright pixel buffer
+            let width: Int
+            let height: Int
+            let faceRectNormalized: CGRect  // Vision normalized bbox (bottom-left)
+            let yaw: Double               // radians
+            let pitch: Double             // radians
+        }
+
+        var accepted: [AcceptedFrame] = []
+        accepted.reserveCapacity(framePaths.count)
+
+        for (pathIdx, path) in framePaths.enumerated() {
+            guard let uiImage = UIImage(contentsOfFile: path),
+                  let cgImage = uiImage.cgImage else {
+                // Bad frame on disk — treat as skipped rather than aborting.
+                continue
+            }
+
+            // EXIF-respecting upright pre-render, same technique as
+            // generateFaceEmbeddingFromJpg + applySafeModeV2ToPhoto.
+            let displayW: Int
+            let displayH: Int
+            switch uiImage.imageOrientation {
+            case .left, .right, .leftMirrored, .rightMirrored:
+                displayW = cgImage.height
+                displayH = cgImage.width
+            default:
+                displayW = cgImage.width
+                displayH = cgImage.height
+            }
+            let maxWorkDim = 1920
+            let displayMax = max(displayW, displayH)
+            let workScale = min(1.0, Double(maxWorkDim) / Double(displayMax))
+            let width = max(1, Int((Double(displayW) * workScale).rounded()))
+            let height = max(1, Int((Double(displayH) * workScale).rounded()))
+
+            let fmt = UIGraphicsImageRendererFormat.default()
+            fmt.scale = 1.0
+            fmt.opaque = true
+            let renderer = UIGraphicsImageRenderer(
+                size: CGSize(width: width, height: height),
+                format: fmt
+            )
+            let uprightUI = renderer.image { _ in
+                uiImage.draw(in: CGRect(x: 0, y: 0, width: width, height: height))
+            }
+            guard let uprightCG = uprightUI.cgImage else { continue }
+
+            // VNDetectFaceLandmarksRequest gives us yaw/pitch on the
+            // VNFaceObservation (iOS 15+, in radians). VNDetectFaceRectanglesRequest
+            // omits the pose info we need for greedy farthest-point picking.
+            let request = VNDetectFaceLandmarksRequest()
+            let handler = VNImageRequestHandler(
+                cgImage: uprightCG,
+                orientation: .up,
+                options: [:]
+            )
+            do {
+                try handler.perform([request])
+            } catch {
+                // One frame's Vision pass failed — skip it, continue.
+                continue
+            }
+            let observations = request.results ?? []
+            // Strictly one face: 0 = no subject visible, >1 = bystander
+            // crept in. Either way the frame is dropped from the pool.
+            if observations.count != 1 { continue }
+            let obs = observations[0]
+
+            // Pose: VNFaceObservation.yaw / .pitch are NSNumber on iOS 15+.
+            // Default to 0.0 when nil (very rare — usually means landmarks
+            // didn't lock).
+            let yawRad: Double = obs.yaw?.doubleValue ?? 0.0
+            let pitchRad: Double = obs.pitch?.doubleValue ?? 0.0
+
+            accepted.append(AcceptedFrame(
+                pathIndex: pathIdx,
+                uprightCG: uprightCG,
+                width: width,
+                height: height,
+                faceRectNormalized: obs.boundingBox,
+                yaw: yawRad,
+                pitch: pitchRad
+            ))
+        }
+
+        if accepted.count < 3 {
+            return .notEnoughFrames(accepted: accepted.count, needed: 3)
+        }
+
+        // -----------------------------------------------------------------
+        // Greedy farthest-point selection in (yaw, pitch) 2D space.
+        // Step 1: seed with the most-frontal frame (smallest |yaw|+|pitch|).
+        // Step 2: while we haven't filled `clampedSlotCount`, add the
+        //         remaining frame whose Euclidean distance to its NEAREST
+        //         already-picked frame is largest. Stop when we run out
+        //         of remaining frames.
+        // -----------------------------------------------------------------
+        var pickedIndices: [Int] = []
+        var remainingIndices = Set(0..<accepted.count)
+
+        var frontalSeed = 0
+        var frontalScore = Double.infinity
+        for i in 0..<accepted.count {
+            let score = abs(accepted[i].yaw) + abs(accepted[i].pitch)
+            if score < frontalScore {
+                frontalScore = score
+                frontalSeed = i
+            }
+        }
+        pickedIndices.append(frontalSeed)
+        remainingIndices.remove(frontalSeed)
+
+        while pickedIndices.count < clampedSlotCount && !remainingIndices.isEmpty {
+            var bestCandidate = -1
+            var bestMinDist = -1.0
+            for candidate in remainingIndices {
+                let cy = accepted[candidate].yaw
+                let cp = accepted[candidate].pitch
+                var minDist = Double.infinity
+                for picked in pickedIndices {
+                    let dy = accepted[picked].yaw - cy
+                    let dp = accepted[picked].pitch - cp
+                    let d = (dy * dy + dp * dp).squareRoot()
+                    if d < minDist { minDist = d }
+                }
+                if minDist > bestMinDist {
+                    bestMinDist = minDist
+                    bestCandidate = candidate
+                }
+            }
+            if bestCandidate < 0 { break }
+            pickedIndices.append(bestCandidate)
+            remainingIndices.remove(bestCandidate)
+        }
+
+        // -----------------------------------------------------------------
+        // Embed each picked frame's face crop. Failure of MobileFaceNet
+        // is hard — fail loud per feedback_no_silent_fallbacks rather than
+        // returning a partial slot set.
+        // -----------------------------------------------------------------
+        var embeddings: [Data] = []
+        var posesYaw: [Double] = []
+        var posesPitch: [Double] = []
+        embeddings.reserveCapacity(pickedIndices.count)
+        posesYaw.reserveCapacity(pickedIndices.count)
+        posesPitch.reserveCapacity(pickedIndices.count)
+
+        for slotIdx in pickedIndices {
+            let frame = accepted[slotIdx]
+            let r = frame.faceRectNormalized
+            let padFactor: CGFloat = 0.20
+            let padW = r.width * padFactor
+            let padH = r.height * padFactor
+            let cropX0 = max(0, (r.origin.x - padW)) * CGFloat(frame.width)
+            let cropY0Bottom = max(0, (r.origin.y - padH)) * CGFloat(frame.height)
+            let cropW = min(1.0, r.width + 2 * padW) * CGFloat(frame.width)
+            let cropH = min(1.0, r.height + 2 * padH) * CGFloat(frame.height)
+            // Flip Y: Vision is bottom-left, CGImage cropping is top-left.
+            let cropY0Top = CGFloat(frame.height) - cropY0Bottom - cropH
+            let pixelCropRect = CGRect(
+                x: cropX0.rounded(.down),
+                y: max(0, cropY0Top.rounded(.down)),
+                width: cropW.rounded(.up),
+                height: cropH.rounded(.up)
+            )
+            guard let faceCrop = frame.uprightCG.cropping(to: pixelCropRect) else {
+                return .failure(
+                    "CGImage cropping returned nil for slot \(slotIdx) rect \(pixelCropRect)"
+                )
+            }
+            do {
+                let blob = try MobileFaceNetEmbedder.shared.embed(face: faceCrop)
+                embeddings.append(blob)
+                posesYaw.append(frame.yaw)
+                posesPitch.append(frame.pitch)
+            } catch let err as MobileFaceNetEmbedderError {
+                switch err {
+                case .modelNotBundled:
+                    return .failure("MobileFaceNet.mlmodel not found in app bundle")
+                case .modelLoadFailed(let msg):
+                    return .failure("MobileFaceNet load failed: \(msg)")
+                case .preprocessingFailed(let msg):
+                    return .failure("MobileFaceNet preprocessing failed for slot \(slotIdx): \(msg)")
+                case .inferenceFailed(let msg):
+                    return .failure("MobileFaceNet inference failed for slot \(slotIdx): \(msg)")
+                case .outputShapeMismatch(let msg):
+                    return .failure("MobileFaceNet output shape mismatch for slot \(slotIdx): \(msg)")
+                }
+            } catch {
+                return .failure("MobileFaceNet unknown error for slot \(slotIdx): \(error.localizedDescription)")
+            }
+        }
+
+        // Frontal pick = slot whose pose is closest to (0, 0). By
+        // construction of the greedy seeding this is slot 0, but we
+        // recompute defensively in case ties get ordered differently
+        // by future tuning.
+        var frontalPickIndex = 0
+        var bestFrontal = Double.infinity
+        for i in 0..<posesYaw.count {
+            let s = abs(posesYaw[i]) + abs(posesPitch[i])
+            if s < bestFrontal {
+                bestFrontal = s
+                frontalPickIndex = i
+            }
+        }
+
+        return .success(
+            embeddings: embeddings,
+            frontalPickIndex: frontalPickIndex,
+            posesYaw: posesYaw,
+            posesPitch: posesPitch
+        )
+    }
+
     /// Apply Safe Mode v2 to a single JPG. Replaces the v1
     /// anchor-box `applySafeModeToPhoto` entirely.
     ///
-    /// Pipeline (per `docs/specs/2026-05-23-safe-mode-face-rec.md`):
+    /// Pipeline (per `docs/specs/2026-05-23-safe-mode-face-rec.md`,
+    /// multi-reference update
+    /// `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`):
     ///   1. Pre-render the source upright (same UIGraphics technique
     ///      as v1) and allocate a working BGRA pixel buffer at
     ///      <=1920px max-dim.
     ///   2. Run face detection on the upright buffer.
     ///   3. For every detected face: crop, embed via MobileFaceNet,
-    ///      compute cosine similarity vs `subjectEmbedding`. The face
-    ///      with max similarity is the subject — IFF max >= threshold.
+    ///      compute the MAXIMUM cosine similarity across every entry
+    ///      in `subjectEmbeddings`. The face with the highest per-face
+    ///      max-cosSim is the subject candidate; the hybrid pick-highest
+    ///      rule (solo-floor vs multi-relative) decides whether to
+    ///      accept it.
     ///   4. Run PersonSegmenter on the same buffer.
     ///   5. Subject identified mode: scanline-flood-fill the segmentation
     ///      mask from the subject face centroid to find the connected
@@ -3033,11 +3496,20 @@ class VideoConverterChannel {
     /// detected — surfaces the "subject not recognised, fell through
     /// to no-subject mode" signal so the Dart side can decide whether
     /// to nudge the practitioner.
+    ///
+    /// Multi-reference semantics (2026-05-24): `subjectEmbeddings` is
+    /// a 1–8 element array. With one element the behaviour is identical
+    /// to the original single-reference signature (back-compat for the
+    /// legacy single-avatar callers). With multiple elements the
+    /// per-face cosSim is taken as the MAX across all references —
+    /// catches subjects at off-frontal angles whose own forward
+    /// embedding scores poorly but whose three-quarter or profile
+    /// reference matches well.
     @available(iOS 15.0, *)
     static func applySafeModeV2ToPhoto(
         srcPath: String,
         destPath: String,
-        subjectEmbedding: Data,
+        subjectEmbeddings: [Data],
         threshold: Double
     ) -> SafeModePhotoOutcome {
         guard FileManager.default.fileExists(atPath: srcPath) else {
@@ -3047,11 +3519,21 @@ class VideoConverterChannel {
               let cgImage = uiImage.cgImage else {
             return .failure("Could not decode source photo: \(srcPath)")
         }
-        guard subjectEmbedding.count == MobileFaceNetEmbedder.embeddingByteLength else {
+        guard !subjectEmbeddings.isEmpty else {
+            return .failure("subjectEmbeddings must contain at least one embedding")
+        }
+        guard subjectEmbeddings.count <= 8 else {
             return .failure(
-                "subjectEmbedding wrong size — got \(subjectEmbedding.count) bytes, " +
-                "expected \(MobileFaceNetEmbedder.embeddingByteLength)"
+                "subjectEmbeddings must contain at most 8 embeddings — got \(subjectEmbeddings.count)"
             )
+        }
+        for (idx, emb) in subjectEmbeddings.enumerated() {
+            if emb.count != MobileFaceNetEmbedder.embeddingByteLength {
+                return .failure(
+                    "subjectEmbeddings[\(idx)] wrong size — got \(emb.count) bytes, " +
+                    "expected \(MobileFaceNetEmbedder.embeddingByteLength)"
+                )
+            }
         }
 
         // --- Upright pre-render at <=1920px max-dim (same as v1) ---
@@ -3172,7 +3654,7 @@ class VideoConverterChannel {
             let pixelRectTopLeft: CGRect     // Top-left origin, in upright pixel coords
             let centerXPx: Int
             let centerYPx: Int
-            let cosSim: Double               // vs subjectEmbedding
+            let cosSim: Double               // MAX across all entries in subjectEmbeddings
             /// Face-contour polygon in upright pixel coords (top-left origin).
             /// nil when Vision returned no landmarks for this face (rare) — the
             /// painter falls back to bbox-only in that case.
@@ -3210,7 +3692,17 @@ class VideoConverterChannel {
             var sim: Double = -1.0
             do {
                 let embed = try MobileFaceNetEmbedder.shared.embed(face: crop)
-                sim = MobileFaceNetEmbedder.cosineSimilarity(embed, subjectEmbedding)
+                // Multi-reference: take the MAX cosSim across all
+                // enrolled reference embeddings for this client. Any
+                // single matching reference suffices to claim the face;
+                // a profile face only needs to score against the profile
+                // reference, not the frontal one.
+                var bestRefSim: Double = -2.0
+                for ref in subjectEmbeddings {
+                    let s = MobileFaceNetEmbedder.cosineSimilarity(embed, ref)
+                    if s > bestRefSim { bestRefSim = s }
+                }
+                sim = bestRefSim
             } catch {
                 // One face's embed failed — don't kill the whole pass.
                 // Treat as no-match (low cos), continue with the others.
@@ -3300,10 +3792,10 @@ class VideoConverterChannel {
             )
         }
         os_log(
-            "[SafeMode v2] faces=%{public}d soloFloor=%{public}.2f bestSim=%{public}.3f subjectIdentified=%{public}@ branch=%{public}@",
+            "[SafeMode v2] refs=%{public}d faces=%{public}d soloFloor=%{public}.2f bestSim=%{public}.3f subjectIdentified=%{public}@ branch=%{public}@",
             log: safeModeLog,
             type: .info,
-            faces.count, threshold, bestSim,
+            subjectEmbeddings.count, faces.count, threshold, bestSim,
             subjectIdentified ? "true" : "false",
             branchReason
         )

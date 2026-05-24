@@ -70,25 +70,40 @@ enum SafeModeV2PipelineError: Error {
 
 enum SafeModeV2Pipeline {
 
-    /// Run the v2 photo pipeline against `srcPath` with `subjectEmbedding`
-    /// and `params`, writing the safe variant to `destPath`. Returns a
-    /// `SafeModeV2PipelineReport` with every internal decision the iOS
-    /// pipeline makes — that's the whole point of this tool.
+    /// Run the v2 photo pipeline against `srcPath` with `subjectEmbeddings`
+    /// (1–8 reference vectors) and `params`, writing the safe variant to
+    /// `destPath`. Returns a `SafeModeV2PipelineReport` with every internal
+    /// decision the iOS pipeline makes — that's the whole point of this
+    /// tool.
+    ///
+    /// Multi-reference (2026-05-24) — the per-face cosSim is the MAX
+    /// across every entry in `subjectEmbeddings`. Passing a one-element
+    /// array reproduces the pre-multi-reference behaviour exactly
+    /// (back-compat — verified by the bench tool's `--smoke-test`
+    /// flag).
     static func run(
         srcPath: String,
         destPath: String,
-        subjectEmbedding: Data,
+        subjectEmbeddings: [Data],
         params: SafeModeV2PipelineParams
     ) throws -> SafeModeV2PipelineReport {
 
         guard FileManager.default.fileExists(atPath: srcPath) else {
             throw SafeModeV2PipelineError.sourceNotFound(srcPath)
         }
-        guard subjectEmbedding.count == MobileFaceNetEmbedder.embeddingByteLength else {
+        guard !subjectEmbeddings.isEmpty else {
             throw SafeModeV2PipelineError.wrongEmbeddingSize(
-                actual: subjectEmbedding.count,
+                actual: 0,
                 expected: MobileFaceNetEmbedder.embeddingByteLength
             )
+        }
+        for emb in subjectEmbeddings {
+            guard emb.count == MobileFaceNetEmbedder.embeddingByteLength else {
+                throw SafeModeV2PipelineError.wrongEmbeddingSize(
+                    actual: emb.count,
+                    expected: MobileFaceNetEmbedder.embeddingByteLength
+                )
+            }
         }
 
         // 1. Load the source CGImage + raw EXIF orientation via ImageIO.
@@ -247,7 +262,17 @@ enum SafeModeV2Pipeline {
             var sim: Double = -1.0
             do {
                 let embed = try MobileFaceNetEmbedder.shared.embed(face: crop)
-                sim = MobileFaceNetEmbedder.cosineSimilarity(embed, subjectEmbedding)
+                // Multi-reference (2026-05-24): take the MAX cosSim
+                // across all enrolled reference embeddings. Identical
+                // semantics to the iOS pipeline; with a one-element
+                // reference array this degenerates to the original
+                // single-reference path byte-for-byte.
+                var bestRefSim: Double = -2.0
+                for ref in subjectEmbeddings {
+                    let s = MobileFaceNetEmbedder.cosineSimilarity(embed, ref)
+                    if s > bestRefSim { bestRefSim = s }
+                }
+                sim = bestRefSim
             } catch {
                 FileHandle.standardError.write(
                     "[SafeMode v2] face embed failed for one bbox: \(error.localizedDescription)\n"
