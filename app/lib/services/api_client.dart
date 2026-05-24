@@ -1346,13 +1346,7 @@ class ApiClient {
         params: {'p_practice_id': practiceId},
       ),
     );
-    Map<String, dynamic>? row;
-    if (result is Map<String, dynamic>) {
-      row = result;
-    } else if (result is List && result.isNotEmpty) {
-      final first = result.first;
-      if (first is Map<String, dynamic>) row = first;
-    }
+    final row = _extractMapFromResult(result);
     if (row == null) {
       throw StateError('referral_dashboard_stats returned no row');
     }
@@ -1377,13 +1371,7 @@ class ApiClient {
           params: {'p_plan_id': planId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _extractMapFromResult(result);
       if (row == null) return null;
       return PlanAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1405,13 +1393,7 @@ class ApiClient {
           params: {'p_client_id': clientId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _extractMapFromResult(result);
       if (row == null) return null;
       return ClientAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1496,24 +1478,11 @@ class ReferralStats {
   );
 
   factory ReferralStats.fromJson(Map<String, dynamic> json) {
-    num asNum(dynamic v) {
-      if (v is num) return v;
-      if (v is String) return num.tryParse(v) ?? 0;
-      return 0;
-    }
-
-    int asInt(dynamic v) {
-      if (v is int) return v;
-      if (v is num) return v.toInt();
-      if (v is String) return int.tryParse(v) ?? 0;
-      return 0;
-    }
-
     return ReferralStats(
-      rebateBalanceCredits: asNum(json['rebate_balance_credits']),
-      lifetimeRebateCredits: asNum(json['lifetime_rebate_credits']),
-      refereeCount: asInt(json['referee_count']),
-      qualifyingSpendTotalZar: asNum(json['qualifying_spend_total_zar']),
+      rebateBalanceCredits: _asNum(json['rebate_balance_credits']),
+      lifetimeRebateCredits: _asNum(json['lifetime_rebate_credits']),
+      refereeCount: _asInt(json['referee_count']),
+      qualifyingSpendTotalZar: _asNum(json['qualifying_spend_total_zar']),
     );
   }
 }
@@ -1731,6 +1700,24 @@ int? _asNullableInt(dynamic v) {
   if (v is int) return v;
   if (v is num) return v.toInt();
   if (v is String) return int.tryParse(v);
+  return null;
+}
+
+num _asNum(dynamic v) {
+  if (v is num) return v;
+  if (v is String) return num.tryParse(v) ?? 0;
+  return 0;
+}
+
+/// Normalises the two shapes that PostgREST returns for a single-row RPC:
+/// a bare `Map<String, dynamic>` (RETURNS record) or a `List` wrapping one
+/// row (RETURNS TABLE). Returns `null` when neither shape matches.
+Map<String, dynamic>? _extractMapFromResult(dynamic result) {
+  if (result is Map<String, dynamic>) return result;
+  if (result is List && result.isNotEmpty) {
+    final first = result.first;
+    if (first is Map<String, dynamic>) return first;
+  }
   return null;
 }
 
