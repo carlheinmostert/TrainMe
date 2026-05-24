@@ -16,6 +16,7 @@ This script verifies the end-to-end round-trip: enrol on device → 2048 bytes l
 - [C. Capture screen unblocks once embedding ready](#c-capture-screen-unblocks-once-embedding-ready)
 - [D. Capture-time face matching (v2 photo pipeline)](#d-capture-time-face-matching-v2-photo-pipeline)
 - [E. Debug-gated v2 threshold tuning sheet](#e-debug-gated-v2-threshold-tuning-sheet)
+- [F. Portal audit feed includes capture events](#f-portal-audit-feed-includes-capture-events)
 
 ## Prerequisites
 
@@ -72,3 +73,17 @@ Verifies the long-press tuning sheet that lets us iterate on the v2 face-match t
 - [ ] 21. Long-press the Hero thumbnail on a Safe-Mode photo Studio card → tuning sheet slides up. (Previously the long-press was swallowed by drag-to-reorder.) Verify that long-pressing the TEXT column of the same card still triggers drag-to-reorder (long-press elsewhere on the card → card lifts for drag).
 - [ ] 22. Long-press the bottom-rail Hero thumb in the editor sheet (small 56x40 thumbnail in the header) → tuning sheet slides up.
 - [ ] 23. Open the tuning sheet from any surface. The preview thumbnail at the top of the sheet is now prominently sized (about half the sheet height) with a "Safe variant — re-composites live as you drag" label. Drag the slider; the preview updates with a brief coral border flash on each successful re-composite.
+
+## F. Portal audit feed includes capture events
+
+Verifies the unified `/audit` page now shows every photo and video captured alongside plan publishes, credits, members, etc. Backed by the extended `list_practice_audit` RPC + the `capture_audit_events` table populated by PR #462.
+
+- [ ] 24. Take a photo while inside an enforcing premises (Safe Mode active). Open the portal `/audit` page on the same practice (`https://manage.homefit.studio/audit?practice=<staging_practice_id>`). A new row appears at the top with the kind chip **Photo captured** (coral), actor = you (your practitioner email), client = the active session's client (linked), and the description column shows `Photo captured · build <sha>` with a coral **Safe Mode** badge and a grey premises-name badge underneath. SQL spot-check via `mcp__supabase__execute_sql` against staging project `vadjvkmldtoeyspyoqbx`:
+  ```sql
+  SELECT id, kind, started_at, metadata
+  FROM capture_audit_events
+  WHERE trainer_id = '<your_user_id>'
+  ORDER BY started_at DESC LIMIT 3;
+  ```
+  Expected: most recent row has `kind = 'photo'`, `metadata->>'safe_mode_active' = 'true'`, `metadata->>'exercise_id'` matching the photo just captured.
+- [ ] 25. Sign in to the portal as a different practice owner (or switch active practice via the practice picker chip) and reload `/audit`. The capture event from item 24 must NOT appear in this practice's feed — RLS scoping via `user_practice_ids()` holds. Repeat with `?practice=<other_practice_id>` in the URL to belt-and-braces the practice-scoping.

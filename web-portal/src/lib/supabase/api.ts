@@ -1751,6 +1751,12 @@ export const AUDIT_EVENT_KINDS = [
   // fallback copy for any stale audit_events rows with those kinds, but
   // they no longer surface as filter chips.
   'practice.rename',
+  // 2026-05-24 — every photo + video capture surfaces in the unified
+  // audit feed. Emitted by the `capture_audit_events` source branch in
+  // list_practice_audit. Meta carries safe_mode_active + premises_name
+  // + app_version for the row renderer.
+  'capture.photo',
+  'capture.video',
 ] as const;
 
 export type AuditEventKind = (typeof AUDIT_EVENT_KINDS)[number];
@@ -1765,6 +1771,11 @@ export function auditChipTone(kind: string): AuditChipTone {
   switch (kind) {
     case 'plan.publish':
     case 'credit.consumption':
+    // 2026-05-24 — captures are practitioner production activity, same
+    // coral bucket as plan publishes. The Safe Mode badge in the
+    // description column carries the privacy/premises signal separately.
+    case 'capture.photo':
+    case 'capture.video':
       return 'coral';
     // Wave 39 — sage for client-engagement reads (distinct from coral
     // practitioner-publish events).
