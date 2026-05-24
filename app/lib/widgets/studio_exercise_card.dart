@@ -306,20 +306,22 @@ class StudioExerciseCard extends StatelessWidget {
 // Helpers
 // =============================================================================
 
-/// Safe Mode v2 debug-tuning long-press wrap. Adds a translucent
-/// gesture detector that fires the threshold-tuning sheet ONLY when
-/// all three conditions hold:
+/// Safe Mode v2 debug-tuning long-press wrap. Adds a gesture detector
+/// that fires the threshold-tuning sheet ONLY when all three conditions
+/// hold:
 ///
 ///   * [debugTuningGateActive] returns true (debug build or
 ///     `ENV=staging`)
 ///   * the exercise is a photo (v2 video Safe Mode is deferred)
 ///   * the exercise was captured with Safe Mode active
 ///
-/// Otherwise the child is returned untouched so the parent card's
-/// long-press still bubbles up to its own `ReorderableDelayedDrag-
-/// StartListener` for drag-to-reorder. `HitTestBehavior.deferToChild`
-/// keeps normal taps + drags flowing to the underlying MiniPreview
-/// without disturbing them.
+/// `HitTestBehavior.opaque` is load-bearing here: this wrap sits inside
+/// `ReorderableDelayedDragStartListener` which itself consumes long-press
+/// for drag-to-reorder. With `deferToChild` (the previous behaviour) the
+/// reorder listener won every long-press over the Hero thumb and the
+/// tuning sheet never opened. `opaque` makes this wrapper the recognised
+/// long-press target for the thumb region while the rest of the card
+/// (text column etc.) still routes long-press to drag-to-reorder.
 Widget _maybeWrapWithSafeModeV2LongPress({
   required BuildContext context,
   required ExerciseCapture exercise,
@@ -330,7 +332,7 @@ Widget _maybeWrapWithSafeModeV2LongPress({
       exercise.safeModeActive;
   if (!eligible) return child;
   return GestureDetector(
-    behavior: HitTestBehavior.deferToChild,
+    behavior: HitTestBehavior.opaque,
     onLongPress: () => showSafeModeV2TuningSheet(context, exercise),
     child: child,
   );

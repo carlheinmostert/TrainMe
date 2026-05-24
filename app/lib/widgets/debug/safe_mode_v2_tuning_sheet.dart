@@ -87,7 +87,9 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
   bool _loadingPrefs = true;
   bool _reprocessing = false;
   int _previewKey = 0;
+  bool _flashActive = false;
   Timer? _debounce;
+  Timer? _flashTimer;
 
   @override
   void initState() {
@@ -98,6 +100,7 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _flashTimer?.cancel();
     super.dispose();
   }
 
@@ -144,11 +147,25 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
       _reprocessing = false;
       if (ok) _previewKey++;
     });
-    if (!ok) {
+    if (ok) {
+      _triggerFlash();
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Couldn't re-process — try again.")),
       );
     }
+  }
+
+  /// 250ms coral border pulse on the preview to give the user a visible
+  /// confirmation that the re-composite landed. Without this the slider
+  /// can feel inert because the on-disk swap is silent.
+  void _triggerFlash() {
+    _flashTimer?.cancel();
+    setState(() => _flashActive = true);
+    _flashTimer = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() => _flashActive = false);
+    });
   }
 
   Future<void> _saveAsDefault() async {
@@ -198,6 +215,10 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
     final media = MediaQuery.of(context);
     final maxHeight = media.size.height * 0.85;
     final previewPath = _resolvePreviewPath();
+    // Preview takes ~48% of the sheet so the user's eye lands here, not
+    // on the Demo canvas behind the sheet (which shows the line/raw
+    // treatment, not the safe variant the slider is editing).
+    final previewHeight = maxHeight * 0.48;
 
     return SafeArea(
       top: false,
@@ -216,11 +237,15 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
             children: [
               _GrabberHandle(),
               const SizedBox(height: 8),
-              Expanded(
+              const _PreviewLabel(),
+              const SizedBox(height: 6),
+              SizedBox(
+                height: previewHeight,
                 child: _PhotoPreview(
                   filePath: previewPath,
                   reprocessing: _reprocessing,
                   refreshKey: _previewKey,
+                  flashActive: _flashActive,
                 ),
               ),
               const SizedBox(height: 16),
@@ -316,57 +341,90 @@ class _PhotoPreview extends StatelessWidget {
     required this.filePath,
     required this.reprocessing,
     required this.refreshKey,
+    required this.flashActive,
   });
 
   final String? filePath;
   final bool reprocessing;
   final int refreshKey;
+  final bool flashActive;
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.surfaceBase,
-          borderRadius: BorderRadius.circular(12),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: flashActive
+              ? AppColors.primary
+              : AppColors.surfaceBorder.withValues(alpha: 0.0),
+          width: 2,
         ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (filePath != null)
-              Image.file(
-                File(filePath!),
-                // Key combines refreshKey + filePath so a reprocess that
-                // overwrites the same file path still forces a re-read
-                // from disk (otherwise Flutter's ImageCache returns the
-                // pre-reprocess bytes).
-                key: ValueKey('preview-$refreshKey-$filePath'),
-                fit: BoxFit.contain,
-                gaplessPlayback: true,
-                errorBuilder: (_, _, _) =>
-                    const _PreviewPlaceholder(message: 'Preview unavailable'),
-              )
-            else
-              const _PreviewPlaceholder(message: 'No image to show'),
-            if (reprocessing)
-              Container(
-                color: Colors.black.withValues(alpha: 0.35),
-                child: const Center(
-                  child: SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        AppColors.primary,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.surfaceBase,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (filePath != null)
+                Image.file(
+                  File(filePath!),
+                  // Key combines refreshKey + filePath so a reprocess that
+                  // overwrites the same file path still forces a re-read
+                  // from disk (otherwise Flutter's ImageCache returns the
+                  // pre-reprocess bytes).
+                  key: ValueKey('preview-$refreshKey-$filePath'),
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) =>
+                      const _PreviewPlaceholder(message: 'Preview unavailable'),
+                )
+              else
+                const _PreviewPlaceholder(message: 'No image to show'),
+              if (reprocessing)
+                Container(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          AppColors.primary,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _PreviewLabel extends StatelessWidget {
+  const _PreviewLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Text(
+      'Safe variant — re-composites live as you drag',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 12,
+        color: AppColors.textSecondaryOnDark,
+        letterSpacing: 0.2,
       ),
     );
   }
