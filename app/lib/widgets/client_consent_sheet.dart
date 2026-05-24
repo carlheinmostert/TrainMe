@@ -188,6 +188,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         );
       }
 
+      if (!mounted) return;
       setState(() => _saving = false);
       widget.onSaved?.call(updated);
       Navigator.of(context).pop(updated);
