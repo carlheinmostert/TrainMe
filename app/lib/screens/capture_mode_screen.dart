@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -2535,6 +2536,18 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // local SQLite), prime FaceEmbeddingService so the Safe Mode banner
     // skips the "Prepare a face fingerprint" CTA on relaunch.
     final embedding = cached?.faceEmbedding;
+    // Diagnostics 2026-05-24: log every cold-start lookup so Console.app
+    // shows whether the SQLite row was found AND whether the embedding
+    // column has bytes. "faceEmbedding.length=null" means the row exists
+    // but face_embedding is NULL — the write-side bug. A missing log
+    // entry entirely means _refreshCachedClient never fired.
+    if (kDebugMode || AppConfig.env == 'staging') {
+      debugPrint(
+        '[CaptureScreen] _refreshCachedClient: cid=$cid '
+        'cachedRowFound=${cached != null} '
+        'faceEmbedding.length=${embedding?.length ?? "null"}',
+      );
+    }
     if (embedding != null && embedding.isNotEmpty) {
       FaceEmbeddingService.instance.hydrateFromBytes(cid, embedding);
     }

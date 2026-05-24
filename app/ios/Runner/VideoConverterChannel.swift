@@ -6,6 +6,20 @@ import Vision
 import CoreVideo
 import CoreImage
 import Metal
+import os.log
+
+// MARK: - Safe Mode v2 diagnostics log
+//
+// Console.app-visible structured log for the face-recognition path.
+// Filter in Console.app on subsystem `studio.homefit.app.dev` +
+// category `SafeMode` (or grep `[SafeMode v2]`) to follow per-capture
+// face matching + threshold values during device QA. All values use the
+// `%{public}` format specifier so they survive profile-build redaction
+// (bare `%d`/`%.3f` would otherwise show as `<private>` in Console.app).
+private let safeModeLog = OSLog(
+    subsystem: "studio.homefit.app.dev",
+    category: "SafeMode"
+)
 
 // MARK: - Line-drawing tuning constants (tweak-and-reinstall friendly)
 //
@@ -3273,11 +3287,22 @@ class VideoConverterChannel {
             branchReason = "multi-relative"
         }
 
+        // Diagnostics 2026-05-24: switched from bare NSLog to os_log with
+        // %{public} format specifiers so cosSim / threshold / bestSim
+        // values are readable in Console.app on profile builds (bare
+        // %d / %.3f are masked to <private> by default).
         for (i, f) in faces.enumerated() {
-            NSLog("[SafeMode v2] face[%d] cosSim=%.3f", i, f.cosSim)
+            os_log(
+                "[SafeMode v2] face[%{public}d] cosSim=%{public}.3f",
+                log: safeModeLog,
+                type: .info,
+                i, f.cosSim
+            )
         }
-        NSLog(
-            "[SafeMode v2] faces=%d soloFloor=%.2f bestSim=%.3f subjectIdentified=%@ branch=%@",
+        os_log(
+            "[SafeMode v2] faces=%{public}d soloFloor=%{public}.2f bestSim=%{public}.3f subjectIdentified=%{public}@ branch=%{public}@",
+            log: safeModeLog,
+            type: .info,
             faces.count, threshold, bestSim,
             subjectIdentified ? "true" : "false",
             branchReason

@@ -19,6 +19,7 @@ This script verifies the end-to-end round-trip: enrol on device → 2048 bytes l
 - [F. Portal audit feed includes capture events](#f-portal-audit-feed-includes-capture-events)
 - [G. Mac CLI bench tool (developer-only)](#g-mac-cli-bench-tool-developer-only--not-part-of-device-qa)
 - [H. Hybrid pick-highest threshold rule (2026-05-24)](#h-hybrid-pick-highest-threshold-rule-2026-05-24)
+- [I. Console.app diagnostics for hydration-path debugging](#i-consoleapp-diagnostics-for-hydration-path-debugging)
 
 ## Prerequisites
 
@@ -110,3 +111,24 @@ The privacy gap for bystander-alone-no-client (item 30 below) is intentional und
 - [ ] 28. Solo selfie at a sideways angle. With consent ON + embedding cached + inside an enforcing premises, take a photo of yourself at a deliberate sideways pose (head turned ~45° away from camera, mimics IMG_1375). Open the Studio card thumbnail — your face should remain sharp. Under the old absolute-threshold rule this same shot would have dropped into no-subject mode and the entire frame's mask-positive region would have been blurred (~17% of frame painted coral). Under the new rule the solo-floor branch identifies you regardless. Pull device logs and look for `[SafeMode v2] faces=1 soloFloor=0.10 bestSim=0.### subjectIdentified=true branch=solo-floor`.
 - [ ] 29. Group photo, relative pick wins. With consent ON + embedding cached + inside an enforcing premises, take a photo where you and a bystander are both in frame. The bystander's face must be coral-overlay'd in the safe variant; your face stays sharp. Critically: this must hold even when the bystander has a higher absolute cosSim than would have passed the old 0.5 gate — what matters is that YOU score higher than the bystander, not that you both clear an absolute floor. Pull device logs and confirm `branch=multi-relative`.
 - [ ] 30. Bystander alone (no client in frame) — INTENTIONALLY PERMISSIVE. With consent ON + embedding cached + inside an enforcing premises, have a bystander stand alone in front of the camera. You step out of frame. Take a photo. The bystander's face will be SHARP (subject identified via the solo-floor branch, because cosSim 0.15-0.40 still clears the 0.10 floor). This is the **intended** behaviour under the workshop rule — the practitioner pointed the camera deliberately; we trust the intent. The privacy gap closes when multi-reference enrolment ships (spec at `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`) so a single reference selfie no longer has to discriminate against every other human face. Pull device logs and confirm `branch=solo-floor subjectIdentified=true`. If the bystander's cosSim happens to fall below the 0.10 floor (rare — unrelated faces typically cluster 0.15-0.40), they will be blurred via the no-subject head-expansion fallback.
+
+## I. Console.app diagnostics for hydration-path debugging
+
+Verifies the diagnostics instrumentation added 2026-05-24 to trace why item 26 / item 17 may still re-prompt the CTA after force-quit on Carl's device. PR #461 (cold-start hydration READ side) + PR #467 (enrol-time SQLite WRITE side) are correct in source; this section captures device-side observable behaviour so the actual failure mode is visible without rebuilding. Debug prints are gated by `kDebugMode || AppConfig.env == 'staging'` so they never spew in prod release builds; iOS-native `os_log` always emits but is low-volume.
+
+- [ ] 31. Console.app reproduction protocol for the "CTA returns after force-quit" bug:
+  1. Connect the iPhone to the Mac with the staging build installed. Open **Console.app** on the Mac, select the iPhone CHM in the left sidebar (under Devices), and start streaming.
+  2. In the Console.app search bar, filter by typing one of: `[FaceEmbeddingService]`, `[LocalStorage]`, `[CaptureScreen]`, or `[SafeMode v2]`. Each tag scopes to one diagnostic layer; start with `[CaptureScreen]` to see whether `_refreshCachedClient` fires at all.
+  3. On the phone: enrol an embedding for a test client (items 1-4 if not already done). You should see `[FaceEmbeddingService] local SQLite write succeeded for client=<uuid>, bytes=2048` AND `[LocalStorage] cached_clients.face_embedding UPDATE rowsAffected=1 for client=<uuid> bytes=2048` in the Console stream. If `rowsAffected=0` instead, the cached_clients row doesn't exist locally yet — SyncService hasn't pulled the client, and that's a separate bug (the WRITE silently no-ops).
+  4. Force-quit the app (swipe up + flick away). Relaunch. Open the same client → new session.
+  5. Read the Console.app log lines emitted between launch and the Safe Mode banner rendering:
+     - `[CaptureScreen] _refreshCachedClient: cid=<uuid> cachedRowFound=true faceEmbedding.length=2048` → SQLite has the bytes. Hydration should fire.
+     - `[FaceEmbeddingService] hydrateFromBytes called: cid=<uuid> bytes=2048` immediately after → the wire-up is good.
+     - `[FaceEmbeddingService] hydrateFromBytes promoted state to ready for cid=<uuid>` → banner should now skip the CTA.
+  6. Interpret the failure mode from what's missing:
+     - `_refreshCachedClient` logs `faceEmbedding.length=null` → SQLite WRITE didn't persist (Bug A — check what `rowsAffected` showed at enrol time).
+     - `_refreshCachedClient` logs a non-null length but `hydrateFromBytes` never logs → call-site wire-up bug.
+     - `hydrateFromBytes` IS called and promotes to ready, but the banner still shows the CTA → state-machine bug in `_safeModeV2State` or banner widget.
+     - `_refreshCachedClient` never logs at all → the session never ran the refresh on cold start (Bug C — early-return path in initState).
+  7. For the iOS-native face-match values during a capture, filter Console.app by `[SafeMode v2]`. The `face[N] cosSim=0.XYZ` lines + `faces=N threshold=0.XY bestSim=0.XYZ subjectIdentified=true` summary line now use `os_log` with `%{public}` format specifiers (subsystem `studio.homefit.app.dev`, category `SafeMode`) so values render as numbers, not `<private>`. Confirm the cosSim values are visible on a profile build.
+  8. Send Carl the matching log excerpt (copy-paste from Console.app, 10-20 lines around the relaunch event) so the root cause is unambiguous before authoring the actual fix PR.
