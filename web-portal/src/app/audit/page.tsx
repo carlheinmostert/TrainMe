@@ -159,7 +159,8 @@ export default async function AuditPage({
             <h1 className="font-heading text-3xl font-bold">Audit log</h1>
             <p className="mt-2 text-sm text-ink-muted">
               Every event in this practice — publishes, credits, members,
-              invites, clients. Visible to every practice member.
+              clients, and every photo or video captured. Visible to every
+              practice member.
             </p>
           </div>
           <AuditCsvButton
@@ -327,6 +328,7 @@ function AuditTableRow({
         {subtitle ? (
           <div className="mt-1 text-xs text-ink-dim">{subtitle}</div>
         ) : null}
+        <CaptureBadges row={row} />
       </td>
       <td className="px-4 py-3">
         <ClientCell clientId={row.clientId} clientName={row.clientName} />
@@ -449,6 +451,40 @@ function KindChip({ kind, tone }: { kind: string; tone: AuditChipTone }) {
     >
       {kindLabel(kind)}
     </span>
+  );
+}
+
+/** 2026-05-24 — small inline badges that surface capture-row context that
+ *  doesn't fit the existing columns: a coral "Safe Mode" pill when the
+ *  practitioner was inside an enforcing polygon at capture time, and the
+ *  premises name as a discreet grey chip. Renders nothing for non-capture
+ *  rows so it's safe to mount unconditionally on every row. */
+function CaptureBadges({ row }: { row: AuditRow }) {
+  if (row.kind !== 'capture.photo' && row.kind !== 'capture.video') {
+    return null;
+  }
+  const meta = row.meta;
+  const safeModeActive = Boolean(meta?.safe_mode_active);
+  const premisesName =
+    meta && typeof meta.premises_name === 'string' && meta.premises_name.length > 0
+      ? (meta.premises_name as string)
+      : null;
+  if (!safeModeActive && !premisesName) {
+    return null;
+  }
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {safeModeActive ? (
+        <span className="inline-block rounded-full bg-brand-tint-bg px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand">
+          Safe Mode
+        </span>
+      ) : null}
+      {premisesName ? (
+        <span className="inline-block rounded-full bg-surface-raised px-2 py-0.5 text-[10px] font-medium text-ink-muted">
+          {premisesName}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -663,6 +699,9 @@ function kindLabel(kind: string): string {
     'invite.claim': 'Invite claimed',
     'invite.revoke': 'Invite revoked',
     'practice.rename': 'Practice rename',
+    // 2026-05-24 — unified audit feed adds every photo + video capture.
+    'capture.photo': 'Photo captured',
+    'capture.video': 'Video captured',
   };
   if (map[kind]) return map[kind];
   return kind.replaceAll('.', ' ').replaceAll('_', ' ');
@@ -747,6 +786,18 @@ function buildDescription(row: AuditRow): string {
       return 'Invite code revoked';
     case 'practice.rename':
       return 'Practice renamed';
+    case 'capture.photo':
+    case 'capture.video': {
+      // 2026-05-24 — captures don't carry a per-row title; render the
+      // app-version when available so the practitioner can correlate the
+      // event with a known build. Falls back to the bare kind label.
+      const appVersion =
+        row.meta && typeof row.meta.app_version === 'string'
+          ? (row.meta.app_version as string)
+          : null;
+      const base = row.kind === 'capture.photo' ? 'Photo captured' : 'Video captured';
+      return appVersion ? `${base} · build ${appVersion}` : base;
+    }
     default:
       return row.title ?? kindLabel(row.kind);
   }
@@ -833,7 +884,7 @@ function buildKindGroups(): {
     AuditChipTone,
     { tone: AuditChipTone; label: string; kinds: KindOption[] }
   > = {
-    coral: { tone: 'coral', label: 'Plan / burn', kinds: [] },
+    coral: { tone: 'coral', label: 'Plan / capture / burn', kinds: [] },
     sage: { tone: 'sage', label: 'Credits in', kinds: [] },
     red: { tone: 'red', label: 'Destructive', kinds: [] },
     grey: { tone: 'grey', label: 'Neutral', kinds: [] },

@@ -945,6 +945,8 @@ export type Database = {
         }
         Returns: {
           balance_after: number
+          client_id: string
+          client_name: string
           credits_delta: number
           email: string
           full_name: string
