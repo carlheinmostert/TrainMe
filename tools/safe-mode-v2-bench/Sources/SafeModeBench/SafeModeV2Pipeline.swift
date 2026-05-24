@@ -1,0 +1,714 @@
+//
+//  SafeModeV2Pipeline.swift  (bench)
+//
+//  macOS-compatible mirror of `VideoConverterChannel.applySafeModeV2ToPhoto`
+//  (app/ios/Runner/VideoConverterChannel.swift). The pipeline itself is
+//  identical step-for-step; the only swaps are the UIKit-specific pieces
+//  that don't exist on macOS:
+//
+//   - UIImage(contentsOfFile:) -> CGImageSourceCreateImageAtIndex
+//   - UIImage.imageOrientation -> kCGImagePropertyOrientation read from
+//     the CGImageSource (then a manual CGContext rotate/draw to upright)
+//   - UIGraphicsImageRenderer -> bitmap CGContext.draw
+//   - UIImage.jpegData -> CGImageDestination (kUTTypeJPEG)
+//
+//  The diagnostic block at the end of the pipeline prints every internal
+//  decision (per-face cosSim, subject choice, mask coverage, blur
+//  fraction) so a developer running the CLI sees what NSLog would
+//  surface on device. This is the whole point of the bench tool —
+//  iOS NSLog is invisible via `idevicesyslog` on the v2 wave so we need
+//  a developer-machine surface that prints to stdout.
+
+import Foundation
+import CoreGraphics
+import CoreImage
+import CoreVideo
+import ImageIO
+import UniformTypeIdentifiers
+import Vision
+import Metal
+
+struct SafeModeV2PipelineParams {
+    var threshold: Double = 0.5
+    var headWidthFactor: CGFloat = 2.0
+    var headHeightFactor: CGFloat = 1.5
+    var maxAreaFraction: Double = 0.35
+    /// Max working dimension. Mirrors the iOS pipeline's 1920 clamp.
+    var maxWorkDim: Int = 1920
+}
+
+struct SafeModeV2FaceReport {
+    let index: Int
+    let bboxPixels: CGRect
+    let cosSim: Double
+    let rank: Int  // 1 = highest cosSim
+}
+
+struct SafeModeV2PipelineReport {
+    let width: Int
+    let height: Int
+    let faces: [SafeModeV2FaceReport]
+    let threshold: Double
+    let bestSim: Double
+    let subjectIdentified: Bool
+    let subjectIdx: Int?
+    let maskPositivePixels: Int
+    let totalPixels: Int
+    let subjectComponentPixels: Int  // 0 when no subject identified
+    let blurPixels: Int               // count of keepMask==0 pixels
+    let outputPath: String
+}
+
+enum SafeModeV2PipelineError: Error {
+    case sourceNotFound(String)
+    case decodeFailed(String)
+    case allocFailed(String)
+    case visionFailed(String)
+    case encodeFailed(String)
+    case wrongEmbeddingSize(actual: Int, expected: Int)
+}
+
+enum SafeModeV2Pipeline {
+
+    /// Run the v2 photo pipeline against `srcPath` with `subjectEmbedding`
+    /// and `params`, writing the safe variant to `destPath`. Returns a
+    /// `SafeModeV2PipelineReport` with every internal decision the iOS
+    /// pipeline makes — that's the whole point of this tool.
+    static func run(
+        srcPath: String,
+        destPath: String,
+        subjectEmbedding: Data,
+        params: SafeModeV2PipelineParams
+    ) throws -> SafeModeV2PipelineReport {
+
+        guard FileManager.default.fileExists(atPath: srcPath) else {
+            throw SafeModeV2PipelineError.sourceNotFound(srcPath)
+        }
+        guard subjectEmbedding.count == MobileFaceNetEmbedder.embeddingByteLength else {
+            throw SafeModeV2PipelineError.wrongEmbeddingSize(
+                actual: subjectEmbedding.count,
+                expected: MobileFaceNetEmbedder.embeddingByteLength
+            )
+        }
+
+        // 1. Load the source CGImage + raw EXIF orientation via ImageIO.
+        let srcURL = URL(fileURLWithPath: srcPath)
+        guard let cgSource = CGImageSourceCreateWithURL(srcURL as CFURL, nil) else {
+            throw SafeModeV2PipelineError.decodeFailed("CGImageSourceCreateWithURL failed")
+        }
+        guard let rawCG = CGImageSourceCreateImageAtIndex(cgSource, 0, nil) else {
+            throw SafeModeV2PipelineError.decodeFailed("CGImageSourceCreateImageAtIndex failed")
+        }
+        let exifOrientation = readExifOrientation(cgSource: cgSource)
+
+        let nativeCgW = rawCG.width
+        let nativeCgH = rawCG.height
+        guard nativeCgW > 0, nativeCgH > 0 else {
+            throw SafeModeV2PipelineError.decodeFailed("Source has zero dimensions")
+        }
+
+        // displayW/H = the dimensions AFTER applying EXIF orientation
+        // (the iOS pipeline's UIImage.imageOrientation handles this).
+        let (displayW, displayH) = displayDimensionsAfterExifRotation(
+            cgW: nativeCgW,
+            cgH: nativeCgH,
+            orientation: exifOrientation
+        )
+
+        let displayMax = max(displayW, displayH)
+        let workScale = min(1.0, Double(params.maxWorkDim) / Double(displayMax))
+        let width = max(1, Int((Double(displayW) * workScale).rounded()))
+        let height = max(1, Int((Double(displayH) * workScale).rounded()))
+
+        // 2. Render the source upright at (width, height) into a fresh
+        //    BGRA CGContext. Mirrors UIGraphicsImageRenderer + uiImage.draw
+        //    by applying the EXIF rotation transform before drawing.
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo: UInt32 =
+            CGBitmapInfo.byteOrder32Little.rawValue |
+            CGImageAlphaInfo.premultipliedFirst.rawValue
+        guard let uprightCtx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            throw SafeModeV2PipelineError.allocFailed("upright CGContext")
+        }
+        uprightCtx.interpolationQuality = .high
+        drawUpright(
+            cgImage: rawCG,
+            into: uprightCtx,
+            width: width,
+            height: height,
+            orientation: exifOrientation
+        )
+        guard let uprightCG = uprightCtx.makeImage() else {
+            throw SafeModeV2PipelineError.allocFailed("upright makeImage")
+        }
+
+        // 3. Allocate srcBuf + dstBuf BGRA CVPixelBuffers (mirrors iOS).
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+        ]
+        var srcBufOut: CVPixelBuffer?
+        let srcStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault, width, height,
+            kCVPixelFormatType_32BGRA, attrs as CFDictionary, &srcBufOut
+        )
+        guard srcStatus == kCVReturnSuccess, let srcBuf = srcBufOut else {
+            throw SafeModeV2PipelineError.allocFailed("srcBuf status=\(srcStatus)")
+        }
+        CVPixelBufferLockBaseAddress(srcBuf, [])
+        guard let srcBase = CVPixelBufferGetBaseAddress(srcBuf) else {
+            CVPixelBufferUnlockBaseAddress(srcBuf, [])
+            throw SafeModeV2PipelineError.allocFailed("srcBuf base addr")
+        }
+        let srcRowBytes = CVPixelBufferGetBytesPerRow(srcBuf)
+        guard let srcCtx = CGContext(
+            data: srcBase, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: srcRowBytes,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        ) else {
+            CVPixelBufferUnlockBaseAddress(srcBuf, [])
+            throw SafeModeV2PipelineError.allocFailed("srcBuf CGContext")
+        }
+        srcCtx.draw(uprightCG, in: CGRect(x: 0, y: 0, width: width, height: height))
+        CVPixelBufferUnlockBaseAddress(srcBuf, [])
+
+        var dstBufOut: CVPixelBuffer?
+        let dstStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault, width, height,
+            kCVPixelFormatType_32BGRA, attrs as CFDictionary, &dstBufOut
+        )
+        guard dstStatus == kCVReturnSuccess, let dstBuf = dstBufOut else {
+            throw SafeModeV2PipelineError.allocFailed("dstBuf status=\(dstStatus)")
+        }
+
+        // 4. Face detection on the upright CG.
+        let faceReq = VNDetectFaceRectanglesRequest()
+        let visionHandler = VNImageRequestHandler(
+            cgImage: uprightCG, orientation: .up, options: [:]
+        )
+        do {
+            try visionHandler.perform([faceReq])
+        } catch {
+            throw SafeModeV2PipelineError.visionFailed(
+                "VNDetectFaceRectanglesRequest: \(error.localizedDescription)"
+            )
+        }
+        let observations = faceReq.results ?? []
+
+        // 5. Embed every face + compute cosSim.
+        struct DetectedFace {
+            let normalizedRect: CGRect
+            let pixelRectTopLeft: CGRect
+            let centerXPx: Int
+            let centerYPx: Int
+            let cosSim: Double
+        }
+
+        func toPixelTopLeft(_ r: CGRect, pad: CGFloat = 0.20) -> CGRect {
+            let padW = r.width * pad
+            let padH = r.height * pad
+            let nx0 = max(0, r.origin.x - padW)
+            let ny0Bot = max(0, r.origin.y - padH)
+            let nw = min(1.0, r.width + 2 * padW)
+            let nh = min(1.0, r.height + 2 * padH)
+            let px0 = nx0 * CGFloat(width)
+            let py0Top = CGFloat(height) - (ny0Bot + nh) * CGFloat(height)
+            let pw = nw * CGFloat(width)
+            let ph = nh * CGFloat(height)
+            return CGRect(
+                x: max(0, px0).rounded(.down),
+                y: max(0, py0Top).rounded(.down),
+                width: pw.rounded(.up),
+                height: ph.rounded(.up)
+            )
+        }
+
+        var faces: [DetectedFace] = []
+        for obs in observations {
+            let r = obs.boundingBox
+            let pixelRect = toPixelTopLeft(r, pad: 0.20)
+            if pixelRect.width < 8 || pixelRect.height < 8 { continue }
+            guard let crop = uprightCG.cropping(to: pixelRect) else { continue }
+            var sim: Double = -1.0
+            do {
+                let embed = try MobileFaceNetEmbedder.shared.embed(face: crop)
+                sim = MobileFaceNetEmbedder.cosineSimilarity(embed, subjectEmbedding)
+            } catch {
+                FileHandle.standardError.write(
+                    "[SafeMode v2] face embed failed for one bbox: \(error.localizedDescription)\n"
+                        .data(using: .utf8) ?? Data()
+                )
+                sim = -1.0
+            }
+            let cxNormBot = r.origin.x + r.width * 0.5
+            let cyNormBot = r.origin.y + r.height * 0.5
+            let cxPx = Int((cxNormBot * CGFloat(width)).rounded())
+            let cyPx = Int(((1.0 - cyNormBot) * CGFloat(height)).rounded())
+            faces.append(DetectedFace(
+                normalizedRect: r,
+                pixelRectTopLeft: pixelRect,
+                centerXPx: max(0, min(width - 1, cxPx)),
+                centerYPx: max(0, min(height - 1, cyPx)),
+                cosSim: sim
+            ))
+        }
+
+        // 6. Pick subject by max cosSim, decide subjectIdentified.
+        var subjectIdx: Int? = nil
+        var bestSim = -2.0
+        for (i, f) in faces.enumerated() {
+            if f.cosSim > bestSim {
+                bestSim = f.cosSim
+                subjectIdx = i
+            }
+        }
+        let subjectIdentified: Bool
+        if subjectIdx != nil, bestSim >= params.threshold {
+            subjectIdentified = true
+        } else {
+            subjectIdentified = false
+        }
+
+        // 7. Run PersonSegmenter, build keepMask.
+        let segmenter = PersonSegmenter(width: width, height: height)
+        let maskPtr = segmenter.generateMaskOneShot(for: srcBuf)
+        let maskPositivePx: Int = (maskPtr != nil)
+            ? segmenter.maskPositivePixelCount(threshold: 128)
+            : 0
+
+        let totalPx = width * height
+        let keepMask = UnsafeMutablePointer<UInt8>.allocate(capacity: totalPx)
+        defer {
+            keepMask.deinitialize(count: totalPx)
+            keepMask.deallocate()
+        }
+        keepMask.initialize(repeating: 255, count: totalPx)
+
+        var subjectComponentPixels = 0
+
+        if subjectIdentified, let subjI = subjectIdx, let mask = maskPtr {
+            let subject = faces[subjI]
+            let subjectComponent = floodFillBinary(
+                mask: mask,
+                width: width,
+                height: height,
+                seedX: subject.centerXPx,
+                seedY: subject.centerYPx,
+                threshold: 128
+            )
+            defer {
+                subjectComponent.deinitialize(count: totalPx)
+                subjectComponent.deallocate()
+            }
+
+            for i in 0..<totalPx {
+                if subjectComponent[i] == 1 { subjectComponentPixels += 1 }
+            }
+
+            for y in 0..<height {
+                let rowOffset = y * width
+                for x in 0..<width {
+                    let i = rowOffset + x
+                    if mask[i] >= 128 && subjectComponent[i] == 0 {
+                        keepMask[i] = 0
+                    }
+                }
+            }
+
+            for (i, f) in faces.enumerated() where i != subjI {
+                paintHeadExpansion(
+                    keepMask: keepMask,
+                    width: width,
+                    height: height,
+                    pixelRect: f.pixelRectTopLeft,
+                    headWidthFactor: params.headWidthFactor,
+                    headHeightFactor: params.headHeightFactor,
+                    maxAreaFraction: params.maxAreaFraction
+                )
+            }
+        } else {
+            for f in faces {
+                paintHeadExpansion(
+                    keepMask: keepMask,
+                    width: width,
+                    height: height,
+                    pixelRect: f.pixelRectTopLeft,
+                    headWidthFactor: params.headWidthFactor,
+                    headHeightFactor: params.headHeightFactor,
+                    maxAreaFraction: params.maxAreaFraction
+                )
+            }
+        }
+
+        // 8. Count blur pixels (keepMask == 0) for the report.
+        var blurPixels = 0
+        for i in 0..<totalPx {
+            if keepMask[i] == 0 { blurPixels += 1 }
+        }
+
+        // 9. Composite via CIBlendWithMask (same as iOS).
+        let minDim = Double(min(width, height))
+        let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
+
+        let ciOptions: [CIContextOption: Any] = [
+            .workingColorSpace: NSNull(),
+            .outputColorSpace: NSNull(),
+        ]
+        let ciContext: CIContext
+        if let device = MTLCreateSystemDefaultDevice() {
+            ciContext = CIContext(mtlDevice: device, options: ciOptions)
+        } else {
+            ciContext = CIContext(options: ciOptions)
+        }
+        guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
+              let blendFilter = CIFilter(name: "CIBlendWithMask") else {
+            throw SafeModeV2PipelineError.encodeFailed("CIFilter init")
+        }
+
+        let sourceCI = CIImage(cvPixelBuffer: srcBuf)
+        blurFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+        blurFilter.setValue(blurRadius, forKey: kCIInputRadiusKey)
+        guard let rawBlur = blurFilter.outputImage else {
+            throw SafeModeV2PipelineError.encodeFailed("CIGaussianBlur output")
+        }
+        let blurredCI = rawBlur.cropped(to: sourceCI.extent)
+
+        let maskBytes = Data(bytes: keepMask, count: totalPx)
+        let maskCI = CIImage(
+            bitmapData: maskBytes,
+            bytesPerRow: width,
+            size: CGSize(width: width, height: height),
+            format: .R8,
+            colorSpace: CGColorSpaceCreateDeviceGray()
+        )
+
+        blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+        blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
+        blendFilter.setValue(maskCI, forKey: kCIInputMaskImageKey)
+        guard let outputCI = blendFilter.outputImage else {
+            throw SafeModeV2PipelineError.encodeFailed("CIBlendWithMask output")
+        }
+        ciContext.render(outputCI, to: dstBuf, bounds: sourceCI.extent, colorSpace: nil)
+
+        // 10. Encode dstBuf -> JPG via CGImageDestination.
+        try encodeDstAsJpg(
+            dstBuf: dstBuf,
+            width: width,
+            height: height,
+            colorSpace: colorSpace,
+            bitmapInfo: bitmapInfo,
+            destPath: destPath
+        )
+
+        // 11. Rank faces by cosSim for the report.
+        let sortedByCos = faces.enumerated().sorted { $0.element.cosSim > $1.element.cosSim }
+        var rankByIdx = [Int: Int]()
+        for (rankZero, pair) in sortedByCos.enumerated() {
+            rankByIdx[pair.offset] = rankZero + 1
+        }
+        let faceReports: [SafeModeV2FaceReport] = faces.enumerated().map { (i, f) in
+            SafeModeV2FaceReport(
+                index: i,
+                bboxPixels: f.pixelRectTopLeft,
+                cosSim: f.cosSim,
+                rank: rankByIdx[i] ?? 0
+            )
+        }
+
+        return SafeModeV2PipelineReport(
+            width: width,
+            height: height,
+            faces: faceReports,
+            threshold: params.threshold,
+            bestSim: bestSim,
+            subjectIdentified: subjectIdentified,
+            subjectIdx: subjectIdentified ? subjectIdx : nil,
+            maskPositivePixels: maskPositivePx,
+            totalPixels: totalPx,
+            subjectComponentPixels: subjectComponentPixels,
+            blurPixels: blurPixels,
+            outputPath: destPath
+        )
+    }
+
+    // MARK: - EXIF orientation handling
+    //
+    // The iOS pipeline relies on UIImage.imageOrientation +
+    // UIGraphicsImageRenderer to render upright. macOS has neither;
+    // we read the EXIF orientation manually from CGImageSource and
+    // apply the equivalent affine transform before drawing.
+
+    private static func readExifOrientation(cgSource: CGImageSource) -> CGImagePropertyOrientation {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(cgSource, 0, nil) as? [CFString: Any],
+              let rawOrient = props[kCGImagePropertyOrientation] as? UInt32,
+              let orient = CGImagePropertyOrientation(rawValue: rawOrient) else {
+            return .up
+        }
+        return orient
+    }
+
+    /// Apply the EXIF orientation as an affine transform to `ctx` and
+    /// then draw `cgImage` at the rotated/mirrored target. Equivalent to
+    /// UIGraphicsImageRenderer + uiImage.draw(in:) on iOS.
+    private static func drawUpright(
+        cgImage: CGImage,
+        into ctx: CGContext,
+        width: Int,
+        height: Int,
+        orientation: CGImagePropertyOrientation
+    ) {
+        // The source CGImage has dimensions (cgW, cgH). After the EXIF
+        // rotation, the displayed dimensions become (width, height).
+        // We apply the inverse of the EXIF transform so the drawn image
+        // ends up "upright" in the destination.
+        let w = CGFloat(width)
+        let h = CGFloat(height)
+        ctx.saveGState()
+        switch orientation {
+        case .up:
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+        case .upMirrored:
+            ctx.translateBy(x: w, y: 0)
+            ctx.scaleBy(x: -1, y: 1)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+        case .down:
+            ctx.translateBy(x: w, y: h)
+            ctx.rotate(by: .pi)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+        case .downMirrored:
+            ctx.translateBy(x: 0, y: h)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+        case .leftMirrored:
+            ctx.translateBy(x: h, y: w)
+            ctx.scaleBy(x: -1, y: 1)
+            ctx.rotate(by: .pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
+        case .left:
+            ctx.translateBy(x: 0, y: w)
+            ctx.rotate(by: -.pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
+        case .rightMirrored:
+            ctx.scaleBy(x: -1, y: 1)
+            ctx.rotate(by: -.pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: -CGFloat(cgImage.width), y: 0, width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
+        case .right:
+            ctx.translateBy(x: w, y: 0)
+            ctx.rotate(by: .pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
+        }
+        ctx.restoreGState()
+    }
+
+    private static func displayDimensionsAfterExifRotation(
+        cgW: Int,
+        cgH: Int,
+        orientation: CGImagePropertyOrientation
+    ) -> (Int, Int) {
+        switch orientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            return (cgH, cgW)
+        default:
+            return (cgW, cgH)
+        }
+    }
+
+    // MARK: - JPG encoding (CGImageDestination replaces UIImage.jpegData)
+
+    private static func encodeDstAsJpg(
+        dstBuf: CVPixelBuffer,
+        width: Int,
+        height: Int,
+        colorSpace: CGColorSpace,
+        bitmapInfo: UInt32,
+        destPath: String
+    ) throws {
+        CVPixelBufferLockBaseAddress(dstBuf, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(dstBuf, .readOnly) }
+
+        guard let dstBase = CVPixelBufferGetBaseAddress(dstBuf) else {
+            throw SafeModeV2PipelineError.encodeFailed("dstBuf base addr")
+        }
+        let dstRowBytes = CVPixelBufferGetBytesPerRow(dstBuf)
+        guard let outCtx = CGContext(
+            data: dstBase, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: dstRowBytes,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        ) else {
+            throw SafeModeV2PipelineError.encodeFailed("dst CGContext")
+        }
+        guard let outCG = outCtx.makeImage() else {
+            throw SafeModeV2PipelineError.encodeFailed("dst makeImage")
+        }
+
+        // Ensure parent dir exists.
+        let destURL = URL(fileURLWithPath: destPath)
+        try? FileManager.default.createDirectory(
+            at: destURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        guard let dest = CGImageDestinationCreateWithURL(
+            destURL as CFURL,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw SafeModeV2PipelineError.encodeFailed("CGImageDestination create")
+        }
+        let opts: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: 0.9
+        ]
+        CGImageDestinationAddImage(dest, outCG, opts as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else {
+            throw SafeModeV2PipelineError.encodeFailed("CGImageDestination finalize")
+        }
+    }
+
+    // MARK: - Flood fill (identical to iOS)
+
+    static func floodFillBinary(
+        mask: UnsafePointer<UInt8>,
+        width: Int,
+        height: Int,
+        seedX: Int,
+        seedY: Int,
+        threshold: UInt8
+    ) -> UnsafeMutablePointer<UInt8> {
+        let total = width * height
+        let visited = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
+        visited.initialize(repeating: 0, count: total)
+
+        guard seedX >= 0, seedX < width, seedY >= 0, seedY < height else {
+            return visited
+        }
+        let seedIdx = seedY * width + seedX
+        if mask[seedIdx] < threshold {
+            var foundSeed = -1
+            let searchRadius = 16
+            outer: for dr in 1...searchRadius {
+                for dy in -dr...dr {
+                    for dx in -dr...dr {
+                        if abs(dx) != dr && abs(dy) != dr { continue }
+                        let nx = seedX + dx
+                        let ny = seedY + dy
+                        if nx < 0 || nx >= width || ny < 0 || ny >= height { continue }
+                        let i = ny * width + nx
+                        if mask[i] >= threshold {
+                            foundSeed = i
+                            break outer
+                        }
+                    }
+                }
+            }
+            if foundSeed < 0 {
+                return visited
+            }
+            return floodFillFromIdx(
+                mask: mask, width: width, height: height,
+                threshold: threshold, seedIdx: foundSeed,
+                visited: visited
+            )
+        }
+        return floodFillFromIdx(
+            mask: mask, width: width, height: height,
+            threshold: threshold, seedIdx: seedIdx,
+            visited: visited
+        )
+    }
+
+    private static func floodFillFromIdx(
+        mask: UnsafePointer<UInt8>,
+        width: Int,
+        height: Int,
+        threshold: UInt8,
+        seedIdx: Int,
+        visited: UnsafeMutablePointer<UInt8>
+    ) -> UnsafeMutablePointer<UInt8> {
+        var stack: [Int] = [seedIdx]
+        stack.reserveCapacity(1024)
+        visited[seedIdx] = 1
+        while let idx = stack.popLast() {
+            let x = idx % width
+            let y = idx / width
+            if x > 0 {
+                let n = idx - 1
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+            if x < width - 1 {
+                let n = idx + 1
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+            if y > 0 {
+                let n = idx - width
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+            if y < height - 1 {
+                let n = idx + width
+                if visited[n] == 0 && mask[n] >= threshold {
+                    visited[n] = 1
+                    stack.append(n)
+                }
+            }
+        }
+        return visited
+    }
+
+    // MARK: - Head-expansion painter (identical to iOS)
+
+    static func paintHeadExpansion(
+        keepMask: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        pixelRect: CGRect,
+        headWidthFactor: CGFloat,
+        headHeightFactor: CGFloat,
+        maxAreaFraction: Double = 1.0
+    ) {
+        var wFactor = headWidthFactor
+        var hFactor = headHeightFactor
+        let frameArea = Double(width) * Double(height)
+        if frameArea > 0 && maxAreaFraction > 0 && maxAreaFraction < 1.0 {
+            let expandedW = Double(pixelRect.width) * Double(wFactor)
+            let expandedH = Double(pixelRect.height) * Double(hFactor)
+            let expandedArea = expandedW * expandedH
+            let allowedArea = frameArea * maxAreaFraction
+            if expandedArea > allowedArea && expandedArea > 0 {
+                let scale = (allowedArea / expandedArea).squareRoot()
+                wFactor *= CGFloat(scale)
+                hFactor *= CGFloat(scale)
+            }
+        }
+        let cx = pixelRect.midX
+        let cy = pixelRect.midY
+        let halfW = pixelRect.width * wFactor * 0.5
+        let halfH = pixelRect.height * hFactor * 0.5
+        let x0 = max(0, Int((cx - halfW).rounded(.down)))
+        let x1 = min(width, Int((cx + halfW).rounded(.up)))
+        let y0 = max(0, Int((cy - halfH).rounded(.down)))
+        let y1 = min(height, Int((cy + halfH).rounded(.up)))
+        for y in y0..<y1 {
+            let rowOffset = y * width
+            for x in x0..<x1 {
+                keepMask[rowOffset + x] = 0
+            }
+        }
+    }
+}
