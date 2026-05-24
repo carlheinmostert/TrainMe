@@ -91,7 +91,11 @@ ARGS:
   --embedding      Raw FP32 little-endian face embedding (2048 bytes).
                    See fetch_embedding.sh for pulling it from Supabase.
   --output         Where to write the safe-variant JPG.
-  --threshold      Cosine-sim threshold for subjectIdentified (default 0.5).
+  --threshold      Solo-face cosSim floor (default 0.5 for back-compat
+                   with prior sweep scripts; production iOS now defaults
+                   to 0.10 via kSafeModeV2SoloFloor). Only consulted in
+                   the solo branch — multi-face frames use a relative
+                   pick (highest cosSim wins; no absolute gate).
   --area-clamp     Max fraction of frame each head-expansion may cover
                    (default 0.35 matches iOS).
   --head-expand-w  Face bbox horizontal multiplier (default 2.0).
@@ -100,7 +104,8 @@ ARGS:
 
 DIAGNOSTIC OUTPUT:
   Per detected face: bbox + cosSim + rank.
-  DECISION: subjectIdentified + bestSim + threshold + subjectIdx.
+  DECISION: subjectIdentified + bestSim + soloFloor + subjectIdx + branch
+            (branch ∈ {no-faces, solo-floor, multi-relative}).
   SEGMENTATION: maskPositive / totalPixels (% of frame Vision marked as person).
   FLOOD-FILL: subjectComponent pixels (% of mask-positive).
   COMPOSITE: blurFraction (% of frame painted to blur).
@@ -200,12 +205,23 @@ do {
             f.index, bbox, f.cosSim, f.rank
         ))
     }
+    // Derive the hybrid-pick branch reason from face count for log
+    // readability. Mirrors the iOS native pipeline log format.
+    let branchReason: String
+    if report.faces.isEmpty {
+        branchReason = "no-faces"
+    } else if report.faces.count == 1 {
+        branchReason = "solo-floor"
+    } else {
+        branchReason = "multi-relative"
+    }
     print(String(
-        format: "DECISION: subjectIdentified=%@  subjectIdx=%@  bestSim=%.4f  threshold=%.4f",
+        format: "DECISION: subjectIdentified=%@  subjectIdx=%@  bestSim=%.4f  soloFloor=%.4f  branch=%@",
         report.subjectIdentified ? "true" : "false",
         report.subjectIdx.map { String($0) } ?? "nil",
         report.bestSim,
-        report.threshold
+        report.threshold,
+        branchReason
     ))
     let maskFraction = (report.totalPixels > 0)
         ? Double(report.maskPositivePixels) / Double(report.totalPixels)

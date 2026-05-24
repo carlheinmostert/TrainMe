@@ -30,31 +30,48 @@ import 'safe_mode_service.dart';
 /// removes the row.
 const double kSafeModeMaxMissRate = 0.05;
 
-/// Cosine-similarity threshold passed to `applySafeModeV2ToPhoto` for
-/// matching a detected face against the enrolled subject embedding.
-/// MobileFaceNet "same person" thresholds typically land in the 0.4-0.5
-/// range — 0.65 (the original v2 default) was too tight for natural
-/// selfie variation against an arms-length enrolment shot and caused
-/// every face after the first to drop into no-subject mode, which then
-/// blurred the entire frame via head-expansion. Revisit after device QA.
-const double kSafeModeV2FaceMatchThreshold = 0.5;
+/// Solo-face cosine-similarity floor passed to `applySafeModeV2ToPhoto`.
+///
+/// Semantic shift (2026-05-24 hybrid pick-highest workshop): this value
+/// is NO LONGER an absolute decision boundary. It is only consulted in
+/// the solo-face branch — i.e. when exactly one face is detected in the
+/// frame, we accept it as the subject UNLESS its cosSim falls below
+/// this floor. The floor catches the bystander-alone-no-client edge
+/// case (random face in frame, no client present) without rejecting
+/// legitimate solo selfies at sideways angles (Carl's IMG_1375 was
+/// solo, sideways, cosSim ~0.35 — under the old absolute-0.5 gate it
+/// dropped into no-subject mode and got 17.7% blurred; under the new
+/// rule it's identified via the solo branch and stays sharp).
+///
+/// For frames with 2+ faces, the pipeline uses a relative pick — the
+/// face with the highest cosSim wins, no absolute gate. The floor
+/// does not apply in the multi-face branch.
+///
+/// 0.10 is well below any legitimate same-person cosSim (Carl's worst
+/// was 0.25) but above the typical random-face cosSim cluster
+/// (0.15-0.40 for unrelated faces against the enrolled embedding).
+const double kSafeModeV2SoloFloor = 0.10;
 
 /// SharedPreferences key for the debug-tuning sheet's persisted
-/// face-match threshold override (2026-05-23 debug-tuning wave). When
-/// set, both [ConversionService._convert]'s photo Safe Mode pass and
+/// solo-floor override (2026-05-23 debug-tuning wave; semantics
+/// updated 2026-05-24 to solo-floor). When set, both
+/// [ConversionService._convert]'s photo Safe Mode pass and
 /// [ConversionService.reprocessSafeMode] read this in preference to
-/// [kSafeModeV2FaceMatchThreshold] (an explicit `thresholdOverride`
-/// argument still wins over both). Cleared by the sheet's Reset
-/// button. Debug + staging only — release builds never write it
-/// because the sheet is gated by `debugTuningGateActive()`.
+/// [kSafeModeV2SoloFloor] (an explicit `thresholdOverride` argument
+/// still wins over both). Cleared by the sheet's Reset button. Debug
+/// + staging only — release builds never write it because the sheet
+/// is gated by `debugTuningGateActive()`.
+///
+/// The pref key string is preserved across the rename for back-compat
+/// with already-persisted values on existing staging devices.
 const String kSafeModeV2ThresholdOverridePrefKey =
     'safe_mode_v2_threshold_override';
 
-/// Resolve the threshold to pass into `applySafeModeV2ToPhoto`:
+/// Resolve the solo-floor to pass into `applySafeModeV2ToPhoto`:
 ///   1. explicit caller [override] (the tuning sheet's live slider)
 ///   2. SharedPreferences-persisted override (the sheet's "Save as
 ///      new default" — auto-applied to future captures)
-///   3. compile-time [kSafeModeV2FaceMatchThreshold] default
+///   3. compile-time [kSafeModeV2SoloFloor] default
 Future<double> _resolveSafeModeV2Threshold(double? override) async {
   if (override != null) return override;
   try {
@@ -64,7 +81,7 @@ Future<double> _resolveSafeModeV2Threshold(double? override) async {
   } catch (_) {
     // Fall through to the compile-time default.
   }
-  return kSafeModeV2FaceMatchThreshold;
+  return kSafeModeV2SoloFloor;
 }
 
 /// Reason discriminator for [SafeModeRejection]. The capture screen
@@ -2441,11 +2458,12 @@ class ConversionService extends ChangeNotifier {
   /// embedding missing, native call throws). Caller surfaces the
   /// result with a toast.
   ///
-  /// [thresholdOverride] — debug-tuning sheet entry point. When non-null
+  /// [thresholdOverride] — debug-tuning sheet entry point. Now controls
+  /// the solo-face floor (see [kSafeModeV2SoloFloor]). When non-null
   /// it takes precedence over both the SharedPreferences-persisted
-  /// override and the compile-time [kSafeModeV2FaceMatchThreshold]
-  /// default. Production callers leave it null and the live-resolved
-  /// threshold falls back through the standard chain.
+  /// override and the compile-time default. Production callers leave
+  /// it null and the live-resolved floor falls back through the
+  /// standard chain.
   Future<bool> reprocessSafeMode(
     String exerciseId, {
     double? thresholdOverride,
