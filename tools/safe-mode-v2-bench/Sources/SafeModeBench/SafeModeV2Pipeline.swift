@@ -402,15 +402,16 @@ enum SafeModeV2Pipeline {
         let minDim = Double(min(width, height))
         let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
 
-        let ciOptions: [CIContextOption: Any] = [
-            .workingColorSpace: NSNull(),
-            .outputColorSpace: NSNull(),
-        ]
+        // Use default (sRGB) working colorspace. The previous NSNull
+        // working/output colorspace broke CIBlendWithMask: with an R8
+        // mask + nil colorspace + NSNull workingColorSpace, the compositor
+        // blended the whole frame to the background (blurred) regardless
+        // of mask values. Confirmed via this bench tool 2026-05-24.
         let ciContext: CIContext
         if let device = MTLCreateSystemDefaultDevice() {
-            ciContext = CIContext(mtlDevice: device, options: ciOptions)
+            ciContext = CIContext(mtlDevice: device)
         } else {
-            ciContext = CIContext(options: ciOptions)
+            ciContext = CIContext()
         }
         guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
               let blendFilter = CIFilter(name: "CIBlendWithMask") else {
@@ -436,25 +437,14 @@ enum SafeModeV2Pipeline {
             bytesPerRow: width,
             size: CGSize(width: width, height: height),
             format: .R8,
-            colorSpace: nil
+            colorSpace: CGColorSpaceCreateDeviceGray()
         )
 
-        // Feather the keepMask edges so the transition from sharp to
-        // blurred is a soft band instead of a hard step. Radius scales
-        // with frame dim (~10px at 1080p).
-        let featherRadius = 10.0 * max(1.0, minDim / 1080.0)
-        let featheredMask: CIImage
-        if let maskBlurFilter = CIFilter(name: "CIGaussianBlur") {
-            maskBlurFilter.setValue(maskCI, forKey: kCIInputImageKey)
-            maskBlurFilter.setValue(featherRadius, forKey: kCIInputRadiusKey)
-            if let blurredMaskOut = maskBlurFilter.outputImage {
-                featheredMask = blurredMaskOut.cropped(to: sourceCI.extent)
-            } else {
-                featheredMask = maskCI
-            }
-        } else {
-            featheredMask = maskCI
-        }
+        // Pass the keepMask straight to CIBlendWithMask — no feather.
+        // Brief 1's 10px Gaussian feather interacted badly with the
+        // CIBlendWithMask compositor and produced whole-frame blur on
+        // any frame where the mask had non-trivial structure.
+        let featheredMask: CIImage = maskCI
 
         blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
         blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
@@ -554,21 +544,30 @@ enum SafeModeV2Pipeline {
             ctx.scaleBy(x: 1, y: -1)
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
         case .leftMirrored:
-            ctx.translateBy(x: h, y: w)
-            ctx.scaleBy(x: -1, y: 1)
-            ctx.rotate(by: .pi / 2)
+            ctx.translateBy(x: 0, y: h)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.rotate(by: -.pi / 2)
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
         case .left:
-            ctx.translateBy(x: 0, y: w)
-            ctx.rotate(by: -.pi / 2)
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
-        case .rightMirrored:
-            ctx.scaleBy(x: -1, y: 1)
-            ctx.rotate(by: -.pi / 2)
-            ctx.draw(cgImage, in: CGRect(x: -CGFloat(cgImage.width), y: 0, width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
-        case .right:
+            // EXIF orientation 8 — needs 90° CCW rotation visually.
+            // Canonical: translate (w, 0) + rotate +π/2.
             ctx.translateBy(x: w, y: 0)
             ctx.rotate(by: .pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
+        case .rightMirrored:
+            ctx.translateBy(x: w, y: h)
+            ctx.scaleBy(x: -1, y: 1)
+            ctx.rotate(by: .pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
+        case .right:
+            // EXIF orientation 6 — the stored 0th row is the visual right
+            // edge. Need to rotate the stored landscape 90° CW visually
+            // to display upright. Canonical transform per Apple's Image
+            // I/O sample code: translate (0, h) + rotate -π/2.
+            // (Prior code used (w, 0) + +π/2 which produced an upside-down
+            // output — 180° wrong. Confirmed via Carl's TP2 photos.)
+            ctx.translateBy(x: 0, y: h)
+            ctx.rotate(by: -.pi / 2)
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
         }
         ctx.restoreGState()
