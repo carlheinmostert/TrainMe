@@ -13,6 +13,14 @@
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
 //
+// 2026-05-24 — fix(live): fit-to-polygon button CSS specificity parity
+// with default Leaflet zoom +/- buttons. Added `.live-map ` prefix to
+// the five `.live-fit-*` selectors so they hit specificity (0,2,1) and
+// beat Leaflet's default `.leaflet-bar a` (0,1,1) white-on-dark style.
+// Pure CSS — bumping this comment so Safari's lazy SW update check
+// flushes the stale live.html bundle from returning bystanders before
+// they see the inverted button.
+//
 // Manual bump 2026-05-23 (live-view UX bundle, items 26/28/29 of
 // the 2026-05-23 stack): live.js + live.html.
 //   - Item 26: viewer's sage dot now carries a permanent "You" pill
