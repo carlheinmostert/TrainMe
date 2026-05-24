@@ -1,0 +1,11 @@
+# Sample inputs live alongside the bench tool but never get committed —
+# they'd leak real selfies + face embeddings into git history.
+*.jpg
+*.jpeg
+*.JPG
+*.JPEG
+*.png
+*.PNG
+*.heic
+*.HEIC
+*.bin
