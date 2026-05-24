@@ -72,6 +72,7 @@
   let openSessionId = null;
   let elPopover = null;
   let practiceContactCached = null; // most recent practice contact (for popover Report)
+  let practiceSlugCached = null;    // most recent practice slug (for popover "View practice profile" link)
   let outsideTapHandler = null;
   let escKeyHandler = null;
 
@@ -605,6 +606,29 @@
       openReportModal(session, practiceContactCached);
     });
 
+    // "View practice profile" link — only rendered when the practice is
+    // publicly listed (fetchPracticeContact returned non-null) AND we have
+    // a cached slug to build the href from. Real <a href> so middle-click
+    // / cmd-click opens a new tab; the popover's outside-tap handler
+    // already exempts clicks inside elPopover via elPopover.contains().
+    let profileLink = null;
+    if (practiceContactCached && practiceSlugCached) {
+      const practiceName = practiceContactCached.practiceName || 'this practice';
+      profileLink = document.createElement('a');
+      profileLink.className = 'live-popover-profile';
+      profileLink.href = `/v/${encodeURIComponent(practiceSlugCached)}`;
+      profileLink.setAttribute(
+        'aria-label',
+        `View ${practiceName} on homefit.studio`,
+      );
+      profileLink.textContent = 'View practice profile ';
+      const chev = document.createElement('span');
+      chev.className = 'live-popover-profile-chev';
+      chev.setAttribute('aria-hidden', 'true');
+      chev.textContent = '→'; // right-pointing arrow
+      profileLink.appendChild(chev);
+    }
+
     // The tail/pointer triangle. Direction class flipped by
     // positionPopover() based on auto-flip side.
     const tail = document.createElement('div');
@@ -612,6 +636,7 @@
 
     elPopover.appendChild(name);
     elPopover.appendChild(meta);
+    if (profileLink) elPopover.appendChild(profileLink);
     elPopover.appendChild(report);
     elPopover.appendChild(tail);
 
@@ -829,6 +854,9 @@
       hide(elLoading);
       return;
     }
+    // Cache the practice slug so the popover can construct a
+    // /v/{practice-slug} link without re-parsing the path on each open.
+    practiceSlugCached = slugs.practiceSlug;
     const data = await window.HomefitApi.getLiveSessions(
       slugs.practiceSlug,
       slugs.premisesSlug,
