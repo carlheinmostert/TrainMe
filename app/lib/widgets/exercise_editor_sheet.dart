@@ -752,7 +752,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
             // hero-frame regen — even though the JPG path doesn't change.
             //
             // Long-press wrap (debug + staging only) opens the Safe Mode
-            // v2 face-match threshold tuning sheet for the active photo
+            // v2 solo-face-floor tuning sheet for the active photo
             // exercise. Production builds get a no-op wrap.
             _maybeWrapWithSafeModeV2LongPress(
               context: context,

@@ -3224,6 +3224,29 @@ class VideoConverterChannel {
         }
 
         // --- Pick subject by max cosine similarity ---
+        //
+        // Hybrid pick-highest rule (2026-05-24 workshop):
+        //   0 faces → no-subject mode (defensive sharp; existing behaviour
+        //             with missRate=1.0 reported)
+        //   1 face  → solo branch. Trust practitioner intent UNLESS cosSim
+        //             is suspiciously low. The `threshold` argument is now
+        //             interpreted as the solo-floor (typical default 0.10)
+        //             — well below any legitimate same-person cosSim
+        //             (Carl's worst was 0.25) but above the typical
+        //             bystander cosSim (random faces cluster 0.15-0.40).
+        //             This catches the bystander-alone-no-client edge
+        //             case without rejecting legitimate solo selfies at
+        //             sideways angles.
+        //   2+ faces → relative pick. The highest-scoring face IS the
+        //              subject; all others get coral-painted. No absolute
+        //              threshold gate — even if both faces have low cosSim,
+        //              one of them is closer to the enrolled embedding and
+        //              that one wins.
+        //
+        // Replaces the old absolute-threshold gate (every face had to
+        // clear `kSafeModeV2FaceMatchThreshold = 0.5` or the frame fell
+        // into no-subject mode). The old gate failed for legitimate
+        // poses (sideways looks, gym situations).
         var subjectIdx: Int? = nil
         var bestSim = -2.0
         for (i, f) in faces.enumerated() {
@@ -3232,19 +3255,32 @@ class VideoConverterChannel {
                 subjectIdx = i
             }
         }
+
         let subjectIdentified: Bool
-        if let _ = subjectIdx, bestSim >= threshold {
-            subjectIdentified = true
-        } else {
+        let branchReason: String
+        if faces.isEmpty {
             subjectIdentified = false
+            branchReason = "no-faces"
+        } else if faces.count == 1 {
+            // Solo face: trust practitioner intent unless cosSim is
+            // suspiciously low. `threshold` here is the solo-floor.
+            subjectIdentified = (bestSim >= threshold)
+            branchReason = "solo-floor"
+        } else {
+            // 2+ faces: relative pick — highest cosSim wins. No
+            // absolute gate.
+            subjectIdentified = true
+            branchReason = "multi-relative"
         }
 
         for (i, f) in faces.enumerated() {
             NSLog("[SafeMode v2] face[%d] cosSim=%.3f", i, f.cosSim)
         }
         NSLog(
-            "[SafeMode v2] faces=%d threshold=%.2f bestSim=%.3f subjectIdentified=%@",
-            faces.count, threshold, bestSim, subjectIdentified ? "true" : "false"
+            "[SafeMode v2] faces=%d soloFloor=%.2f bestSim=%.3f subjectIdentified=%@ branch=%@",
+            faces.count, threshold, bestSim,
+            subjectIdentified ? "true" : "false",
+            branchReason
         )
 
         // --- Run PersonSegmenter on the upright buffer ---

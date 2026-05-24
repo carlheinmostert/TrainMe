@@ -17,6 +17,8 @@ This script verifies the end-to-end round-trip: enrol on device → 2048 bytes l
 - [D. Capture-time face matching (v2 photo pipeline)](#d-capture-time-face-matching-v2-photo-pipeline)
 - [E. Debug-gated v2 threshold tuning sheet](#e-debug-gated-v2-threshold-tuning-sheet)
 - [F. Portal audit feed includes capture events](#f-portal-audit-feed-includes-capture-events)
+- [G. Mac CLI bench tool (developer-only)](#g-mac-cli-bench-tool-developer-only--not-part-of-device-qa)
+- [H. Hybrid pick-highest threshold rule (2026-05-24)](#h-hybrid-pick-highest-threshold-rule-2026-05-24)
 
 ## Prerequisites
 
@@ -94,3 +96,17 @@ Verifies the unified `/audit` page now shows every photo and video captured alon
 Verifies the standalone `tools/safe-mode-v2-bench/` SwiftPM tool that mirrors the iOS Safe Mode v2 photo pipeline on macOS. Built to debug the all-frame-blur bug Carl hit on 2026-05-24 — NSLog is invisible via `idevicesyslog` so we need a developer-machine surface that prints to stdout. This item is run on Carl's Mac, not the iPhone.
 
 - [ ] 27. Bench tool sanity-check (developer-only — not part of the device QA pass): drop a known selfie at `tools/safe-mode-v2-bench/samples/selfie_01.jpg`, fetch the embedding (`export STAGING_DB_URL=…` then `cd tools/safe-mode-v2-bench && ./fetch_embedding.sh 53004519-9b14-45d2-87c0-ac376b19b0b7 > samples/embedding.bin`), then `./sweep.sh samples/selfie_01.jpg`. Inspect the HTML summary that auto-opens — expected: cosSim values are non-trivial (>0.3 for the subject's own selfie), `subjectIdentified` flips from `false` to `true` as the threshold drops below the subject's actual cosSim, and `blurFraction` correspondingly drops from ~90% (whole-frame blur when no subject matched) to a small fraction (just the head expansion). If cosSim values come back at ~0 or NaN, the embedding bytes are corrupted (check `samples/embedding.bin` is exactly 2048 bytes + the L2 norm line in the sanity-check output reads `1.0000`).
+
+## H. Hybrid pick-highest threshold rule (2026-05-24)
+
+Verifies the rebuilt Safe Mode v2 subject-identification rule from the 2026-05-24 workshop. The old absolute-threshold gate (`cosSim >= 0.5`) failed for legitimate poses (sideways looks, unusual lighting) — Carl's IMG_1375 selfie at cosSim 0.35 dropped into "no-subject mode" and got 17.7% blurred even though he was the only person in the frame. The new rule uses cosSim relatively, not absolutely:
+
+- **0 faces** → defensive sharp (no change from prior behaviour, missRate=1.0).
+- **1 face** → trust practitioner intent. Subject identified unless cosSim is below the solo-floor (`kSafeModeV2SoloFloor = 0.10` — well below any legitimate same-person cosSim, above the typical bystander cosSim cluster of 0.15-0.40).
+- **2+ faces** → relative pick. The highest-scoring face IS the subject. No absolute gate — even when both faces score low, one of them is closer to the enrolled embedding and wins.
+
+The privacy gap for bystander-alone-no-client (item 30 below) is intentional under this rule and closed by the multi-reference enrolment spec at `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`.
+
+- [ ] 28. Solo selfie at a sideways angle. With consent ON + embedding cached + inside an enforcing premises, take a photo of yourself at a deliberate sideways pose (head turned ~45° away from camera, mimics IMG_1375). Open the Studio card thumbnail — your face should remain sharp. Under the old absolute-threshold rule this same shot would have dropped into no-subject mode and the entire frame's mask-positive region would have been blurred (~17% of frame painted coral). Under the new rule the solo-floor branch identifies you regardless. Pull device logs and look for `[SafeMode v2] faces=1 soloFloor=0.10 bestSim=0.### subjectIdentified=true branch=solo-floor`.
+- [ ] 29. Group photo, relative pick wins. With consent ON + embedding cached + inside an enforcing premises, take a photo where you and a bystander are both in frame. The bystander's face must be coral-overlay'd in the safe variant; your face stays sharp. Critically: this must hold even when the bystander has a higher absolute cosSim than would have passed the old 0.5 gate — what matters is that YOU score higher than the bystander, not that you both clear an absolute floor. Pull device logs and confirm `branch=multi-relative`.
+- [ ] 30. Bystander alone (no client in frame) — INTENTIONALLY PERMISSIVE. With consent ON + embedding cached + inside an enforcing premises, have a bystander stand alone in front of the camera. You step out of frame. Take a photo. The bystander's face will be SHARP (subject identified via the solo-floor branch, because cosSim 0.15-0.40 still clears the 0.10 floor). This is the **intended** behaviour under the workshop rule — the practitioner pointed the camera deliberately; we trust the intent. The privacy gap closes when multi-reference enrolment ships (spec at `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`) so a single reference selfie no longer has to discriminate against every other human face. Pull device logs and confirm `branch=solo-floor subjectIdentified=true`. If the bystander's cosSim happens to fall below the 0.10 floor (rare — unrelated faces typically cluster 0.15-0.40), they will be blurred via the no-subject head-expansion fallback.

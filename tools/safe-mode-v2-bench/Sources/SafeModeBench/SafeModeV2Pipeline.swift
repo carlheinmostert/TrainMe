@@ -275,7 +275,18 @@ enum SafeModeV2Pipeline {
             ))
         }
 
-        // 6. Pick subject by max cosSim, decide subjectIdentified.
+        // 6. Pick subject — hybrid pick-highest rule.
+        //
+        //    0 faces → no-subject mode (defensive sharp).
+        //    1 face  → solo branch. Trust practitioner intent unless
+        //              cosSim is below the solo-floor (params.threshold,
+        //              repurposed from absolute-threshold to solo-floor
+        //              under the 2026-05-24 workshop rule). Default 0.10
+        //              catches the bystander-alone-no-client edge case
+        //              without rejecting legitimate solo selfies.
+        //    2+      → relative pick. Highest cosSim is the subject. No
+        //              absolute gate — even if both faces score low, one
+        //              is closer to the enrolled embedding and wins.
         var subjectIdx: Int? = nil
         var bestSim = -2.0
         for (i, f) in faces.enumerated() {
@@ -285,11 +296,18 @@ enum SafeModeV2Pipeline {
             }
         }
         let subjectIdentified: Bool
-        if subjectIdx != nil, bestSim >= params.threshold {
-            subjectIdentified = true
-        } else {
+        let branchReason: String
+        if faces.isEmpty {
             subjectIdentified = false
+            branchReason = "no-faces"
+        } else if faces.count == 1 {
+            subjectIdentified = (bestSim >= params.threshold)
+            branchReason = "solo-floor"
+        } else {
+            subjectIdentified = true
+            branchReason = "multi-relative"
         }
+        _ = branchReason  // available for future report fields
 
         // 7. Run PersonSegmenter, build keepMask.
         let segmenter = PersonSegmenter(width: width, height: height)

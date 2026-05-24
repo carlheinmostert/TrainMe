@@ -46,8 +46,9 @@ bool debugTuningGateActive() {
   return AppConfig.env == 'staging';
 }
 
-/// Slide-up bottom sheet for live face-match threshold tuning. See
-/// the file-level dartdoc for the gating + persistence contract.
+/// Slide-up bottom sheet for live solo-face-floor tuning (the
+/// post-2026-05-24 semantic; see [kSafeModeV2SoloFloor]). See the
+/// file-level dartdoc for the gating + persistence contract.
 ///
 /// The slider drives [ConversionService.reprocessSafeMode] with a
 /// 250ms debounce so live drag iterates naturally without queuing
@@ -82,7 +83,7 @@ class _SafeModeV2TuningSheet extends StatefulWidget {
 }
 
 class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
-  double _threshold = kSafeModeV2FaceMatchThreshold;
+  double _threshold = kSafeModeV2SoloFloor;
   double? _persistedOverride;
   bool _loadingPrefs = true;
   bool _reprocessing = false;
@@ -111,7 +112,7 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
       if (!mounted) return;
       setState(() {
         _persistedOverride = stored;
-        _threshold = stored ?? kSafeModeV2FaceMatchThreshold;
+        _threshold = stored ?? kSafeModeV2SoloFloor;
         _loadingPrefs = false;
       });
     } catch (_) {
@@ -198,9 +199,9 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
       if (!mounted) return;
       setState(() {
         _persistedOverride = null;
-        _threshold = kSafeModeV2FaceMatchThreshold;
+        _threshold = kSafeModeV2SoloFloor;
       });
-      _scheduleReprocess(kSafeModeV2FaceMatchThreshold);
+      _scheduleReprocess(kSafeModeV2SoloFloor);
     } catch (_) {}
   }
 
@@ -263,7 +264,9 @@ class _SafeModeV2TuningSheetState extends State<_SafeModeV2TuningSheet> {
                   overlayColor: AppColors.primary.withValues(alpha: 0.2),
                 ),
                 child: Slider(
-                  value: _threshold.clamp(0.0, 1.0),
+                  value: _threshold.clamp(0.0, 0.5),
+                  min: 0.0,
+                  max: 0.5,
                   onChanged: _loadingPrefs ? null : _onSliderChanged,
                   onChangeEnd: _loadingPrefs ? null : _onSliderChangeEnd,
                 ),
@@ -466,7 +469,7 @@ class _ThresholdHeader extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         const Text(
-          'Face-match threshold',
+          'Solo-face floor',
           style: TextStyle(
             fontFamily: 'Inter',
             fontSize: 14,
@@ -496,7 +499,7 @@ class _DefaultsHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base =
-        'Compile-time default: ${kSafeModeV2FaceMatchThreshold.toStringAsFixed(3)}';
+        'Compile-time default: ${kSafeModeV2SoloFloor.toStringAsFixed(3)}';
     final extra = persistedOverride == null
         ? ''
         : '  ·  saved default: ${persistedOverride!.toStringAsFixed(3)}';
