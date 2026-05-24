@@ -6,9 +6,16 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../config.dart';
 import 'api_client.dart';
 import 'safe_mode.dart' show kSafeModeAlgorithmVersion;
 import 'sync_service.dart';
+
+/// Diagnostics gate for hydration-path debug prints (2026-05-24).
+/// Enabled in debug builds and on staging profile builds so Carl can
+/// follow the cold-start hydration sequence in Console.app. Stays OFF
+/// in prod release builds to avoid spew.
+bool get _kDiagLogs => kDebugMode || AppConfig.env == 'staging';
 
 /// Safe Mode v2 (2026-05-23) — manages the MobileFaceNet biometric
 /// embedding for each client.
@@ -180,8 +187,21 @@ class FaceEmbeddingService extends ChangeNotifier {
           embedding: bytes,
           modelVersion: kSafeModeAlgorithmVersion,
         );
+        if (_kDiagLogs) {
+          debugPrint(
+            '[FaceEmbeddingService] local SQLite write succeeded for '
+            'client=$clientId, bytes=${bytes.length}',
+          );
+        }
       } catch (e) {
-        debugPrint('FaceEmbeddingService: local cache write failed: $e');
+        // Diagnostics: this catch is normally invisible — the only signal
+        // is the next-launch CTA returning. Always log the exception type
+        // + message so Console.app shows the real failure.
+        debugPrint(
+          '[FaceEmbeddingService] local SQLite write FAILED for '
+          'client=$clientId, bytes=${bytes.length}, '
+          'error=${e.runtimeType}: $e',
+        );
       }
 
       _setState(clientId, EmbeddingState.ready(bytes));
@@ -231,13 +251,31 @@ class FaceEmbeddingService extends ChangeNotifier {
   /// downgrades an in-flight or successful state. Empty byte buffers are
   /// ignored.
   void hydrateFromBytes(String clientId, Uint8List bytes) {
+    if (_kDiagLogs) {
+      debugPrint(
+        '[FaceEmbeddingService] hydrateFromBytes called: '
+        'cid=$clientId bytes=${bytes.length}',
+      );
+    }
     if (bytes.isEmpty) return;
     final existing = _states[clientId];
     if (existing != null &&
         (existing.isReady || existing.isLoading || existing.isError)) {
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEmbeddingService] hydrateFromBytes skipped — already in '
+          'state=${existing.runtimeType} for cid=$clientId',
+        );
+      }
       return;
     }
     _setState(clientId, EmbeddingState.ready(bytes));
+    if (_kDiagLogs) {
+      debugPrint(
+        '[FaceEmbeddingService] hydrateFromBytes promoted state to '
+        'ready for cid=$clientId',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------

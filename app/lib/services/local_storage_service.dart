@@ -2092,7 +2092,7 @@ class LocalStorageService {
     required Uint8List? embedding,
     required int? modelVersion,
   }) async {
-    await db.update(
+    final n = await db.update(
       'cached_clients',
       <String, Object?>{
         'face_embedding': embedding,
@@ -2101,6 +2101,17 @@ class LocalStorageService {
       where: 'id = ?',
       whereArgs: [clientId],
     );
+    // Diagnostics 2026-05-24: rowsAffected = 0 means the cached_clients
+    // row doesn't exist locally yet (SyncService._pullClients hasn't
+    // run since the client was created). That's a separate bug from a
+    // raw INSERT failure — surface it so Console.app shows the divergence.
+    if (kDebugMode || AppConfig.env == 'staging') {
+      debugPrint(
+        '[LocalStorage] cached_clients.face_embedding UPDATE '
+        'rowsAffected=$n for client=$clientId '
+        'bytes=${embedding?.length ?? 0}',
+      );
+    }
   }
 
   /// Replace every cached client for a practice with [clients]. Used
