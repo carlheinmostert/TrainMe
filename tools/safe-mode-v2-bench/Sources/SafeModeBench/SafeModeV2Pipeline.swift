@@ -544,21 +544,30 @@ enum SafeModeV2Pipeline {
             ctx.scaleBy(x: 1, y: -1)
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
         case .leftMirrored:
-            ctx.translateBy(x: h, y: w)
-            ctx.scaleBy(x: -1, y: 1)
-            ctx.rotate(by: .pi / 2)
+            ctx.translateBy(x: 0, y: h)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.rotate(by: -.pi / 2)
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
         case .left:
-            ctx.translateBy(x: 0, y: w)
-            ctx.rotate(by: -.pi / 2)
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
-        case .rightMirrored:
-            ctx.scaleBy(x: -1, y: 1)
-            ctx.rotate(by: -.pi / 2)
-            ctx.draw(cgImage, in: CGRect(x: -CGFloat(cgImage.width), y: 0, width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
-        case .right:
+            // EXIF orientation 8 — needs 90° CCW rotation visually.
+            // Canonical: translate (w, 0) + rotate +π/2.
             ctx.translateBy(x: w, y: 0)
             ctx.rotate(by: .pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
+        case .rightMirrored:
+            ctx.translateBy(x: w, y: h)
+            ctx.scaleBy(x: -1, y: 1)
+            ctx.rotate(by: .pi / 2)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
+        case .right:
+            // EXIF orientation 6 — the stored 0th row is the visual right
+            // edge. Need to rotate the stored landscape 90° CW visually
+            // to display upright. Canonical transform per Apple's Image
+            // I/O sample code: translate (0, h) + rotate -π/2.
+            // (Prior code used (w, 0) + +π/2 which produced an upside-down
+            // output — 180° wrong. Confirmed via Carl's TP2 photos.)
+            ctx.translateBy(x: 0, y: h)
+            ctx.rotate(by: -.pi / 2)
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: h, height: w))
         }
         ctx.restoreGState()
