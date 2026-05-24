@@ -402,15 +402,16 @@ enum SafeModeV2Pipeline {
         let minDim = Double(min(width, height))
         let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
 
-        let ciOptions: [CIContextOption: Any] = [
-            .workingColorSpace: NSNull(),
-            .outputColorSpace: NSNull(),
-        ]
+        // Use default (sRGB) working colorspace. The previous NSNull
+        // working/output colorspace broke CIBlendWithMask: with an R8
+        // mask + nil colorspace + NSNull workingColorSpace, the compositor
+        // blended the whole frame to the background (blurred) regardless
+        // of mask values. Confirmed via this bench tool 2026-05-24.
         let ciContext: CIContext
         if let device = MTLCreateSystemDefaultDevice() {
-            ciContext = CIContext(mtlDevice: device, options: ciOptions)
+            ciContext = CIContext(mtlDevice: device)
         } else {
-            ciContext = CIContext(options: ciOptions)
+            ciContext = CIContext()
         }
         guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
               let blendFilter = CIFilter(name: "CIBlendWithMask") else {
@@ -436,25 +437,14 @@ enum SafeModeV2Pipeline {
             bytesPerRow: width,
             size: CGSize(width: width, height: height),
             format: .R8,
-            colorSpace: nil
+            colorSpace: CGColorSpaceCreateDeviceGray()
         )
 
-        // Feather the keepMask edges so the transition from sharp to
-        // blurred is a soft band instead of a hard step. Radius scales
-        // with frame dim (~10px at 1080p).
-        let featherRadius = 10.0 * max(1.0, minDim / 1080.0)
-        let featheredMask: CIImage
-        if let maskBlurFilter = CIFilter(name: "CIGaussianBlur") {
-            maskBlurFilter.setValue(maskCI, forKey: kCIInputImageKey)
-            maskBlurFilter.setValue(featherRadius, forKey: kCIInputRadiusKey)
-            if let blurredMaskOut = maskBlurFilter.outputImage {
-                featheredMask = blurredMaskOut.cropped(to: sourceCI.extent)
-            } else {
-                featheredMask = maskCI
-            }
-        } else {
-            featheredMask = maskCI
-        }
+        // Pass the keepMask straight to CIBlendWithMask — no feather.
+        // Brief 1's 10px Gaussian feather interacted badly with the
+        // CIBlendWithMask compositor and produced whole-frame blur on
+        // any frame where the mask had non-trivial structure.
+        let featheredMask: CIImage = maskCI
 
         blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
         blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)

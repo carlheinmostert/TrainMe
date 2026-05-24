@@ -3403,15 +3403,21 @@ class VideoConverterChannel {
         let minDim = Double(min(width, height))
         let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
 
-        let options: [CIContextOption: Any] = [
-            .workingColorSpace: NSNull(),
-            .outputColorSpace: NSNull(),
-        ]
+        // CIContext with default (sRGB) working colorspace. The previous
+        // NSNull working/output colorspace combination broke CIBlendWithMask:
+        // with an R8 mask + nil colorspace + NSNull workingColorSpace, the
+        // compositor blended the WHOLE frame to the background (blurred)
+        // image regardless of mask values. Confirmed via the macOS bench
+        // tool 2026-05-24: swapping NSNull -> default sRGB makes the mask
+        // composite work correctly (only mask=0 pixels get blurred).
+        // The Phase 4 "color fidelity" comment from Brief 1 was wrong
+        // about the cause of macOS bench darkening — it was the maskCI
+        // sRGB roundtrip, not the CIContext options.
         let ciContext: CIContext
         if let device = MTLCreateSystemDefaultDevice() {
-            ciContext = CIContext(mtlDevice: device, options: options)
+            ciContext = CIContext(mtlDevice: device)
         } else {
-            ciContext = CIContext(options: options)
+            ciContext = CIContext()
         }
         guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
               let blendFilter = CIFilter(name: "CIBlendWithMask") else {
@@ -3431,35 +3437,27 @@ class VideoConverterChannel {
         // initializer is non-failing; CoreImage takes a defensive copy
         // of the data, so the maskBytes buffer lifetime here is fine.
         // `colorSpace: nil` keeps CoreImage from re-interpreting the
-        // 0/255 bytes through sRGB (matches NSNull working colorspace
-        // on the ciContext above).
+        // DeviceGray colorspace on the mask — gives CIBlendWithMask a
+        // clear luminance interpretation. The `colorSpace: nil` variant
+        // (set briefly by Brief 1 2026-05-24) interacted badly with the
+        // CIBlendWithMask compositor and produced whole-frame blur on
+        // any frame where the mask had a non-trivial structure.
         let maskBytes = Data(bytes: keepMask, count: totalPx)
         let maskCI = CIImage(
             bitmapData: maskBytes,
             bytesPerRow: width,
             size: CGSize(width: width, height: height),
             format: .R8,
-            colorSpace: nil
+            colorSpace: CGColorSpaceCreateDeviceGray()
         )
 
-        // Feather the keepMask edges so the transition from sharp to
-        // blurred is a soft band instead of a hard step. Radius scales
-        // with frame dim (~10px at 1080p). Subjectively reads much
-        // gentler than the hard 0/255 mask, and helps disguise small
-        // segmentation-mask jitter.
-        let featherRadius = 10.0 * max(1.0, minDim / 1080.0)
-        let featheredMask: CIImage
-        if let maskBlurFilter = CIFilter(name: "CIGaussianBlur") {
-            maskBlurFilter.setValue(maskCI, forKey: kCIInputImageKey)
-            maskBlurFilter.setValue(featherRadius, forKey: kCIInputRadiusKey)
-            if let blurredMaskOut = maskBlurFilter.outputImage {
-                featheredMask = blurredMaskOut.cropped(to: sourceCI.extent)
-            } else {
-                featheredMask = maskCI
-            }
-        } else {
-            featheredMask = maskCI
-        }
+        // Pass the keepMask straight to CIBlendWithMask — no feather.
+        // Brief 1's 10px Gaussian feather looked good in theory but
+        // when combined with the colorspace setup interacted badly with
+        // the compositor and produced whole-frame blur. Mask edges go
+        // back to a hard 0/255 step until we figure out a feather
+        // implementation that doesn't break compositing.
+        let featheredMask: CIImage = maskCI
 
         blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
         blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
