@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
 
@@ -1211,6 +1212,129 @@ class ApiClient {
     }
   }
 
+  /// Safe Mode v2 multi-reference enrolment (2026-05-24, Wave-A) —
+  /// `set_client_face_embeddings(p_client_id, p_embeddings, p_model_version,
+  /// p_frontal_pick_slot, p_poses_yaw, p_poses_pitch)`. Transactionally
+  /// replaces every existing slot for the client with the new 1-8 slot
+  /// set. The frontal-pick slot is mirrored into the legacy single-
+  /// embedding columns during the backward-compat window.
+  ///
+  /// Embeddings must each be exactly 2048 bytes (128 FP32 LE floats).
+  /// [embeddings], [posesYaw], [posesPitch] must all share the same
+  /// length. [frontalPickSlotIndex] is a 0-based index into [embeddings].
+  ///
+  /// Returns true on success, false on any error. Caller (the
+  /// FaceEnrolmentService) flips its state to error so the UI can
+  /// surface a retry CTA.
+  ///
+  /// Spec: docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md.
+  Future<bool> setClientFaceEmbeddings({
+    required String clientId,
+    required List<Uint8List> embeddings,
+    required int modelVersion,
+    required int frontalPickSlotIndex,
+    required List<double> posesYaw,
+    required List<double> posesPitch,
+  }) async {
+    try {
+      // PostgREST expects bytea params as `\x`-prefixed hex strings (see
+      // setClientFaceEmbedding above for the diagnostic story). For the
+      // array variant, the JSON payload is a list of those same hex
+      // strings — PostgREST coerces each element to bytea on the way in.
+      final hexList = <String>[];
+      for (final e in embeddings) {
+        final sb = StringBuffer(r'\x');
+        for (final b in e) {
+          sb.write(b.toRadixString(16).padLeft(2, '0'));
+        }
+        hexList.add(sb.toString());
+      }
+      await _guardAuth(
+        () => raw.rpc(
+          'set_client_face_embeddings',
+          params: <String, dynamic>{
+            'p_client_id': clientId,
+            'p_embeddings': hexList,
+            'p_model_version': modelVersion,
+            'p_frontal_pick_slot': frontalPickSlotIndex,
+            'p_poses_yaw': posesYaw,
+            'p_poses_pitch': posesPitch,
+          },
+        ),
+      );
+      return true;
+    } catch (e) {
+      debugPrint('ApiClient.setClientFaceEmbeddings failed: $e');
+      return false;
+    }
+  }
+
+  /// Safe Mode v2 multi-reference enrolment (2026-05-24, Wave-A) —
+  /// `get_client_face_embeddings(p_client_id)`. Returns the full slot
+  /// set for the client, ordered ascending by slot_index. Empty list
+  /// means unenrolled OR consent withdrawn OR (legitimately) the
+  /// caller hasn't synced yet.
+  ///
+  /// On any error (network, RLS) returns an empty list — caller can't
+  /// distinguish "no rows" from "lookup failed" by return value alone;
+  /// log lines in console identify the latter.
+  Future<List<ClientFaceEmbeddingSlot>> getClientFaceEmbeddings({
+    required String clientId,
+  }) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'get_client_face_embeddings',
+          params: <String, dynamic>{'p_client_id': clientId},
+        ),
+      );
+      if (result is! List) return const [];
+      return result
+          .whereType<Map>()
+          .map((row) {
+            final map = Map<String, dynamic>.from(row);
+            return ClientFaceEmbeddingSlot(
+              slotIndex: (map['slot_index'] as num).toInt(),
+              embedding: _decodeBytea(map['embedding']),
+              modelVersion: (map['model_version'] as num).toInt(),
+              isFrontalPick: map['is_frontal_pick'] == true,
+            );
+          })
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('ApiClient.getClientFaceEmbeddings failed: $e');
+      return const [];
+    }
+  }
+
+  /// Decode a PostgREST bytea wire value into raw bytes. PostgREST
+  /// returns bytea either as a `\x`-prefixed hex string (default) or
+  /// base64 (when `Accept` headers ask for it). We handle both shapes
+  /// + log a hard error on anything else — the caller's empty-slot
+  /// branch then runs.
+  static Uint8List _decodeBytea(dynamic value) {
+    if (value is String) {
+      if (value.startsWith(r'\x')) {
+        final hex = value.substring(2);
+        final out = Uint8List(hex.length ~/ 2);
+        for (int i = 0; i < out.length; i++) {
+          out[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+        }
+        return out;
+      }
+      // Fallback: assume base64. Caller surfaces empty-list semantics if
+      // this throws.
+      return base64Decode(value);
+    }
+    if (value is List) {
+      return Uint8List.fromList(value.cast<int>());
+    }
+    debugPrint(
+      'ApiClient._decodeBytea: unexpected bytea wire shape ${value.runtimeType}',
+    );
+    return Uint8List(0);
+  }
+
   /// `set_client_avatar(p_client_id, p_avatar_path)` — Wave 30. Commits
   /// the cloud-side pointer to the body-focus avatar PNG. Caller is
   /// expected to have already uploaded the file to the `raw-archive`
@@ -2002,6 +2126,38 @@ class SafeModeMatch {
     required this.premisesId,
     required this.premisesName,
     required this.safeModeEnforced,
+  });
+}
+
+/// One slot in a multi-reference face enrolment (Safe Mode v2 Wave-A,
+/// 2026-05-24). Mirrors a single row from the cloud
+/// `client_face_embeddings` table. Returned by
+/// [ApiClient.getClientFaceEmbeddings] and consumed by the upcoming
+/// FaceEnrolmentService (Wave-D) + native compositor (Wave-BC).
+///
+/// Spec: docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md.
+@immutable
+class ClientFaceEmbeddingSlot {
+  /// 0-based slot ordinal. Matches the cloud row's `slot_index` smallint.
+  final int slotIndex;
+
+  /// 2048-byte MobileFaceNet embedding (128 FP32 LE floats, L2-normalised).
+  final Uint8List embedding;
+
+  /// Generator version. 1 = MobileFaceNet v1 (current). Older versions
+  /// stay valid during the backward-compat window; a future bump
+  /// triggers re-enrolment nudges in the UI.
+  final int modelVersion;
+
+  /// True on exactly one slot per client — the most-frontal frame, used
+  /// as the avatar JPG source.
+  final bool isFrontalPick;
+
+  const ClientFaceEmbeddingSlot({
+    required this.slotIndex,
+    required this.embedding,
+    required this.modelVersion,
+    required this.isFrontalPick,
   });
 }
 

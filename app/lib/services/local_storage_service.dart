@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 45;
+  static const _dbVersion = 46;
 
   Database? _db;
 
@@ -163,6 +163,10 @@ class LocalStorageService {
     // these directly; upgrading installs run the v17 branch in
     // [_migrateTables].
     await _createOfflineFirstTables(db);
+
+    // Safe Mode v2 multi-reference face-embeddings table (v46). See
+    // [_createClientFaceEmbeddingsTable] for the cloud schema reference.
+    await _createClientFaceEmbeddingsTable(db);
   }
 
   /// Shared DDL for the per-set PLAN child table. Called from both
@@ -286,6 +290,38 @@ class LocalStorageService {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_pending_ops_created
       ON pending_ops(created_at)
+    ''');
+  }
+
+  /// Shared DDL for the v46 multi-reference face-embeddings cache.
+  /// Called from both [_createTables] (fresh installs) and
+  /// [_migrateTables] (existing installs crossing v45 → v46).
+  ///
+  /// One row per (client, enrolment slot). 5-8 rows per fully-enrolled
+  /// client mirroring the cloud `client_face_embeddings` table from
+  /// supabase/migrations/20260524111017_safe_mode_v2_multi_ref.sql.
+  ///
+  /// `embedding` is BLOB (= cloud bytea), exactly 2048 bytes when
+  /// present (512 FP32 little-endian floats, MobileFaceNet output).
+  /// `is_frontal_pick` is true on exactly one row per client — the
+  /// most-frontal slot, used as the avatar JPG source.
+  Future<void> _createClientFaceEmbeddingsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_client_face_embeddings (
+        client_id TEXT NOT NULL,
+        slot_index INTEGER NOT NULL,
+        embedding BLOB NOT NULL,
+        model_version INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        pose_yaw REAL,
+        pose_pitch REAL,
+        is_frontal_pick INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (client_id, slot_index)
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_cached_client_face_embeddings_client
+      ON cached_client_face_embeddings(client_id)
     ''');
   }
 
@@ -1326,6 +1362,26 @@ class LocalStorageService {
         'INTEGER',
       );
     }
+
+    if (oldVersion < 46) {
+      // 2026-05-24 — Safe Mode v2 multi-reference enrolment (Wave-A).
+      //
+      // Mirror the new `client_face_embeddings` cloud table from
+      // supabase/migrations/20260524111017_safe_mode_v2_multi_ref.sql so
+      // the offline-first cache can carry 5-8 reference embeddings per
+      // client spanning the subject's pose space. Replaces the single-
+      // row clients.face_embedding column from the 2026-05-23 wave
+      // (column retained one release cycle per spec).
+      //
+      // The cloud-side embedding is bytea; locally we mirror as BLOB.
+      // (slot_index, client_id) is the cloud PK; we keep the same shape
+      // here. pose_yaw / pose_pitch are nullable real columns kept for
+      // debugging / analytics. is_frontal_pick flags the one slot used
+      // to source the avatar JPG.
+      //
+      // Spec: docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md.
+      await _createClientFaceEmbeddingsTable(db);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2112,6 +2168,107 @@ class LocalStorageService {
         'bytes=${embedding?.length ?? 0}',
       );
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Offline-first — cached_client_face_embeddings (Safe Mode v2 multi-ref)
+  // ---------------------------------------------------------------------------
+
+  /// Replace every locally-cached face-embedding row for [clientId]
+  /// with the supplied [slots] in a single SQLite transaction. Mirrors
+  /// the cloud `set_client_face_embeddings` RPC semantics — the prior
+  /// slot set is wiped, then the new slot set is inserted.
+  ///
+  /// Used by the Wave-D enrolment flow after a successful cloud-side
+  /// persist so cold-start hydration finds the bytes immediately,
+  /// without waiting for the next SyncService pull. Also used by
+  /// [SyncService._pullClientFaceEmbeddings] during pullAll to refresh
+  /// the cache from cloud.
+  ///
+  /// Errors propagate to the caller — no silent swallowing. The
+  /// transaction guarantees the prior set survives if the insert step
+  /// throws (offline-first integrity).
+  Future<void> setCachedClientFaceEmbeddings({
+    required String clientId,
+    required List<
+      ({
+        int slotIndex,
+        Uint8List embedding,
+        int modelVersion,
+        bool isFrontalPick,
+        double? poseYaw,
+        double? posePitch,
+      })
+    > slots,
+  }) async {
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete(
+        'cached_client_face_embeddings',
+        where: 'client_id = ?',
+        whereArgs: [clientId],
+      );
+      if (slots.isEmpty) {
+        return;
+      }
+      final batch = txn.batch();
+      for (final s in slots) {
+        batch.insert(
+          'cached_client_face_embeddings',
+          <String, Object?>{
+            'client_id': clientId,
+            'slot_index': s.slotIndex,
+            'embedding': s.embedding,
+            'model_version': s.modelVersion,
+            'captured_at': nowIso,
+            'pose_yaw': s.poseYaw,
+            'pose_pitch': s.posePitch,
+            'is_frontal_pick': s.isFrontalPick ? 1 : 0,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// Read every locally-cached face-embedding slot for [clientId],
+  /// ordered ascending by slot_index. Returns an empty list when the
+  /// client has no rows yet (unenrolled / legacy / pre-pull).
+  ///
+  /// Caller distinguishes:
+  ///   - empty list   → unenrolled OR consent withdrawn OR pre-pull,
+  ///   - single slot  → backfilled legacy row (frontal-only),
+  ///   - 2-8 slots    → fully enrolled via the Wave-D sweep flow.
+  Future<
+    List<
+      ({
+        int slotIndex,
+        Uint8List embedding,
+        int modelVersion,
+        bool isFrontalPick,
+      })
+    >
+  > getCachedClientFaceEmbeddings({required String clientId}) async {
+    final rows = await db.query(
+      'cached_client_face_embeddings',
+      columns: ['slot_index', 'embedding', 'model_version', 'is_frontal_pick'],
+      where: 'client_id = ?',
+      whereArgs: [clientId],
+      orderBy: 'slot_index ASC',
+    );
+    return rows
+        .map(
+          (r) => (
+            slotIndex: (r['slot_index'] as int),
+            embedding: r['embedding'] is Uint8List
+                ? r['embedding'] as Uint8List
+                : Uint8List.fromList(r['embedding'] as List<int>),
+            modelVersion: (r['model_version'] as int),
+            isFrontalPick: (r['is_frontal_pick'] as int) == 1,
+          ),
+        )
+        .toList(growable: false);
   }
 
   /// Replace every cached client for a practice with [clients]. Used
