@@ -189,8 +189,11 @@ enum SafeModeV2Pipeline {
             throw SafeModeV2PipelineError.allocFailed("dstBuf status=\(dstStatus)")
         }
 
-        // 4. Face detection on the upright CG.
-        let faceReq = VNDetectFaceRectanglesRequest()
+        // 4. Face detection + landmarks on the upright CG. Switched from
+        //    VNDetectFaceRectanglesRequest to VNDetectFaceLandmarksRequest
+        //    so we get the face contour polygon (used by the head-oval
+        //    painter below — replaces the rectangular bbox sweep).
+        let faceReq = VNDetectFaceLandmarksRequest()
         let visionHandler = VNImageRequestHandler(
             cgImage: uprightCG, orientation: .up, options: [:]
         )
@@ -198,7 +201,7 @@ enum SafeModeV2Pipeline {
             try visionHandler.perform([faceReq])
         } catch {
             throw SafeModeV2PipelineError.visionFailed(
-                "VNDetectFaceRectanglesRequest: \(error.localizedDescription)"
+                "VNDetectFaceLandmarksRequest: \(error.localizedDescription)"
             )
         }
         let observations = faceReq.results ?? []
@@ -210,6 +213,10 @@ enum SafeModeV2Pipeline {
             let centerXPx: Int
             let centerYPx: Int
             let cosSim: Double
+            /// Face-contour landmark polygon in upright pixel coords
+            /// (top-left origin). nil when Vision returned no landmarks
+            /// for this face (rare; fall back to bbox-only painting).
+            let contourPolygonPx: [CGPoint]?
         }
 
         func toPixelTopLeft(_ r: CGRect, pad: CGFloat = 0.20) -> CGRect {
@@ -252,12 +259,19 @@ enum SafeModeV2Pipeline {
             let cyNormBot = r.origin.y + r.height * 0.5
             let cxPx = Int((cxNormBot * CGFloat(width)).rounded())
             let cyPx = Int(((1.0 - cyNormBot) * CGFloat(height)).rounded())
+            let contourPolygon = faceContourPolygonPx(
+                observation: obs,
+                imageWidth: width,
+                imageHeight: height,
+                outwardExpansionFactor: 1.25
+            )
             faces.append(DetectedFace(
                 normalizedRect: r,
                 pixelRectTopLeft: pixelRect,
                 centerXPx: max(0, min(width - 1, cxPx)),
                 centerYPx: max(0, min(height - 1, cyPx)),
-                cosSim: sim
+                cosSim: sim,
+                contourPolygonPx: contourPolygon
             ))
         }
 
@@ -329,21 +343,33 @@ enum SafeModeV2Pipeline {
                     width: width,
                     height: height,
                     pixelRect: f.pixelRectTopLeft,
+                    contourPolygonPx: f.contourPolygonPx,
                     headWidthFactor: params.headWidthFactor,
                     headHeightFactor: params.headHeightFactor,
-                    maxAreaFraction: params.maxAreaFraction
+                    maxAreaFraction: params.maxAreaFraction,
+                    segmentationMask: mask,
+                    subjectComponent: subjectComponent
                 )
             }
         } else {
+            // No-subject mode — bystander pixels can still be intersected
+            // against the segmentation mask (so we don't paint background
+            // pixels inside the bbox), but there's no subject to exclude.
+            // Pass nil for the subject component; the painter treats that
+            // as "no subject to protect" (every mask-positive pixel inside
+            // the bbox is fair game).
             for f in faces {
                 paintHeadExpansion(
                     keepMask: keepMask,
                     width: width,
                     height: height,
                     pixelRect: f.pixelRectTopLeft,
+                    contourPolygonPx: f.contourPolygonPx,
                     headWidthFactor: params.headWidthFactor,
                     headHeightFactor: params.headHeightFactor,
-                    maxAreaFraction: params.maxAreaFraction
+                    maxAreaFraction: params.maxAreaFraction,
+                    segmentationMask: maskPtr,
+                    subjectComponent: nil
                 )
             }
         }
@@ -381,18 +407,40 @@ enum SafeModeV2Pipeline {
         }
         let blurredCI = rawBlur.cropped(to: sourceCI.extent)
 
+        // Mask is a raw R8 luminance buffer — no gamma conversion at any
+        // step. `colorSpace: nil` keeps CoreImage from re-interpreting the
+        // 0/255 bytes through sRGB (which on macOS subtly darkened the
+        // whole composite — the iOS pipeline matches this by using the
+        // same nil colorspace + NSNull working colorspace).
         let maskBytes = Data(bytes: keepMask, count: totalPx)
         let maskCI = CIImage(
             bitmapData: maskBytes,
             bytesPerRow: width,
             size: CGSize(width: width, height: height),
             format: .R8,
-            colorSpace: CGColorSpaceCreateDeviceGray()
+            colorSpace: nil
         )
+
+        // Feather the keepMask edges so the transition from sharp to
+        // blurred is a soft band instead of a hard step. Radius scales
+        // with frame dim (~10px at 1080p).
+        let featherRadius = 10.0 * max(1.0, minDim / 1080.0)
+        let featheredMask: CIImage
+        if let maskBlurFilter = CIFilter(name: "CIGaussianBlur") {
+            maskBlurFilter.setValue(maskCI, forKey: kCIInputImageKey)
+            maskBlurFilter.setValue(featherRadius, forKey: kCIInputRadiusKey)
+            if let blurredMaskOut = maskBlurFilter.outputImage {
+                featheredMask = blurredMaskOut.cropped(to: sourceCI.extent)
+            } else {
+                featheredMask = maskCI
+            }
+        } else {
+            featheredMask = maskCI
+        }
 
         blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
         blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
-        blendFilter.setValue(maskCI, forKey: kCIInputMaskImageKey)
+        blendFilter.setValue(featheredMask, forKey: kCIInputMaskImageKey)
         guard let outputCI = blendFilter.outputImage else {
             throw SafeModeV2PipelineError.encodeFailed("CIBlendWithMask output")
         }
@@ -671,16 +719,44 @@ enum SafeModeV2Pipeline {
         return visited
     }
 
-    // MARK: - Head-expansion painter (identical to iOS)
+    // MARK: - Head-region painter (identical to iOS)
+    //
+    // The painter no longer treats the head-expanded bbox as an
+    // unconditional "blur everything inside this rectangle" sweep. Three
+    // changes vs the original v2 wave:
+    //
+    //   1. Inside the bbox we only blur pixels that segmentation marked
+    //      as part of a person silhouette AND that aren't part of the
+    //      subject component. Background and subject pixels behind the
+    //      bystander are preserved.
+    //   2. If the face's contour landmark polygon is available, we use
+    //      it (expanded outward ~25% from face center to cover hair /
+    //      ears / chin) as the inner clipping shape instead of the raw
+    //      bbox — the blur reads as "obscured person" instead of
+    //      "blurry box".
+    //   3. The maxAreaFraction defensive clamp is preserved; with the
+    //      contour-polygon path it's effectively a no-op for typical
+    //      poses but kicks in for the close-up-selfie case.
+    //
+    // `segmentationMask` may be nil if segmentation failed; in that case
+    // the original "paint the whole bbox" behaviour is restored (worst
+    // case: regresses to the old visual but the photo still gets blurred,
+    // which is the load-bearing privacy guarantee).
+    // `subjectComponent` may be nil for the no-subject mode — the
+    // painter then treats every mask-positive pixel inside the shape as
+    // a bystander pixel.
 
     static func paintHeadExpansion(
         keepMask: UnsafeMutablePointer<UInt8>,
         width: Int,
         height: Int,
         pixelRect: CGRect,
+        contourPolygonPx: [CGPoint]?,
         headWidthFactor: CGFloat,
         headHeightFactor: CGFloat,
-        maxAreaFraction: Double = 1.0
+        maxAreaFraction: Double = 1.0,
+        segmentationMask: UnsafePointer<UInt8>?,
+        subjectComponent: UnsafePointer<UInt8>?
     ) {
         var wFactor = headWidthFactor
         var hFactor = headHeightFactor
@@ -700,15 +776,197 @@ enum SafeModeV2Pipeline {
         let cy = pixelRect.midY
         let halfW = pixelRect.width * wFactor * 0.5
         let halfH = pixelRect.height * hFactor * 0.5
-        let x0 = max(0, Int((cx - halfW).rounded(.down)))
-        let x1 = min(width, Int((cx + halfW).rounded(.up)))
-        let y0 = max(0, Int((cy - halfH).rounded(.down)))
-        let y1 = min(height, Int((cy + halfH).rounded(.up)))
-        for y in y0..<y1 {
+        let bboxX0 = max(0, Int((cx - halfW).rounded(.down)))
+        let bboxX1 = min(width, Int((cx + halfW).rounded(.up)))
+        let bboxY0 = max(0, Int((cy - halfH).rounded(.down)))
+        let bboxY1 = min(height, Int((cy + halfH).rounded(.up)))
+
+        // Compute the inner clipping shape's bbox (polygon or expanded
+        // face bbox). When a polygon is available we clip to its
+        // axis-aligned bounding box and then point-in-polygon test each
+        // pixel; otherwise we fall back to the expanded face bbox.
+        let polygon: [CGPoint]? = contourPolygonPx
+        let scanX0: Int
+        let scanX1: Int
+        let scanY0: Int
+        let scanY1: Int
+        if let poly = polygon, poly.count >= 3 {
+            var minX = CGFloat.greatestFiniteMagnitude
+            var minY = CGFloat.greatestFiniteMagnitude
+            var maxX = -CGFloat.greatestFiniteMagnitude
+            var maxY = -CGFloat.greatestFiniteMagnitude
+            for p in poly {
+                if p.x < minX { minX = p.x }
+                if p.y < minY { minY = p.y }
+                if p.x > maxX { maxX = p.x }
+                if p.y > maxY { maxY = p.y }
+            }
+            scanX0 = max(0, min(bboxX0, Int(minX.rounded(.down))))
+            scanY0 = max(0, min(bboxY0, Int(minY.rounded(.down))))
+            scanX1 = min(width, max(bboxX1, Int(maxX.rounded(.up))))
+            scanY1 = min(height, max(bboxY1, Int(maxY.rounded(.up))))
+        } else {
+            scanX0 = bboxX0
+            scanY0 = bboxY0
+            scanX1 = bboxX1
+            scanY1 = bboxY1
+        }
+
+        // Within the face contour polygon, Vision's per-face identity
+        // wins: this is a bystander head, blur mask-positive pixels
+        // unconditionally (the subject-component exclusion is too greedy
+        // to apply here — when two people stand close in frame Vision's
+        // segmentation often merges them into one component which
+        // floodFillBinary then claims entirely as "subject", with the
+        // result that the bystander would never get blurred). Outside
+        // the polygon (in the bbox-fallback region, or in the bbox-only
+        // path when Vision didn't return landmarks) the
+        // subject-component exclusion remains active so we still
+        // protect the client when a bystander stands in front.
+        let havePolygon = (polygon?.count ?? 0) >= 3
+        for y in scanY0..<scanY1 {
             let rowOffset = y * width
-            for x in x0..<x1 {
-                keepMask[rowOffset + x] = 0
+            for x in scanX0..<scanX1 {
+                let i = rowOffset + x
+                let insidePolygon: Bool = havePolygon
+                    ? pointInPolygon(
+                        x: CGFloat(x) + 0.5,
+                        y: CGFloat(y) + 0.5,
+                        polygon: polygon!
+                    )
+                    : false
+                let insideBbox = (x >= bboxX0 && x < bboxX1
+                    && y >= bboxY0 && y < bboxY1)
+                if !insidePolygon && !insideBbox { continue }
+                if let segMask = segmentationMask {
+                    if segMask[i] < 128 { continue }
+                    if insidePolygon {
+                        // Face oval → bystander head. Blur unconditionally.
+                        keepMask[i] = 0
+                    } else {
+                        // Bbox-fallback / bbox-only mode → protect the
+                        // subject silhouette when present.
+                        if let subj = subjectComponent, subj[i] == 1 { continue }
+                        keepMask[i] = 0
+                    }
+                } else {
+                    // No segmentation — fall back to unconditional paint.
+                    keepMask[i] = 0
+                }
             }
         }
+    }
+
+    /// Build the face-contour polygon in upright pixel coords (top-left
+    /// origin). Uses VNFaceLandmarks2D.faceContour and expands every
+    /// point outward by `outwardExpansionFactor` from the face's bbox
+    /// center to cover hair / chin / ears (Vision's contour traces the
+    /// jawline tightly; without expansion the polygon misses the hairline).
+    ///
+    /// Returns nil when Vision didn't return landmarks for this face, or
+    /// when the contour has < 3 points — caller falls back to bbox-only
+    /// painting in that case.
+    static func faceContourPolygonPx(
+        observation: VNFaceObservation,
+        imageWidth: Int,
+        imageHeight: Int,
+        outwardExpansionFactor: CGFloat
+    ) -> [CGPoint]? {
+        guard let landmarks = observation.landmarks,
+              let contour = landmarks.faceContour else {
+            return nil
+        }
+        let imageSize = CGSize(width: imageWidth, height: imageHeight)
+        let raw = contour.pointsInImage(imageSize: imageSize)
+        if raw.count < 3 { return nil }
+
+        // Vision returns points in bottom-left-origin coords; flip Y to
+        // the top-left convention the rest of the pipeline uses.
+        var topLeft: [CGPoint] = []
+        topLeft.reserveCapacity(raw.count)
+        for p in raw {
+            topLeft.append(CGPoint(x: p.x, y: CGFloat(imageHeight) - p.y))
+        }
+
+        // Expand each point outward from the face bbox center. The
+        // contour only traces the jawline (chin → ear → ear); expanding
+        // by ~25% from the face center pulls the polygon up over the
+        // forehead and out past the ears.
+        let bboxNorm = observation.boundingBox
+        let cxNormBot = bboxNorm.origin.x + bboxNorm.width * 0.5
+        let cyNormBot = bboxNorm.origin.y + bboxNorm.height * 0.5
+        let cxPx = cxNormBot * CGFloat(imageWidth)
+        let cyPx = CGFloat(imageHeight) - cyNormBot * CGFloat(imageHeight)
+        let f = outwardExpansionFactor
+
+        var expanded: [CGPoint] = []
+        expanded.reserveCapacity(topLeft.count)
+        for p in topLeft {
+            let dx = p.x - cxPx
+            let dy = p.y - cyPx
+            expanded.append(CGPoint(
+                x: cxPx + dx * f,
+                y: cyPx + dy * f
+            ))
+        }
+
+        // Append synthetic top-of-head points above the highest expanded
+        // contour point so the polygon covers the forehead / hair region
+        // (Vision's contour stops at temples). We add 3 points across
+        // the top of the face bbox lifted by ~30% of bbox height above.
+        var topY = CGFloat.greatestFiniteMagnitude
+        var leftX = CGFloat.greatestFiniteMagnitude
+        var rightX = -CGFloat.greatestFiniteMagnitude
+        for p in expanded {
+            if p.y < topY { topY = p.y }
+            if p.x < leftX { leftX = p.x }
+            if p.x > rightX { rightX = p.x }
+        }
+        let bboxHeightPx = bboxNorm.height * CGFloat(imageHeight)
+        let lift = bboxHeightPx * 0.35
+        let topCanopyY = max(0, topY - lift)
+        let topMidX = (leftX + rightX) * 0.5
+        // Insert canopy points between the two ends (highest x at each
+        // side). Sort polygon by clockwise winding around centroid so the
+        // resulting shape stays simple.
+        expanded.append(CGPoint(x: rightX, y: topCanopyY))
+        expanded.append(CGPoint(x: topMidX, y: topCanopyY))
+        expanded.append(CGPoint(x: leftX, y: topCanopyY))
+
+        // Sort by angle from the face center for a clean simple polygon.
+        var cxSum: CGFloat = 0
+        var cySum: CGFloat = 0
+        for p in expanded {
+            cxSum += p.x
+            cySum += p.y
+        }
+        let centroidX = cxSum / CGFloat(expanded.count)
+        let centroidY = cySum / CGFloat(expanded.count)
+        expanded.sort { a, b in
+            atan2(a.y - centroidY, a.x - centroidX) <
+                atan2(b.y - centroidY, b.x - centroidX)
+        }
+        return expanded
+    }
+
+    /// Even-odd rule point-in-polygon test for a closed simple polygon.
+    static func pointInPolygon(
+        x: CGFloat,
+        y: CGFloat,
+        polygon: [CGPoint]
+    ) -> Bool {
+        if polygon.count < 3 { return false }
+        var inside = false
+        var j = polygon.count - 1
+        for i in 0..<polygon.count {
+            let xi = polygon[i].x, yi = polygon[i].y
+            let xj = polygon[j].x, yj = polygon[j].y
+            // Strict comparison on Y avoids double-counting at vertices.
+            let crosses = ((yi > y) != (yj > y)) &&
+                (x < (xj - xi) * (y - yi) / ((yj - yi) == 0 ? 0.0001 : (yj - yi)) + xi)
+            if crosses { inside.toggle() }
+            j = i
+        }
+        return inside
     }
 }
