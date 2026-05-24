@@ -1535,8 +1535,12 @@ class _CollapsibleSettingsRow extends StatelessWidget {
 /// the helper in `studio_exercise_card.dart`). Adds a long-press
 /// gesture that opens the threshold-tuning sheet ONLY when the
 /// debug/staging gate passes AND the exercise is a Safe Mode photo.
-/// `HitTestBehavior.deferToChild` keeps every tap + drag flowing to
-/// the wrapped widget undisturbed.
+///
+/// `HitTestBehavior.opaque` is load-bearing here: the bottom-rail Hero
+/// thumb sits inside parent gesture handlers (PageView swipe + tap-to-
+/// jump) which won the long-press recogniser race under `deferToChild`.
+/// `opaque` claims the long-press for this wrapper while normal taps
+/// (no `onTap` registered here) still bubble through.
 Widget _maybeWrapWithSafeModeV2LongPress({
   required BuildContext context,
   required ExerciseCapture exercise,
@@ -1547,7 +1551,7 @@ Widget _maybeWrapWithSafeModeV2LongPress({
       exercise.safeModeActive;
   if (!eligible) return child;
   return GestureDetector(
-    behavior: HitTestBehavior.deferToChild,
+    behavior: HitTestBehavior.opaque,
     onLongPress: () => showSafeModeV2TuningSheet(context, exercise),
     child: child,
   );
