@@ -13,6 +13,15 @@
 // long after a fix has shipped (two real outages on 2026-05-12 traced back
 // here). See build.sh for the rewrite step.
 //
+// 2026-05-24 — feat(live): "View practice profile" link added to the
+// practitioner popover on /v/{practice}/{premises}/now. The popover now
+// renders an <a href="/v/{practice-slug}"> between the meta row and the
+// Report button when the practice is publicly listed (fetchPracticeContact
+// returned non-null). Styled as a lighter text-link with a trailing
+// right-chevron — distinct from the Report button. JS + HTML change;
+// bumping this comment so Safari's lazy SW update check flushes the
+// stale live.js/live.html bundle from returning bystanders.
+//
 // 2026-05-24 — fix(live): fit-to-polygon button CSS specificity parity
 // with default Leaflet zoom +/- buttons. Added `.live-map ` prefix to
 // the five `.live-fit-*` selectors so they hit specificity (0,2,1) and
