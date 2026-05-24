@@ -169,6 +169,21 @@ class FaceEmbeddingService extends ChangeNotifier {
         return;
       }
 
+      // Persist to local SQLite so cold-start hydration via
+      // _refreshCachedClient finds the bytes immediately. Without this,
+      // a force-quit between enrolment and the next SyncService._pullClients
+      // run would re-show the "Prepare a face fingerprint" CTA on next
+      // launch (PR #461 covered the read side only).
+      try {
+        await SyncService.instance.storage.updateClientFaceEmbedding(
+          clientId: clientId,
+          embedding: bytes,
+          modelVersion: kSafeModeAlgorithmVersion,
+        );
+      } catch (e) {
+        debugPrint('FaceEmbeddingService: local cache write failed: $e');
+      }
+
       _setState(clientId, EmbeddingState.ready(bytes));
     } on PlatformException catch (e) {
       // Surface native error codes verbatim — they encode the failure

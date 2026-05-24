@@ -2079,6 +2079,30 @@ class LocalStorageService {
     );
   }
 
+  /// Granular update of the Safe Mode v2 face embedding columns on an
+  /// existing cached_clients row. Used by FaceEmbeddingService after a
+  /// successful cloud-side persist so cold-start hydration finds the
+  /// bytes immediately, without waiting for the next SyncService pull.
+  ///
+  /// Pass null for [embedding] to clear the columns (e.g. when the
+  /// face-recognition consent is withdrawn locally before the next pull
+  /// catches up server-side).
+  Future<void> updateClientFaceEmbedding({
+    required String clientId,
+    required Uint8List? embedding,
+    required int? modelVersion,
+  }) async {
+    await db.update(
+      'cached_clients',
+      <String, Object?>{
+        'face_embedding': embedding,
+        'face_embedding_model_version': embedding == null ? null : modelVersion,
+      },
+      where: 'id = ?',
+      whereArgs: [clientId],
+    );
+  }
+
   /// Replace every cached client for a practice with [clients]. Used
   /// by the full-refresh pull path: any row not in [clients] is deleted,
   /// so clients removed cloud-side disappear locally too.
