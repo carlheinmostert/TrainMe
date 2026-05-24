@@ -146,10 +146,6 @@ class FaceEnrolmentService extends ChangeNotifier {
   /// Periodic timer driving frame capture during the sweep.
   Timer? _captureTimer;
 
-  /// Wall-clock instant the current phase started — used to compute
-  /// [progress] without depending on the timer tick count (which can
-  /// skip on a busy frame). Survives phase transitions.
-  DateTime? _phaseStart;
 
   /// Single broadcast stream for error events. UI subscribes from
   /// `initState` and shows inline coral toasts. Errors also set
@@ -226,7 +222,6 @@ class FaceEnrolmentService extends ChangeNotifier {
 
     _setState(FaceEnrolmentState.sweepingYaw);
     _instructionText = "Slowly turn your head from left to right";
-    _phaseStart = DateTime.now();
     notifyListeners();
 
     await _runPhase(_kYawDuration, baseProgress: 0.0, span: 0.6);
@@ -238,7 +233,6 @@ class FaceEnrolmentService extends ChangeNotifier {
 
     _setState(FaceEnrolmentState.sweepingPitch);
     _instructionText = "Now look up, then down";
-    _phaseStart = DateTime.now();
     notifyListeners();
 
     await _runPhase(_kPitchDuration, baseProgress: 0.6, span: 0.4);

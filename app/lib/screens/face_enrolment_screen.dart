@@ -74,9 +74,6 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   /// app-lifecycle resume.
   CameraController? _cameraController;
 
-  /// Picked camera description. Cached so re-attach after backgrounding
-  /// uses the same lens.
-  CameraDescription? _camera;
 
   /// True once the camera is initialised + previewing. Drives the
   /// loading spinner overlay.
@@ -189,7 +186,6 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
-      _camera = front;
 
       final controller = CameraController(
         front,
