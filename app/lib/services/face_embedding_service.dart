@@ -289,8 +289,8 @@ class FaceEmbeddingService extends ChangeNotifier {
     final avatarPath = cached.avatarPath;
     if (avatarPath == null || avatarPath.isEmpty) return null;
 
-    // Step 1: try the local body-focus avatar PNG that the avatar
-    // capture flow writes via client_avatar_capture_screen._useThis().
+    // Step 1: try the local body-focus avatar PNG written by the
+    // multi-reference enrolment flow (FaceEnrolmentService._writeFrontalAvatar).
     // The local file ALWAYS lives at `{docs}/avatars/{clientId}.png`
     // regardless of the cloud-side `avatarPath` shape (which is
     // `{practiceId}/{clientId}/avatar.png` to match the bucket policy).
