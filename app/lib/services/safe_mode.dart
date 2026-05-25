@@ -19,8 +19,17 @@
 ///     native pipeline computes cosine similarity per detected face
 ///     and paints anyone below threshold. Designed in
 ///     `docs/specs/2026-05-23-safe-mode-face-rec.md`.
+///   * v3 — DeviceRGB colorspace render fix (PR #482, 2026-05-25).
+///     Same MobileFaceNet recognition pipeline as v2; the underlying
+///     CIContext working/output colorspace now renders into DeviceRGB
+///     rather than the default extendedLinearSRGB, killing the ~37%
+///     darkening + whole-frame-blur regression that affected every v2
+///     safe-mode photo. Bumped so the existing v2-captured photos in
+///     Carl's library become eligible for the re-process affordance and
+///     can be re-rendered through the corrected pipeline without having
+///     to be re-captured from scratch.
 ///
 /// Bump this constant ONLY when the underlying compositing algorithm
 /// changes in a way that invalidates the visual output of older
 /// captures. The re-process affordance keys on `< kSafeModeAlgorithmVersion`.
-const int kSafeModeAlgorithmVersion = 2;
+const int kSafeModeAlgorithmVersion = 3;
