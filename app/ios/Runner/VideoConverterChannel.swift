@@ -3895,16 +3895,18 @@ class VideoConverterChannel {
         let minDim = Double(min(width, height))
         let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
 
-        // CIContext with default (sRGB) working colorspace. The previous
-        // NSNull working/output colorspace combination broke CIBlendWithMask:
-        // with an R8 mask + nil colorspace + NSNull workingColorSpace, the
-        // compositor blended the WHOLE frame to the background (blurred)
-        // image regardless of mask values. Confirmed via the macOS bench
-        // tool 2026-05-24: swapping NSNull -> default sRGB makes the mask
-        // composite work correctly (only mask=0 pixels get blurred).
-        // The Phase 4 "color fidelity" comment from Brief 1 was wrong
-        // about the cause of macOS bench darkening — it was the maskCI
-        // sRGB roundtrip, not the CIContext options.
+        // Attempt-1 (autonomous iteration 2026-05-25): default CIContext
+        // (working space = extendedLinearSRGB), DeviceGray maskCI, no
+        // feather. The single load-bearing change vs the pre-PR-#482
+        // baseline is the render-call colorSpace below: pass
+        // CGColorSpaceCreateDeviceRGB() instead of nil so CoreImage
+        // gamma-encodes its linear working values back to sRGB before
+        // writing the BGRA dstBuf — that's what the JPG encoder expects.
+        // Hypothesis: PR #482's darkness was the JPG-encoder reading
+        // linear bytes as sRGB; the whole-frame blur regression PR #482
+        // fought was the NSNull working-space + untagged manual srcBuf
+        // interacting badly in CIBlendWithMask. Mirrored from the bench
+        // tool (tools/safe-mode-v2-bench).
         let ciContext: CIContext
         if let device = MTLCreateSystemDefaultDevice() {
             ciContext = CIContext(mtlDevice: device)
@@ -3957,7 +3959,13 @@ class VideoConverterChannel {
         guard let outputCI = blendFilter.outputImage else {
             return .failure("CIBlendWithMask produced no output")
         }
-        ciContext.render(outputCI, to: dstBuf, bounds: sourceCI.extent, colorSpace: nil)
+        // Pass an explicit DeviceRGB colorspace so CoreImage gamma-encodes
+        // its (extendedLinearSRGB) working values back to sRGB before
+        // writing the BGRA dstBuf. With `colorSpace: nil` the render
+        // writes raw linear bytes, which the JPG encoder then mis-reads
+        // as gamma-encoded sRGB — that's the ~37% darkening bug.
+        let renderColorSpace = CGColorSpaceCreateDeviceRGB()
+        ciContext.render(outputCI, to: dstBuf, bounds: sourceCI.extent, colorSpace: renderColorSpace)
 
         // --- Encode dst → JPG ---
         CVPixelBufferLockBaseAddress(dstBuf, .readOnly)

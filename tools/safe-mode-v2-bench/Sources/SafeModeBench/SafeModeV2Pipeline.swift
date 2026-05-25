@@ -427,11 +427,18 @@ enum SafeModeV2Pipeline {
         let minDim = Double(min(width, height))
         let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
 
-        // Use default (sRGB) working colorspace. The previous NSNull
-        // working/output colorspace broke CIBlendWithMask: with an R8
-        // mask + nil colorspace + NSNull workingColorSpace, the compositor
-        // blended the whole frame to the background (blurred) regardless
-        // of mask values. Confirmed via this bench tool 2026-05-24.
+        // Attempt-1 (autonomous iteration 2026-05-25): default CIContext
+        // (working space = extendedLinearSRGB), DeviceGray maskCI, no
+        // feather. The single load-bearing change vs the pre-PR-#482
+        // baseline is the render-call colorSpace below: pass
+        // CGColorSpaceCreateDeviceRGB() instead of nil so CoreImage
+        // gamma-encodes its linear working values back to sRGB before
+        // writing the BGRA dstBuf — that's what the JPG encoder expects.
+        // Hypothesis: the darkness was JPG-encoder-interpreting-linear-
+        // bytes-as-sRGB; the whole-frame blur was the NSNull working
+        // space + untagged manual srcBuf interacting badly in
+        // CIBlendWithMask. Avoid both by leaving NSNull off and supplying
+        // an explicit output colorspace at render time.
         let ciContext: CIContext
         if let device = MTLCreateSystemDefaultDevice() {
             ciContext = CIContext(mtlDevice: device)
@@ -477,7 +484,13 @@ enum SafeModeV2Pipeline {
         guard let outputCI = blendFilter.outputImage else {
             throw SafeModeV2PipelineError.encodeFailed("CIBlendWithMask output")
         }
-        ciContext.render(outputCI, to: dstBuf, bounds: sourceCI.extent, colorSpace: nil)
+        // Pass an explicit DeviceRGB colorspace so CoreImage gamma-encodes
+        // its (extendedLinearSRGB) working values back to sRGB before
+        // writing the BGRA dstBuf. With `colorSpace: nil` the render
+        // writes raw linear bytes, which the JPG encoder then mis-reads
+        // as gamma-encoded sRGB — that's the ~37% darkening bug.
+        let renderColorSpace = CGColorSpaceCreateDeviceRGB()
+        ciContext.render(outputCI, to: dstBuf, bounds: sourceCI.extent, colorSpace: renderColorSpace)
 
         // 10. Encode dstBuf -> JPG via CGImageDestination.
         try encodeDstAsJpg(
