@@ -21,8 +21,8 @@ type Props = {
  * Calls `start_safe_mode_subscription(practiceId)` via PortalApi.
  * Renders three states:
  *
- *   * idle — large coral CTA "Subscribe · 4 credits / month · 3-day
- *     free trial on first sub". Shows current balance.
+ *   * idle — large coral CTA "Subscribe · 4 credits / month". Shows
+ *     current balance.
  *   * submitting — disabled CTA with spinner.
  *   * success — green confirmation panel, new balance, link back to
  *     the dashboard.
@@ -121,12 +121,12 @@ export function SafeModeSubscribeForm({ practiceId, initialBalance }: Props) {
       >
         {submitting
           ? 'Subscribing…'
-          : 'Subscribe · 4 credits / month · 3-day free trial on first sub'}
+          : 'Subscribe · 4 credits / month'}
       </button>
       <p className="text-xs text-ink-muted">
         We&rsquo;ll debit 4 credits from this practice&rsquo;s balance. No
-        auto-renewal &mdash; the subscription lasts 30 days, and
-        we&rsquo;ll notify you before it ends.
+        auto-renewal &mdash; the subscription lasts 30 days. Check
+        back here on or before the expiry date to renew.
       </p>
       {error ? (
         <p className="text-sm font-semibold text-brand">{error}</p>

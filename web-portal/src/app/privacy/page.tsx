@@ -270,12 +270,9 @@ export default function PrivacyPolicyPage() {
                 <strong>Storage.</strong> The embedding is stored both
                 on your device (a local cache, used for offline
                 verification) and in your homefit.studio account
-                database (Supabase, AWS-hosted,{' '}
-                <em>
-                  [lawyer-review: region to be confirmed and named here]
-                </em>
-                ). The selfie image is stored in your account database
-                only.
+                database (Supabase, AWS-hosted in{' '}
+                <strong>eu-central-1 (Frankfurt)</strong>). The selfie
+                image is stored in your account database only.
               </li>
               <li>
                 <strong>Retention.</strong> Until you ask us to delete
@@ -285,8 +282,13 @@ export default function PrivacyPolicyPage() {
                   Settings &rarr; Public profile &rarr; Stop using face
                   verification
                 </em>
-                . That removes the embedding from your device and from
-                our database. Account closure deletes all face data.
+                . That immediately removes the embedding from your
+                device and from our database. The selfie photo itself
+                remains available for the Safe Mode transparency
+                display (so clients can confirm your identity in
+                shared spaces) until you replace it via{' '}
+                <em>Update photo</em> or close your account. Account
+                closure deletes all face data including the selfie.
               </li>
               <li>
                 <strong>Sharing.</strong> We do not share your face
@@ -330,6 +332,20 @@ export default function PrivacyPolicyPage() {
                 confirm whether biometric data warrants a separate
                 rights paragraph here referencing the s.26/s.27
                 interaction and the in-app deletion control.]
+              </em>
+            </P>
+            <P className="mt-2 text-ink-muted">
+              <em>
+                [lawyer-review: POPIA s.71 automated decision-making
+                &mdash; face-recognition matching is automated
+                processing of special personal information used to
+                make a decision (free vs. credit-charged publish).
+                s.71(2) exempts automated decisions taken in the
+                course of concluding or executing a contract but
+                still requires us to disclose that the decision is
+                automated and to offer a path to contest. Lawyer to
+                advise whether a separate paragraph is needed or
+                whether the existing copy already covers this.]
               </em>
             </P>
           </Section>
