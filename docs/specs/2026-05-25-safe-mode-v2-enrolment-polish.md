@@ -6,7 +6,8 @@ A polish wave on the multi-reference face enrolment editor that landed in Wave-D
 2. **Real-time pose-gated capture** — today the sweep timer-snaps N frames regardless of whether the head is actually moving. Should behave like Face ID: only accept frames at meaningfully different poses, prompt the user toward missing pose buckets.
 3. **Per-embedding quality scoring** — today every frame the timer fires gets accepted as a slot. Should compute a composite quality score (face confidence, sharpness, lighting, pose uniqueness, embedding norm) and reject anything below threshold.
 4. **Manual avatar selection** — today the most-frontal slot is silently promoted to the avatar JPG. Practitioner should be able to manually pick which captured frame becomes the avatar from a post-sweep grid.
-5. **Consent-aware UI behaviour** — today the editor implicitly assumes both face-rec AND avatar consent are on. The two consents are independent (see the Consent matrix section); the editor should adapt to whichever combination the client granted.
+5. **Consent sheet restructure** — today the client consent sheet has three section headers: "Video treatment" / "Profile" / "Safe Mode". The "Safe Mode" section only contains one row (the face-recognition-for-Safe-Mode toggle), which is dead weight as its own section. Move that toggle into the "Profile" section below the existing avatar row; drop the "Safe Mode" section header entirely. Same change applies to the portal's matching consent UI per R-10 parity.
+6. **Consent-aware UI behaviour in the enrolment editor** — today the editor implicitly assumes both face-rec AND avatar consent are on. The two consents are independent (see the Consent matrix section); the editor should adapt to whichever combination the client granted.
 
 Branch this implements against: `feat/safe-mode-v2-enrolment-polish`
 Target: `staging` (per the staging-promotion rule).
@@ -129,7 +130,24 @@ After the sweep completes (and ONLY when avatar consent is ON — see section 3 
 
 If avatar consent is OFF, this screen is skipped — embeddings persist immediately, no avatar JPG written, screen pops on sweep completion.
 
-### 4e. Consent-aware UI behaviour
+### 4e. Consent sheet restructure
+
+Today the client consent sheet (`app/lib/widgets/client_consent_sheet.dart`) renders three section headers via `_sectionHeader(...)`:
+
+- Line 269: `'Video treatment'` (the three playback toggles — line drawing / B&W / original)
+- Line 295: `'Profile'` (the avatar toggle)
+- Line 320: `'Safe Mode'` (the face-recognition-for-Safe-Mode toggle — single row, only thing in this section)
+
+The "Safe Mode" section is dead weight — one row, no useful grouping. The face-recognition toggle is conceptually about the client's profile (their biometric template + photo are both profile-level artifacts). It belongs in the "Profile" section.
+
+Change:
+- Drop the `_sectionHeader('Safe Mode')` line and its companion divider.
+- Move the face-recognition-for-Safe-Mode toggle row into the "Profile" section, positioned BELOW the avatar toggle (avatar first, then face-rec).
+- Section order in the consent sheet remains: "Video treatment" → "Profile" (now containing both avatar AND face-rec) → end.
+
+R-10 parity: the web portal's matching client consent sheet (find the file under `web-portal/src/app/clients/[id]/` or similar) needs the same restructure. Same section header drop, same row reorder. Both surfaces change in the same PR.
+
+### 4f. Consent-aware UI behaviour
 
 Per the section 3 matrix. Implementation lives in the enrolment screen's `initState`:
 
