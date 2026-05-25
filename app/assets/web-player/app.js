@@ -5490,14 +5490,59 @@ async function registerServiceWorker() {
       // clients.claim chain fires and the next page interaction picks
       // up the new bundle. Also fire on tab-visibility changes so a
       // user who Cmd-Tabbed away during a deploy gets the new bundle
-      // when they return. See web-player/sw.js comment block for the
-      // CACHE_NAME bumping convention this works in concert with.
+      // when they return. See web-player/sw.js header comment for the
+      // network-first + auto-claim + auto-reload contract this works
+      // in concert with.
       try { reg.update(); } catch (_) {}
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           try { reg.update(); } catch (_) {}
         }
       });
+
+      // A new SW took control of this tab — reload so the new bundle
+      // is in memory and the user is not stuck on a half-stale page
+      // (old JS + new HTML, or vice versa).
+      //
+      // Mid-workout guard: if the user has tapped "Start Workout" and
+      // the timer is running, defer the reload. Interrupting a rep is
+      // not acceptable. Re-check on `pause` (timer pause), `ended`
+      // (workout completion), and the next `visibilitychange` so the
+      // pending reload fires the moment the workout idles.
+      let _pendingControllerReload = false;
+      const _isWorkoutActive = () => {
+        try {
+          return Boolean(isWorkoutMode && isTimerRunning);
+        } catch (_) {
+          return false;
+        }
+      };
+      const _doReloadIfIdle = () => {
+        if (!_pendingControllerReload) return;
+        if (_isWorkoutActive()) return;
+        _pendingControllerReload = false;
+        window.location.reload();
+      };
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (_isWorkoutActive()) {
+          _pendingControllerReload = true;
+          // Re-check on visibility changes so the deferred reload
+          // fires when the user returns to the tab after pausing.
+          document.addEventListener('visibilitychange', _doReloadIfIdle);
+          return;
+        }
+        window.location.reload();
+      });
+      // Signal to lobby.js's defensive duplicate listener that this
+      // canonical listener is wired and will own the reload decision.
+      // Without the flag, lobby.js would reload unconditionally and
+      // bypass the workout-active guard above.
+      window.__homefitSwAppListenerAdded = true;
+      // Also drain the deferred reload on natural timer-pause /
+      // completion ticks. These run cheaply once per second when a
+      // workout is active so a reload-pending state is never held
+      // longer than ~1s past idle.
+      setInterval(_doReloadIfIdle, 1000);
     } catch (err) {
       console.warn('Service worker registration failed:', err);
     }
