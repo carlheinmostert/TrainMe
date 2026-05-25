@@ -27,6 +27,10 @@ import AVFoundation
   // for the practitioner avatar selfie. See PractitionerProfileChannel.
   private var practitionerProfile: PractitionerProfileChannel?
 
+  // Self-trainer wave PR #3 (2026-05-25) — native MobileFaceNet embedding
+  // compute for the self-verification flow. See HomefitFaceEmbeddingChannel.
+  private var faceEmbedding: HomefitFaceEmbeddingChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -292,6 +296,14 @@ import AVFoundation
     // saved + Safe Mode can engage.
     if #available(iOS 11.0, *) {
       practitionerProfile = PractitionerProfileChannel(messenger: messenger)
+    }
+
+    // Self-trainer wave PR #3 — native MobileFaceNet embedding compute
+    // for the self-verification flow. Wraps the same MobileFaceNetEmbedder
+    // singleton used by Safe Mode v2 enrolment, but exposes a simpler
+    // image-path → [Float] surface for the Settings selfie flow.
+    if #available(iOS 11.0, *) {
+      faceEmbedding = HomefitFaceEmbeddingChannel(messenger: messenger)
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
