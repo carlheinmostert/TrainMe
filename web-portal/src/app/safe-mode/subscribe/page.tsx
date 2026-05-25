@@ -10,7 +10,7 @@ import { SafeModeSubscribeForm } from './SafeModeSubscribeForm';
 export const metadata: Metadata = {
   title: 'Safe Mode subscription — homefit.studio',
   description:
-    'Subscribe to Safe Mode capture inside enforcing premises. 4 credits / month, 3-day free trial on first sub.',
+    'Subscribe to Safe Mode capture inside enforcing premises. 4 credits / month, no auto-renewal.',
 };
 
 type SearchParams = { practice?: string };
@@ -26,10 +26,15 @@ type SearchParams = { practice?: string };
  * sub. This page is the canonical place a Safe Mode subscription is
  * purchased.
  *
- * Resolution order for the active practice mirrors `/credits`:
+ * Resolution order for the active practice mirrors `/dashboard`:
  *   1. `?practice=<uuid>` from a portal Link.
  *   2. The `hf_active_practice` cookie set by middleware on the
  *      most-recent app→portal handoff.
+ *   3. First membership as the legacy fallback so the page body
+ *      surfaces the Subscribe CTA against the same practice the
+ *      header identity stack is already showing (the stack falls
+ *      back to `practices[0]` on its own — without the same
+ *      fallback here, the body and header disagreed).
  *
  * Owner-only — the `start_safe_mode_subscription` RPC enforces
  * membership; we add this UI-level gate so a non-owner sees a
@@ -53,19 +58,41 @@ export default async function SafeModeSubscribePage({
   const params = await searchParams;
   const cookieStore = await cookies();
   const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
-  const practiceId = params.practice ?? cookiePractice;
-
   const portal = createPortalApi(supabase);
-  const [role, practices, balance, hasActiveSub] = await Promise.all([
+
+  // Pull practices first so we can apply the same three-tier resolution
+  // the dashboard uses (per `/dashboard/page.tsx`):
+  //   1. Explicit `?practice=` (covered by middleware on first visit;
+  //      this branch only fires inside the portal's own internal Links
+  //      that propagate the param).
+  //   2. `hf_active_practice` cookie set by middleware on the previous
+  //      app->portal handoff.
+  //   3. First membership as the legacy fallback.
+  // Previous shape only honoured (1)+(2) and surfaced a "Pick a practice
+  // first" warning when neither was set, even though the header
+  // identity stack was already showing `practices[0]` via its own
+  // fallback - so the page body and header disagreed about which
+  // practice was active.
+  const practices = await portal.listMyPractices();
+  const cookieFallback =
+    cookiePractice && practices.some((p) => p.id === cookiePractice)
+      ? cookiePractice
+      : practices[0]?.id ?? '';
+  const practiceId = params.practice ?? cookieFallback;
+
+  const [role, balance, hasActiveSub] = await Promise.all([
     practiceId
       ? portal.getCurrentUserRole(practiceId, user.id)
       : Promise.resolve(null),
-    portal.listMyPractices(),
     practiceId ? portal.getPracticeBalance(practiceId) : Promise.resolve(0),
     portal.getSafeModeSubStatus(),
   ]);
 
   const isOwner = role === 'owner';
+  // A signed-in user with zero practice memberships should still see a
+  // helpful message, not the bare "Pick a practice" warning. Mirrors
+  // the dashboard's empty-practices branch.
+  const hasNoPractices = practices.length === 0;
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -97,10 +124,11 @@ export default async function SafeModeSubscribePage({
               reminder when your current month is close to ending.
             </p>
           </div>
-        ) : !practiceId ? (
+        ) : hasNoPractices ? (
           <p className="mt-8 text-sm text-warning">
-            Pick a practice in the header above first, then come back here
-            to subscribe.
+            You&rsquo;re signed in but not yet a member of any practice.
+            Ask a practice owner to invite you, or set up a new practice
+            from the dashboard.
           </p>
         ) : !isOwner ? (
           <p className="mt-8 text-sm text-warning">
@@ -128,9 +156,8 @@ export default async function SafeModeSubscribePage({
               phone &mdash; your client stays sharp.
             </li>
             <li>
-              First subscription includes a 3-day free trial. You can
-              cancel any time by simply not renewing &mdash; we never
-              auto-bill.
+              No auto-renewal &mdash; the subscription lasts 30 days
+              and you choose whether to renew when it lapses.
             </li>
             <li>
               Captures you&rsquo;ve already made stay accessible forever,
