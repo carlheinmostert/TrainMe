@@ -24,11 +24,13 @@ import '../services/original_video_service.dart';
 import '../services/path_resolver.dart';
 import '../services/safe_mode.dart';
 import '../services/safe_mode_service.dart';
+import '../services/safe_mode_subscription_service.dart';
 import '../services/sticky_defaults.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import '../widgets/orientation_lock_guard.dart';
+import '../widgets/safe_mode_paywall_sheet.dart';
 import 'face_enrolment_screen.dart';
 import 'public_profile_screen.dart';
 import '../models/cached_client.dart';
@@ -238,7 +240,6 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   _LocationGateStatus _locationGateStatus = _LocationGateStatus.pending;
   bool _retryingLocationGate = false;
 
-
   @override
   void initState() {
     super.initState();
@@ -262,8 +263,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // just need to surface the user-facing toast. Capture session
     // can outlast a conversion (multiple captures queued); keep the
     // subscription for the whole screen lifetime.
-    _safeRejectionSub = ConversionService.instance.onSafeModeRejection
-        .listen((rejection) {
+    _safeRejectionSub = ConversionService.instance.onSafeModeRejection.listen((
+      rejection,
+    ) {
       if (!mounted) return;
       _showSafeRejectionToast(rejection.reason);
     });
@@ -378,8 +380,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // fire-and-forget future so we don't block the lifecycle
       // callback, but still guard the controller from double-dispose
       // via the local `controller` ref.
-      final wasRecording =
-          _isRecording || controller.value.isRecordingVideo;
+      final wasRecording = _isRecording || controller.value.isRecordingVideo;
       if (wasRecording) {
         _wasRecordingOnBackground = true;
       }
@@ -398,7 +399,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       });
       _lockTargetController.reverse();
 
-      unawaited(_teardownController(controller, salvageRecording: wasRecording));
+      unawaited(
+        _teardownController(controller, salvageRecording: wasRecording),
+      );
     } else if (state == AppLifecycleState.resumed) {
       // Re-evaluate the location permission gate. If the practitioner
       // popped out to Settings → Location → enabled it, this lifecycle
@@ -417,9 +420,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       }
       if (_wasRecordingOnBackground && mounted) {
         _wasRecordingOnBackground = false;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recording interrupted')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Recording interrupted')));
       }
     }
   }
@@ -450,9 +453,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (initial && permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      final granted = hasService &&
-          (permission == LocationPermission.whileInUse
-              || permission == LocationPermission.always);
+      final granted =
+          hasService &&
+          (permission == LocationPermission.whileInUse ||
+              permission == LocationPermission.always);
       if (!mounted) return;
       setState(() {
         _locationGateStatus = granted
@@ -474,10 +478,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         final trainerId = AuthService.instance.currentUserId;
         final practiceId = AuthService.instance.currentPracticeId.value;
         if (trainerId != null && practiceId != null) {
-          unawaited(SafeModeService.instance.refreshProfileGate(
-            trainerId: trainerId,
-            practiceId: practiceId,
-          ));
+          unawaited(
+            SafeModeService.instance.refreshProfileGate(
+              trainerId: trainerId,
+              practiceId: practiceId,
+            ),
+          );
         }
       }
     } finally {
@@ -508,8 +514,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           // normal stop-recording flow uses. Non-blocking w.r.t. the
           // dispose below.
           try {
-            final exercise =
-                await _persistCapture(xFile.path, MediaType.video);
+            final exercise = await _persistCapture(xFile.path, MediaType.video);
             if (exercise != null && mounted) {
               _onCaptureLanded(exercise);
             }
@@ -541,8 +546,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // previous _initCamera() is still in flight, or a stale re-entry from
     // didChangeAppLifecycleState. If a controller is already initialised
     // we've nothing to do.
-    if (_cameraController != null &&
-        _cameraController!.value.isInitialized) {
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
       return;
     }
     try {
@@ -552,7 +556,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Camera unavailable — check permissions')),
+            content: Text('Camera unavailable — check permissions'),
+          ),
         );
         widget.onExitToStudio();
       }
@@ -638,8 +643,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // device will auto-pick the matching physical lens under the hood
       // when the user later changes zoom via pinch or lens pills.
       try {
-        await controller
-            .setZoomLevel(1.0.clamp(minZoom, maxZoom).toDouble());
+        await controller.setZoomLevel(1.0.clamp(minZoom, maxZoom).toDouble());
       } catch (_) {
         // Ignore — zoom not supported on this device.
       }
@@ -659,9 +663,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     } catch (e) {
       debugPrint('Camera init failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Camera failed: $e')));
         widget.onExitToStudio();
       }
     }
@@ -884,6 +888,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       return;
     }
 
+    // Self-trainer wave PR #8 (2026-05-25) — Safe Mode subscription
+    // gate. Inside an enforcing geofence, the user needs an active
+    // sub / trial / grandfathered status; otherwise the paywall sheet
+    // takes over and capture aborts.
+    if (!await _assertSafeModeSubGate()) {
+      return;
+    }
+
     try {
       HomefitHaptics.medium();
       // Snapshot wall-clock instant of the shutter fire — this is what
@@ -898,12 +910,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         // Fire-and-forget audit row. SyncService queues into
         // `pending_ops` and flushes in the background; we never
         // await the network here.
-        unawaited(_recordCaptureAuditEvent(
-          kind: 'photo',
-          startedAt: shutterFiredAt,
-          endedAt: null,
-          exercise: exercise,
-        ));
+        unawaited(
+          _recordCaptureAuditEvent(
+            kind: 'photo',
+            startedAt: shutterFiredAt,
+            endedAt: null,
+            exercise: exercise,
+          ),
+        );
       }
     } catch (e) {
       // Silent failure — the count not incrementing is the signal.
@@ -1024,6 +1038,18 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       return;
     }
 
+    // Self-trainer wave PR #8 (2026-05-25) — Safe Mode subscription
+    // gate. Runs BEFORE the v2 video-suppression so users without a
+    // sub get the paywall instead of a silent rejection (otherwise
+    // they'd just see the long-press do nothing). Returning false
+    // means the paywall took over and we should bail.
+    if (!await _assertSafeModeSubGate()) {
+      _longPressActive = false;
+      _pendingStopAfterStart = false;
+      return;
+    }
+    if (!mounted) return;
+
     // Safe Mode v2 (2026-05-23) — video Safe Mode doesn't ship in
     // this wave. Suppress the long-press-to-record gesture entirely
     // when Safe Mode is engaged. The banner in the top bar tells the
@@ -1051,7 +1077,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // start; allowing the device to rotate mid-clip produces a clip
     // with a single transform that no longer matches the latter half
     // of the frames. Locking is the standard pattern.
-    final isPortrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    final isPortrait =
+        MediaQuery.orientationOf(context) == Orientation.portrait;
     final lockedSet = isPortrait
         ? const {DeviceOrientation.portraitUp}
         : const {
@@ -1095,10 +1122,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // hardware/build combos. Heavy is the next step up — coarser but
       // unmistakably felt. Debug prints confirm via console that the
       // timer actually fires and hasn't been cancelled early.
-      _recordingTickTimer =
-          Timer.periodic(const Duration(seconds: 1), (timer) {
-        debugPrint(
-            'haptic tick t=${DateTime.now().toIso8601String()}');
+      _recordingTickTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        debugPrint('haptic tick t=${DateTime.now().toIso8601String()}');
         if (!mounted) {
           timer.cancel();
           return;
@@ -1208,12 +1233,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         // Fire-and-forget audit row. Skip if we somehow lost the
         // start instant — the row would be misleading.
         if (recordingStartedAt != null) {
-          unawaited(_recordCaptureAuditEvent(
-            kind: 'video',
-            startedAt: recordingStartedAt,
-            endedAt: recordingStoppedAt,
-            exercise: exercise,
-          ));
+          unawaited(
+            _recordCaptureAuditEvent(
+              kind: 'video',
+              startedAt: recordingStartedAt,
+              endedAt: recordingStoppedAt,
+              exercise: exercise,
+            ),
+          );
         }
       }
     } catch (e) {
@@ -1293,8 +1320,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // wins per-field; SQLite stays the canonical store.
       final clientId = widget.session.clientId;
       if (clientId != null && clientId.isNotEmpty) {
-        final cached =
-            await SyncService.instance.storage.getCachedClientById(clientId);
+        final cached = await SyncService.instance.storage.getCachedClientById(
+          clientId,
+        );
         StickyDefaults.primeFromSnapshot(
           clientId,
           cached?.clientExerciseDefaults ?? const <String, dynamic>{},
@@ -1427,10 +1455,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       final enabled = await CaptureAutoSavePreference.isEnabled();
       if (!enabled) return;
       if (!await rawFile.exists()) return;
-      final result =
-          await OriginalVideoService.instance.saveToPhotos(rawFile);
-      if (result == SaveToPhotosResult.permissionDenied &&
-          !_denialChipShown) {
+      final result = await OriginalVideoService.instance.saveToPhotos(rawFile);
+      if (result == SaveToPhotosResult.permissionDenied && !_denialChipShown) {
         _denialChipShown = true;
         rootScaffoldMessengerKey.currentState?.showSnackBar(
           const SnackBar(
@@ -1489,9 +1515,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     } catch (e) {
       debugPrint('Library import failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
       }
     }
   }
@@ -1579,21 +1605,23 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                 if (!mounted) return;
                 // Re-query the gate on return.
                 final trainerId = AuthService.instance.currentUserId;
-                final practiceId =
-                    AuthService.instance.currentPracticeId.value;
+                final practiceId = AuthService.instance.currentPracticeId.value;
                 if (trainerId != null && practiceId != null) {
-                  unawaited(SafeModeService.instance.refreshProfileGate(
-                    trainerId: trainerId,
-                    practiceId: practiceId,
-                  ));
+                  unawaited(
+                    SafeModeService.instance.refreshProfileGate(
+                      trainerId: trainerId,
+                      practiceId: practiceId,
+                    ),
+                  );
                 }
               },
               onOpenPortal: () {
-                unawaited(launchUrl(
-                  Uri.parse(
-                      'https://manage.homefit.studio/public-profile'),
-                  mode: LaunchMode.externalApplication,
-                ));
+                unawaited(
+                  launchUrl(
+                    Uri.parse('https://manage.homefit.studio/public-profile'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                );
               },
               onExitToStudio: widget.onExitToStudio,
             ),
@@ -1610,203 +1638,194 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     return OrientationLockGuard(
       allowed: _allowedOrientations,
       child: Container(
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _buildCameraPreview(),
+        color: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildCameraPreview(),
 
-          // Top bar overlay — session name + corner controls
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildTopBar(),
-                  // Safe Mode "active" banner used to live here as
-                  // `_SafeModeBanner`. As of the persistent-banner wave
-                  // (2026-05-22) the banner is hoisted to the top of
-                  // every route in `main.dart` via
-                  // `PersistentSafeModeBanner` — so the practitioner
-                  // sees the privacy promise on Clients, Studio,
-                  // Settings, every screen, not just the camera. The
-                  // rejection toast (Vision miss > 5%) remains here —
-                  // it's a per-capture failure surface, not a global
-                  // state cue.
-                  // Safe Mode v2 (2026-05-23) — face-recognition
-                  // gating banner. Only rendered when Safe Mode is
-                  // active for a real client AND the v2 state isn't
-                  // ready. Hard-fail per
-                  // `feedback_no_silent_fallbacks` — the practitioner
-                  // must take action to clear the banner before
-                  // capture proceeds.
-                  if (_shouldGateOnSafeModeV2()) ...[
-                    Builder(builder: (context) {
-                      final s = _resolveSafeModeV2State();
-                      if (s.isReady) return const SizedBox.shrink();
-                      return _SafeModeV2Banner(
-                        state: s,
-                        onSetFace: _openInlineAvatarFlow,
-                        onPrepare: _retrySafeModeV2,
-                        onRetry: _retrySafeModeV2,
-                      );
-                    }),
-                  ],
-                  if (_safeToastMessage != null)
-                    _SafeModeRejectionToast(message: _safeToastMessage!),
-                  // Safe Mode v2 (2026-05-23) — when Safe Mode is
-                  // engaged, video recording is suppressed. Photo
-                  // capture still works; the long-press gesture
-                  // does not enter the video-recording recognizer.
-                  if (_shouldGateOnSafeModeV2() &&
-                      _resolveSafeModeV2State().isReady)
-                    const _SafeModeV2VideoBlockedBanner(),
-                ],
-              ),
-            ),
-          ),
-
-          // Recording overlay (pulsing dot + countdown) — top of viewfinder
-          if (_isRecording)
+            // Top bar overlay — session name + corner controls
             Positioned(
               top: 0,
               left: 0,
               right: 0,
               child: SafeArea(
                 bottom: false,
-                child: _buildRecordingOverlay(),
-              ),
-            ),
-
-          // Peek capture box — left edge, mid-height
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: Center(child: _buildPeekBox()),
-          ),
-
-          // Wave 40 (M5) — vertical lens stack on the right edge.
-          // 44x44pt pills, 8pt gap, vertically centred. Hidden during
-          // recording (mid-clip lens switch causes visible jumps in
-          // the output) and on devices with no optical variety.
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: Center(child: _buildLensColumn()),
-          ),
-
-          // Left-edge pull-tab back to Studio — shared chunky pill.
-          Positioned.fill(
-            child: ShellPullTab(
-              side: ShellPullTabSide.left,
-              onActivate: widget.onExitToStudio,
-            ),
-          ),
-
-          // Wave 40 (M2) — bottom-left library import button. 44x44pt
-          // round, translucent black, photo-stack glyph. Sits well
-          // below the peek box (which is mid-left).
-          Positioned(
-            left: 16,
-            bottom: 36,
-            child: SafeArea(
-              top: false,
-              child: _buildLibraryImportButton(),
-            ),
-          ),
-
-          // Wave 40 (M4) — lock-target overlay + drag track. Both fade
-          // in 200ms after recording starts. Lock target sits 80pt
-          // above the shutter centre; drag track is the corridor
-          // between them. Hit-testing is disabled on these so the
-          // shutter's gesture detector receives the move events for
-          // the upward drag detection.
-          if (_isRecording || _lockTargetController.value > 0)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: _buildLockTargetOverlay(),
-              ),
-            ),
-
-          // Shutter — bottom centre. Lens row is now on the right
-          // edge so the shutter has a clean vertical corridor for the
-          // slide-up-to-lock gesture (M4).
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              top: false,
-              child: _buildShutter(),
-            ),
-          ),
-
-          // Screen-edge coral glow while finger is in the armed zone.
-          // Tells the practitioner "you're in the target — release to lock."
-          // Disappears the instant the finger leaves the zone.
-          if (_hoveringLockTarget)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedOpacity(
-                  opacity: 1.0,
-                  duration: const Duration(milliseconds: 150),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: const Color(0xFFFF6B35).withValues(alpha: 0.8),
-                        width: 4,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildTopBar(),
+                    // Safe Mode "active" banner used to live here as
+                    // `_SafeModeBanner`. As of the persistent-banner wave
+                    // (2026-05-22) the banner is hoisted to the top of
+                    // every route in `main.dart` via
+                    // `PersistentSafeModeBanner` — so the practitioner
+                    // sees the privacy promise on Clients, Studio,
+                    // Settings, every screen, not just the camera. The
+                    // rejection toast (Vision miss > 5%) remains here —
+                    // it's a per-capture failure surface, not a global
+                    // state cue.
+                    // Safe Mode v2 (2026-05-23) — face-recognition
+                    // gating banner. Only rendered when Safe Mode is
+                    // active for a real client AND the v2 state isn't
+                    // ready. Hard-fail per
+                    // `feedback_no_silent_fallbacks` — the practitioner
+                    // must take action to clear the banner before
+                    // capture proceeds.
+                    if (_shouldGateOnSafeModeV2()) ...[
+                      Builder(
+                        builder: (context) {
+                          final s = _resolveSafeModeV2State();
+                          if (s.isReady) return const SizedBox.shrink();
+                          return _SafeModeV2Banner(
+                            state: s,
+                            onSetFace: _openInlineAvatarFlow,
+                            onPrepare: _retrySafeModeV2,
+                            onRetry: _retrySafeModeV2,
+                          );
+                        },
                       ),
-                      borderRadius: BorderRadius.circular(12),
+                    ],
+                    if (_safeToastMessage != null)
+                      _SafeModeRejectionToast(message: _safeToastMessage!),
+                    // Safe Mode v2 (2026-05-23) — when Safe Mode is
+                    // engaged, video recording is suppressed. Photo
+                    // capture still works; the long-press gesture
+                    // does not enter the video-recording recognizer.
+                    if (_shouldGateOnSafeModeV2() &&
+                        _resolveSafeModeV2State().isReady)
+                      const _SafeModeV2VideoBlockedBanner(),
+                  ],
+                ),
+              ),
+            ),
+
+            // Recording overlay (pulsing dot + countdown) — top of viewfinder
+            if (_isRecording)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(bottom: false, child: _buildRecordingOverlay()),
+              ),
+
+            // Peek capture box — left edge, mid-height
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Center(child: _buildPeekBox()),
+            ),
+
+            // Wave 40 (M5) — vertical lens stack on the right edge.
+            // 44x44pt pills, 8pt gap, vertically centred. Hidden during
+            // recording (mid-clip lens switch causes visible jumps in
+            // the output) and on devices with no optical variety.
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: Center(child: _buildLensColumn()),
+            ),
+
+            // Left-edge pull-tab back to Studio — shared chunky pill.
+            Positioned.fill(
+              child: ShellPullTab(
+                side: ShellPullTabSide.left,
+                onActivate: widget.onExitToStudio,
+              ),
+            ),
+
+            // Wave 40 (M2) — bottom-left library import button. 44x44pt
+            // round, translucent black, photo-stack glyph. Sits well
+            // below the peek box (which is mid-left).
+            Positioned(
+              left: 16,
+              bottom: 36,
+              child: SafeArea(top: false, child: _buildLibraryImportButton()),
+            ),
+
+            // Wave 40 (M4) — lock-target overlay + drag track. Both fade
+            // in 200ms after recording starts. Lock target sits 80pt
+            // above the shutter centre; drag track is the corridor
+            // between them. Hit-testing is disabled on these so the
+            // shutter's gesture detector receives the move events for
+            // the upward drag detection.
+            if (_isRecording || _lockTargetController.value > 0)
+              Positioned.fill(
+                child: IgnorePointer(child: _buildLockTargetOverlay()),
+              ),
+
+            // Shutter — bottom centre. Lens row is now on the right
+            // edge so the shutter has a clean vertical corridor for the
+            // slide-up-to-lock gesture (M4).
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(top: false, child: _buildShutter()),
+            ),
+
+            // Screen-edge coral glow while finger is in the armed zone.
+            // Tells the practitioner "you're in the target — release to lock."
+            // Disappears the instant the finger leaves the zone.
+            if (_hoveringLockTarget)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: 1.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: const Color(0xFFFF6B35).withValues(alpha: 0.8),
+                          width: 4,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Safe Mode debug HUD (added 2026-05-22 to chase "Banner B
+            // not rendering on iPhone despite being inside the polygon").
+            // ALWAYS renders — that's the point: if the banner is invisible
+            // because the service is `notInZone`, this HUD shows the exact
+            // state + GPS + match data so we can tell whether GPS missed,
+            // the polygon's `enforced` flag is off, or the RPC simply
+            // didn't return a row.
+            //
+            // Outside the existing SafeArea Column so the HUD survives any
+            // layout collapse on the banner side. Lives in the Stack at
+            // top-right under the iOS status bar.
+            //
+            // Follow-up: gate behind `kDebugMode` or rip it out once the
+            // root cause is fixed. Tracked in the PR body.
+            Positioned(
+              top: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                left: false,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 8),
+                  child: IgnorePointer(
+                    child: ListenableBuilder(
+                      listenable: SafeModeService.instance,
+                      builder: (context, _) {
+                        return _SafeModeDebugHud(
+                          svc: SafeModeService.instance,
+                          locationGate: _locationGateStatus,
+                        );
+                      },
                     ),
                   ),
                 ),
               ),
             ),
-
-          // Safe Mode debug HUD (added 2026-05-22 to chase "Banner B
-          // not rendering on iPhone despite being inside the polygon").
-          // ALWAYS renders — that's the point: if the banner is invisible
-          // because the service is `notInZone`, this HUD shows the exact
-          // state + GPS + match data so we can tell whether GPS missed,
-          // the polygon's `enforced` flag is off, or the RPC simply
-          // didn't return a row.
-          //
-          // Outside the existing SafeArea Column so the HUD survives any
-          // layout collapse on the banner side. Lives in the Stack at
-          // top-right under the iOS status bar.
-          //
-          // Follow-up: gate behind `kDebugMode` or rip it out once the
-          // root cause is fixed. Tracked in the PR body.
-          Positioned(
-            top: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              left: false,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 8, right: 8),
-                child: IgnorePointer(
-                  child: ListenableBuilder(
-                    listenable: SafeModeService.instance,
-                    builder: (context, _) {
-                      return _SafeModeDebugHud(
-                        svc: SafeModeService.instance,
-                        locationGate: _locationGateStatus,
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -1819,8 +1838,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           children: [
             CircularProgressIndicator(color: Colors.white38),
             SizedBox(height: 16),
-            Text('Starting camera...',
-                style: TextStyle(color: Colors.white38)),
+            Text('Starting camera...', style: TextStyle(color: Colors.white38)),
           ],
         ),
       );
@@ -1939,14 +1957,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         ),
       ),
     );
-    return tooltip == null
-        ? button
-        : Tooltip(message: tooltip, child: button);
+    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
   }
 
   Widget _buildRecordingOverlay() {
-    final remaining =
-        (AppConfig.maxVideoSeconds - _recordingSeconds).clamp(0, 999);
+    final remaining = (AppConfig.maxVideoSeconds - _recordingSeconds).clamp(
+      0,
+      999,
+    );
     return Padding(
       padding: const EdgeInsets.only(top: 44, left: 16, right: 16),
       child: Row(
@@ -1954,8 +1972,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           const _PulsingDot(),
           const Spacer(),
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.black54,
               borderRadius: BorderRadius.circular(8),
@@ -1994,10 +2011,15 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       builder: (context, child) {
         final t = _flyController.value;
         // Ease-out scale: start at 1.3 and settle to 1.0
-        final scale = t == 0 ? 1.0 : 1.0 + (1.0 - Curves.easeOut.transform(t)) * 0.3;
+        final scale = t == 0
+            ? 1.0
+            : 1.0 + (1.0 - Curves.easeOut.transform(t)) * 0.3;
         return Transform.translate(
           // Start slightly right (toward shutter) and settle into box.
-          offset: Offset(t == 0 ? 0 : (1 - Curves.easeOut.transform(t)) * 40, 0),
+          offset: Offset(
+            t == 0 ? 0 : (1 - Curves.easeOut.transform(t)) * 40,
+            0,
+          ),
           child: Opacity(
             opacity: hasCapture ? 1.0 : 0.45,
             child: Transform.scale(scale: scale, child: child),
@@ -2015,10 +2037,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
               decoration: BoxDecoration(
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.primary,
-                  width: 2,
-                ),
+                border: Border.all(color: AppColors.primary, width: 2),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.4),
@@ -2056,7 +2075,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                 right: -6,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(10),
@@ -2090,10 +2111,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// wide lens) or while recording (mid-clip lens switch causes
   /// visible jumps in the output).
   Widget _buildLensColumn() {
-    final isBack = _cameras.isNotEmpty &&
+    final isBack =
+        _cameras.isNotEmpty &&
         _activeCameraIndex < _cameras.length &&
-        _cameras[_activeCameraIndex].lensDirection ==
-            CameraLensDirection.back;
+        _cameras[_activeCameraIndex].lensDirection == CameraLensDirection.back;
     if (!isBack || _availableLenses.length <= 1 || _isRecording) {
       return const SizedBox.shrink();
     }
@@ -2227,8 +2248,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         final lockBg = _isLocked
             ? AppColors.primary
             : (hovering
-                ? AppColors.primary.withValues(alpha: 0.75)
-                : Colors.black.withValues(alpha: 0.55));
+                  ? AppColors.primary.withValues(alpha: 0.75)
+                  : Colors.black.withValues(alpha: 0.55));
         final lockBorder = _isLocked || hovering
             ? AppColors.primary
             : Colors.white.withValues(alpha: 0.18);
@@ -2347,8 +2368,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     final hint = _isLocked
         ? 'Tap ⬛ to stop'
         : (_isRecording
-            ? 'Slide finger ↑ onto \u{1F512} to lock'
-            : 'Tap for photo · Hold for video · Slide ↑ to lock');
+              ? 'Slide finger ↑ onto \u{1F512} to lock'
+              : 'Tap for photo · Hold for video · Slide ↑ to lock');
     return Padding(
       padding: const EdgeInsets.only(bottom: 24, top: 8),
       child: Column(
@@ -2370,12 +2391,15 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                   onTap: _isLocked
                       ? () => _stopVideoRecording()
                       : (_isRecording ? null : _capturePhoto),
-                  onLongPressDown:
-                      _isLocked ? null : (_) => _onShutterPressDown(),
-                  onLongPressStart:
-                      _isLocked ? null : (_) => _startVideoRecording(),
-                  onLongPressEnd:
-                      _isLocked ? null : (_) => _onShutterReleased(),
+                  onLongPressDown: _isLocked
+                      ? null
+                      : (_) => _onShutterPressDown(),
+                  onLongPressStart: _isLocked
+                      ? null
+                      : (_) => _startVideoRecording(),
+                  onLongPressEnd: _isLocked
+                      ? null
+                      : (_) => _onShutterReleased(),
                   onLongPressCancel: _isLocked ? null : _onShutterReleased,
                   child: _buildShutterButton(),
                 ),
@@ -2417,12 +2441,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     final innerColor = _isLocked
         ? Colors.white
         : (_isRecording ? AppColors.primary : Colors.white);
-    final innerSize = _isLocked
-        ? 28.0
-        : (_isRecording ? 30.0 : 64.0);
-    final innerRadius = _isLocked
-        ? 4.0
-        : (_isRecording ? 6.0 : 32.0);
+    final innerSize = _isLocked ? 28.0 : (_isRecording ? 30.0 : 64.0);
+    final innerRadius = _isLocked ? 4.0 : (_isRecording ? 6.0 : 32.0);
     return SizedBox(
       width: size,
       height: size,
@@ -2435,8 +2455,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
               width: size,
               height: size,
               child: CircularProgressIndicator(
-                value: (_recordingSeconds / AppConfig.maxVideoSeconds)
-                    .clamp(0.0, 1.0),
+                value: (_recordingSeconds / AppConfig.maxVideoSeconds).clamp(
+                  0.0,
+                  1.0,
+                ),
                 strokeWidth: 5,
                 color: AppColors.primary,
                 backgroundColor: Colors.white24,
@@ -2462,6 +2484,65 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         ],
       ),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Safe Mode subscription gate (Self-trainer wave PR #8, 2026-05-25)
+  // ---------------------------------------------------------------------------
+
+  /// True while a paywall sheet is currently presented or being
+  /// resolved. Prevents the shutter from stacking multiple sheets if
+  /// the user mashes the button while the RPC is in flight.
+  bool _subPaywallInFlight = false;
+
+  /// Capture-entry gate. Returns true iff Safe Mode is NOT active OR
+  /// the user has an active subscription / trial / grandfathered
+  /// access. Returns false if the paywall sheet was shown (the user
+  /// should be sent away from the capture path).
+  ///
+  /// On a fresh cache miss this does a 3-second bounded network
+  /// fetch; failure / timeout falls back to "fail-open" so paying
+  /// users aren't blocked by a network blip.
+  ///
+  /// Brief: docs/sub-agent-briefs/08-safe-mode-subscription-gate.md.
+  Future<bool> _assertSafeModeSubGate() async {
+    try {
+      if (!SafeModeService.instance.isActive) return true;
+    } catch (_) {
+      return true;
+    }
+    if (_subPaywallInFlight) {
+      // A sheet is already up — refuse this capture but don't stack.
+      return false;
+    }
+
+    final cached = SafeModeSubscriptionService.instance.hasAccess;
+    if (cached == true) return true;
+
+    final readResult = await SafeModeSubscriptionService.instance
+        .readForCapture();
+    if (readResult == true) return true;
+    // null (network failure / unknown) → fail-open per readForCapture
+    // semantics: paying users shouldn't be punished for transient
+    // network errors. Only an explicit `false` triggers the paywall.
+    if (readResult == null) return true;
+
+    if (!mounted) return false;
+    HomefitHaptics.light();
+    _subPaywallInFlight = true;
+    try {
+      final cleared = await showSafeModePaywallSheet(
+        context: context,
+        premisesName: SafeModeService.instance.premisesName,
+      );
+      if (cleared) {
+        // Trial just started — refresh and let the caller retry.
+        await SafeModeSubscriptionService.instance.refresh();
+      }
+      return cleared;
+    } finally {
+      _subPaywallInFlight = false;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2504,7 +2585,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     if (s.isReady) return _SafeModeV2State.ready;
     if (s.isLoading) return _SafeModeV2State.loading;
     if (s.isError) {
-      return _SafeModeV2State.error(s.errorMessage ?? 'Face recognition failed');
+      return _SafeModeV2State.error(
+        s.errorMessage ?? 'Face recognition failed',
+      );
     }
     if (cached.avatarPath == null || cached.avatarPath!.isEmpty) {
       return _SafeModeV2State.avatarMissing;
@@ -2647,8 +2730,7 @@ sealed class _SafeModeV2State {
 
   /// Consent granted but no avatar set yet. Block capture + show CTA
   /// to launch the inline avatar capture flow.
-  static const _SafeModeV2State avatarMissing =
-      _SafeModeV2StateAvatarMissing();
+  static const _SafeModeV2State avatarMissing = _SafeModeV2StateAvatarMissing();
 
   /// Consent granted + avatar set, but embedding hasn't been generated
   /// yet. Block capture + show CTA to trigger generation.
@@ -2659,8 +2741,7 @@ sealed class _SafeModeV2State {
   static const _SafeModeV2State loading = _SafeModeV2StateLoading();
 
   /// Embedding generation failed. Block capture + show error + Retry.
-  const factory _SafeModeV2State.error(String message) =
-      _SafeModeV2StateError;
+  const factory _SafeModeV2State.error(String message) = _SafeModeV2StateError;
 
   bool get isReady => this is _SafeModeV2StateReady;
 }
@@ -2761,10 +2842,7 @@ class _SafeModeV2Banner extends StatelessWidget {
               ),
               if (spec.ctaLabel != null) ...[
                 const SizedBox(width: 8),
-                _BannerCta(
-                  label: spec.ctaLabel!,
-                  onTap: spec.onTap!,
-                ),
+                _BannerCta(label: spec.ctaLabel!, onTap: spec.onTap!),
               ],
             ],
           ),
@@ -2794,7 +2872,8 @@ class _SafeModeV2Banner extends StatelessWidget {
     }
     if (s is _SafeModeV2StateNeedsEmbedding) {
       return _SafeModeV2BannerSpec(
-        message: 'Safe Mode needs to prepare a face fingerprint from the avatar.',
+        message:
+            'Safe Mode needs to prepare a face fingerprint from the avatar.',
         showSpinner: false,
         ctaLabel: 'Prepare',
         onTap: onPrepare,
@@ -2942,13 +3021,12 @@ class _PulsingDotState extends State<_PulsingDot>
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    )..repeat(reverse: true);
-    _scale = Tween<double>(begin: 1.0, end: 1.2).animate(
-      CurvedAnimation(parent: _c, curve: Curves.easeInOut),
-    );
+    _c = AnimationController(vsync: this, duration: const Duration(seconds: 1))
+      ..repeat(reverse: true);
+    _scale = Tween<double>(
+      begin: 1.0,
+      end: 1.2,
+    ).animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut));
   }
 
   @override
@@ -2980,8 +3058,9 @@ class _PulsingDotState extends State<_PulsingDot>
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color:
-                      const Color(0xFFEF4444).withValues(alpha: 0.4 + 0.3 * t),
+                  color: const Color(
+                    0xFFEF4444,
+                  ).withValues(alpha: 0.4 + 0.3 * t),
                   blurRadius: 6 + 4 * t,
                 ),
               ],
@@ -2992,7 +3071,6 @@ class _PulsingDotState extends State<_PulsingDot>
     );
   }
 }
-
 
 /// Inline coral-bordered rejection toast (Safe Mode completion wave,
 /// 2026-05-21). Shows after the conversion service rejects a capture
@@ -3227,6 +3305,7 @@ class _GateButton extends StatelessWidget {
     );
   }
 }
+
 /// Always-visible diagnostic chip in the top-right corner of the
 /// viewfinder. Surfaces the live `SafeModeService` state, the most
 /// recent GPS fix it queried with, and what the `find_premises_at`
@@ -3249,10 +3328,7 @@ class _GateButton extends StatelessWidget {
 /// cause is understood and fixed, gate it behind `kDebugMode` or
 /// delete it outright.
 class _SafeModeDebugHud extends StatelessWidget {
-  const _SafeModeDebugHud({
-    required this.svc,
-    required this.locationGate,
-  });
+  const _SafeModeDebugHud({required this.svc, required this.locationGate});
 
   final SafeModeService svc;
   final _LocationGateStatus locationGate;
@@ -3306,9 +3382,7 @@ class _SafeModeDebugHud extends StatelessWidget {
     final lat = _fmtCoord(svc.lastLatitude);
     final lng = _fmtCoord(svc.lastLongitude);
     // Coral when active so it pops next to the banner; otherwise white.
-    final accent = svc.isActive
-        ? const Color(0xFFFF6B35)
-        : Colors.white;
+    final accent = svc.isActive ? const Color(0xFFFF6B35) : Colors.white;
     const labelStyle = TextStyle(
       fontFamily: 'Menlo',
       fontSize: 9,
@@ -3337,14 +3411,17 @@ class _SafeModeDebugHud extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('SAFE MODE HUD', style: TextStyle(
-            fontFamily: 'Menlo',
-            fontSize: 9,
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
-            height: 1.25,
-          )),
+          const Text(
+            'SAFE MODE HUD',
+            style: TextStyle(
+              fontFamily: 'Menlo',
+              fontSize: 9,
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+              height: 1.25,
+            ),
+          ),
           const SizedBox(height: 2),
           Text(_fmtStatus(), style: valueStyle),
           const SizedBox(height: 2),
@@ -3394,14 +3471,14 @@ class _IdentityGateScreen extends StatelessWidget {
   final VoidCallback onExitToStudio;
 
   bool get _hasPractitionerGap =>
-      missing.contains('first_name')
-      || missing.contains('last_name')
-      || missing.contains('avatar_url');
+      missing.contains('first_name') ||
+      missing.contains('last_name') ||
+      missing.contains('avatar_url');
 
   bool get _hasPracticeGap =>
-      missing.contains('public_slug')
-      || missing.contains('public_blurb')
-      || missing.contains('public_profile_listed');
+      missing.contains('public_slug') ||
+      missing.contains('public_blurb') ||
+      missing.contains('public_profile_listed');
 
   String get _title {
     if (_hasPractitionerGap && !_hasPracticeGap) {
@@ -3482,8 +3559,7 @@ class _IdentityGateScreen extends StatelessWidget {
                         fontFamily: 'Inter',
                         fontSize: 14,
                         fontWeight: FontWeight.w400,
-                        color:
-                            const Color(0xFFF0F0F5).withValues(alpha: 0.78),
+                        color: const Color(0xFFF0F0F5).withValues(alpha: 0.78),
                         height: 1.45,
                       ),
                     ),
@@ -3512,5 +3588,3 @@ class _IdentityGateScreen extends StatelessWidget {
     );
   }
 }
-
-

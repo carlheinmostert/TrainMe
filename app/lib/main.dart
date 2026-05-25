@@ -12,6 +12,7 @@ import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
 import 'services/practitioner_custom_presets.dart';
 import 'services/safe_mode_service.dart';
+import 'services/safe_mode_subscription_service.dart';
 import 'services/sync_service.dart';
 import 'services/unified_preview_scheme_bridge.dart';
 import 'screens/auth_gate.dart';
@@ -39,9 +40,9 @@ void main() async {
   // viewer push their own landscape allowance via OrientationLockGuard;
   // every other surface stays portrait. The guard's empty-stack
   // fallback re-applies this baseline.
-  await OrientationLockGuardScope.setGlobalDefault(
-    const {DeviceOrientation.portraitUp},
-  );
+  await OrientationLockGuardScope.setGlobalDefault(const {
+    DeviceOrientation.portraitUp,
+  });
 
   // Initialize Supabase for cloud storage and plan sharing
   await Supabase.initialize(
@@ -91,35 +92,39 @@ void main() async {
     // state without dependency injection plumbing. Idempotent.
     SafeModeService.initialize(ApiClient.instance);
 
+    // Self-trainer wave PR #8 (2026-05-25) — cached subscription gate
+    // for Safe Mode capture entry. Registers a lifecycle observer so
+    // the cache refreshes on app resume.
+    SafeModeSubscriptionService.initialize(ApiClient.instance);
+
     runApp(TrainMeApp(storage: storage));
   } catch (e, stack) {
     debugPrint('FATAL: App initialization failed: $e');
     debugPrint('$stack');
-    runApp(MaterialApp(
-      theme: AppTheme.dark,
-      home: Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Text(
-              'Startup error:\n$e',
-              style: const TextStyle(color: Colors.red, fontSize: 16),
-              textAlign: TextAlign.center,
+    runApp(
+      MaterialApp(
+        theme: AppTheme.dark,
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text(
+                'Startup error:\n$e',
+                style: const TextStyle(color: Colors.red, fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
             ),
           ),
         ),
       ),
-    ));
+    );
   }
 }
 
 class TrainMeApp extends StatelessWidget {
   final LocalStorageService storage;
 
-  const TrainMeApp({
-    super.key,
-    required this.storage,
-  });
+  const TrainMeApp({super.key, required this.storage});
 
   @override
   Widget build(BuildContext context) {

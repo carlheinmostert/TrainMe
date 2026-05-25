@@ -196,6 +196,36 @@ export type ClientDetail = {
 };
 
 /**
+ * Result shape from {@link PortalApi.startSafeModeSubscription}. The
+ * RPC returns either an `ok:true` payload with the new ledger row, or
+ * an `ok:false` payload describing why (e.g. insufficient credits).
+ */
+export type SafeModeSubscriptionResult =
+  | {
+      ok: true;
+      newBalance: number;
+      ledgerId: string | null;
+    }
+  | {
+      ok: false;
+      reason: string;
+      balance: number;
+    };
+
+/**
+ * Auth / membership / network failures from the Safe Mode subscription
+ * RPC. Insufficient-credits errors are NOT thrown — they're returned as
+ * `{ ok: false, reason: 'insufficient_credits' }` so the caller can
+ * render a friendlier "top up first" branch without a try/catch.
+ */
+export class SafeModeSubscriptionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SafeModeSubscriptionError';
+  }
+}
+
+/**
  * PortalApi wraps a `SupabaseClient<Database>` with the enumerated
  * operations the portal surface is permitted to perform. Construct via
  * the helpers at the bottom of this module; never `new PortalApi(...)`
@@ -424,6 +454,75 @@ export class PortalApi {
     });
     if (error || data === null) return 0;
     return typeof data === 'number' ? data : 0;
+  }
+
+  // ==========================================================================
+  // Safe Mode subscription (Self-trainer wave PR #8, 2026-05-25)
+  // ADR-0021 · docs/SELF_TRAINER_WAVE.md § Safe Mode subscription model.
+  // ==========================================================================
+
+  /**
+   * Snapshot the current Safe Mode subscription gate status for the
+   * signed-in user. Reads `is_in_active_safe_mode_sub(auth.uid())` via
+   * SECURITY DEFINER RPC; returns false on any error.
+   */
+  async getSafeModeSubStatus(): Promise<boolean> {
+    const { data: userRes } = await this.supabase.auth.getUser();
+    const userId = userRes.user?.id;
+    if (!userId) return false;
+    // RPC introduced in PR #8 (2026-05-25). database.types.ts needs to be
+    // regenerated against the staging schema before the strict overload
+    // names appear; until then we widen via `as any` so the call type-
+    // checks. Remove the cast once `npm run gen:types` has been re-run.
+    const { data, error } = await (
+      this.supabase.rpc as unknown as (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>
+    )('is_in_active_safe_mode_sub', { p_user_id: userId });
+    if (error) return false;
+    return data === true;
+  }
+
+  /**
+   * Atomic debit: 4 credits for a 30-day Safe Mode subscription, charged
+   * against the supplied practice. SECURITY DEFINER RPC mirrors the
+   * `consume_credit` pattern (FOR UPDATE locking against concurrent
+   * debits). Returns { ok: true, new_balance, ledger_id } on success or
+   * { ok: false, reason: 'insufficient_credits', balance } on shortfall.
+   *
+   * Throws on auth / membership errors.
+   */
+  async startSafeModeSubscription(
+    practiceId: string,
+  ): Promise<SafeModeSubscriptionResult> {
+    // See `getSafeModeSubStatus` comment — gen:types regeneration is
+    // a follow-up step; widen the rpc overload via cast until then.
+    const { data, error } = await (
+      this.supabase.rpc as unknown as (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>
+    )('start_safe_mode_subscription', { p_practice_id: practiceId });
+    if (error) {
+      throw new SafeModeSubscriptionError(error.message);
+    }
+    if (!data || typeof data !== 'object') {
+      throw new SafeModeSubscriptionError('Empty RPC response');
+    }
+    const obj = data as Record<string, unknown>;
+    if (obj.ok === true) {
+      return {
+        ok: true,
+        newBalance: typeof obj.new_balance === 'number' ? obj.new_balance : 0,
+        ledgerId: typeof obj.ledger_id === 'string' ? obj.ledger_id : null,
+      };
+    }
+    return {
+      ok: false,
+      reason: typeof obj.reason === 'string' ? obj.reason : 'unknown',
+      balance: typeof obj.balance === 'number' ? obj.balance : 0,
+    };
   }
 
   // ==========================================================================

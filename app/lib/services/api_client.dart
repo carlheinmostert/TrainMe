@@ -1964,6 +1964,57 @@ class ApiClient {
   }
 
   // ==========================================================================
+  // Safe Mode subscription gate (Self-trainer wave PR #8, 2026-05-25)
+  // ADR-0021; docs/SELF_TRAINER_WAVE.md § Safe Mode subscription model.
+  // ==========================================================================
+
+  /// `is_in_active_safe_mode_sub(p_user_id)` — STABLE SECURITY DEFINER
+  /// predicate. Returns true if any of:
+  ///   * the user is grandfathered (any practice membership with
+  ///     `safe_mode_grandfathered = true`),
+  ///   * a `safe_mode_month` ledger row exists within the last 30 days,
+  ///   * a `safe_mode_month_trial` ledger row exists within the last 3 days.
+  ///
+  /// Failure modes return `false` rather than throwing — the capture-entry
+  /// gate is read on every camera open and a network blip must not block
+  /// access for a paying user. False is the "fail-closed" answer: if the
+  /// network is down the user is shown the paywall instead of the
+  /// viewfinder; UI re-queries on reconnect.
+  ///
+  /// The result is cached locally — see [SafeModeSubscriptionStatus] in
+  /// `app/lib/services/safe_mode_subscription_service.dart` which
+  /// memoises this answer for an hour and re-pulls on app launch +
+  /// hourly while foreground.
+  Future<bool> isInActiveSafeModeSub({required String userId}) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'is_in_active_safe_mode_sub',
+          params: {'p_user_id': userId},
+        ),
+      );
+      return result is bool ? result : false;
+    } catch (e) {
+      debugPrint('ApiClient.isInActiveSafeModeSub failed: $e');
+      return false;
+    }
+  }
+
+  /// `start_safe_mode_trial(p_user_id)` — idempotent. Returns true on
+  /// the first call (trial row inserted), false on any subsequent call
+  /// (user has already used their lifetime trial).
+  ///
+  /// Throws on auth / membership errors so the caller can surface a
+  /// useful message. Callers should pass the current `auth.uid()` user
+  /// id — the RPC rejects mismatches.
+  Future<bool> startSafeModeTrial({required String userId}) async {
+    final dynamic result = await _guardAuth(
+      () => raw.rpc('start_safe_mode_trial', params: {'p_user_id': userId}),
+    );
+    return result is bool ? result : false;
+  }
+
+  // ==========================================================================
   // Safe Mode Transparency — Phase A (2026-05-22)
   // ==========================================================================
 
