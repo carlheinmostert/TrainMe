@@ -1124,9 +1124,17 @@ async function fetchPlan(planId) {
   // control uses the nulls to disable B&W / Original tabs.
   const payload = await window.HomefitApi.getPlanFull(planId);
 
-  // Reshape: RPC returns { plan: {...}, exercises: [...] }. The renderer
-  // expects a flat plan object with exercises nested as a property.
-  const plan = { ...payload.plan, exercises: payload.exercises || [] };
+  // Reshape: RPC returns { plan: {...}, exercises: [...], artifacts: [...] }.
+  // The renderer expects a flat plan object with exercises nested as a
+  // property. PR #7 (plan_artifacts) adds `artifacts` as a top-level
+  // sibling; surface it on the flattened plan object so future consumers
+  // can read plan.artifacts without re-fetching. v1 has no consumers —
+  // this is forward-prep for the Reel artifact (ADR-0022).
+  const plan = {
+    ...payload.plan,
+    exercises: payload.exercises || [],
+    artifacts: Array.isArray(payload.artifacts) ? payload.artifacts : [],
+  };
   return plan;
 }
 
