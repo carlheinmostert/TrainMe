@@ -427,16 +427,27 @@ enum SafeModeV2Pipeline {
         let minDim = Double(min(width, height))
         let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
 
-        // Use default (sRGB) working colorspace. The previous NSNull
-        // working/output colorspace broke CIBlendWithMask: with an R8
-        // mask + nil colorspace + NSNull workingColorSpace, the compositor
-        // blended the whole frame to the background (blurred) regardless
-        // of mask values. Confirmed via this bench tool 2026-05-24.
+        // Disable Core Image colour management — we're working in
+        // device-RGB throughout. Without the NSNull working/output
+        // options, the default CIContext working colorspace is
+        // `extendedLinearSRGB` (linear-light). Combined with `colorSpace:
+        // nil` on the render call (meaning "do not color-match the
+        // output"), CoreImage writes LINEAR bytes into the BGRA dstBuf,
+        // and the downstream JPG encoder interprets those bytes as
+        // gamma-encoded sRGB — a ~2x perceptual darkening. The v1 video
+        // SafeModeProcessor (the stable proven path) uses the NSNull
+        // block; mirror it byte-for-byte here. Confirmed via this bench
+        // tool 2026-05-25: source mean luma 127.75, post-render 79.88
+        // (~39% darker) until the NSNull options were reinstated.
+        let ciContextOptions: [CIContextOption: Any] = [
+            .workingColorSpace: NSNull(),
+            .outputColorSpace: NSNull(),
+        ]
         let ciContext: CIContext
         if let device = MTLCreateSystemDefaultDevice() {
-            ciContext = CIContext(mtlDevice: device)
+            ciContext = CIContext(mtlDevice: device, options: ciContextOptions)
         } else {
-            ciContext = CIContext()
+            ciContext = CIContext(options: ciContextOptions)
         }
         guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
               let blendFilter = CIFilter(name: "CIBlendWithMask") else {
