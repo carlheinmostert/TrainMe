@@ -1345,6 +1345,20 @@ class ConversionService extends ChangeNotifier {
           safePath: safeVideoPath,
           safeMissRate: safeVideoMissRate,
         );
+      } on SafeModeRejection {
+        // C1 (sev1 privacy regression fix, code review on PR #497).
+        // A SafeModeRejection thrown from _applySafeModeV2ToVideo
+        // (cold-cache missing-embedding case OR native miss-rate exceed)
+        // must propagate to the queue handler's `on SafeModeRejection`
+        // block so the exercise row is deleted + the coral rejection
+        // toast fires. Without this rethrow, the catch (e, stack) below
+        // silently swallowed the rejection and fell through to the
+        // frame-extraction fallback, which produced a still-frame line
+        // drawing of the RAW UNBLURRED video. Result: _ConvertResult.safePath
+        // stayed null, UploadService stamped no safeRawFilePath, and the
+        // raw unblurred video uploaded to the cloud raw-archive bucket.
+        // Privacy guarantee broken.
+        rethrow;
       } catch (e, stack) {
         debugPrint(
             'Full video conversion failed for ${exercise.id}: $e — '
