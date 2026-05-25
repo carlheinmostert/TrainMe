@@ -2437,22 +2437,34 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // swipe dismiss is wired separately via `DismissiblePane`.
           extentRatio: 0.42,
           dismissible: DismissiblePane(
-            onDismissed: () {
-              // Long right-swipe auto-commits the dominant action:
-              // Copy (D4). Snap the row back into place after the
-              // copy lands — `Slidable` doesn't have a built-in
-              // "snap back after dismiss"; the easiest way is to
-              // route through the same path as the tap.
-              unawaited(_copyExerciseToClipboard(
+            // Stack item M8a hotfix (2026-05-25) — Copy must NEVER
+            // visually remove the source card. The prior wiring used
+            // `confirmDismiss: () async => true` + `onDismissed` to
+            // run the copy, which made `flutter_slidable` collapse
+            // the row out of the list (only the gutter-rail bullet
+            // remained on screen until a session re-open re-hydrated
+            // it from SQLite). Per `docs/specs/2026-05-25-exercise-clipboard.md`
+            // D6 the source row must stay put — only left-swipe
+            // Delete removes a card.
+            //
+            // Fix: do the Copy inside `confirmDismiss` and return
+            // false. `flutter_slidable`'s `DismissiblePane` honours
+            // a false confirmation by calling `controller.close()`
+            // (snap-back) when `closeOnCancel: true`, and `onDismissed`
+            // never fires. The `onDismissed` callback below is therefore
+            // unreachable in normal flow — kept as a defensive no-op
+            // so the required field is satisfied without resurrecting
+            // the dismiss bug if a future refactor toggles
+            // `confirmDismiss` back to true.
+            onDismissed: () {},
+            dismissThreshold: 0.7,
+            confirmDismiss: () async {
+              await _copyExerciseToClipboard(
                 dataIndex,
                 fromContext: 'long-swipe',
-              ));
+              );
+              return false;
             },
-            // Use a coral background while the long-swipe overshoot
-            // is in flight — matches the partial-swipe reveal's
-            // dominant Copy colour.
-            dismissThreshold: 0.7,
-            confirmDismiss: () async => true,
             closeOnCancel: true,
           ),
           children: [

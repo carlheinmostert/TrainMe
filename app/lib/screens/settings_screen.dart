@@ -14,6 +14,7 @@ import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/capture_auto_save_preference.dart';
 import '../services/portal_links.dart';
+import '../services/safe_mode_debug_hud_preference.dart';
 import '../services/self_trainer_bootstrap.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -79,6 +80,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// stored value (default ON for fresh installs).
   bool? _autoSaveOriginals;
 
+  /// M3 (2026-05-25 mobile stack) — per-device debug toggle for the
+  /// Safe Mode HUD on the camera viewfinder. The HUD is a diagnostic
+  /// overlay that ALWAYS rendered until 2026-05-25; default OFF now,
+  /// flipped on per-device when someone needs the GPS / match data in
+  /// the field. Lives behind the 7-tap version-row easter egg (same
+  /// `_diagnosticsVisible` gate as the rest of the Debug section) so
+  /// it stays out of the practitioner's way.
+  bool? _safeModeDebugHudEnabled;
+
   /// R4-M3 — true when the user has dismissed the lazy-backfill prompt
   /// once (the SharedPreferences key in [SelfTrainerBootstrap] is set)
   /// AND they have an avatar AND have NOT yet stamped face-embedding
@@ -96,6 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadAutoSavePref();
     unawaited(_loadSelfFaceReminderState());
+    unawaited(_loadSafeModeDebugHudPref());
   }
 
   /// Resolve whether the coral "Turn on face verification" reminder
@@ -202,6 +213,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     HapticFeedback.selectionClick();
     setState(() => _autoSaveOriginals = value);
     await CaptureAutoSavePreference.setEnabled(value);
+  }
+
+  /// M3 (2026-05-25 mobile stack) — Safe Mode debug HUD preference
+  /// loader. Best-effort; silent failure leaves the toggle at the
+  /// stored default (OFF) so the practitioner-facing camera surface
+  /// stays clean of diagnostic chrome.
+  Future<void> _loadSafeModeDebugHudPref() async {
+    try {
+      final enabled = await SafeModeDebugHudPreference.isEnabled();
+      if (!mounted) return;
+      setState(() => _safeModeDebugHudEnabled = enabled);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  Future<void> _toggleSafeModeDebugHud(bool value) async {
+    HapticFeedback.selectionClick();
+    setState(() => _safeModeDebugHudEnabled = value);
+    await SafeModeDebugHudPreference.setEnabled(value);
   }
 
   @override
@@ -538,6 +569,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           practiceId:
                               AuthService.instance.currentPracticeId.value,
                           buildSha: AppConfig.buildSha,
+                        ),
+                        _Divider(),
+                        // M3 (2026-05-25 mobile stack) — Safe Mode debug
+                        // HUD toggle. Sits inside the 7-tap easter-egg
+                        // panel so the practitioner-facing Settings
+                        // screen stays uncluttered. Default OFF; the
+                        // capture screen re-reads the pref on resume,
+                        // so flipping this and re-entering Camera mode
+                        // surfaces the HUD without an app restart.
+                        _ActionRow(
+                          icon: Icons.bug_report_outlined,
+                          label: 'Show Safe Mode hint overlay',
+                          subtitle:
+                              'Diagnostic HUD on the camera viewfinder. '
+                              'Shows GPS + polygon-match data so a Safe '
+                              'Mode regression can be triaged in-app.',
+                          onTap: _safeModeDebugHudEnabled == null
+                              ? null
+                              : () => _toggleSafeModeDebugHud(
+                                    !(_safeModeDebugHudEnabled ?? false),
+                                  ),
+                          trailing: Switch.adaptive(
+                            value: _safeModeDebugHudEnabled ?? false,
+                            onChanged: _safeModeDebugHudEnabled == null
+                                ? null
+                                : _toggleSafeModeDebugHud,
+                            activeThumbColor: AppColors.primary,
+                          ),
                         ),
                       ],
                     ],

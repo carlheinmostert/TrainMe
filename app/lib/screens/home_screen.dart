@@ -26,6 +26,7 @@ import '../widgets/home_scope_segmented.dart';
 import '../widgets/homefit_logo.dart';
 import '../widgets/network_share_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
+import '../widgets/safe_mode_subscribe_chip.dart';
 import '../widgets/safe_mode_toggle_button.dart';
 import '../widgets/self_face_consent_sheet.dart';
 import '../widgets/self_trainer_intro_banner.dart';
@@ -887,10 +888,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Stack overlay so it gets a generous tap target instead of
                   // fighting the practice chip for the identity row's space.
                   const Padding(
-                    // Bottom padding 3× bigger per Wave 3 #14 pass-note — gives
-                    // the brand anchor enough breathing room before the
-                    // identity-controls row (practice chip + sync).
-                    padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
+                    // M1 (2026-05-25 mobile stack) — vertical padding
+                    // tightened from (16, 24) to (8, 12) so the brand
+                    // lockup doesn't dominate the top-of-screen real
+                    // estate. The header icons now sit on the lockup
+                    // centerline (top: 28 on the Stack overlay), so
+                    // generous breathing room above the lockup was
+                    // making the AppBar feel tall. The Wave-3 #14
+                    // breathing-room rationale (3× bottom padding)
+                    // pre-dated the icon overlay; with icons present
+                    // the lockup needs less breathing room because the
+                    // icon row visually anchors the top of the screen.
+                    padding: EdgeInsets.fromLTRB(24, 8, 24, 12),
                     child: Center(child: HomefitLogoLockup(size: 180)),
                   ),
                   // Self-trainer wave intro banner (PR #10 / #501). Renders
@@ -901,6 +910,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   // when the SharedPreferences dismiss flag is set, so this
                   // slot is visually empty for users who've already seen it.
                   const SelfTrainerIntroBanner(),
+                  // M10 (2026-05-25 mobile stack) — compact Safe Mode
+                  // subscribe chip. Self-hides when the practitioner is
+                  // outside an enforcing premises OR already subscribed.
+                  // Sits between the brand lockup and the capsule strip
+                  // per the Option 2 mockup; reclaims ~70 px of vertical
+                  // real estate vs the prior full-width orange banner
+                  // (now only rendered for the SAFE-MODE-ACTIVE case
+                  // where the practitioner DOES have access — see
+                  // [PersistentSafeModeBanner]).
+                  const SafeModeSubscribeChip(),
                   // Top-level scope picker. Permanent IA — both capsules are
                   // always present so the shape of Home doesn't change when
                   // Classes / My Workouts ship. See [HomeScopeSegmented].
@@ -1105,16 +1124,36 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                 ],
               ),
-              // Help + Settings overlay — top-right of the Home surface,
-              // above the brand lockup. Given the corner to themselves so
-              // the gestures aren't fighting the PracticeChip +
-              // OfflineSyncChip for space in the identity row.
+              // M1 (2026-05-25 mobile stack) — header icons.
               //
-              // Help sits immediately LEFT of the gear so the
-              // information-then-settings reading order matches the rest
-              // of iOS chrome conventions (e.g. Mail, Settings).
+              // Vertical alignment: the four icons (left: person-add `+`
+              // and shield; right: help `?` and settings gear) used to
+              // sit at `top: 4` which floated them above the brand-
+              // lockup centerline. Dropped to `top: 28` so the icons
+              // vertically centre on the matrix glyph + wordmark axis of
+              // `HomefitLogoLockup(size: 180)` — the lockup body sits at
+              // ~ 16 (padding) + ~30 (matrix half-height) = 46 pt from
+              // the SafeArea top, so a 48 pt icon button anchored at top:
+              // 28 puts its visual centre on that axis.
+              //
+              // Tab-sensitive visibility removed: the left cluster
+              // (network share + Safe Mode toggle) previously hid on the
+              // My Workouts scope ("referrals are practitioner-only"
+              // rationale). Per the brief the icons must remain visible
+              // on every tab so the chrome shape doesn't shift between
+              // capsule selections. Both icons still route to the same
+              // sheets; tapping Share from the Workouts scope falls
+              // through to the same NetworkShareSheet which auto-targets
+              // the practitioner's primary practice.
+              //
+              // Excess chrome: the icon Positioned `top:` value is the
+              // sole vertical-padding handle on this Stack overlay; the
+              // brand-lockup padding was already balanced for the
+              // capsule strip below. Tighter padding north/south of the
+              // lockup will land in a follow-up if the new icon
+              // alignment doesn't already read tighter.
               Positioned(
-                top: 4,
+                top: 28,
                 right: 52,
                 child: IconButton(
                   onPressed: _openHelp,
@@ -1131,7 +1170,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               Positioned(
-                top: 4,
+                top: 28,
                 right: 4,
                 child: IconButton(
                   onPressed: _openSettings,
@@ -1143,39 +1182,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: 'Settings',
                 ),
               ),
-              // Wave 30 — Network share entry point. Mirrors the Settings
-              // gear's corner placement on the opposite side so the brand
-              // lockup stays uncrowded. Tap opens the NetworkShareSheet
-              // (referral code + QR + share button + portal hand-off).
-              // Hidden on Workouts scope — referrals are practitioner-only.
-              //
-              // S-14 — Safe Mode toggle promoted to a first-class header
-              // citizen (2026-05-22). Sits immediately RIGHT of the share
-              // icon so the two privacy-adjacent affordances cluster
-              // together in the top-left and Settings/Help stay clear on
-              // the top-right. Three-state visual + lock overlay handled
-              // inside [SafeModeToggleButton] — listens to the singleton
-              // and re-renders in real time.
-              if (_scope != HomeScope.workouts)
-                Positioned(
-                  top: 4,
-                  left: 4,
-                  child: IconButton(
-                    onPressed: _openNetworkShare,
-                    icon: const Icon(
-                      Icons.group_add_outlined,
-                      color: AppColors.primary,
-                      size: 24,
-                    ),
-                    tooltip: 'Share with another practitioner',
+              // Network share + Safe Mode toggle (left cluster). Always
+              // visible regardless of scope per M1.
+              Positioned(
+                top: 28,
+                left: 4,
+                child: IconButton(
+                  onPressed: _openNetworkShare,
+                  icon: const Icon(
+                    Icons.group_add_outlined,
+                    color: AppColors.primary,
+                    size: 24,
                   ),
+                  tooltip: 'Share with another practitioner',
                 ),
-              if (_scope != HomeScope.workouts)
-                const Positioned(
-                  top: 4,
-                  left: 52,
-                  child: SafeModeToggleButton(iconSize: 28),
-                ),
+              ),
+              const Positioned(
+                top: 28,
+                left: 52,
+                child: SafeModeToggleButton(iconSize: 28),
+              ),
             ],
           ),
         ),

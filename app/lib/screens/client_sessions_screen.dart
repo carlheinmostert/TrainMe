@@ -848,10 +848,16 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
             children: [
               // Consent chip — collapsed-state header; tapping expands
               // into the bottom sheet (mobile twin of the portal accordion).
+              // M9 (2026-05-25 mobile stack) — denominator bumped 5 → 6:
+              // line_drawing (locked on) + grayscale + colour + avatar +
+              // analytics + safe_mode_face_recognition. The Safe Mode
+              // face-recognition slot landed in PR #491 (enrolment polish
+              // Phase 1) but never made it into the count, so the chip
+              // capped at 5/5 even when all six toggles were granted.
               _ConsentChip(
                 label: 'Client consent',
                 grantedCount: _consentGrantedCount(_client),
-                totalCount: 5,
+                totalCount: 6,
                 onTap: () => _openConsent(),
               ),
               // Wave 18 — removed the "N sessions" count. The list
@@ -1356,14 +1362,20 @@ class _ImproveFaceRecognitionChip extends StatelessWidget {
 
 /// Wave 40.3 — count the granted consent slots for the chip header.
 /// Mirrors the portal's `grantedToggles` formula: line_drawing always
-/// counts, plus whichever of grayscale / colour / avatar / analytics
-/// are on. Total is fixed at 5 (Wave 17 added analytics).
+/// counts, plus whichever of grayscale / colour / avatar / analytics /
+/// safe_mode_face_recognition are on.
+///
+/// M9 (2026-05-25 mobile stack) — added the
+/// `safeModeFaceRecognitionAllowed` slot. Total is now fixed at 6 (was
+/// 5 from Wave 17; the Safe Mode v2 enrolment polish Phase 1 in PR
+/// #491 added the toggle but never wired it into the count).
 int _consentGrantedCount(PracticeClient client) {
   return 1 +
       (client.grayscaleAllowed ? 1 : 0) +
       (client.colourAllowed ? 1 : 0) +
       (client.avatarAllowed ? 1 : 0) +
-      (client.analyticsAllowed ? 1 : 0);
+      (client.analyticsAllowed ? 1 : 0) +
+      (client.safeModeFaceRecognitionAllowed ? 1 : 0);
 }
 
 /// Paints a dashed underline below the child. Matches the portal's
