@@ -36,7 +36,7 @@ class PracticeClient {
   /// Safe Mode v2 (2026-05-23) — has the practitioner been granted
   /// consent to store a biometric face fingerprint for this client?
   ///
-  /// The fingerprint is a MobileFaceNet embedding (128-D float vector)
+  /// The fingerprint is a MobileFaceNet embedding (512-D float vector)
   /// derived ON-DEVICE from the client's avatar JPG. It never leaves
   /// the server in raw image form. Required to use Safe Mode (v2,
   /// face-recognition based) with this client — without an embedding,

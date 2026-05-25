@@ -1166,7 +1166,7 @@ class ApiClient {
 
   /// Safe Mode v2 (2026-05-23) — `set_client_face_embedding(p_client_id,
   /// p_embedding, p_model_version)`. Persists the MobileFaceNet embedding
-  /// (raw bytes, 128-D float32 little-endian = 512 bytes) into
+  /// (raw bytes, 512-D float32 little-endian = 2048 bytes) into
   /// `clients.face_embedding` (bytea) and stamps
   /// `clients.face_embedding_model_version`.
   ///
@@ -1219,7 +1219,7 @@ class ApiClient {
   /// set. The frontal-pick slot is mirrored into the legacy single-
   /// embedding columns during the backward-compat window.
   ///
-  /// Embeddings must each be exactly 2048 bytes (128 FP32 LE floats).
+  /// Embeddings must each be exactly 2048 bytes (512 FP32 LE floats).
   /// [embeddings], [posesYaw], [posesPitch] must all share the same
   /// length. [frontalPickSlotIndex] is a 0-based index into [embeddings].
   ///
@@ -2141,7 +2141,7 @@ class ClientFaceEmbeddingSlot {
   /// 0-based slot ordinal. Matches the cloud row's `slot_index` smallint.
   final int slotIndex;
 
-  /// 2048-byte MobileFaceNet embedding (128 FP32 LE floats, L2-normalised).
+  /// 2048-byte MobileFaceNet embedding (512 FP32 LE floats, L2-normalised).
   final Uint8List embedding;
 
   /// Generator version. 1 = MobileFaceNet v1 (current). Older versions

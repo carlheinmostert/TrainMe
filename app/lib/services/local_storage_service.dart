@@ -227,7 +227,7 @@ class LocalStorageService {
         consent_confirmed_at INTEGER,
         consent_explicitly_set_at INTEGER,
         -- Safe Mode v2 (2026-05-23): per-client MobileFaceNet enrolment.
-        -- face_embedding is 512 bytes (128 FP32 LE floats) when present.
+        -- face_embedding is 2048 bytes (512 FP32 LE floats) when present.
         -- NULL = not enrolled OR consent withdrawn (the v2 consent toggle
         -- zeros the embedding). face_embedding_model_version identifies
         -- the generator (1 = MobileFaceNet v1, only version today).

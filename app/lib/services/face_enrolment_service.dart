@@ -801,7 +801,7 @@ class FaceEnrolmentSlot {
   /// 0-based slot ordinal.
   final int slotIndex;
 
-  /// 512-byte MobileFaceNet embedding (128 FP32 LE floats).
+  /// 2048-byte MobileFaceNet embedding (512 FP32 LE floats).
   final Uint8List embedding;
 
   /// True for exactly one slot — the most-frontal frame. Used as the

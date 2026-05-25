@@ -33,3 +33,11 @@
 /// changes in a way that invalidates the visual output of older
 /// captures. The re-process affordance keys on `< kSafeModeAlgorithmVersion`.
 const int kSafeModeAlgorithmVersion = 3;
+
+/// Canonical byte length of a single MobileFaceNet face embedding.
+/// 512 floats x 4 bytes per float = 2048 bytes. Enforced server-side
+/// by `set_client_face_embedding` / `set_client_face_embeddings` RPCs
+/// (`length(p_embedding) = 2048`) and on every Dart decode path so a
+/// truncated / corrupted wire payload is rejected loudly rather than
+/// silently hydrating a partial fingerprint.
+const int kFaceEmbeddingBytes = 2048;

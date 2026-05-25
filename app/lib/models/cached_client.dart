@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import '../services/safe_mode.dart' show kFaceEmbeddingBytes;
 import 'client.dart';
 
 /// Offline-first cache row for a client. Mirrors the cloud `clients`
@@ -85,9 +86,10 @@ class CachedClient {
   /// trip. See migration `20260513065845_consent_explicitly_set_at.sql`.
   final int? consentExplicitlySetAt;
 
-  /// Safe Mode v2 (2026-05-23) — 128-dim FP32 little-endian face
-  /// embedding produced on-device by MobileFaceNet. Exactly 512 bytes
-  /// when present. NULL means the client has not been enrolled OR
+  /// Safe Mode v2 (2026-05-23) — 512-dim FP32 little-endian face
+  /// embedding produced on-device by MobileFaceNet. Exactly
+  /// [kFaceEmbeddingBytes] (2048) bytes when present (512 floats x 4
+  /// bytes per float). NULL means the client has not been enrolled OR
   /// consent was withdrawn (the safe-mode consent RPC zeros this
   /// alongside the consent flip). Mirrors cloud
   /// `clients.face_embedding bytea`.
@@ -196,10 +198,10 @@ class CachedClient {
   /// JSON row. PostgREST encodes Postgres `bytea` as a hex-prefixed
   /// string (`\x...`) on the default settings, but some configurations
   /// emit base64. Already-typed `List<int>` / `Uint8List` payloads pass
-  /// straight through. Anything that doesn't decode to exactly 512
-  /// bytes is rejected (treated as NULL) — the cloud-side RPC enforces
-  /// the size, so a mismatch implies the wire was tampered with or the
-  /// column shape changed underfoot.
+  /// straight through. Anything that doesn't decode to exactly
+  /// [kFaceEmbeddingBytes] (2048) bytes is rejected (treated as NULL) —
+  /// the cloud-side RPC enforces the size, so a mismatch implies the
+  /// wire was tampered with or the column shape changed underfoot.
   static Uint8List? _decodeFaceEmbedding(Object? raw) {
     if (raw == null) return null;
     Uint8List? bytes;
@@ -222,7 +224,15 @@ class CachedClient {
         }
       }
     }
-    if (bytes == null || bytes.length != 512) return null;
+    if (bytes == null || bytes.length != kFaceEmbeddingBytes) {
+      if (bytes != null) {
+        debugPrint(
+          'CachedClient._decodeFaceEmbedding: rejecting embedding of '
+          '${bytes.length} bytes (expected $kFaceEmbeddingBytes)',
+        );
+      }
+      return null;
+    }
     return bytes;
   }
 
@@ -277,10 +287,22 @@ class CachedClient {
     final pathRaw = row['avatar_path'];
     final embeddingRaw = row['face_embedding'];
     Uint8List? embedding;
-    if (embeddingRaw is Uint8List && embeddingRaw.length == 512) {
+    if (embeddingRaw is Uint8List &&
+        embeddingRaw.length == kFaceEmbeddingBytes) {
       embedding = embeddingRaw;
-    } else if (embeddingRaw is List<int> && embeddingRaw.length == 512) {
+    } else if (embeddingRaw is List<int> &&
+        embeddingRaw.length == kFaceEmbeddingBytes) {
       embedding = Uint8List.fromList(embeddingRaw);
+    } else if (embeddingRaw != null) {
+      final len = embeddingRaw is Uint8List
+          ? embeddingRaw.length
+          : embeddingRaw is List<int>
+              ? embeddingRaw.length
+              : -1;
+      debugPrint(
+        'CachedClient.fromMap: rejecting face_embedding of '
+        '$len bytes (expected $kFaceEmbeddingBytes)',
+      );
     }
     return CachedClient(
       id: row['id'] as String,
