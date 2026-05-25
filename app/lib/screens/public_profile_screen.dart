@@ -1,12 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../theme.dart';
+import '../widgets/self_face_consent_sheet.dart';
+import '../widgets/undo_snackbar.dart';
 
 /// Safe Mode Transparency — Phase A (2026-05-22)
 ///
@@ -27,9 +32,9 @@ class PublicProfileScreen extends StatefulWidget {
   const PublicProfileScreen({super.key});
 
   static Future<void> push(BuildContext context) {
-    return Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const PublicProfileScreen()),
-    );
+    return Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const PublicProfileScreen()));
   }
 
   @override
@@ -37,8 +42,9 @@ class PublicProfileScreen extends StatefulWidget {
 }
 
 class _PublicProfileScreenState extends State<PublicProfileScreen> {
-  static const MethodChannel _faceChannel =
-      MethodChannel('studio.homefit.practitioner_profile');
+  static const MethodChannel _faceChannel = MethodChannel(
+    'studio.homefit.practitioner_profile',
+  );
 
   final TextEditingController _firstCtrl = TextEditingController();
   final TextEditingController _lastCtrl = TextEditingController();
@@ -131,7 +137,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 
     // Avatar required — either an existing one, or a newly captured one.
     final existingAvatar = _profile?.avatarUrl;
-    if (_localAvatarPath == null && (existingAvatar == null || existingAvatar.isEmpty)) {
+    if (_localAvatarPath == null &&
+        (existingAvatar == null || existingAvatar.isEmpty)) {
       setState(() => _error = 'A face photo is required.');
       return;
     }
@@ -213,6 +220,106 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     }
   }
 
+  /// Self-trainer wave PR #4 — open the consent sheet for a saved
+  /// avatar. Downloads the public avatar URL to a temp file, then
+  /// hands off to [SelfFaceConsentSheet]. On success, refreshes the
+  /// profile so the section flips to ON.
+  Future<void> _turnOnFaceVerification() async {
+    final avatarUrl = _profile?.avatarUrl?.trim();
+    if (avatarUrl == null || avatarUrl.isEmpty) return;
+
+    setState(() => _error = null);
+
+    final localPath = await _downloadAvatarToTemp(avatarUrl);
+    if (!mounted) return;
+    if (localPath == null) {
+      setState(() {
+        _error =
+            "Couldn't load your selfie. Check your connection and try again.";
+      });
+      return;
+    }
+
+    final outcome = await SelfFaceConsentSheet.show(
+      context,
+      selfiePath: localPath,
+    );
+    if (!mounted) return;
+    if (outcome.isRegistered) {
+      // Refresh the profile so the section flips to ON.
+      await _load();
+    }
+  }
+
+  /// Self-trainer wave PR #4 — POPIA Q14.3 decoupled deletion. Fires
+  /// the revoke RPC immediately (R-01 — no modal confirmation), then
+  /// offers an Undo SnackBar that re-runs the consent flow on tap.
+  Future<void> _turnOffFaceVerification() async {
+    final avatarUrl = _profile?.avatarUrl?.trim();
+
+    setState(() => _error = null);
+
+    try {
+      final result = await ApiClient.instance.revokeSelfFace();
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+
+      final label = result.changedAnything
+          ? 'Face verification removed'
+          : 'Face verification was already off';
+
+      // Only offer Undo when something actually changed. The Undo
+      // re-runs the consent sheet (which re-computes the embedding +
+      // re-registers the Self-client). We don't auto-restore — POPIA
+      // re-consent should be explicit, not implicit.
+      if (result.changedAnything && avatarUrl != null && avatarUrl.isNotEmpty) {
+        showUndoSnackBar(
+          context,
+          label: label,
+          onUndo: () {
+            // Re-prompt the consent sheet — the user must re-affirm
+            // (POPIA Q14.1 re-consent specificity).
+            unawaited(_turnOnFaceVerification());
+          },
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(label), duration: const Duration(seconds: 3)),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = "Couldn't revoke face verification: $e";
+      });
+    }
+  }
+
+  /// Download the public avatar to a stable temp file. Returns the
+  /// local path or null on any failure. Best-effort.
+  Future<String?> _downloadAvatarToTemp(String avatarUrl) async {
+    final userId = AuthService.instance.currentUserId;
+    if (userId == null) return null;
+    final client = HttpClient();
+    try {
+      final uri = Uri.tryParse(avatarUrl);
+      if (uri == null) return null;
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+      if (resp.statusCode != 200) return null;
+      final tmpDir = await getTemporaryDirectory();
+      final tmpFile = File(p.join(tmpDir.path, 'self_selfie_$userId.jpg'));
+      final sink = tmpFile.openWrite();
+      await resp.pipe(sink);
+      return tmpFile.path;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -290,11 +397,27 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     autofillHints: const [AutofillHints.familyName],
                     textCapitalization: TextCapitalization.words,
                   ),
+                  // Self-trainer wave PR #4 (2026-05-25) — face verification
+                  // section. Only meaningful once an avatar exists (no point
+                  // offering self-verification when there's no selfie to
+                  // embed from).
+                  if (_profile?.avatarUrl != null &&
+                      _profile!.avatarUrl!.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    _FaceVerificationSection(
+                      profile: _profile!,
+                      onToggleOn: _turnOnFaceVerification,
+                      onTurnOff: _turnOffFaceVerification,
+                      enabled: !_saving,
+                    ),
+                  ],
                   if (_error != null) ...[
                     const SizedBox(height: 16),
                     Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.errorLight,
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
@@ -322,7 +445,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                         disabledForegroundColor: AppColors.textSecondaryOnDark,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusMd,
+                          ),
                         ),
                       ),
                       child: _saving
@@ -486,8 +611,10 @@ class _ProfileField extends StatelessWidget {
         filled: true,
         fillColor: AppColors.surfaceRaised,
         counterText: '',
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
           borderSide: const BorderSide(color: AppColors.surfaceBorder),
@@ -601,6 +728,117 @@ class FirstTimeDisclosureCard {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Self-trainer wave PR #4 — Settings → Public profile "Face
+/// verification" row. Mirrors the brief's spec:
+///   - consent stamped → row reads "Face verification: ON" + "Stop
+///     using face verification" affordance.
+///   - no consent yet → row reads "Face verification: OFF" + "Turn on"
+///     affordance.
+///
+/// [carl-review:] — copy is the starting draft from
+/// `docs/sub-agent-briefs/04-self-trainer-consent.md` § 4.
+class _FaceVerificationSection extends StatelessWidget {
+  final PractitionerProfile profile;
+  final Future<void> Function() onToggleOn;
+  final Future<void> Function() onTurnOff;
+  final bool enabled;
+
+  const _FaceVerificationSection({
+    required this.profile,
+    required this.onToggleOn,
+    required this.onTurnOff,
+    required this.enabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isOn = profile.hasFaceVerification;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isOn ? Icons.verified_user_outlined : Icons.lock_outline,
+                size: 18,
+                color: isOn ? AppColors.primary : AppColors.textSecondaryOnDark,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                // [carl-review:] — verbatim from brief.
+                isOn ? 'Face verification: ON' : 'Face verification: OFF',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textOnDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            // [carl-review:] — verbatim from brief.
+            isOn
+                ? 'Captures of you are free to publish.'
+                : 'Turn it on to make captures of yourself free.',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              height: 1.4,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: enabled
+                  ? () {
+                      if (isOn) {
+                        onTurnOff();
+                      } else {
+                        onToggleOn();
+                      }
+                    }
+                  : null,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                  side: BorderSide(
+                    color: isOn ? AppColors.error : AppColors.primary,
+                  ),
+                ),
+              ),
+              child: Text(
+                // [carl-review:] — verbatim from brief.
+                isOn ? 'Stop using face verification' : 'Turn on',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isOn ? AppColors.error : AppColors.primary,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

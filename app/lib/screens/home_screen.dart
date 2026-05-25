@@ -1,16 +1,21 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
 import '../models/client.dart';
 import '../models/session.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/self_trainer_bootstrap.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
@@ -21,6 +26,7 @@ import '../widgets/homefit_logo.dart';
 import '../widgets/network_share_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/safe_mode_toggle_button.dart';
+import '../widgets/self_face_consent_sheet.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/undo_snackbar.dart';
 import '../widgets/workouts_coming_soon_view.dart';
@@ -120,6 +126,18 @@ class _HomeScreenState extends State<HomeScreen> {
     AuthService.instance.currentPracticeId.addListener(_onPracticeChanged);
     _load();
     _loadScope();
+
+    // Self-trainer wave PR #4 — lazy backfill for existing
+    // Public-profile-selfie users who haven't yet opted into
+    // self-verification. Best-effort; silent on failure. Runs once
+    // per user per device via SharedPreferences gate inside the
+    // bootstrap service.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        SelfTrainerBootstrap.instance.maybePromptForLazyBackfill(context),
+      );
+    });
   }
 
   @override
@@ -192,9 +210,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (practiceId != null && practiceId.isNotEmpty) {
         // Read clients from the local cache. This is the offline-first
         // path — the list renders instantly regardless of connectivity.
-        final cached = await widget.storage
-            .getCachedClientsForPractice(practiceId);
-        clients = cached.map((c) => c.toPracticeClient()).toList(growable: false);
+        final cached = await widget.storage.getCachedClientsForPractice(
+          practiceId,
+        );
+        clients = cached
+            .map((c) => c.toPracticeClient())
+            .toList(growable: false);
       }
 
       // Claim any orphan sessions for the current user before counting.
@@ -246,7 +267,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final outcome = await SyncService.instance.pullAll(practiceId);
     if (!mounted) return;
     final cached = await widget.storage.getCachedClientsForPractice(practiceId);
-    final clients = cached.map((c) => c.toPracticeClient()).toList(growable: false);
+    final clients = cached
+        .map((c) => c.toPracticeClient())
+        .toList(growable: false);
     final userId = AuthService.instance.currentUserId;
     final sessions = await widget.storage.getSessionsForUser(userId);
     final stats = _computeStats(clients, sessions);
@@ -320,7 +343,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       if (match == null) continue;
       final existing = out[match.id] ?? const _ClientSessionStats(count: 0);
-      final newLast = existing.lastSessionAt == null ||
+      final newLast =
+          existing.lastSessionAt == null ||
               session.createdAt.isAfter(existing.lastSessionAt!)
           ? session.createdAt
           : existing.lastSessionAt;
@@ -352,9 +376,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openSettings() async {
     HapticFeedback.selectionClick();
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
   }
 
   /// Help icon — sits immediately left of the gear in the Home AppBar
@@ -367,10 +391,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final uri = Uri.parse('${AppConfig.portalOrigin}/getting-started');
     bool launched = false;
     try {
-      launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       launched = false;
     }
@@ -379,8 +400,10 @@ class _HomeScreenState extends State<HomeScreen> {
       // AppConfig.portalOrigin so a staging build's fallback copy reads
       // "staging.manage.homefit.studio/getting-started", not the prod
       // host. The link target above already env-aware; this matches it.
-      final displayHost =
-          AppConfig.portalOrigin.replaceFirst(RegExp(r'^https?://'), '');
+      final displayHost = AppConfig.portalOrigin.replaceFirst(
+        RegExp(r'^https?://'),
+        '',
+      );
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
@@ -411,18 +434,115 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Stub for the "New Session" FAB on the My Workouts scope. PR #9
-  /// of the self-trainer wave wires the inline selfie sheet + capture
-  /// entry path per `docs/SELF_TRAINER_WAVE.md` § Capture-entry path
-  /// from My Workouts. Until then, tapping the FAB surfaces a
-  /// SnackBar so the slot is wired but no-op.
-  void _newSelfSessionStub() {
+  /// of the self-trainer wave wires the full capture-entry path per
+  /// `docs/SELF_TRAINER_WAVE.md` § Capture-entry path from My Workouts.
+  ///
+  /// PR #4 (this PR) covers the consent-gating portion: if the user has
+  /// no Self-client yet (face_embedding_consented_at IS NULL), surface
+  /// the consent sheet first. On Yes → register + then continue with
+  /// the existing PR #9 stub path. On Not now → no session created.
+  Future<void> _newSelfSessionStub() async {
     HapticFeedback.selectionClick();
+
+    // Check whether we need to surface the consent sheet first. If the
+    // practitioner already has face_embedding_consented_at stamped, skip
+    // straight to the existing PR #9 stub.
+    final profile = await ApiClient.instance.getMyPractitionerProfile();
+    if (!mounted) return;
+
+    if (profile == null || profile.faceEmbeddingConsentedAt == null) {
+      final avatarUrl = profile?.avatarUrl?.trim();
+      if (avatarUrl == null || avatarUrl.isEmpty) {
+        // No selfie at all — the user needs to set their Public profile
+        // first. The Practice tab covers this flow; tell them where
+        // (don't pop a modal — R-01).
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Add a selfie in Settings > Public profile first, then '
+              'come back here.',
+            ),
+            duration: Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+
+      // Have a selfie but no consent stamp — surface the same consent
+      // sheet the lazy backfill uses. Resolve the local path via the
+      // bootstrap helper (downloads to a stable temp path).
+      //
+      // We compose the bootstrap's download path inline rather than
+      // re-exposing it as public API — keeps the bootstrap surface tight
+      // and the FAB path is the only other call site.
+      final localPath = await _downloadAvatarToTempForFab(avatarUrl: avatarUrl);
+      if (!mounted) return;
+      if (localPath == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't load your selfie. Check your connection and "
+              'try again.',
+            ),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+
+      final outcome = await SelfFaceConsentSheet.show(
+        context,
+        selfiePath: localPath,
+      );
+      if (!mounted) return;
+      if (!outcome.isRegistered) {
+        // Not now / dismissed — leave the user on My Workouts. No
+        // session created. The brief calls for this explicit non-action.
+        return;
+      }
+      // Yes — fall through to PR #9 stub (the consent landed; PR #9
+      // will replace this stub with the session-mint flow).
+    }
+
+    // PR #9 placeholder — the actual capture-entry path. Until then,
+    // toast confirms the slot is wired.
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Coming in PR #9'),
         duration: Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Download the practitioner's PUBLIC avatar URL to a stable temp
+  /// file, returning the local path. Mirrors the bootstrap service's
+  /// private helper — kept local so the FAB path doesn't need to widen
+  /// the bootstrap singleton's surface. Best-effort; returns null on
+  /// any failure.
+  Future<String?> _downloadAvatarToTempForFab({
+    required String avatarUrl,
+  }) async {
+    final userId = AuthService.instance.currentUserId;
+    if (userId == null) return null;
+    final client = HttpClient();
+    try {
+      final uri = Uri.tryParse(avatarUrl);
+      if (uri == null) return null;
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+      if (resp.statusCode != 200) return null;
+      final tmpDir = await getTemporaryDirectory();
+      final tmpFile = File(p.join(tmpDir.path, 'self_selfie_$userId.jpg'));
+      final sink = tmpFile.openWrite();
+      await resp.pipe(sink);
+      return tmpFile.path;
+    } catch (e) {
+      debugPrint('HomeScreen._downloadAvatarToTempForFab failed: $e');
+      return null;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   Future<void> _addClient() async {
@@ -484,18 +604,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() {
       _clients = [..._clients, freshClient];
-      _stats = {
-        ..._stats,
-        freshClient.id: const _ClientSessionStats(count: 0),
-      };
+      _stats = {..._stats, freshClient.id: const _ClientSessionStats(count: 0)};
     });
 
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ClientSessionsScreen(
-          client: freshClient,
-          storage: widget.storage,
-        ),
+        builder: (_) =>
+            ClientSessionsScreen(client: freshClient, storage: widget.storage),
       ),
     );
     if (mounted) _load();
@@ -522,7 +637,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _optimisticallyHide(String clientId) {
     if (!mounted) return;
     setState(() {
-      _clients = _clients.where((c) => c.id != clientId).toList(growable: false);
+      _clients = _clients
+          .where((c) => c.id != clientId)
+          .toList(growable: false);
       _stats = Map<String, _ClientSessionStats>.from(_stats)..remove(clientId);
     });
   }
@@ -593,268 +710,272 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return OrientationLockGuard(
       child: Scaffold(
-      backgroundColor: AppColors.surfaceBg,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
-          children: [
-            // Brand anchor. Matrix + wordmark lockup sits above the
-            // identity controls so Home reads as the brand's front
-            // door — the first thing a practitioner sees when opening
-            // the app. Identity controls (PracticeChip + offline chip)
-            // live underneath so the hierarchy is brand → identity →
-            // content. Settings lives top-right of the Scaffold via a
-            // Stack overlay so it gets a generous tap target instead of
-            // fighting the practice chip for the identity row's space.
-            const Padding(
-              // Bottom padding 3× bigger per Wave 3 #14 pass-note — gives
-              // the brand anchor enough breathing room before the
-              // identity-controls row (practice chip + sync).
-              padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
-              child: Center(
-                child: HomefitLogoLockup(size: 180),
-              ),
-            ),
-            // Top-level scope picker. Permanent IA — both capsules are
-            // always present so the shape of Home doesn't change when
-            // Classes / My Workouts ship. See [HomeScopeSegmented].
-            HomeScopeSegmented(
-              selected: _scope,
-              onChanged: _setScope,
-            ),
-            // Identity row retired (2026-05-22). The practice picker
-            // now lives in Settings → Account; the on-device credits
-            // pill is gone (informational read sits on the dashboard
-            // tile in the portal). The "Updated N min ago" sync hint
-            // below is the only thing that survives in this slot.
-            // "Updated N min ago" hint, only when we have a successful
-            // sync to report AND the body is the clients list (not
-            // loading / error / empty). Suppressed on Classes scope —
-            // the sync timestamp is about the clients cache.
-            if (_scope == HomeScope.clients &&
-                _lastSyncedMs != null &&
-                !_loading &&
-                _loadError == null &&
-                _clients.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
-                child: Row(
-                  children: [
-                    Text(
-                      'Updated ${_relativeAge(_lastSyncedMs!)}',
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 11,
-                        color: AppColors.textSecondaryOnDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            // Inline sync-failure banner. Only shown when we're online
-            // AND the most recent pullAll hit an RPC error. The clients
-            // list (if any) stays visible behind it, so Carl's mental
-            // model is preserved: "I have N clients cached, I see them,
-            // the banner tells me we can't reach the cloud right now,
-            // nothing is broken." We only suppress it when the list is
-            // empty — that case falls through to the bigger "Couldn't
-            // load your clients" empty state which carries the same
-            // retry affordance. Suppressed on Classes scope — the
-            // failure is about the clients cache, not Classes.
-            if (_scope == HomeScope.clients &&
-                _syncFailed &&
-                !_loading &&
-                _clients.isNotEmpty)
-              _SyncFailedBanner(
-                retryCount: _syncRetryCount,
-                retrying: _retrying,
-                onTap: _retrying ? null : _retrySync,
-              ),
-            // First-run "Getting started" banner. Reads a per-device
-            // SharedPreferences flag; renders once and dismisses for good
-            // either way (tap-through or explicit ×). Tap launches the
-            // walkthrough at manage.homefit.studio/getting-started in
-            // Safari (external app, NOT in-app browser) so the
-            // practitioner can keep it open and switch back to the app
-            // to follow along step-by-step. Sits below the sync banner
-            // so transient infra errors take precedence. Clients-scope
-            // only — the walkthrough is the clients flow.
-            if (_scope == HomeScope.clients) const _GettingStartedBanner(),
-            const SizedBox(height: 8),
-            // Wave 15 — a server-revoked session (password rotated,
-            // admin intervention, auth.sessions row deleted) used to
-            // 403 every subsequent RPC silently. ApiClient now detects
-            // `session_not_found`, forces a local sign-out, and flips
-            // `sessionExpired` so this banner surfaces. Reads stay on
-            // cache; writes queue locally. Tapping sign-in routes
-            // through AuthService.signOut → AuthGate.
-            SessionExpiredBanner(
-              onSignIn: () => AuthService.instance.signOut(),
-            ),
-            ValueListenableBuilder<String?>(
-              valueListenable: AuthService.instance.bootstrapError,
-              builder: (context, error, _) {
-                if (error == null) return const SizedBox.shrink();
-                return BootstrapErrorBanner(
-                  onRetry: () =>
-                      AuthService.instance.ensurePracticeMembership(),
-                );
-              },
-            ),
-            Expanded(
-              child: switch (_scope) {
-                HomeScope.clients => _loading
-                    ? _buildShimmer()
-                    : (_loadError != null
-                        ? _buildLoadErrorCard(_loadError!)
-                        : _buildBody()),
-                HomeScope.classes => const ClassesComingSoonView(),
-                HomeScope.workouts => const WorkoutsComingSoonView(),
-              },
-            ),
-            // Primary CTA. Coral FAB pinned above the footer so the
-            // gesture lives in the thumb zone. Clients-scope only —
-            // when Classes ships the same slot will hold its own CTA
-            // (e.g. "New Class"); today it stays empty so the teaser
-            // body has the floor to itself.
-            if (_scope == HomeScope.clients && !_loading && _loadError == null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: _addClient,
-                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 24),
-                    label: const Text(
-                      'New Client',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
+        backgroundColor: AppColors.surfaceBg,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  // Brand anchor. Matrix + wordmark lockup sits above the
+                  // identity controls so Home reads as the brand's front
+                  // door — the first thing a practitioner sees when opening
+                  // the app. Identity controls (PracticeChip + offline chip)
+                  // live underneath so the hierarchy is brand → identity →
+                  // content. Settings lives top-right of the Scaffold via a
+                  // Stack overlay so it gets a generous tap target instead of
+                  // fighting the practice chip for the identity row's space.
+                  const Padding(
+                    // Bottom padding 3× bigger per Wave 3 #14 pass-note — gives
+                    // the brand anchor enough breathing room before the
+                    // identity-controls row (practice chip + sync).
+                    padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
+                    child: Center(child: HomefitLogoLockup(size: 180)),
                   ),
-                ),
-              ),
-            // My Workouts primary CTA. Stub for this PR — tap shows a
-            // SnackBar pointing at PR #9, which wires the inline selfie
-            // sheet + capture entry path per
-            // `docs/SELF_TRAINER_WAVE.md` § Capture-entry path from
-            // My Workouts. Mirrors the Clients FAB style (coral
-            // FilledButton.icon, 56px, 16px radius).
-            if (_scope == HomeScope.workouts)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: _newSelfSessionStub,
-                    icon: const Icon(
-                      Icons.fitness_center_rounded,
-                      size: 24,
-                    ),
-                    label: const Text(
-                      'New Session',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
+                  // Top-level scope picker. Permanent IA — both capsules are
+                  // always present so the shape of Home doesn't change when
+                  // Classes / My Workouts ship. See [HomeScopeSegmented].
+                  HomeScopeSegmented(selected: _scope, onChanged: _setScope),
+                  // Identity row retired (2026-05-22). The practice picker
+                  // now lives in Settings → Account; the on-device credits
+                  // pill is gone (informational read sits on the dashboard
+                  // tile in the portal). The "Updated N min ago" sync hint
+                  // below is the only thing that survives in this slot.
+                  // "Updated N min ago" hint, only when we have a successful
+                  // sync to report AND the body is the clients list (not
+                  // loading / error / empty). Suppressed on Classes scope —
+                  // the sync timestamp is about the clients cache.
+                  if (_scope == HomeScope.clients &&
+                      _lastSyncedMs != null &&
+                      !_loading &&
+                      _loadError == null &&
+                      _clients.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Updated ${_relativeAge(_lastSyncedMs!)}',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              color: AppColors.textSecondaryOnDark,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+                  // Inline sync-failure banner. Only shown when we're online
+                  // AND the most recent pullAll hit an RPC error. The clients
+                  // list (if any) stays visible behind it, so Carl's mental
+                  // model is preserved: "I have N clients cached, I see them,
+                  // the banner tells me we can't reach the cloud right now,
+                  // nothing is broken." We only suppress it when the list is
+                  // empty — that case falls through to the bigger "Couldn't
+                  // load your clients" empty state which carries the same
+                  // retry affordance. Suppressed on Classes scope — the
+                  // failure is about the clients cache, not Classes.
+                  if (_scope == HomeScope.clients &&
+                      _syncFailed &&
+                      !_loading &&
+                      _clients.isNotEmpty)
+                    _SyncFailedBanner(
+                      retryCount: _syncRetryCount,
+                      retrying: _retrying,
+                      onTap: _retrying ? null : _retrySync,
                     ),
+                  // First-run "Getting started" banner. Reads a per-device
+                  // SharedPreferences flag; renders once and dismisses for good
+                  // either way (tap-through or explicit ×). Tap launches the
+                  // walkthrough at manage.homefit.studio/getting-started in
+                  // Safari (external app, NOT in-app browser) so the
+                  // practitioner can keep it open and switch back to the app
+                  // to follow along step-by-step. Sits below the sync banner
+                  // so transient infra errors take precedence. Clients-scope
+                  // only — the walkthrough is the clients flow.
+                  if (_scope == HomeScope.clients)
+                    const _GettingStartedBanner(),
+                  const SizedBox(height: 8),
+                  // Wave 15 — a server-revoked session (password rotated,
+                  // admin intervention, auth.sessions row deleted) used to
+                  // 403 every subsequent RPC silently. ApiClient now detects
+                  // `session_not_found`, forces a local sign-out, and flips
+                  // `sessionExpired` so this banner surfaces. Reads stay on
+                  // cache; writes queue locally. Tapping sign-in routes
+                  // through AuthService.signOut → AuthGate.
+                  SessionExpiredBanner(
+                    onSignIn: () => AuthService.instance.signOut(),
                   ),
-                ),
+                  ValueListenableBuilder<String?>(
+                    valueListenable: AuthService.instance.bootstrapError,
+                    builder: (context, error, _) {
+                      if (error == null) return const SizedBox.shrink();
+                      return BootstrapErrorBanner(
+                        onRetry: () =>
+                            AuthService.instance.ensurePracticeMembership(),
+                      );
+                    },
+                  ),
+                  Expanded(
+                    child: switch (_scope) {
+                      HomeScope.clients =>
+                        _loading
+                            ? _buildShimmer()
+                            : (_loadError != null
+                                  ? _buildLoadErrorCard(_loadError!)
+                                  : _buildBody()),
+                      HomeScope.classes => const ClassesComingSoonView(),
+                      HomeScope.workouts => const WorkoutsComingSoonView(),
+                    },
+                  ),
+                  // Primary CTA. Coral FAB pinned above the footer so the
+                  // gesture lives in the thumb zone. Clients-scope only —
+                  // when Classes ships the same slot will hold its own CTA
+                  // (e.g. "New Class"); today it stays empty so the teaser
+                  // body has the floor to itself.
+                  if (_scope == HomeScope.clients &&
+                      !_loading &&
+                      _loadError == null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: FilledButton.icon(
+                          onPressed: _addClient,
+                          icon: const Icon(
+                            Icons.person_add_alt_1_rounded,
+                            size: 24,
+                          ),
+                          label: const Text(
+                            'New Client',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  // My Workouts primary CTA. Stub for this PR — tap shows a
+                  // SnackBar pointing at PR #9, which wires the inline selfie
+                  // sheet + capture entry path per
+                  // `docs/SELF_TRAINER_WAVE.md` § Capture-entry path from
+                  // My Workouts. Mirrors the Clients FAB style (coral
+                  // FilledButton.icon, 56px, 16px radius).
+                  if (_scope == HomeScope.workouts)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            unawaited(_newSelfSessionStub());
+                          },
+                          icon: const Icon(
+                            Icons.fitness_center_rounded,
+                            size: 24,
+                          ),
+                          label: const Text(
+                            'New Session',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
-          ],
-        ),
-            // Help + Settings overlay — top-right of the Home surface,
-            // above the brand lockup. Given the corner to themselves so
-            // the gestures aren't fighting the PracticeChip +
-            // OfflineSyncChip for space in the identity row.
-            //
-            // Help sits immediately LEFT of the gear so the
-            // information-then-settings reading order matches the rest
-            // of iOS chrome conventions (e.g. Mail, Settings).
-            Positioned(
-              top: 4,
-              right: 52,
-              child: IconButton(
-                onPressed: _openHelp,
-                icon: const Icon(
-                  Icons.help_outline,
-                  color: AppColors.textOnDark,
-                  size: 28,
-                ),
-                tooltip: 'Help',
-                constraints: const BoxConstraints(
-                  minWidth: 48,
-                  minHeight: 48,
-                ),
-              ),
-            ),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: IconButton(
-                onPressed: _openSettings,
-                icon: const Icon(
-                  Icons.settings_outlined,
-                  color: AppColors.textOnDark,
-                  size: 26,
-                ),
-                tooltip: 'Settings',
-              ),
-            ),
-            // Wave 30 — Network share entry point. Mirrors the Settings
-            // gear's corner placement on the opposite side so the brand
-            // lockup stays uncrowded. Tap opens the NetworkShareSheet
-            // (referral code + QR + share button + portal hand-off).
-            // Hidden on Workouts scope — referrals are practitioner-only.
-            //
-            // S-14 — Safe Mode toggle promoted to a first-class header
-            // citizen (2026-05-22). Sits immediately RIGHT of the share
-            // icon so the two privacy-adjacent affordances cluster
-            // together in the top-left and Settings/Help stay clear on
-            // the top-right. Three-state visual + lock overlay handled
-            // inside [SafeModeToggleButton] — listens to the singleton
-            // and re-renders in real time.
-            if (_scope != HomeScope.workouts)
+              // Help + Settings overlay — top-right of the Home surface,
+              // above the brand lockup. Given the corner to themselves so
+              // the gestures aren't fighting the PracticeChip +
+              // OfflineSyncChip for space in the identity row.
+              //
+              // Help sits immediately LEFT of the gear so the
+              // information-then-settings reading order matches the rest
+              // of iOS chrome conventions (e.g. Mail, Settings).
               Positioned(
                 top: 4,
-                left: 4,
+                right: 52,
                 child: IconButton(
-                  onPressed: _openNetworkShare,
+                  onPressed: _openHelp,
                   icon: const Icon(
-                    Icons.group_add_outlined,
-                    color: AppColors.primary,
-                    size: 24,
+                    Icons.help_outline,
+                    color: AppColors.textOnDark,
+                    size: 28,
                   ),
-                  tooltip: 'Share with another practitioner',
+                  tooltip: 'Help',
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
                 ),
               ),
-            if (_scope != HomeScope.workouts)
-              const Positioned(
+              Positioned(
                 top: 4,
-                left: 52,
-                child: SafeModeToggleButton(iconSize: 28),
+                right: 4,
+                child: IconButton(
+                  onPressed: _openSettings,
+                  icon: const Icon(
+                    Icons.settings_outlined,
+                    color: AppColors.textOnDark,
+                    size: 26,
+                  ),
+                  tooltip: 'Settings',
+                ),
               ),
-          ],
+              // Wave 30 — Network share entry point. Mirrors the Settings
+              // gear's corner placement on the opposite side so the brand
+              // lockup stays uncrowded. Tap opens the NetworkShareSheet
+              // (referral code + QR + share button + portal hand-off).
+              // Hidden on Workouts scope — referrals are practitioner-only.
+              //
+              // S-14 — Safe Mode toggle promoted to a first-class header
+              // citizen (2026-05-22). Sits immediately RIGHT of the share
+              // icon so the two privacy-adjacent affordances cluster
+              // together in the top-left and Settings/Help stay clear on
+              // the top-right. Three-state visual + lock overlay handled
+              // inside [SafeModeToggleButton] — listens to the singleton
+              // and re-renders in real time.
+              if (_scope != HomeScope.workouts)
+                Positioned(
+                  top: 4,
+                  left: 4,
+                  child: IconButton(
+                    onPressed: _openNetworkShare,
+                    icon: const Icon(
+                      Icons.group_add_outlined,
+                      color: AppColors.primary,
+                      size: 24,
+                    ),
+                    tooltip: 'Share with another practitioner',
+                  ),
+                ),
+              if (_scope != HomeScope.workouts)
+                const Positioned(
+                  top: 4,
+                  left: 52,
+                  child: SafeModeToggleButton(iconSize: 28),
+                ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -871,8 +992,8 @@ class _HomeScreenState extends State<HomeScreen> {
         itemCount: _clients.length,
         itemBuilder: (context, i) {
           final client = _clients[i];
-          final stats = _stats[client.id] ??
-              const _ClientSessionStats(count: 0);
+          final stats =
+              _stats[client.id] ?? const _ClientSessionStats(count: 0);
           return Dismissible(
             // Use the client id — stable across reorders and Undo.
             key: ValueKey('client-${client.id}'),
@@ -953,11 +1074,7 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 32),
-                Icon(
-                  icon,
-                  size: 64,
-                  color: AppColors.grey600,
-                ),
+                Icon(icon, size: 64, color: AppColors.grey600),
                 const SizedBox(height: 18),
                 Text(
                   title,
@@ -1004,8 +1121,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(AppTheme.radiusMd),
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusMd,
+                          ),
                         ),
                         textStyle: const TextStyle(
                           fontFamily: 'Inter',
@@ -1028,8 +1146,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(AppTheme.radiusMd),
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusMd,
+                          ),
                         ),
                         textStyle: const TextStyle(
                           fontFamily: 'Inter',
@@ -1051,8 +1170,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Relative age string used for the "Updated X min ago" hint.
   static String _relativeAge(int epochMs) {
-    final diff = DateTime.now()
-        .difference(DateTime.fromMillisecondsSinceEpoch(epochMs));
+    final diff = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(epochMs),
+    );
     if (diff.inSeconds < 30) return 'just now';
     if (diff.inMinutes < 1) return '${diff.inSeconds}s ago';
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
@@ -1138,8 +1258,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppTheme.radiusMd),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                     ),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
@@ -1200,8 +1319,7 @@ class _SyncFailedBanner extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: AppColors.surfaceRaised,
               borderRadius: BorderRadius.circular(10),
@@ -1281,8 +1399,7 @@ class _ClientCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               // Leading visual anchor. When the client has captured an
@@ -1384,8 +1501,18 @@ class _ClientCard extends StatelessWidget {
       return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
     }
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${dt.day} ${months[dt.month - 1]}';
   }
@@ -1477,10 +1604,7 @@ class _GettingStartedBannerState extends State<_GettingStartedBanner> {
     );
     bool launched = false;
     try {
-      launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       launched = false;
     }
@@ -1488,8 +1612,10 @@ class _GettingStartedBannerState extends State<_GettingStartedBanner> {
       // A11 (HARDCODED-AUDIT-2026-05-12) — derive display host from
       // AppConfig.portalOrigin so a staging build's fallback copy reads
       // "staging.manage.homefit.studio/getting-started".
-      final displayHost =
-          AppConfig.portalOrigin.replaceFirst(RegExp(r'^https?://'), '');
+      final displayHost = AppConfig.portalOrigin.replaceFirst(
+        RegExp(r'^https?://'),
+        '',
+      );
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
@@ -1538,10 +1664,7 @@ class _GettingStartedBannerState extends State<_GettingStartedBanner> {
                     decoration: BoxDecoration(
                       color: AppColors.primary.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.primary,
-                        width: 1,
-                      ),
+                      border: Border.all(color: AppColors.primary, width: 1),
                     ),
                     child: Row(
                       children: [
