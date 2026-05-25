@@ -21,6 +21,18 @@ private let safeModeLog = OSLog(
     category: "SafeMode"
 )
 
+// Safe Mode v2 VIDEO diagnostic log. Separate subsystem from the photo
+// path so Console.app filtering on
+// `subsystem:studio.homefit.app.safe-mode-v2-video` shows only the
+// per-frame state-machine + re-confirmation / re-seed events. Per-stage
+// timings (face detect / MobileFaceNet / tracker / segmentation /
+// composite) emit through this same log; subsystem grep is easier than
+// the per-line tag grep we use on the photo log.
+private let safeModeV2VideoLog = OSLog(
+    subsystem: "studio.homefit.app.safe-mode-v2-video",
+    category: "Pipeline"
+)
+
 // MARK: - Line-drawing tuning constants (tweak-and-reinstall friendly)
 //
 // Exposed as named top-level constants so Carl can nudge them after device
@@ -238,22 +250,17 @@ private let handDilationConfidenceMin: Float = 0.20
 /// 5. Contrast boost
 /// 6. Line-alpha dim (softens intensity — see `edgeThresholdLo/Hi/lineAlpha`)
 class VideoConverterChannel {
-    // Safe Mode v2 (2026-05-23) — video gate.
+    // Safe Mode v2 video (2026-05-25) — face-recognition discriminator.
     //
-    // The v1 photo path is removed entirely in this wave and replaced
-    // by `applySafeModeV2ToPhoto` (per-client face-recognition
-    // discriminator via MobileFaceNet). The v1 VIDEO path still uses
-    // the legacy `SafeModeProcessor` anchor-box code at the
-    // convertVideo writer pump below; for v2 the Dart side refuses to
-    // start video recording inside a Safe Mode polygon (suppression
-    // implemented in `safe_mode_service.dart` / `capture_mode_screen.dart`).
-    //
-    // This constant is a defensive backstop: if the Dart side ever
-    // hands us a `safeOutputPath` on convertVideo, the writer
-    // allocation is short-circuited and the safe-mp4 simply isn't
-    // produced. The legacy code path remains compiled-in so v3 can
-    // re-enable with keyframe-embed + tracking.
-    static let kSafeModeVideoEnabled: Bool = false
+    // The v1 anchor-box video pipeline ("largest bbox = client" via the
+    // legacy `SafeModeProcessor`) is removed in this wave; the v1 photo
+    // path was already gone in the v2 photo wave. v2 video runs as a
+    // dedicated post-conversion entry point — `applySafeModeV2ToVideo`
+    // below — that the Dart side calls AFTER the standard line-drawing
+    // convertVideo completes. The `convertVideo` pump no longer emits a
+    // safe-mp4 sidecar; the `safeOutputPath` argument is silently
+    // ignored for callers still passing it during the Dart-branch
+    // transition.
 
     private let channel: FlutterMethodChannel
     private let processingQueue = DispatchQueue(
@@ -261,11 +268,31 @@ class VideoConverterChannel {
         qos: .userInitiated
     )
 
+    // Safe Mode v2 video progress event channel. The Dart side subscribes
+    // BEFORE invoking `applySafeModeV2ToVideo`. The streamed values are
+    // Double in [0.0, 1.0] representing frame-pump progress. The sink
+    // is set from the FlutterStreamHandler on listen / cleared on cancel;
+    // the per-frame callback inside the processor closes over a captured
+    // copy of this reference at invocation time.
+    private let safeModeV2VideoProgressChannel: FlutterEventChannel
+    private let safeModeV2VideoProgressHandler: SafeModeV2VideoProgressHandler
+    var safeModeV2VideoProgressSink: FlutterEventSink? {
+        return safeModeV2VideoProgressHandler.sink
+    }
+
     init(messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
             name: "com.raidme.video_converter",
             binaryMessenger: messenger
         )
+        // Stream channel name is locked in the v2 video spec section 8.
+        // Dart MUST match this exact string.
+        safeModeV2VideoProgressHandler = SafeModeV2VideoProgressHandler()
+        safeModeV2VideoProgressChannel = FlutterEventChannel(
+            name: "homefit-safe-mode-v2-video-progress",
+            binaryMessenger: messenger
+        )
+        safeModeV2VideoProgressChannel.setStreamHandler(safeModeV2VideoProgressHandler)
         channel.setMethodCallHandler(handle)
     }
 
@@ -311,23 +338,21 @@ class VideoConverterChannel {
             // output. Independently best-effort; a failure here never
             // disturbs the line-drawing or segmented writers.
             let maskOutputPath = args["maskOutputPath"] as? String
-            // Safe Mode (2026-05-21) — optional FOURTH writer emits a
-            // bystander-blurred raw archive: same source frame, but
-            // every segmented person OUTSIDE the largest detected
-            // human bbox is replaced with a flat coral silhouette.
-            // Only enabled when the capture happened inside a
-            // Safe-Mode-enforcing premises. Independently best-effort:
-            // a failure here MUST NOT disturb the line / segmented /
-            // mask writers — the practitioner still gets a usable
-            // line drawing even if the safe pass crashed.
-            let safeOutputPath = args["safeOutputPath"] as? String
+            // Safe Mode (2026-05-25 v2 wave): the `safeOutputPath`
+            // argument is preserved on the channel signature for one
+            // release cycle of back-compat — pre-v2-video Dart builds
+            // still pass it. v2 video is now a dedicated post-pass
+            // (`applySafeModeV2ToVideo` below) so `convertVideo` no
+            // longer emits a safe-mp4 sidecar. The value is read and
+            // discarded here without re-introducing the v1 writer
+            // pipeline.
+            _ = args["safeOutputPath"] as? String
             processingQueue.async { [weak self] in
                 self?.convertVideo(
                     inputPath: inputPath,
                     outputPath: outputPath,
                     segmentedOutputPath: segmentedOutputPath,
                     maskOutputPath: maskOutputPath,
-                    safeOutputPath: safeOutputPath,
                     blurKernel: blurKernel,
                     thresholdBlock: thresholdBlock,
                     contrastLow: contrastLow,
@@ -554,6 +579,146 @@ class VideoConverterChannel {
                         result(FlutterError(
                             code: "UNSUPPORTED_OS",
                             message: "Safe Mode v2 requires iOS 15+",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
+        case "applySafeModeV2ToVideo":
+            // Safe Mode v2 VIDEO (2026-05-25) — per-client face-recognition
+            // discriminator extended from photos to videos. Hybrid state
+            // machine: first-frame identify + Vision single-object tracker
+            // between samples + sparse re-confirm via face-rec every 2s
+            // plus on tracker-confidence drop. Algorithm per
+            // `docs/specs/2026-05-25-safe-mode-v2-video.md`.
+            //
+            // Inputs:
+            //   - srcPath: raw captured mp4 (the same file convertVideo
+            //     wrote the line/segmented/mask outputs for).
+            //   - destPath: where the safe-mp4 should be written.
+            //   - subjectEmbeddingSlots: List<bytes>, 1–8 L2-normalized
+            //     FP32 face embeddings from the bound client's enrolment.
+            //   - threshold: cosine threshold (solo-floor); default 0.55
+            //     per the multi-reference spec.
+            //
+            // Returns the same shape as the v1 SafeModeVideoOutcome
+            // (`success`, `safeMissRate`, `framesProcessed`, `durationMs`)
+            // so the Dart side's `kSafeModeMaxMissRate` decision stays
+            // unchanged. Per-frame progress emits via the
+            // `homefit-safe-mode-v2-video-progress` event channel —
+            // subscribe BEFORE invoking this method to receive the stream.
+            guard let args = call.arguments as? [String: Any],
+                  let srcPath = args["srcPath"] as? String,
+                  let destPath = args["destPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing srcPath/destPath for applySafeModeV2ToVideo",
+                    details: nil
+                ))
+                return
+            }
+            let rawSlots: Any? = args["subjectEmbeddingSlots"]
+            var subjectEmbeddingSlots: [Data] = []
+            if let list = rawSlots as? [Any] {
+                for element in list {
+                    if let typed = element as? FlutterStandardTypedData {
+                        subjectEmbeddingSlots.append(typed.data)
+                    } else if let raw = element as? Data {
+                        subjectEmbeddingSlots.append(raw)
+                    } else {
+                        result(FlutterError(
+                            code: "INVALID_ARGS",
+                            message: "subjectEmbeddingSlots contains a non-bytes element (\(type(of: element)))",
+                            details: nil
+                        ))
+                        return
+                    }
+                }
+            } else if rawSlots == nil {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing subjectEmbeddingSlots for applySafeModeV2ToVideo",
+                    details: nil
+                ))
+                return
+            } else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddingSlots must be a list of bytes; got \(type(of: rawSlots!))",
+                    details: nil
+                ))
+                return
+            }
+            if subjectEmbeddingSlots.isEmpty {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddingSlots must contain at least one slot",
+                    details: nil
+                ))
+                return
+            }
+            if subjectEmbeddingSlots.count > 8 {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddingSlots must contain at most 8 slots (got \(subjectEmbeddingSlots.count))",
+                    details: nil
+                ))
+                return
+            }
+            let expectedLen = MobileFaceNetEmbedder.embeddingByteLength
+            for (idx, slot) in subjectEmbeddingSlots.enumerated() {
+                if slot.count != expectedLen {
+                    result(FlutterError(
+                        code: "INVALID_ARGS",
+                        message: "subjectEmbeddingSlots[\(idx)] wrong size — got \(slot.count) bytes, expected \(expectedLen)",
+                        details: nil
+                    ))
+                    return
+                }
+            }
+            let threshold = (args["threshold"] as? Double) ?? 0.55
+            let progressSink = self.safeModeV2VideoProgressSink
+            processingQueue.async {
+                if #available(iOS 15.0, *) {
+                    let outcome = SafeModeV2VideoProcessor.run(
+                        srcPath: srcPath,
+                        destPath: destPath,
+                        subjectEmbeddingSlots: subjectEmbeddingSlots,
+                        threshold: threshold,
+                        onProgress: { progress in
+                            // Coalesce to main thread so the Dart event
+                            // channel doesn't surface progress callbacks
+                            // off the platform thread. Cheap — one
+                            // dispatch per ~30 frames at most.
+                            DispatchQueue.main.async {
+                                progressSink?(progress)
+                            }
+                        }
+                    )
+                    DispatchQueue.main.async {
+                        switch outcome {
+                        case .success(let success, let missRate, let framesProcessed, let durationMs):
+                            result([
+                                "success": success,
+                                "safeMissRate": missRate,
+                                "framesProcessed": framesProcessed,
+                                "durationMs": durationMs,
+                                "destPath": destPath,
+                            ])
+                        case .failure(let err):
+                            result(FlutterError(
+                                code: "VIDEO_SAFE_V2_FAILED",
+                                message: err,
+                                details: nil
+                            ))
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UNSUPPORTED_OS",
+                            message: "Safe Mode v2 video requires iOS 15+",
                             details: nil
                         ))
                     }
@@ -957,7 +1122,6 @@ class VideoConverterChannel {
         outputPath: String,
         segmentedOutputPath: String?,
         maskOutputPath: String?,
-        safeOutputPath: String?,
         blurKernel: Int,
         thresholdBlock: Int,
         contrastLow: Int,
@@ -1207,60 +1371,10 @@ class VideoConverterChannel {
             }
         }
 
-        // --- Safe Mode writer setup (2026-05-21) ---
-        //
-        // Optional FOURTH writer that produces a bystander-blurred copy
-        // of the raw frame. The pipeline runs `VNDetectHumanRectangles`
-        // alongside person segmentation; the LARGEST detected human
-        // bbox is treated as the client. Every mask pixel that's
-        // BOTH (a) classified as person AND (b) lies outside the
-        // client bbox is rewritten to coral (#FF6B35). The result is
-        // the same source video with bystanders silhouetted in coral,
-        // suitable as the raw archive when capture happened inside an
-        // enforcing Safe Mode premises.
-        //
-        // Identical encoding settings to the line writer (same shape,
-        // same H.264 bitrate target) so file-size analytics stay
-        // comparable. Best-effort: any failure below logs and skips —
-        // the line + segmented + mask writers continue unaffected.
-        var safeWriter: AVAssetWriter? = nil
-        var safeWriterInput: AVAssetWriterInput? = nil
-        var safeAdaptor: AVAssetWriterInputPixelBufferAdaptor? = nil
-        // Safe Mode v2 video suppression (2026-05-23):
-        // `kSafeModeVideoEnabled` is false in v2. Even if the Dart side
-        // forwards a `safeOutputPath` we short-circuit here so the
-        // legacy anchor-box compositor never runs against the writer
-        // pump. The line / segmented / mask writers continue
-        // unaffected — the convertVideo call still produces all the
-        // standard outputs, just without the safe-mp4 sidecar.
-        if let sfPath = safeOutputPath, Self.kSafeModeVideoEnabled {
-            let sfURL = URL(fileURLWithPath: sfPath)
-            try? FileManager.default.removeItem(at: sfURL)
-            do {
-                let sw = try AVAssetWriter(outputURL: sfURL, fileType: .mp4)
-                let sInput = AVAssetWriterInput(
-                    mediaType: .video,
-                    outputSettings: writerOutputSettings
-                )
-                sInput.expectsMediaDataInRealTime = false
-                sInput.transform = transform
-                let sAdaptor = AVAssetWriterInputPixelBufferAdaptor(
-                    assetWriterInput: sInput,
-                    sourcePixelBufferAttributes: pixelBufferAttributes
-                )
-                if sw.canAdd(sInput) {
-                    sw.add(sInput)
-                    safeWriter = sw
-                    safeWriterInput = sInput
-                    safeAdaptor = sAdaptor
-                    NSLog("[VideoConverter] safe writer attached at \(sfPath)")
-                } else {
-                    NSLog("[VideoConverter] safe writer.canAdd(video) failed — skipping")
-                }
-            } catch {
-                NSLog("[VideoConverter] safe writer failed: \(error.localizedDescription) — skipping")
-            }
-        }
+        // Safe Mode v1 video writer setup was removed in the v2 video
+        // wave (2026-05-25). The Safe Mode bystander-blur pipeline is
+        // now a separate `applySafeModeV2ToVideo` post-pass; convertVideo
+        // produces only the line / segmented / mask outputs.
 
         // --- Audio passthrough setup ---
         // Copy the audio track as-is (no re-encoding) so the converted video
@@ -1411,22 +1525,6 @@ class VideoConverterChannel {
             }
         }
 
-        // Safe Mode: start the safe writer in parallel.
-        if let sw = safeWriter {
-            if sw.startWriting() {
-                sw.startSession(atSourceTime: .zero)
-                NSLog("[VideoConverter] safe writer started")
-            } else {
-                NSLog(
-                    "[VideoConverter] safe writer startWriting failed: " +
-                    "\(sw.error?.localizedDescription ?? "unknown") — disabling safe output"
-                )
-                safeWriter = nil
-                safeWriterInput = nil
-                safeAdaptor = nil
-            }
-        }
-
         // Pre-allocate the line drawing processor for reuse across frames.
         let processor = LineDrawingProcessor(
             width: videoWidth,
@@ -1436,81 +1534,10 @@ class VideoConverterChannel {
             contrastLow: contrastLow
         )
 
-        // Derive EXIF orientation from the track's preferredTransform
-        // so Vision evaluates faces in the upright frame. The raw
-        // CVPixelBuffer fed to processFrame is still in the sensor's
-        // native (unrotated) orientation — the AVAssetWriter applies
-        // the transform on the OUTPUT side via `writerInput.transform`.
-        // Without this hint Vision returned zero face observations
-        // for portrait-recorded videos.
-        let safeOrientation: CGImagePropertyOrientation = {
-            if transform.b == 1.0 && transform.c == -1.0 { return .right }
-            if transform.b == -1.0 && transform.c == 1.0 { return .left }
-            if transform.a == -1.0 && transform.d == -1.0 { return .down }
-            // Identity or unrecognised — TODO: extend coverage if more
-            // capture paths surface non-portrait transforms.
-            return .up
-        }()
-
-        // Safe Mode processor — composites coral over bystander pixels.
-        // Only allocated when the safe writer survived its init/start
-        // pair, so the cost stays off for normal captures.
-        //
-        // LATENT COORDINATE-FRAME ISSUE (2026-05-22, see PR
-        // "fix(safe-mode): photo bystander blur — normalise buffer to
-        // upright before Vision + segmentation"):
-        //
-        // The video path here has the same coordinate-space mismatch
-        // that the photo path used to have. AVAssetReader hands us
-        // buffers in raw sensor orientation (`videoWidth x videoHeight`
-        // is landscape for an iPhone portrait recording — the
-        // preferredTransform rotates to upright on the writer's OUTPUT
-        // side). We pass `safeOrientation` to SafeModeProcessor so
-        // Vision sees faces upright, but PersonSegmenter runs against
-        // the LANDSCAPE buffer without an orientation hint — its mask
-        // lives in landscape coords. Vision's face bbox is in upright
-        // normalized coords; multiplying it by the landscape buffer's
-        // pixel dims inside `SafeModeProcessor.processFrame` lands the
-        // anchor in the wrong region of the buffer. For a portrait
-        // recording the subject's segmented body pixels end up
-        // OUTSIDE the anchor → mis-classified as bystanders →
-        // Gaussian-blurred. Net effect: portrait-recorded videos blur
-        // the subject as well as the bystanders.
-        //
-        // Photo path was fixed by pre-rendering the UIImage upright
-        // via UIKit before allocating the pixel buffer (constant cost,
-        // single-frame). Video path is more invasive because the
-        // AVAssetWriter output is tied to the track's
-        // `naturalSize`/`preferredTransform`; rotating every frame on
-        // the GPU through CIAffineTransform before the Safe Mode pass
-        // is one option, and routing orientation through
-        // PersonSegmenter (`VNImageRequestHandler(cvPixelBuffer:
-        // orientation: options:)`) + remapping the Vision bbox back
-        // to landscape coords inside `processFrame` is another. Both
-        // are non-trivial enough to land in a follow-up PR.
-        //
-        // Memory budget note: SafeModeProcessor allocates a width*height
-        // 8-bit scratch mask plus the CoreImage render graph holds
-        // intermediate floats per frame. At 1080p (1920x1080) the mask
-        // is ~2MB; CoreImage adds another ~30MB for the blur tiles —
-        // safe under jetsam. At 4K (3840x2160) the mask balloons to
-        // ~8MB and the blur graph approaches ~120MB, which combined
-        // with the four writer pipelines pushes the process near the
-        // jetsam threshold. Today the capture pipeline encodes at
-        // <=1080p, so we keep buffers at `videoWidth x videoHeight`
-        // (the rotation-corrected encode size, not native sensor
-        // size). If 4K capture is ever enabled, insert a CIImage
-        // downscale before processFrame so the Safe Mode pass works
-        // at <=1920x1080 and the result is up-rezzed back to the
-        // writer's resolution. Tracked alongside the photo path's
-        // 1920px clamp in `applySafeModeToPhoto`.
-        let safeProcessor: SafeModeProcessor? = (safeWriter != nil)
-            ? SafeModeProcessor(
-                width: videoWidth,
-                height: videoHeight,
-                orientation: safeOrientation
-              )
-            : nil
+        // v1 video Safe Mode was removed in the v2 video wave
+        // (2026-05-25). The SafeModeProcessor class is gone; the
+        // post-pass `applySafeModeV2ToVideo` does the bystander-blur
+        // work over the raw archive AFTER convertVideo completes.
 
         // v7.1 dual-output: optional colour-segmented processor. Same Vision
         // mask, but the compositing is a colour-passthrough body + dimmed
@@ -1536,8 +1563,6 @@ class VideoConverterChannel {
         var framesProcessed = 0
         var lastProgressReport = 0
         var audioSamplesWritten = 0
-        var safeFramesProcessed = 0
-        var safeVideoFinished = false
 
         NSLog(
             "[VideoConverter] starting video pump — estimatedFrames=\(estimatedTotalFrames) " +
@@ -1583,7 +1608,6 @@ class VideoConverterChannel {
         group.enter()
         if segWriterInput != nil { group.enter() }
         if maskWriterInput != nil { group.enter() }
-        if safeWriterInput != nil { group.enter() }
         var videoPumpFinished = false
         var segVideoFinished = false
         var maskVideoFinished = false
@@ -1600,7 +1624,6 @@ class VideoConverterChannel {
                                 "[VideoConverter] video pump exited — frames=\(framesProcessed) " +
                                 "segFrames=\(segFramesProcessed) " +
                                 "maskFrames=\(maskFramesProcessed) " +
-                                "safeFrames=\(safeFramesProcessed) " +
                                 "readerStatus=\(reader.status.rawValue) " +
                                 "readerError=\(reader.error?.localizedDescription ?? "nil")"
                             )
@@ -1617,12 +1640,6 @@ class VideoConverterChannel {
                                 maskVideoFinished = true
                                 mInput.markAsFinished()
                                 NSLog("[VideoConverter] mask video input markAsFinished called")
-                                group.leave()
-                            }
-                            if let sfInput = safeWriterInput, !safeVideoFinished {
-                                safeVideoFinished = true
-                                sfInput.markAsFinished()
-                                NSLog("[VideoConverter] safe video input markAsFinished called")
                                 group.leave()
                             }
                         }
@@ -1671,68 +1688,20 @@ class VideoConverterChannel {
                         maskPtr = seg.generateMask(for: pixelBuffer)
                     }
 
-                    // Safe Mode downstream-variants fix (2026-05-22). When
-                    // Safe Mode is active, paint the bystander coral
-                    // silhouettes onto the source frame BEFORE the line /
-                    // segmented / mask processors read from it. Without
-                    // this re-order, only the dedicated safe writer
-                    // honoured Safe Mode and every other output (line
-                    // drawing + segmented + thumbnail extraction) leaked
-                    // bystander identity even though PR #402 swapped the
-                    // canonical raw archive at the consumer end.
-                    //
-                    // `safeSourceBuffer` is the buffer the downstream
-                    // processors read from. When the safe pass succeeds
-                    // we point it at the safe-painted buffer; otherwise
-                    // (no Safe Mode, or this frame's safe composite
-                    // failed) it stays on the raw `pixelBuffer`.
-                    //
-                    // Carl-signed (2026-05-22): the LOCKED-v6 line-drawing
-                    // tuning exception is APPROVED — feeding safe pixels
-                    // into the edge detector is correct (a flat coral
-                    // region produces a flat silhouette rather than
-                    // identity-revealing edges).
-                    var safeSourceBuffer: CVPixelBuffer = pixelBuffer
-                    var safeOutForDownstream: CVPixelBuffer? = nil
-                    if let sfAd = safeAdaptor,
-                       let safeProc = safeProcessor,
-                       !safeVideoFinished {
-                        var sfOut: CVPixelBuffer?
-                        let sfAlloc: CVReturn
-                        if let pool = sfAd.pixelBufferPool {
-                            sfAlloc = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &sfOut)
-                        } else {
-                            sfAlloc = CVPixelBufferCreate(
-                                kCFAllocatorDefault,
-                                videoWidth,
-                                videoHeight,
-                                kCVPixelFormatType_32BGRA,
-                                nil,
-                                &sfOut
-                            )
-                        }
-                        if sfAlloc == kCVReturnSuccess, let sfBuffer = sfOut {
-                            if safeProc.processFrame(
-                                source: pixelBuffer,
-                                mask: maskPtr,
-                                into: sfBuffer
-                            ) {
-                                safeSourceBuffer = sfBuffer
-                                safeOutForDownstream = sfBuffer
-                            }
-                        }
-                    }
+                    // v2 video Safe Mode (2026-05-25): Safe Mode is now a
+                    // separate post-pass (`applySafeModeV2ToVideo`) over
+                    // the raw archive AFTER convertVideo completes. The
+                    // line / segmented / mask outputs read directly from
+                    // the raw `pixelBuffer` here — they aren't routed
+                    // through the safe-painted buffer anymore, because
+                    // the safe variant is produced from the raw archive
+                    // by a dedicated face-recognition pipeline, not from
+                    // an in-pump anchor-box hack.
 
                     // Process the frame into a line drawing, writing into outBuffer.
                     // When maskPtr != nil the processor erases (forces to white) any
                     // pixel whose mask value is below 128 — the background.
-                    // 2026-05-22: source from `safeSourceBuffer` so the line
-                    // drawing honours the Safe Mode bystander paint when
-                    // active. The Vision mask was computed against the raw
-                    // `pixelBuffer` so the body-vs-background segmentation
-                    // is unchanged — only the per-pixel RGB sampling shifts
-                    // to the safe-painted buffer.
-                    guard processor.processFrame(safeSourceBuffer, mask: maskPtr, into: outBuffer) else {
+                    guard processor.processFrame(pixelBuffer, mask: maskPtr, into: outBuffer) else {
                         return
                     }
 
@@ -1769,12 +1738,12 @@ class VideoConverterChannel {
                             )
                         }
                         if segAlloc == kCVReturnSuccess, let segBuffer = segOut {
-                            // 2026-05-22: source from `safeSourceBuffer` so the
-                            // segmented-colour composite honours Safe Mode
-                            // bystander paint when active. The mask was
-                            // computed against the raw frame so body
-                            // detection is unchanged; only RGB shifts.
-                            if sProc.processFrame(safeSourceBuffer, mask: maskPtr, into: segBuffer) {
+                            // v2 video Safe Mode (2026-05-25): segmented
+                            // composite reads directly from the raw
+                            // pixelBuffer. Safe Mode is now a separate
+                            // post-pass over the raw archive — the
+                            // segmented file is unaffected.
+                            if sProc.processFrame(pixelBuffer, mask: maskPtr, into: segBuffer) {
                                 // Brief spin-wait up to ~200ms for seg input
                                 // to absorb backpressure. Beyond that we drop
                                 // the frame rather than block the line pump.
@@ -1844,35 +1813,10 @@ class VideoConverterChannel {
                         }
                     }
 
-                    // Safe Mode (2026-05-21, single-pass refactor 2026-05-22):
-                    // Append the safe-painted buffer produced above to the
-                    // safe writer. Pre-2026-05-22 this block ran the safe
-                    // pass independently — but that left line/segmented/mask
-                    // sourcing from the raw `pixelBuffer` (bystander leak).
-                    // The buffer is now produced ONCE before the line pump
-                    // (see `safeSourceBuffer` block) and reused here, so
-                    // every downstream output honours Safe Mode.
-                    //
-                    // `safeOutForDownstream` holds the freshly-produced
-                    // safe buffer; nil means either Safe Mode is off or
-                    // this frame's safe composite failed (a Vision miss
-                    // counter that the Dart side reads via `safeFramesMissedRate`
-                    // for the fail-closed threshold).
-                    if let sfAd = safeAdaptor,
-                       let sfInput = safeWriterInput,
-                       !safeVideoFinished,
-                       let sfBuffer = safeOutForDownstream {
-                        var waited = 0
-                        while !sfInput.isReadyForMoreMediaData && waited < 200 {
-                            usleep(1000)
-                            waited += 1
-                        }
-                        if sfInput.isReadyForMoreMediaData {
-                            if sfAd.append(sfBuffer, withPresentationTime: presentationTime) {
-                                safeFramesProcessed += 1
-                            }
-                        }
-                    }
+                    // v1 safe per-frame writer pump removed (2026-05-25).
+                    // The v2 video pipeline lives in
+                    // `applySafeModeV2ToVideo` and runs once over the raw
+                    // archive after this convertVideo call completes.
 
                     // Report progress every 30 frames.
                     if framesProcessed - lastProgressReport >= 30 {
@@ -2085,35 +2029,8 @@ class VideoConverterChannel {
                 }
             }
 
-            // Safe Mode: finish the safe writer. Same best-effort contract.
-            var safeSuccessPath: String? = nil
-            if let sw = safeWriter, let safePath = safeOutputPath {
-                let sfSem = DispatchSemaphore(value: 0)
-                sw.finishWriting {
-                    sfSem.signal()
-                }
-                let sfWait = sfSem.wait(timeout: .now() + 60)
-                if sfWait == .timedOut {
-                    NSLog(
-                        "[VideoConverter] safe finishWriting TIMEOUT — " +
-                        "safeFrames=\(safeFramesProcessed) " +
-                        "safeWriterStatus=\(sw.status.rawValue) " +
-                        "safeWriterError=\(sw.error?.localizedDescription ?? "nil")"
-                    )
-                    sw.cancelWriting()
-                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: safePath))
-                } else if sw.status == .completed {
-                    NSLog("[VideoConverter] safe finishWriting completed — safeFrames=\(safeFramesProcessed)")
-                    safeSuccessPath = safePath
-                } else {
-                    NSLog(
-                        "[VideoConverter] safe finishWriting failed — " +
-                        "safeWriterStatus=\(sw.status.rawValue) " +
-                        "safeWriterError=\(sw.error?.localizedDescription ?? "nil")"
-                    )
-                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: safePath))
-                }
-            }
+            // v1 safe writer finishWriting block removed (2026-05-25).
+            // v2 video Safe Mode runs as a dedicated post-pass.
 
             reader.cancelReading()
 
@@ -2131,8 +2048,6 @@ class VideoConverterChannel {
                 "segFrames=\(segFramesProcessed) " +
                 "maskOutputWritten=\(maskSuccessPath != nil) " +
                 "maskFrames=\(maskFramesProcessed) " +
-                "safeOutputWritten=\(safeSuccessPath != nil) " +
-                "safeFrames=\(safeFramesProcessed) " +
                 "writerStatus=\(writer.status.rawValue) " +
                 "writerError=\(writer.error?.localizedDescription ?? "nil") " +
                 "readerStatus=\(reader.status.rawValue) " +
@@ -2154,24 +2069,6 @@ class VideoConverterChannel {
                     if let maskPath = maskSuccessPath {
                         payload["maskOutputPath"] = maskPath
                         payload["maskFramesProcessed"] = maskFramesProcessed
-                    }
-                    if let safePath = safeSuccessPath {
-                        payload["safeOutputPath"] = safePath
-                        payload["safeFramesProcessed"] = safeFramesProcessed
-                        // Vision miss-rate surfaced for the Dart side's
-                        // fail-closed threshold check (Safe Mode
-                        // completion wave, 2026-05-21). Zero when no
-                        // safe processor ran; otherwise [0, 1].
-                        payload["safeFramesMissedRate"] =
-                            safeProcessor?.missRate ?? 0.0
-                        // Low-confidence flag (2026-05-22). Sticky: true
-                        // if any frame's two largest faces were within
-                        // 80% of each other in area. Dart side uses this
-                        // to surface a tap-to-confirm UI post-capture
-                        // (separate Flutter PR). Defaults to false so
-                        // pre-wave callers see no behaviour change.
-                        payload["lowConfidence"] =
-                            safeProcessor?.lowConfidence ?? false
                     }
                     result(payload)
                     endBackgroundTask()
@@ -3020,12 +2917,10 @@ class VideoConverterChannel {
     //      region + (in subject identified mode) every non-subject
     //      silhouette.
     //
-    // The v1 code path (`SafeModeProcessor.processFrame` invoked via the
-    // old anchor-box pipeline) is still used by the VIDEO writer pump
-    // for backwards compat — gated by `kSafeModeVideoEnabled` for v2,
-    // which the Dart side flips off so video capture is forbidden
-    // inside a Safe Mode polygon (v3 will re-enable with keyframe-embed
-    // + tracking).
+    // The v1 video code path (`SafeModeProcessor`) is removed entirely
+    // in the v2 video wave (2026-05-25); video Safe Mode is now produced
+    // by `applySafeModeV2ToVideo` as a dedicated post-pass over the raw
+    // archive that runs AFTER `convertVideo` completes.
 
     /// Outcome of `generateFaceEmbeddingFromJpg`. The channel layer
     /// maps each case to a structured FlutterError so the Dart side
@@ -3729,55 +3624,44 @@ class VideoConverterChannel {
             ))
         }
 
-        // --- Pick subject by max cosine similarity ---
+        // --- Pick subject via the shared hybrid pick-highest rule ---
         //
-        // Hybrid pick-highest rule (2026-05-24 workshop):
-        //   0 faces → no-subject mode (defensive sharp; existing behaviour
-        //             with missRate=1.0 reported)
-        //   1 face  → solo branch. Trust practitioner intent UNLESS cosSim
-        //             is suspiciously low. The `threshold` argument is now
-        //             interpreted as the solo-floor (typical default 0.10)
-        //             — well below any legitimate same-person cosSim
-        //             (Carl's worst was 0.25) but above the typical
-        //             bystander cosSim (random faces cluster 0.15-0.40).
-        //             This catches the bystander-alone-no-client edge
-        //             case without rejecting legitimate solo selfies at
-        //             sideways angles.
-        //   2+ faces → relative pick. The highest-scoring face IS the
-        //              subject; all others get coral-painted. No absolute
-        //              threshold gate — even if both faces have low cosSim,
-        //              one of them is closer to the enrolled embedding and
-        //              that one wins.
+        // The decision logic lives on `MobileFaceNetEmbedder.shared` so
+        // the v2 photo path here AND the v2 video state machine in
+        // `SafeModeV2VideoProcessor` produce identical subject choices
+        // for an equivalent face set. The pick rule (per the multi-
+        // reference spec):
+        //   0 faces → no-subject mode (sharp silhouettes; only detected
+        //             non-subject faces blurred).
+        //   1 face  → solo branch — trust practitioner intent unless the
+        //             single face's cosSim is below `threshold` (the
+        //             solo-floor; production default ~0.10).
+        //   2+ faces → relative pick. Highest cosSim wins; no absolute gate.
         //
-        // Replaces the old absolute-threshold gate (every face had to
-        // clear `kSafeModeV2FaceMatchThreshold = 0.5` or the frame fell
-        // into no-subject mode). The old gate failed for legitimate
-        // poses (sideways looks, gym situations).
-        var subjectIdx: Int? = nil
-        var bestSim = -2.0
-        for (i, f) in faces.enumerated() {
-            if f.cosSim > bestSim {
-                bestSim = f.cosSim
-                subjectIdx = i
-            }
+        // Per-face cosSim is already the MAX across every reference slot
+        // (computed in the embed loop above) so we wrap the existing
+        // `faces[].cosSim` as one-element per-face "embeddings" for the
+        // pick helper — the helper would recompute via slots otherwise,
+        // and we don't have the raw per-face MobileFaceNet embedding
+        // saved at this point. Wrapping each face as a single-element
+        // ref against the SAME face's pre-computed cosSim is the cheapest
+        // equivalent.
+        //
+        // Implementation note: rather than rewrap, we call the helper
+        // shape that takes pre-computed `FaceMatch` records — the v2
+        // video processor uses the same shortcut. This keeps the per-
+        // face MobileFaceNet inference confined to the embed loop above.
+        let prePickMatches: [MobileFaceNetEmbedder.FaceMatch] = faces.enumerated().map {
+            MobileFaceNetEmbedder.FaceMatch(index: $0.offset, cosSim: $0.element.cosSim)
         }
-
-        let subjectIdentified: Bool
-        let branchReason: String
-        if faces.isEmpty {
-            subjectIdentified = false
-            branchReason = "no-faces"
-        } else if faces.count == 1 {
-            // Solo face: trust practitioner intent unless cosSim is
-            // suspiciously low. `threshold` here is the solo-floor.
-            subjectIdentified = (bestSim >= threshold)
-            branchReason = "solo-floor"
-        } else {
-            // 2+ faces: relative pick — highest cosSim wins. No
-            // absolute gate.
-            subjectIdentified = true
-            branchReason = "multi-relative"
-        }
+        let pick = MobileFaceNetEmbedder.pickSubjectFromPrecomputed(
+            matches: prePickMatches,
+            soloFloor: threshold
+        )
+        let subjectIdx: Int? = pick.subjectIndex
+        let subjectIdentified: Bool = pick.subjectIdentified
+        let bestSim: Double = pick.bestSim
+        let branchReason: String = pick.branch.rawValue
 
         // Diagnostics 2026-05-24: switched from bare NSLog to os_log with
         // %{public} format specifiers so cosSim / threshold / bestSim
@@ -3890,8 +3774,9 @@ class VideoConverterChannel {
         }
 
         // --- Composite via CIBlendWithMask ---
-        // Blur radius scales with frame dim — same convention as the
-        // v1 SafeModeProcessor (35.0 at 1080p).
+        // Blur radius scales with frame dim — 35.0 at 1080p, scaled
+        // proportionally for smaller frames. Same convention as the
+        // v2 video processor's per-frame composite below.
         let minDim = Double(min(width, height))
         let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
 
@@ -5567,467 +5452,1211 @@ private class HandPoseDilator {
     }
 }
 
+
 // ============================================================================
-// SafeModeProcessor — Safe Mode bystander-blur compositor (2026-05-22)
+// Safe Mode v2 video — progress event channel + hybrid state-machine processor
 // ============================================================================
 //
-// Produces a copy of the source video frame with bystanders blurred via a
-// heavy Gaussian (CIGaussianBlur radius ≈ 35 on 1080p) and the subject
-// passed through untouched. Used by the Safe Mode 4th-output writer in
-// `convertVideo` when the capture happened inside a Safe-Mode-enforcing
-// premises (resolved at session-start by `SafeModeService` on the Dart side).
+// Per `docs/specs/2026-05-25-safe-mode-v2-video.md` (sections 5, 6, 8). The
+// per-frame decision uses the SAME hybrid pick-highest rule as the v2 photo
+// path (factored into `MobileFaceNetEmbedder.pickSubjectFromPrecomputed`); the
+// per-frame composite uses the SAME `CIBlendWithMask` setup as the v2 photo
+// path (default `CIContext`, DeviceGray maskCI, explicit DeviceRGB at render).
+// Multiple prior regressions on the colorspace setup so we do not innovate
+// here — see comments around v2 photo composite for the war story.
 //
-// Algorithm
-// ---------
-// 1. Run `VNDetectFaceRectanglesRequest` on the source frame. Faces scale
-//    with camera proximity far more reliably than torso/upper-body
-//    bounding boxes — a centered bystander with a big torso no longer
-//    out-votes the closer subject whose torso is partly cropped.
-// 2. Pick the LARGEST face by area = the subject.
-// 3. Derive a subject "anchor" bbox from the chosen face: the face
-//    centroid + an expanded region covering head + torso + legs (face
-//    bbox extended downward by ~6× its height and sideways by ~2× its
-//    width). Mask pixels inside this anchor are subject pixels; mask
-//    pixels outside are bystander pixels. Background (mask < 128) is
-//    always passthrough.
-// 4. Build a "keep source" 8-bit mask: 255 where source should show
-//    (subject pixels + background), 0 where blurred should show
-//    (bystander pixels). Composite via CIBlendWithMask:
-//       output = blendWithMask(source, blurredSource, keepSourceMask)
-//    Renderer is a cached CIContext (reused across frames).
-// 5. Ambiguity flag: if the second-largest face is within ~20% area of
-//    the chosen face, the result payload carries `lowConfidence: true`
-//    so the Dart side can prompt the practitioner to confirm the
-//    subject post-capture. The tap-to-confirm UI is a separate PR;
-//    this processor just surfaces the signal.
+// The state machine progression:
+//   .seeding       — first N frames; full face-rec on every detected face.
+//   .tracking      — VNTrackObjectRequest drives subject bbox per frame.
+//   .reConfirming  — every M seconds; runs face-rec + re-seeds if drifted.
+//   .lost          — tracker confidence dropped; immediate face-rec retry.
+//   .noSubject     — subject not identified; re-attempt every M seconds.
 //
-// If face detection returns zero faces the safe pass is skipped for
-// the frame (the writer skips its append; the per-frame loss is
-// preferable to silently failing-open and shipping a clean untreated
-// bystander into the raw archive). Those frames count toward `missRate`.
+// "Miss" definition matches v1 video + the just-merged zero-detection spec:
+// a frame counts as a miss when Vision detected ZERO humans (face or
+// segmentation). Frames where Vision found humans but no face matched the
+// subject are NOT misses — they correctly produce no-subject-mode output.
 //
-// Performance
-// -----------
-// VNDetectFaceRectanglesRequest is ~5-15ms per frame on iPhone 15.
-// CIGaussianBlur(radius: 35) + CIBlendWithMask on a 1080p frame renders
-// in ~10-15ms on the same hardware. Total per-frame cost is ~25-30ms —
-// fine for the post-capture pass, well below 33ms at 30 fps. The
-// CIContext is allocated once (Metal-backed) and reused; CIFilter
-// instances are reused; per-frame allocations are limited to CIImage
-// wrappers (cheap) and a single 8-bit mask buffer (allocated once and
-// re-filled per frame).
-//
-// V1 LOCKED params (2026-05-22, Carl-signed)
-// ------------------------------------------
-//   gaussianBlurRadius = 35.0   // on 1080p source; scaled by source dim
-//   subjectExpandHorz  = 2.0    // face bbox grows by 2× horizontally
-//   subjectExpandDown  = 6.0    // face bbox grows by 6× downward (torso+legs)
-//   subjectExpandUp    = 0.4    // face bbox grows slightly upward (hair)
-//   lowConfidenceRatio = 0.80   // 2nd face area >= 80% of 1st area => flag
-//
-// No coral tint on the blurred region — pure Gaussian, conventional
-// "sensitive photo blur" pattern. The previous flat-coral painting is
-// retired.
+// AVAssetWriter multi-track drain uses the proven concurrent-drain pattern
+// (per `gotchas_publish_path` + `audio-on-Line-treatment` notes): separate
+// dispatch queues for video and audio; `DispatchGroup` gates `finishWriting`.
+// We literally copy the existing pattern from `convertVideo` above.
 
-private class SafeModeProcessor {
-    let width: Int
-    let height: Int
-    // EXIF orientation to hint to Vision so faces are scored in their
-    // upright frame. For iPhone front-camera portrait video the natural
-    // buffer is landscape with a 90deg CW rotation encoded in the
-    // track's preferredTransform — Vision needs `.right` to interpret
-    // it. Photos derive from `UIImage.imageOrientation`. Defaults to
-    // `.up` (no rotation) which is the safe fallback for already-baked
-    // upright buffers.
-    let orientation: CGImagePropertyOrientation
+@objc class SafeModeV2VideoProgressHandler: NSObject, FlutterStreamHandler {
+    var sink: FlutterEventSink?
 
-    // Re-used Vision request handler so the framework can keep its
-    // face-detector warm across frames. Vision's `VNSequenceRequestHandler`
-    // is the canonical pattern for per-frame requests on the same video.
-    private let sequenceHandler = VNSequenceRequestHandler()
-    private let faceRequest: VNDetectFaceRectanglesRequest
-
-    // V1 LOCKED tuning constants (2026-05-22). Comments mirror the
-    // top-of-class doc. Tuned for 1080p source; blur radius scales
-    // proportionally if the source dimension differs.
-    private static let baseGaussianBlurRadius: Double = 35.0
-    private static let baseSourceDim: Double = 1080.0
-    private static let subjectExpandHorz: CGFloat = 2.0
-    private static let subjectExpandDown: CGFloat = 6.0
-    private static let subjectExpandUp: CGFloat = 0.4
-    private static let lowConfidenceRatio: CGFloat = 0.80
-
-    // CoreImage compositor — cached once, reused per frame. Metal-backed
-    // CIContext is the cheapest renderer we have access to without
-    // touching MPS directly. Allocating per-frame would spike memory and
-    // throw away Vision's KVO-cached pipeline state.
-    private let ciContext: CIContext
-    private let blurFilter: CIFilter
-    private let blendFilter: CIFilter
-
-    // Resolved blur radius for this frame size. Scales the locked 35.0
-    // value by `min(width, height) / 1080` so portrait 720p captures
-    // get a proportionally lighter blur (still visually heavy — the
-    // perceived blur on smaller frames remains "anonymising").
-    private let resolvedBlurRadius: Double
-
-    // Scratch 8-bit "keep source" mask. Allocated once and re-filled
-    // per frame. Wrapped in a CGContext-style bitmap that we hand to
-    // CIImage as a luminance source.
-    private var keepSourceMaskData: UnsafeMutablePointer<UInt8>
-    private let maskRowBytes: Int
-
-    // Vision miss-rate tracking (Safe Mode completion wave,
-    // 2026-05-21). `framesTotal` counts every frame the processor was
-    // asked to handle; `framesMissed` counts frames where Vision
-    // either threw, returned no faces, or yielded a degenerate
-    // (zero-area) largest face. `missRate` is the ratio — used by the
-    // Dart side to decide whether the capture should be rejected
-    // (>5% threshold) or kept (gap frames soft-skipped).
-    private(set) var framesTotal: Int = 0
-    private(set) var framesMissed: Int = 0
-    var missRate: Double {
-        framesTotal == 0 ? 0.0 : Double(framesMissed) / Double(framesTotal)
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        return nil
     }
 
-    // Low-confidence flag (2026-05-22). Set to true if, on any frame
-    // processed, the two largest faces were within `lowConfidenceRatio`
-    // of each other in area — meaning the subject vs bystander
-    // discriminator could plausibly have picked the wrong face. Sticky:
-    // once any frame triggers ambiguity we surface the flag to the
-    // Dart side so the practitioner sees the tap-to-confirm UI
-    // post-capture. The tap-to-confirm UI itself is a separate Flutter
-    // PR; this processor only surfaces the signal.
-    private(set) var lowConfidence: Bool = false
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        self.sink = nil
+        return nil
+    }
+}
 
-    init(width: Int, height: Int, orientation: CGImagePropertyOrientation = .up) {
-        self.width = width
-        self.height = height
-        self.orientation = orientation
-        self.faceRequest = VNDetectFaceRectanglesRequest()
+enum SafeModeV2VideoOutcome {
+    case success(success: Bool, safeMissRate: Double, framesProcessed: Int, durationMs: Int)
+    case failure(String)
+}
 
-        // Metal-backed CIContext if available, falls back to software.
-        // Init options: disable colour management — we're working in
-        // device-RGB throughout the pipeline.
-        let options: [CIContextOption: Any] = [
-            .workingColorSpace: NSNull(),
-            .outputColorSpace: NSNull(),
-        ]
-        if let device = MTLCreateSystemDefaultDevice() {
-            self.ciContext = CIContext(mtlDevice: device, options: options)
-        } else {
-            self.ciContext = CIContext(options: options)
-        }
-        // CoreImage filter REGISTRATION names — not Swift class names.
-        // `CIBlendWithMask` is correct; `CIBlendWithMaskFilter` is the
-        // Swift class wrapper, NOT the registration string and returns
-        // nil from `CIFilter(name:)`. PR #423 conflated the two and the
-        // force-unwrap trapped at runtime (`EXC_BREAKPOINT/SIGTRAP`),
-        // bricking the app via the `restoreQueue` boot-loop until the
-        // demote-on-init guard in `conversion_service.dart` landed.
-        guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
-              let blendFilter = CIFilter(name: "CIBlendWithMask") else {
-            fatalError("Core Image filters CIGaussianBlur/CIBlendWithMask not available — iOS version mismatch?")
-        }
-        self.blurFilter = blurFilter
-        self.blendFilter = blendFilter
+@available(iOS 15.0, *)
+enum SafeModeV2VideoProcessor {
 
-        // Scale blur radius to the actual frame size. The locked 35.0
-        // is for 1080p; on smaller frames the perceptual blur stays
-        // similar by proportionally reducing radius.
-        let minDim = Double(min(width, height))
-        let scale = minDim / Self.baseSourceDim
-        self.resolvedBlurRadius = Self.baseGaussianBlurRadius * max(0.25, scale)
+    static let seedingFramesN: Int = 3
+    static let reConfirmIntervalSec: Double = 2.0
+    static let trackerConfidenceFloor: Float = 0.5
+    static let reSeedProximityRadiusFrac: Double = 0.2
 
-        // Allocate the scratch keep-source mask buffer once. Single
-        // channel (8-bit luminance) at frame resolution. Aligned to
-        // 16 bytes via posix_memalign would be marginally better for
-        // vImage but CIImage tolerates an unaligned pointer fine —
-        // CoreImage copies the data on upload to GPU.
-        self.maskRowBytes = width
-        let bufSize = width * height
-        self.keepSourceMaskData = UnsafeMutablePointer<UInt8>.allocate(capacity: bufSize)
-        self.keepSourceMaskData.initialize(repeating: 255, count: bufSize)
+    enum State {
+        case seeding
+        case tracking
+        case reConfirming
+        case lost
+        case noSubject
     }
 
-    deinit {
-        keepSourceMaskData.deinitialize(count: width * height)
-        keepSourceMaskData.deallocate()
+    struct DetectedFaceV2 {
+        let normalizedRect: CGRect
+        let pixelRectTopLeft: CGRect
+        let centerXPx: Int
+        let centerYPx: Int
+        let contourPolygonPx: [CGPoint]?
     }
 
-    /// Coordinate-frame contract:
-    ///
-    /// The caller MUST hand us a `source` CVPixelBuffer whose pixel
-    /// orientation matches the `orientation` passed to `init`. Vision
-    /// returns face bounding boxes in normalized coords relative to
-    /// the oriented (upright) image — `boundingBox * (width, height)`
-    /// only lands in the right region of the buffer when buffer pixels
-    /// and orientation agree. Similarly the `mask` (from
-    /// `PersonSegmenter`) must be in the SAME coordinate space as
-    /// `source` so anchor-vs-mask classification produces the right
-    /// keep/blur decision.
-    ///
-    /// Photo path: `applySafeModeToPhoto` pre-renders the source
-    /// UIImage upright via UIKit before allocating the pixel buffer,
-    /// then constructs this processor with `orientation: .up`.
-    /// Segmentation runs on the upright buffer without an orientation
-    /// hint (PersonSegmenter's default), which produces a mask in
-    /// the upright space — everyone agrees.
-    ///
-    /// Video path: the AVAssetReader hands us buffers in raw sensor
-    /// orientation (typically landscape for iPhone portrait recording)
-    /// and we pass the EXIF orientation derived from the track's
-    /// `preferredTransform`. The PersonSegmenter mask is in the
-    /// LANDSCAPE buffer's coords while Vision's bbox is in UPRIGHT
-    /// normalized coords — they disagree. See latent-issue comment at
-    /// the SafeModeProcessor construction site in the video pump for
-    /// the planned follow-up (either pre-rotate the buffer or pass
-    /// orientation through to PersonSegmenter + remap the bbox).
-    func processFrame(
-        source: CVPixelBuffer,
-        mask: UnsafePointer<UInt8>?,
-        into outBuffer: CVPixelBuffer
-    ) -> Bool {
-        // Every frame the caller asks us to handle counts toward the
-        // total. A "miss" is any path that returns false — Vision threw,
-        // returned no faces, or yielded a zero-area face. The Dart side
-        // compares missRate against kSafeModeMaxMissRate to decide
-        // whether to keep or reject the capture.
-        framesTotal += 1
+    struct StateMachineDecision {
+        let subjectFaceIdx: Int?
+    }
 
-        // --- Find the largest face via Vision ---
-        // Skip processing if Vision fails — caller will retry on the
-        // next frame. The pump's progress doesn't depend on safe output
-        // succeeding for every frame.
-        do {
-            // Pass orientation so Vision evaluates faces in their
-            // upright frame. Without this hint Vision sees the raw
-            // sensor orientation (typically landscape for iPhone
-            // portrait video) and either yields zero detections or
-            // detections with bboxes rotated 90deg from the human view.
-            try sequenceHandler.perform(
-                [faceRequest],
-                on: source,
-                orientation: orientation
-            )
-        } catch {
-            framesMissed += 1
-            return false
-        }
-        let observations = faceRequest.results ?? []
-        if observations.isEmpty {
-            framesMissed += 1
-            return false
-        }
+    static func run(
+        srcPath: String,
+        destPath: String,
+        subjectEmbeddingSlots: [Data],
+        threshold: Double,
+        onProgress: @escaping (Double) -> Void
+    ) -> SafeModeV2VideoOutcome {
+        let startMs = Date().timeIntervalSince1970 * 1000.0
 
-        // Vision returns normalized rects in origin-bottom-left
-        // coordinates. Pick the LARGEST by area = subject. Track the
-        // second-largest so we can flag ambiguity.
-        var bestArea: CGFloat = 0
-        var secondBestArea: CGFloat = 0
-        var subjectFace: CGRect = .zero
-        for obs in observations {
-            let r = obs.boundingBox
-            let area = r.width * r.height
-            if area > bestArea {
-                secondBestArea = bestArea
-                bestArea = area
-                subjectFace = r
-            } else if area > secondBestArea {
-                secondBestArea = area
+        guard FileManager.default.fileExists(atPath: srcPath),
+              FileManager.default.isReadableFile(atPath: srcPath) else {
+            return .failure("Source video not found / not readable: \(srcPath)")
+        }
+        guard !subjectEmbeddingSlots.isEmpty, subjectEmbeddingSlots.count <= 8 else {
+            return .failure("subjectEmbeddingSlots must contain 1-8 elements (got \(subjectEmbeddingSlots.count))")
+        }
+        for (idx, slot) in subjectEmbeddingSlots.enumerated() {
+            if slot.count != MobileFaceNetEmbedder.embeddingByteLength {
+                return .failure(
+                    "subjectEmbeddingSlots[\(idx)] wrong size - got \(slot.count) bytes, " +
+                    "expected \(MobileFaceNetEmbedder.embeddingByteLength)"
+                )
             }
         }
-        if bestArea <= 0 {
-            framesMissed += 1
-            return false
+
+        let srcURL = URL(fileURLWithPath: srcPath)
+        let dstURL = URL(fileURLWithPath: destPath)
+        try? FileManager.default.removeItem(at: dstURL)
+        let asset = AVURLAsset(url: srcURL)
+
+        guard let videoTrack = asset.tracks(withMediaType: .video).first else {
+            return .failure("No video track in source: \(srcPath)")
         }
-
-        // Ambiguity check — sticky across frames within this capture.
-        // Once any frame's two largest faces were within ratio, we
-        // surface the flag so the post-capture UX can prompt the
-        // practitioner to confirm.
-        if bestArea > 0,
-           secondBestArea / bestArea >= Self.lowConfidenceRatio {
-            lowConfidence = true
+        let readerOutputSettings: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ]
+        let reader: AVAssetReader
+        do {
+            reader = try AVAssetReader(asset: asset)
+        } catch {
+            return .failure("AVAssetReader init failed: \(error.localizedDescription)")
         }
+        let readerOutput = AVAssetReaderTrackOutput(
+            track: videoTrack,
+            outputSettings: readerOutputSettings
+        )
+        readerOutput.alwaysCopiesSampleData = false
+        reader.add(readerOutput)
 
-        // --- Build subject "anchor" bbox in pixel coords ---
-        // The face bbox alone would only cover the head; we extend it
-        // downward (torso + legs) and outward (arms / hips). The
-        // expansion factors are V1 heuristics — close enough to the
-        // person silhouette that the segmentation mask inside the box
-        // is overwhelmingly the subject's body.
-        //
-        // Normalized → pixel, with Y flipped (Vision = bottom-left
-        // origin, BGRA buffer = top-left origin).
-        let faceW = subjectFace.width * CGFloat(width)
-        let faceH = subjectFace.height * CGFloat(height)
-        let faceCx = (subjectFace.origin.x + subjectFace.width * 0.5) * CGFloat(width)
-        // Vision Y is bottom-left; flip to top-left for our pixel grid.
-        let faceTopY = (1.0 - subjectFace.origin.y - subjectFace.height) * CGFloat(height)
-        let faceBotY = (1.0 - subjectFace.origin.y) * CGFloat(height)
-
-        // Expand: face bbox grows horz/up/down by V1 constants. The
-        // resulting "anchor" is a generous rectangle around the person
-        // identified by face; mask pixels inside this box AND inside
-        // the person-mask are the subject. Mask pixels outside this
-        // box BUT inside the person mask are bystanders.
-        let halfExpandedW = faceW * (1.0 + Self.subjectExpandHorz) * 0.5
-        let expandUpPx = faceH * Self.subjectExpandUp
-        let expandDownPx = faceH * Self.subjectExpandDown
-        let anchorX0 = max(0, Int((faceCx - halfExpandedW).rounded(.down)))
-        let anchorX1 = min(width, Int((faceCx + halfExpandedW).rounded(.up)))
-        let anchorY0 = max(0, Int((faceTopY - expandUpPx).rounded(.down)))
-        let anchorY1 = min(height, Int((faceBotY + expandDownPx).rounded(.up)))
-
-        // --- Build "keep source" 8-bit mask ---
-        // 255 = source shows (subject + background); 0 = blurred shows
-        // (bystanders). When mask == nil we can't tell person from
-        // background — pass everything through (no blur), but Vision
-        // did succeed so this doesn't count as a miss.
-        if mask == nil {
-            // Pure passthrough — copy source to outBuffer and bail.
-            return copySourceVerbatim(source: source, into: outBuffer)
+        let naturalSize = videoTrack.naturalSize
+        let transform = videoTrack.preferredTransform
+        let videoWidth: Int
+        let videoHeight: Int
+        if abs(transform.b) == 1.0 && abs(transform.c) == 1.0 {
+            videoWidth = Int(naturalSize.height)
+            videoHeight = Int(naturalSize.width)
+        } else {
+            videoWidth = Int(naturalSize.width)
+            videoHeight = Int(naturalSize.height)
         }
-        let personMask = mask!
+        let frameRate = max(1.0, Double(videoTrack.nominalFrameRate))
+        let estimatedTotalFrames = max(1, Int(Double(asset.duration.seconds) * frameRate))
 
-        // Build the keep-source mask: default 255 (keep source).
-        // For each pixel where personMask >= 128, decide:
-        //   inside anchor → 255 (subject, keep source)
-        //   outside anchor → 0 (bystander, show blurred)
-        // For each pixel where personMask < 128, leave at 255
-        // (background, keep source).
-        //
-        // Tight inner loop — avoid per-pixel function calls.
-        let ksm = keepSourceMaskData
-        for y in 0..<height {
-            let pmRow = personMask + y * width
-            let ksmRow = ksm + y * maskRowBytes
-            let inAnchorY = (y >= anchorY0 && y < anchorY1)
-            for x in 0..<width {
-                let pm = pmRow[x]
-                if pm >= 128 {
-                    let inAnchor = inAnchorY && x >= anchorX0 && x < anchorX1
-                    ksmRow[x] = inAnchor ? 255 : 0
+        let visionOrientation: CGImagePropertyOrientation = {
+            if transform.b == 1.0 && transform.c == -1.0 { return .right }
+            if transform.b == -1.0 && transform.c == 1.0 { return .left }
+            if transform.a == -1.0 && transform.d == -1.0 { return .down }
+            return .up
+        }()
+
+        let writerOutputSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: videoWidth,
+            AVVideoHeightKey: videoHeight,
+        ]
+        let writer: AVAssetWriter
+        do {
+            writer = try AVAssetWriter(outputURL: dstURL, fileType: .mp4)
+        } catch {
+            return .failure("AVAssetWriter init failed: \(error.localizedDescription)")
+        }
+        let writerInput = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: writerOutputSettings
+        )
+        writerInput.expectsMediaDataInRealTime = false
+        writerInput.transform = transform
+        let pixelBufferAttributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: videoWidth,
+            kCVPixelBufferHeightKey as String: videoHeight,
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: writerInput,
+            sourcePixelBufferAttributes: pixelBufferAttributes
+        )
+        writer.add(writerInput)
+
+        var audioReaderOutput: AVAssetReaderTrackOutput?
+        var audioWriterInput: AVAssetWriterInput?
+        if let audioTrack = asset.tracks(withMediaType: .audio).first {
+            let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+            audioOutput.alwaysCopiesSampleData = false
+            if reader.canAdd(audioOutput) {
+                reader.add(audioOutput)
+                audioReaderOutput = audioOutput
+                let formatHint: CMFormatDescription? =
+                    audioTrack.formatDescriptions.first.map { $0 as! CMFormatDescription }
+                let audioInput = AVAssetWriterInput(
+                    mediaType: .audio,
+                    outputSettings: nil,
+                    sourceFormatHint: formatHint
+                )
+                audioInput.expectsMediaDataInRealTime = false
+                if writer.canAdd(audioInput) {
+                    writer.add(audioInput)
+                    audioWriterInput = audioInput
                 } else {
-                    ksmRow[x] = 255
+                    audioReaderOutput = nil
                 }
             }
         }
 
-        // --- CoreImage composite ---
-        // source CIImage, blurred CIImage, mask CIImage → blendWithMask.
-        guard let sourceCI = ciImageFromBGRA(source) else {
-            framesMissed += 1
-            return false
+        guard reader.startReading() else {
+            return .failure("AVAssetReader.startReading failed: \(reader.error?.localizedDescription ?? "unknown")")
         }
-        // Crop blur output to source extent — CIGaussianBlur expands
-        // the image bounds outward by the radius. Without this the
-        // composite ends up with translucent edges around the frame.
-        blurFilter.setValue(sourceCI, forKey: kCIInputImageKey)
-        blurFilter.setValue(resolvedBlurRadius, forKey: kCIInputRadiusKey)
-        guard let rawBlur = blurFilter.outputImage else {
-            framesMissed += 1
-            return false
+        guard writer.startWriting() else {
+            return .failure("AVAssetWriter.startWriting failed: \(writer.error?.localizedDescription ?? "unknown")")
         }
-        let blurredCI = rawBlur.cropped(to: sourceCI.extent)
+        writer.startSession(atSourceTime: .zero)
 
-        guard let maskCI = ciImageFromGrayscale(
-            data: ksm,
-            width: width,
-            height: height,
-            rowBytes: maskRowBytes
-        ) else {
-            framesMissed += 1
-            return false
+        let segmenter = PersonSegmenter(width: videoWidth, height: videoHeight)
+        let ciContext: CIContext
+        if let device = MTLCreateSystemDefaultDevice() {
+            ciContext = CIContext(mtlDevice: device)
+        } else {
+            ciContext = CIContext()
+        }
+        guard let blurFilter = CIFilter(name: "CIGaussianBlur"),
+              let blendFilter = CIFilter(name: "CIBlendWithMask") else {
+            return .failure("CIFilter init failed (CIGaussianBlur / CIBlendWithMask)")
+        }
+        let minDim = Double(min(videoWidth, videoHeight))
+        let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
+
+        let faceSequenceHandler = VNSequenceRequestHandler()
+        let trackerSequenceHandler = VNSequenceRequestHandler()
+
+        var state: State = .seeding
+        var trackObservation: VNDetectedObjectObservation? = nil
+        var subjectBboxNormalized: CGRect? = nil
+        var subjectBboxPixelTopLeft: CGRect? = nil
+        var lastReConfirmFrameIdx = 0
+        let reConfirmIntervalFrames = max(1, Int(reConfirmIntervalSec * frameRate))
+        let reSeedRadiusPx = Double(videoHeight) * reSeedProximityRadiusFrac
+
+        var framesProcessed = 0
+        var framesMissed = 0
+        var reConfirmEventCount = 0
+        var reSeedEventCount = 0
+        var trackerLossEventCount = 0
+        var lastProgressFrame = -1
+
+        let group = DispatchGroup()
+        group.enter()
+        let videoQueue = DispatchQueue(label: "homefit.safe-mode-v2-video.video")
+        let audioQueue = DispatchQueue(label: "homefit.safe-mode-v2-video.audio")
+        var videoPumpFinished = false
+
+        writerInput.requestMediaDataWhenReady(on: videoQueue) {
+            while writerInput.isReadyForMoreMediaData {
+                autoreleasepool {
+                    guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
+                        if !videoPumpFinished {
+                            videoPumpFinished = true
+                            writerInput.markAsFinished()
+                            group.leave()
+                        }
+                        return
+                    }
+                    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                    let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
+                    var outputPixelBuffer: CVPixelBuffer?
+                    let allocStatus: CVReturn
+                    if let pool = adaptor.pixelBufferPool {
+                        allocStatus = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outputPixelBuffer)
+                    } else {
+                        allocStatus = CVPixelBufferCreate(
+                            kCFAllocatorDefault,
+                            videoWidth, videoHeight,
+                            kCVPixelFormatType_32BGRA, nil,
+                            &outputPixelBuffer
+                        )
+                    }
+                    guard allocStatus == kCVReturnSuccess, let outBuffer = outputPixelBuffer else {
+                        return
+                    }
+
+                    let stageT0 = Date().timeIntervalSince1970
+                    let segmentationMask = segmenter.generateMask(for: pixelBuffer)
+                    let segT = Date().timeIntervalSince1970
+
+                    let faceReq = VNDetectFaceLandmarksRequest()
+                    var faceObservations: [VNFaceObservation] = []
+                    do {
+                        try faceSequenceHandler.perform(
+                            [faceReq],
+                            on: pixelBuffer,
+                            orientation: visionOrientation
+                        )
+                        faceObservations = faceReq.results ?? []
+                    } catch {
+                        faceObservations = []
+                    }
+                    let faceT = Date().timeIntervalSince1970
+
+                    let detectedFaces = buildDetectedFaces(
+                        observations: faceObservations,
+                        width: videoWidth,
+                        height: videoHeight
+                    )
+
+                    let preMfTime = Date().timeIntervalSince1970
+                    let decision = advanceStateMachine(
+                        state: &state,
+                        trackObservation: &trackObservation,
+                        subjectBboxNormalized: &subjectBboxNormalized,
+                        subjectBboxPixelTopLeft: &subjectBboxPixelTopLeft,
+                        lastReConfirmFrameIdx: &lastReConfirmFrameIdx,
+                        reConfirmEventCount: &reConfirmEventCount,
+                        reSeedEventCount: &reSeedEventCount,
+                        trackerLossEventCount: &trackerLossEventCount,
+                        frameIdx: framesProcessed,
+                        reConfirmIntervalFrames: reConfirmIntervalFrames,
+                        reSeedRadiusPx: reSeedRadiusPx,
+                        pixelBuffer: pixelBuffer,
+                        visionOrientation: visionOrientation,
+                        trackerSequenceHandler: trackerSequenceHandler,
+                        detectedFaces: detectedFaces,
+                        subjectEmbeddingSlots: subjectEmbeddingSlots,
+                        soloFloor: threshold,
+                        width: videoWidth,
+                        height: videoHeight
+                    )
+                    let mfT = Date().timeIntervalSince1970
+
+                    let totalPx = videoWidth * videoHeight
+                    let keepMask = UnsafeMutablePointer<UInt8>.allocate(capacity: totalPx)
+                    defer {
+                        keepMask.deinitialize(count: totalPx)
+                        keepMask.deallocate()
+                    }
+                    keepMask.initialize(repeating: 255, count: totalPx)
+
+                    if let subjIdx = decision.subjectFaceIdx,
+                       let maskRaw = segmentationMask,
+                       subjIdx >= 0, subjIdx < detectedFaces.count {
+                        let subject = detectedFaces[subjIdx]
+                        let subjectComponent = floodFillBinarySafeModeV2(
+                            mask: maskRaw,
+                            width: videoWidth,
+                            height: videoHeight,
+                            seedX: subject.centerXPx,
+                            seedY: subject.centerYPx,
+                            threshold: 128
+                        )
+                        defer {
+                            subjectComponent.deinitialize(count: totalPx)
+                            subjectComponent.deallocate()
+                        }
+                        for y in 0..<videoHeight {
+                            let rowOff = y * videoWidth
+                            for x in 0..<videoWidth {
+                                let i = rowOff + x
+                                if maskRaw[i] >= 128 && subjectComponent[i] == 0 {
+                                    keepMask[i] = 0
+                                }
+                            }
+                        }
+                        for (i, f) in detectedFaces.enumerated() where i != subjIdx {
+                            paintHeadExpansionSafeModeV2(
+                                keepMask: keepMask,
+                                width: videoWidth,
+                                height: videoHeight,
+                                pixelRect: f.pixelRectTopLeft,
+                                contourPolygonPx: f.contourPolygonPx,
+                                headWidthFactor: 2.0,
+                                headHeightFactor: 1.5,
+                                maxAreaFraction: 0.35,
+                                segmentationMask: maskRaw,
+                                subjectComponent: subjectComponent
+                            )
+                        }
+                    } else {
+                        for f in detectedFaces {
+                            paintHeadExpansionSafeModeV2(
+                                keepMask: keepMask,
+                                width: videoWidth,
+                                height: videoHeight,
+                                pixelRect: f.pixelRectTopLeft,
+                                contourPolygonPx: f.contourPolygonPx,
+                                headWidthFactor: 2.0,
+                                headHeightFactor: 1.5,
+                                maxAreaFraction: 0.35,
+                                segmentationMask: segmentationMask,
+                                subjectComponent: nil
+                            )
+                        }
+                    }
+
+                    let sourceCI = CIImage(cvPixelBuffer: pixelBuffer)
+                    blurFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+                    blurFilter.setValue(blurRadius, forKey: kCIInputRadiusKey)
+                    let blurredCI = (blurFilter.outputImage ?? sourceCI).cropped(to: sourceCI.extent)
+                    let maskBytes = Data(bytes: keepMask, count: totalPx)
+                    let maskCI = CIImage(
+                        bitmapData: maskBytes,
+                        bytesPerRow: videoWidth,
+                        size: CGSize(width: videoWidth, height: videoHeight),
+                        format: .R8,
+                        colorSpace: CGColorSpaceCreateDeviceGray()
+                    )
+                    blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
+                    blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
+                    blendFilter.setValue(maskCI, forKey: kCIInputMaskImageKey)
+                    if let outputCI = blendFilter.outputImage {
+                        let renderColorSpace = CGColorSpaceCreateDeviceRGB()
+                        ciContext.render(
+                            outputCI,
+                            to: outBuffer,
+                            bounds: sourceCI.extent,
+                            colorSpace: renderColorSpace
+                        )
+                    } else {
+                        copyBufferVerbatim(source: pixelBuffer, into: outBuffer)
+                    }
+                    let compT = Date().timeIntervalSince1970
+
+                    adaptor.append(outBuffer, withPresentationTime: presentationTime)
+                    framesProcessed += 1
+                    if faceObservations.isEmpty && segmentationMask == nil {
+                        framesMissed += 1
+                    }
+
+                    if framesProcessed - lastProgressFrame >= 30 {
+                        lastProgressFrame = framesProcessed
+                        let progress = min(1.0, Double(framesProcessed) / Double(estimatedTotalFrames))
+                        onProgress(progress)
+                    }
+
+                    if framesProcessed % 30 == 0 {
+                        let segMs = (segT - stageT0) * 1000.0
+                        let faceMs = (faceT - segT) * 1000.0
+                        let mfMs = (mfT - preMfTime) * 1000.0
+                        let compMs = (compT - mfT) * 1000.0
+                        os_log(
+                            "[SafeMode v2 video] frame=%{public}d seg=%{public}.1fms face=%{public}.1fms decide=%{public}.1fms comp=%{public}.1fms state=%{public}@ faces=%{public}d",
+                            log: safeModeV2VideoLog,
+                            type: .info,
+                            framesProcessed, segMs, faceMs, mfMs, compMs,
+                            String(describing: state), detectedFaces.count
+                        )
+                    }
+                }
+                if videoPumpFinished { return }
+            }
         }
 
-        // CIBlendWithMask: output = inputImage where mask is white,
-        // inputBackgroundImage where mask is black. We want source
-        // where mask is white (keep), blurred where mask is black
-        // (bystander). Filter registration name is "CIBlendWithMask"
-        // (no "Filter" suffix — see init guard above).
-        blendFilter.setValue(sourceCI, forKey: kCIInputImageKey)
-        blendFilter.setValue(blurredCI, forKey: kCIInputBackgroundImageKey)
-        blendFilter.setValue(maskCI, forKey: kCIInputMaskImageKey)
-        guard let outputCI = blendFilter.outputImage else {
-            framesMissed += 1
-            return false
+        if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
+            group.enter()
+            var audioPumpFinished = false
+            audioInput.requestMediaDataWhenReady(on: audioQueue) {
+                while audioInput.isReadyForMoreMediaData {
+                    autoreleasepool {
+                        guard let audioSample = audioOutput.copyNextSampleBuffer() else {
+                            if !audioPumpFinished {
+                                audioPumpFinished = true
+                                audioInput.markAsFinished()
+                                group.leave()
+                            }
+                            return
+                        }
+                        _ = audioInput.append(audioSample)
+                    }
+                    if audioPumpFinished { return }
+                }
+            }
         }
 
-        // Render into outBuffer (BGRA). The output extent matches
-        // source extent because we cropped the blur.
-        ciContext.render(
-            outputCI,
-            to: outBuffer,
-            bounds: sourceCI.extent,
-            colorSpace: nil
+        let finishSem = DispatchSemaphore(value: 0)
+        var finalStatus: AVAssetWriter.Status = .unknown
+        var finalError: String? = nil
+        group.notify(queue: DispatchQueue.global(qos: .userInitiated)) {
+            let writeSem = DispatchSemaphore(value: 0)
+            writer.finishWriting { writeSem.signal() }
+            let waitResult = writeSem.wait(timeout: .now() + 60)
+            if waitResult == .timedOut {
+                writer.cancelWriting()
+                reader.cancelReading()
+                finalStatus = .failed
+                finalError = "SafeModeV2VideoProcessor finishWriting timed out"
+            } else {
+                reader.cancelReading()
+                finalStatus = writer.status
+                if writer.status != .completed {
+                    finalError = writer.error?.localizedDescription ?? "unknown writer error"
+                }
+            }
+            finishSem.signal()
+        }
+        finishSem.wait()
+
+        let endMs = Date().timeIntervalSince1970 * 1000.0
+        let durationMs = Int(endMs - startMs)
+        let safeMissRate: Double = framesProcessed == 0
+            ? 0.0
+            : Double(framesMissed) / Double(framesProcessed)
+
+        os_log(
+            "[SafeMode v2 video] done - frames=%{public}d missed=%{public}d missRate=%{public}.3f reConfirm=%{public}d reSeed=%{public}d trackerLoss=%{public}d wallMs=%{public}d",
+            log: safeModeV2VideoLog,
+            type: .info,
+            framesProcessed, framesMissed, safeMissRate,
+            reConfirmEventCount, reSeedEventCount, trackerLossEventCount,
+            durationMs
         )
-        return true
+
+        if finalStatus == .completed {
+            return .success(
+                success: true,
+                safeMissRate: safeMissRate,
+                framesProcessed: framesProcessed,
+                durationMs: durationMs
+            )
+        } else {
+            return .failure(finalError ?? "writer status=\(finalStatus.rawValue)")
+        }
     }
 
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
-
-    /// Wrap a BGRA `CVPixelBuffer` in a `CIImage`. Returns nil on
-    /// allocation failure (rare).
-    private func ciImageFromBGRA(_ pb: CVPixelBuffer) -> CIImage? {
-        return CIImage(cvPixelBuffer: pb)
-    }
-
-    /// Wrap a single-channel 8-bit luminance buffer in a `CIImage`.
-    /// CoreImage copies the data on upload, so the caller is free to
-    /// re-fill `data` for the next frame after this call returns.
-    private func ciImageFromGrayscale(
-        data: UnsafeMutablePointer<UInt8>,
+    static func buildDetectedFaces(
+        observations: [VNFaceObservation],
         width: Int,
-        height: Int,
-        rowBytes: Int
-    ) -> CIImage? {
-        // Copy the bitmap rather than aliasing the scratch buffer with
-        // `bytesNoCopy(..., deallocator: .none)`. The Data wrapper would
-        // outlive the next frame's re-fill of `keepSourceMaskData`,
-        // creating a use-after-free if CoreImage held onto the CIImage
-        // beyond the call (e.g. inside its render graph). One memcpy
-        // per frame is negligible compared to the Vision/CoreImage
-        // pass; correctness wins.
-        let bitmap = Data(bytes: data, count: rowBytes * height)
-        let fmt = CIFormat.R8
-        let cs = CGColorSpaceCreateDeviceGray()
-        // CIImage from raw bitmap. Y-flip is not needed; CIImage's
-        // origin convention matches the buffer we built.
-        return CIImage(
-            bitmapData: bitmap,
-            bytesPerRow: rowBytes,
-            size: CGSize(width: width, height: height),
-            format: fmt,
-            colorSpace: cs
+        height: Int
+    ) -> [DetectedFaceV2] {
+        var out: [DetectedFaceV2] = []
+        for obs in observations {
+            let r = obs.boundingBox
+            let padFactor: CGFloat = 0.20
+            let padW = r.width * padFactor
+            let padH = r.height * padFactor
+            let nx0 = max(0, r.origin.x - padW)
+            let ny0Bot = max(0, r.origin.y - padH)
+            let nw = min(1.0, r.width + 2 * padW)
+            let nh = min(1.0, r.height + 2 * padH)
+            let px0 = nx0 * CGFloat(width)
+            let py0Top = CGFloat(height) - (ny0Bot + nh) * CGFloat(height)
+            let pw = nw * CGFloat(width)
+            let ph = nh * CGFloat(height)
+            let pixelRect = CGRect(
+                x: max(0, px0).rounded(.down),
+                y: max(0, py0Top).rounded(.down),
+                width: pw.rounded(.up),
+                height: ph.rounded(.up)
+            )
+            if pixelRect.width < 8 || pixelRect.height < 8 { continue }
+            let cxNormBot = r.origin.x + r.width * 0.5
+            let cyNormBot = r.origin.y + r.height * 0.5
+            let cxPx = Int((cxNormBot * CGFloat(width)).rounded())
+            let cyPx = Int(((1.0 - cyNormBot) * CGFloat(height)).rounded())
+            let contour = faceContourPolygonPxSafeModeV2(
+                observation: obs,
+                imageWidth: width,
+                imageHeight: height,
+                outwardExpansionFactor: 1.25
+            )
+            out.append(DetectedFaceV2(
+                normalizedRect: r,
+                pixelRectTopLeft: pixelRect,
+                centerXPx: max(0, min(width - 1, cxPx)),
+                centerYPx: max(0, min(height - 1, cyPx)),
+                contourPolygonPx: contour
+            ))
+        }
+        return out
+    }
+
+    static func embedFaceFromBuffer(
+        pixelBuffer: CVPixelBuffer,
+        pixelRect: CGRect
+    ) -> Data? {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let bufH = CVPixelBufferGetHeight(pixelBuffer)
+        let cropRectBL = CGRect(
+            x: pixelRect.origin.x,
+            y: CGFloat(bufH) - pixelRect.origin.y - pixelRect.height,
+            width: pixelRect.width,
+            height: pixelRect.height
+        )
+        let ctx: CIContext
+        if let device = MTLCreateSystemDefaultDevice() {
+            ctx = CIContext(mtlDevice: device)
+        } else {
+            ctx = CIContext()
+        }
+        let cropped = ciImage.cropped(to: cropRectBL)
+        guard let cg = ctx.createCGImage(cropped, from: cropped.extent) else { return nil }
+        let cropW = Int(pixelRect.width)
+        let cropH = Int(pixelRect.height)
+        guard cropW > 0, cropH > 0 else { return nil }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo: UInt32 =
+            CGBitmapInfo.byteOrder32Little.rawValue |
+            CGImageAlphaInfo.premultipliedFirst.rawValue
+        guard let flipCtx = CGContext(
+            data: nil, width: cropW, height: cropH,
+            bitsPerComponent: 8, bytesPerRow: cropW * 4,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        ) else { return nil }
+        flipCtx.translateBy(x: 0, y: CGFloat(cropH))
+        flipCtx.scaleBy(x: 1, y: -1)
+        flipCtx.draw(cg, in: CGRect(x: 0, y: 0, width: cropW, height: cropH))
+        guard let upright = flipCtx.makeImage() else { return nil }
+        return try? MobileFaceNetEmbedder.shared.embed(face: upright)
+    }
+
+    static func runFaceRecPick(
+        pixelBuffer: CVPixelBuffer,
+        detectedFaces: [DetectedFaceV2],
+        subjectEmbeddingSlots: [Data],
+        soloFloor: Double
+    ) -> (subjectFaceIdx: Int?, bestSim: Double, branch: MobileFaceNetEmbedder.PickBranch) {
+        if detectedFaces.isEmpty {
+            return (nil, -2.0, .noFaces)
+        }
+        var perFaceCosSim: [Double] = []
+        perFaceCosSim.reserveCapacity(detectedFaces.count)
+        for f in detectedFaces {
+            guard let embed = embedFaceFromBuffer(
+                pixelBuffer: pixelBuffer,
+                pixelRect: f.pixelRectTopLeft
+            ) else {
+                perFaceCosSim.append(-1.0)
+                continue
+            }
+            var bestRef: Double = -2.0
+            for ref in subjectEmbeddingSlots {
+                let s = MobileFaceNetEmbedder.cosineSimilarity(embed, ref)
+                if s > bestRef { bestRef = s }
+            }
+            perFaceCosSim.append(bestRef)
+        }
+        let matches: [MobileFaceNetEmbedder.FaceMatch] =
+            perFaceCosSim.enumerated().map { MobileFaceNetEmbedder.FaceMatch(index: $0.offset, cosSim: $0.element) }
+        let pick = MobileFaceNetEmbedder.pickSubjectFromPrecomputed(
+            matches: matches,
+            soloFloor: soloFloor
+        )
+        return (pick.subjectIndex, pick.bestSim, pick.branch)
+    }
+
+    static func advanceStateMachine(
+        state: inout State,
+        trackObservation: inout VNDetectedObjectObservation?,
+        subjectBboxNormalized: inout CGRect?,
+        subjectBboxPixelTopLeft: inout CGRect?,
+        lastReConfirmFrameIdx: inout Int,
+        reConfirmEventCount: inout Int,
+        reSeedEventCount: inout Int,
+        trackerLossEventCount: inout Int,
+        frameIdx: Int,
+        reConfirmIntervalFrames: Int,
+        reSeedRadiusPx: Double,
+        pixelBuffer: CVPixelBuffer,
+        visionOrientation: CGImagePropertyOrientation,
+        trackerSequenceHandler: VNSequenceRequestHandler,
+        detectedFaces: [DetectedFaceV2],
+        subjectEmbeddingSlots: [Data],
+        soloFloor: Double,
+        width: Int,
+        height: Int
+    ) -> StateMachineDecision {
+        switch state {
+        case .seeding:
+            let pick = runFaceRecPick(
+                pixelBuffer: pixelBuffer,
+                detectedFaces: detectedFaces,
+                subjectEmbeddingSlots: subjectEmbeddingSlots,
+                soloFloor: soloFloor
+            )
+            if let idx = pick.subjectFaceIdx {
+                let subject = detectedFaces[idx]
+                trackObservation = VNDetectedObjectObservation(boundingBox: subject.normalizedRect)
+                subjectBboxNormalized = subject.normalizedRect
+                subjectBboxPixelTopLeft = subject.pixelRectTopLeft
+                state = .tracking
+                lastReConfirmFrameIdx = frameIdx
+                return StateMachineDecision(subjectFaceIdx: idx)
+            }
+            if frameIdx >= seedingFramesN - 1 {
+                state = .noSubject
+                lastReConfirmFrameIdx = frameIdx
+            }
+            return StateMachineDecision(subjectFaceIdx: nil)
+
+        case .tracking:
+            guard let prevObs = trackObservation else {
+                state = .lost
+                return StateMachineDecision(subjectFaceIdx: nil)
+            }
+            let trackReq = VNTrackObjectRequest(detectedObjectObservation: prevObs)
+            trackReq.trackingLevel = .accurate
+            do {
+                try trackerSequenceHandler.perform(
+                    [trackReq],
+                    on: pixelBuffer,
+                    orientation: visionOrientation
+                )
+            } catch {
+                trackerLossEventCount += 1
+                state = .lost
+                trackObservation = nil
+                subjectBboxNormalized = nil
+                subjectBboxPixelTopLeft = nil
+                return StateMachineDecision(subjectFaceIdx: nil)
+            }
+            let trackResult = trackReq.results?.first
+            if let r = trackResult, r.confidence >= trackerConfidenceFloor {
+                trackObservation = r
+                subjectBboxNormalized = r.boundingBox
+                subjectBboxPixelTopLeft = pixelRectTopLeftFromNormalized(
+                    r.boundingBox, width: width, height: height
+                )
+                if frameIdx - lastReConfirmFrameIdx >= reConfirmIntervalFrames {
+                    state = .reConfirming
+                    return reConfirm(
+                        state: &state,
+                        trackObservation: &trackObservation,
+                        subjectBboxNormalized: &subjectBboxNormalized,
+                        subjectBboxPixelTopLeft: &subjectBboxPixelTopLeft,
+                        lastReConfirmFrameIdx: &lastReConfirmFrameIdx,
+                        reConfirmEventCount: &reConfirmEventCount,
+                        reSeedEventCount: &reSeedEventCount,
+                        frameIdx: frameIdx,
+                        reSeedRadiusPx: reSeedRadiusPx,
+                        pixelBuffer: pixelBuffer,
+                        detectedFaces: detectedFaces,
+                        subjectEmbeddingSlots: subjectEmbeddingSlots,
+                        soloFloor: soloFloor,
+                        width: width,
+                        height: height
+                    )
+                }
+                let idx = faceIndexNearestToBbox(
+                    bbox: subjectBboxPixelTopLeft!,
+                    faces: detectedFaces
+                )
+                return StateMachineDecision(subjectFaceIdx: idx)
+            } else {
+                trackerLossEventCount += 1
+                state = .lost
+                trackObservation = nil
+                subjectBboxNormalized = nil
+                subjectBboxPixelTopLeft = nil
+                return StateMachineDecision(subjectFaceIdx: nil)
+            }
+
+        case .reConfirming:
+            return reConfirm(
+                state: &state,
+                trackObservation: &trackObservation,
+                subjectBboxNormalized: &subjectBboxNormalized,
+                subjectBboxPixelTopLeft: &subjectBboxPixelTopLeft,
+                lastReConfirmFrameIdx: &lastReConfirmFrameIdx,
+                reConfirmEventCount: &reConfirmEventCount,
+                reSeedEventCount: &reSeedEventCount,
+                frameIdx: frameIdx,
+                reSeedRadiusPx: reSeedRadiusPx,
+                pixelBuffer: pixelBuffer,
+                detectedFaces: detectedFaces,
+                subjectEmbeddingSlots: subjectEmbeddingSlots,
+                soloFloor: soloFloor,
+                width: width,
+                height: height
+            )
+
+        case .lost:
+            let pick = runFaceRecPick(
+                pixelBuffer: pixelBuffer,
+                detectedFaces: detectedFaces,
+                subjectEmbeddingSlots: subjectEmbeddingSlots,
+                soloFloor: soloFloor
+            )
+            lastReConfirmFrameIdx = frameIdx
+            if let idx = pick.subjectFaceIdx {
+                let subject = detectedFaces[idx]
+                trackObservation = VNDetectedObjectObservation(boundingBox: subject.normalizedRect)
+                subjectBboxNormalized = subject.normalizedRect
+                subjectBboxPixelTopLeft = subject.pixelRectTopLeft
+                state = .tracking
+                reSeedEventCount += 1
+                return StateMachineDecision(subjectFaceIdx: idx)
+            }
+            state = .noSubject
+            return StateMachineDecision(subjectFaceIdx: nil)
+
+        case .noSubject:
+            if frameIdx - lastReConfirmFrameIdx >= reConfirmIntervalFrames {
+                lastReConfirmFrameIdx = frameIdx
+                let pick = runFaceRecPick(
+                    pixelBuffer: pixelBuffer,
+                    detectedFaces: detectedFaces,
+                    subjectEmbeddingSlots: subjectEmbeddingSlots,
+                    soloFloor: soloFloor
+                )
+                if let idx = pick.subjectFaceIdx {
+                    let subject = detectedFaces[idx]
+                    trackObservation = VNDetectedObjectObservation(boundingBox: subject.normalizedRect)
+                    subjectBboxNormalized = subject.normalizedRect
+                    subjectBboxPixelTopLeft = subject.pixelRectTopLeft
+                    state = .tracking
+                    reSeedEventCount += 1
+                    return StateMachineDecision(subjectFaceIdx: idx)
+                }
+            }
+            return StateMachineDecision(subjectFaceIdx: nil)
+        }
+    }
+
+    static func reConfirm(
+        state: inout State,
+        trackObservation: inout VNDetectedObjectObservation?,
+        subjectBboxNormalized: inout CGRect?,
+        subjectBboxPixelTopLeft: inout CGRect?,
+        lastReConfirmFrameIdx: inout Int,
+        reConfirmEventCount: inout Int,
+        reSeedEventCount: inout Int,
+        frameIdx: Int,
+        reSeedRadiusPx: Double,
+        pixelBuffer: CVPixelBuffer,
+        detectedFaces: [DetectedFaceV2],
+        subjectEmbeddingSlots: [Data],
+        soloFloor: Double,
+        width: Int,
+        height: Int
+    ) -> StateMachineDecision {
+        reConfirmEventCount += 1
+        lastReConfirmFrameIdx = frameIdx
+        let pick = runFaceRecPick(
+            pixelBuffer: pixelBuffer,
+            detectedFaces: detectedFaces,
+            subjectEmbeddingSlots: subjectEmbeddingSlots,
+            soloFloor: soloFloor
+        )
+        if let idx = pick.subjectFaceIdx {
+            let candidate = detectedFaces[idx]
+            if let prevBbox = subjectBboxPixelTopLeft {
+                let prevCx = prevBbox.midX
+                let prevCy = prevBbox.midY
+                let dx = Double(candidate.centerXPx) - Double(prevCx)
+                let dy = Double(candidate.centerYPx) - Double(prevCy)
+                let dist = (dx * dx + dy * dy).squareRoot()
+                if dist < reSeedRadiusPx {
+                    state = .tracking
+                    return StateMachineDecision(subjectFaceIdx: idx)
+                }
+            }
+            trackObservation = VNDetectedObjectObservation(boundingBox: candidate.normalizedRect)
+            subjectBboxNormalized = candidate.normalizedRect
+            subjectBboxPixelTopLeft = candidate.pixelRectTopLeft
+            state = .tracking
+            reSeedEventCount += 1
+            return StateMachineDecision(subjectFaceIdx: idx)
+        }
+        state = .noSubject
+        trackObservation = nil
+        subjectBboxNormalized = nil
+        subjectBboxPixelTopLeft = nil
+        return StateMachineDecision(subjectFaceIdx: nil)
+    }
+
+    static func pixelRectTopLeftFromNormalized(
+        _ r: CGRect,
+        width: Int,
+        height: Int
+    ) -> CGRect {
+        let nx0 = max(0, r.origin.x)
+        let ny0Bot = max(0, r.origin.y)
+        let nw = min(1.0 - nx0, r.width)
+        let nh = min(1.0 - ny0Bot, r.height)
+        let px0 = nx0 * CGFloat(width)
+        let py0Top = CGFloat(height) - (ny0Bot + nh) * CGFloat(height)
+        let pw = nw * CGFloat(width)
+        let ph = nh * CGFloat(height)
+        return CGRect(
+            x: max(0, px0).rounded(.down),
+            y: max(0, py0Top).rounded(.down),
+            width: pw.rounded(.up),
+            height: ph.rounded(.up)
         )
     }
 
-    /// Plain copy from source to destination BGRA buffer. Used when
-    /// Vision detected a face but no segmentation mask was provided —
-    /// we can't tell subject from bystander, so pass the frame through.
-    private func copySourceVerbatim(
-        source: CVPixelBuffer,
-        into outBuffer: CVPixelBuffer
-    ) -> Bool {
+    static func faceIndexNearestToBbox(
+        bbox: CGRect,
+        faces: [DetectedFaceV2]
+    ) -> Int? {
+        if faces.isEmpty { return nil }
+        let bcx = bbox.midX
+        let bcy = bbox.midY
+        var bestIdx = 0
+        var bestDistSq = Double.infinity
+        for (i, f) in faces.enumerated() {
+            let dx = Double(f.centerXPx) - Double(bcx)
+            let dy = Double(f.centerYPx) - Double(bcy)
+            let d2 = dx * dx + dy * dy
+            if d2 < bestDistSq {
+                bestDistSq = d2
+                bestIdx = i
+            }
+        }
+        return bestIdx
+    }
+
+    static func copyBufferVerbatim(source: CVPixelBuffer, into dest: CVPixelBuffer) {
         CVPixelBufferLockBaseAddress(source, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(source, .readOnly) }
-        guard let srcBase = CVPixelBufferGetBaseAddress(source) else { return false }
-        let srcRowBytes = CVPixelBufferGetBytesPerRow(source)
-
-        CVPixelBufferLockBaseAddress(outBuffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(outBuffer, []) }
-        guard let dstBase = CVPixelBufferGetBaseAddress(outBuffer) else { return false }
-        let dstRowBytes = CVPixelBufferGetBytesPerRow(outBuffer)
-
-        let srcPtr = srcBase.assumingMemoryBound(to: UInt8.self)
-        let dstPtr = dstBase.assumingMemoryBound(to: UInt8.self)
-        for y in 0..<height {
-            memcpy(dstPtr + y * dstRowBytes, srcPtr + y * srcRowBytes, width * 4)
+        CVPixelBufferLockBaseAddress(dest, [])
+        defer { CVPixelBufferUnlockBaseAddress(dest, []) }
+        guard let s = CVPixelBufferGetBaseAddress(source),
+              let d = CVPixelBufferGetBaseAddress(dest) else { return }
+        let srcRow = CVPixelBufferGetBytesPerRow(source)
+        let dstRow = CVPixelBufferGetBytesPerRow(dest)
+        let h = CVPixelBufferGetHeight(source)
+        let w = CVPixelBufferGetWidth(source)
+        let sPtr = s.assumingMemoryBound(to: UInt8.self)
+        let dPtr = d.assumingMemoryBound(to: UInt8.self)
+        for y in 0..<h {
+            memcpy(dPtr + y * dstRow, sPtr + y * srcRow, w * 4)
         }
-        return true
     }
+}
+
+// MARK: - V2 video composite helpers (mask math copied from v2 photo)
+//
+// These helpers mirror the v2 photo path's floodFillBinary /
+// paintHeadExpansion / faceContourPolygonPx / pointInPolygon byte-for-byte.
+// The photo originals are `private static` methods on
+// `VideoConverterChannel`; rather than promote them to internal visibility
+// (which would broaden the file's surface) we keep a parallel set here.
+// Both copies are labelled with a `SafeModeV2` suffix to make the parity
+// obvious. Keep in sync by hand. Future cleanup: hoist onto a shared
+// `SafeModeMaskCompositor` helper struct after a wave or two of device
+// iteration.
+
+@available(iOS 15.0, *)
+func floodFillBinarySafeModeV2(
+    mask: UnsafePointer<UInt8>,
+    width: Int,
+    height: Int,
+    seedX: Int,
+    seedY: Int,
+    threshold: UInt8
+) -> UnsafeMutablePointer<UInt8> {
+    let total = width * height
+    let visited = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
+    visited.initialize(repeating: 0, count: total)
+
+    guard seedX >= 0, seedX < width, seedY >= 0, seedY < height else {
+        return visited
+    }
+    let seedIdx = seedY * width + seedX
+    if mask[seedIdx] < threshold {
+        var foundSeed = -1
+        let searchRadius = 16
+        outer: for dr in 1...searchRadius {
+            for dy in -dr...dr {
+                for dx in -dr...dr {
+                    if abs(dx) != dr && abs(dy) != dr { continue }
+                    let nx = seedX + dx
+                    let ny = seedY + dy
+                    if nx < 0 || nx >= width || ny < 0 || ny >= height { continue }
+                    let i = ny * width + nx
+                    if mask[i] >= threshold {
+                        foundSeed = i
+                        break outer
+                    }
+                }
+            }
+        }
+        if foundSeed < 0 { return visited }
+        return floodFillFromIdxSafeModeV2(
+            mask: mask, width: width, height: height,
+            threshold: threshold, seedIdx: foundSeed,
+            visited: visited
+        )
+    }
+    return floodFillFromIdxSafeModeV2(
+        mask: mask, width: width, height: height,
+        threshold: threshold, seedIdx: seedIdx,
+        visited: visited
+    )
+}
+
+@available(iOS 15.0, *)
+func floodFillFromIdxSafeModeV2(
+    mask: UnsafePointer<UInt8>,
+    width: Int,
+    height: Int,
+    threshold: UInt8,
+    seedIdx: Int,
+    visited: UnsafeMutablePointer<UInt8>
+) -> UnsafeMutablePointer<UInt8> {
+    var stack: [Int] = [seedIdx]
+    stack.reserveCapacity(1024)
+    visited[seedIdx] = 1
+    while let idx = stack.popLast() {
+        let x = idx % width
+        let y = idx / width
+        if x > 0 {
+            let n = idx - 1
+            if visited[n] == 0 && mask[n] >= threshold {
+                visited[n] = 1
+                stack.append(n)
+            }
+        }
+        if x < width - 1 {
+            let n = idx + 1
+            if visited[n] == 0 && mask[n] >= threshold {
+                visited[n] = 1
+                stack.append(n)
+            }
+        }
+        if y > 0 {
+            let n = idx - width
+            if visited[n] == 0 && mask[n] >= threshold {
+                visited[n] = 1
+                stack.append(n)
+            }
+        }
+        if y < height - 1 {
+            let n = idx + width
+            if visited[n] == 0 && mask[n] >= threshold {
+                visited[n] = 1
+                stack.append(n)
+            }
+        }
+    }
+    return visited
+}
+
+@available(iOS 15.0, *)
+func paintHeadExpansionSafeModeV2(
+    keepMask: UnsafeMutablePointer<UInt8>,
+    width: Int,
+    height: Int,
+    pixelRect: CGRect,
+    contourPolygonPx: [CGPoint]?,
+    headWidthFactor: CGFloat,
+    headHeightFactor: CGFloat,
+    maxAreaFraction: Double = 1.0,
+    segmentationMask: UnsafePointer<UInt8>?,
+    subjectComponent: UnsafePointer<UInt8>?
+) {
+    var wFactor = headWidthFactor
+    var hFactor = headHeightFactor
+    let frameArea = Double(width) * Double(height)
+    if frameArea > 0 && maxAreaFraction > 0 && maxAreaFraction < 1.0 {
+        let expandedW = Double(pixelRect.width) * Double(wFactor)
+        let expandedH = Double(pixelRect.height) * Double(hFactor)
+        let expandedArea = expandedW * expandedH
+        let allowedArea = frameArea * maxAreaFraction
+        if expandedArea > allowedArea && expandedArea > 0 {
+            let scale = (allowedArea / expandedArea).squareRoot()
+            wFactor *= CGFloat(scale)
+            hFactor *= CGFloat(scale)
+        }
+    }
+    let cx = pixelRect.midX
+    let cy = pixelRect.midY
+    let halfW = pixelRect.width * wFactor * 0.5
+    let halfH = pixelRect.height * hFactor * 0.5
+    let bboxX0 = max(0, Int((cx - halfW).rounded(.down)))
+    let bboxX1 = min(width, Int((cx + halfW).rounded(.up)))
+    let bboxY0 = max(0, Int((cy - halfH).rounded(.down)))
+    let bboxY1 = min(height, Int((cy + halfH).rounded(.up)))
+
+    let polygon = contourPolygonPx
+    let scanX0: Int
+    let scanX1: Int
+    let scanY0: Int
+    let scanY1: Int
+    if let poly = polygon, poly.count >= 3 {
+        var minX = CGFloat.greatestFiniteMagnitude
+        var minY = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
+        for p in poly {
+            if p.x < minX { minX = p.x }
+            if p.y < minY { minY = p.y }
+            if p.x > maxX { maxX = p.x }
+            if p.y > maxY { maxY = p.y }
+        }
+        scanX0 = max(0, min(bboxX0, Int(minX.rounded(.down))))
+        scanY0 = max(0, min(bboxY0, Int(minY.rounded(.down))))
+        scanX1 = min(width, max(bboxX1, Int(maxX.rounded(.up))))
+        scanY1 = min(height, max(bboxY1, Int(maxY.rounded(.up))))
+    } else {
+        scanX0 = bboxX0
+        scanY0 = bboxY0
+        scanX1 = bboxX1
+        scanY1 = bboxY1
+    }
+
+    let havePolygon = (polygon?.count ?? 0) >= 3
+    for y in scanY0..<scanY1 {
+        let rowOffset = y * width
+        for x in scanX0..<scanX1 {
+            let i = rowOffset + x
+            let insidePolygon: Bool = havePolygon
+                ? pointInPolygonSafeModeV2(
+                    x: CGFloat(x) + 0.5,
+                    y: CGFloat(y) + 0.5,
+                    polygon: polygon!
+                )
+                : false
+            let insideBbox = (x >= bboxX0 && x < bboxX1
+                && y >= bboxY0 && y < bboxY1)
+            if !insidePolygon && !insideBbox { continue }
+            if let segMask = segmentationMask {
+                if segMask[i] < 128 { continue }
+                if insidePolygon {
+                    keepMask[i] = 0
+                } else {
+                    if let subj = subjectComponent, subj[i] == 1 { continue }
+                    keepMask[i] = 0
+                }
+            } else {
+                keepMask[i] = 0
+            }
+        }
+    }
+}
+
+@available(iOS 15.0, *)
+func faceContourPolygonPxSafeModeV2(
+    observation: VNFaceObservation,
+    imageWidth: Int,
+    imageHeight: Int,
+    outwardExpansionFactor: CGFloat
+) -> [CGPoint]? {
+    guard let landmarks = observation.landmarks,
+          let contour = landmarks.faceContour else {
+        return nil
+    }
+    let imageSize = CGSize(width: imageWidth, height: imageHeight)
+    let raw = contour.pointsInImage(imageSize: imageSize)
+    if raw.count < 3 { return nil }
+
+    var topLeft: [CGPoint] = []
+    topLeft.reserveCapacity(raw.count)
+    for p in raw {
+        topLeft.append(CGPoint(x: p.x, y: CGFloat(imageHeight) - p.y))
+    }
+
+    let bboxNorm = observation.boundingBox
+    let cxNormBot = bboxNorm.origin.x + bboxNorm.width * 0.5
+    let cyNormBot = bboxNorm.origin.y + bboxNorm.height * 0.5
+    let cxPx = cxNormBot * CGFloat(imageWidth)
+    let cyPx = CGFloat(imageHeight) - cyNormBot * CGFloat(imageHeight)
+    let f = outwardExpansionFactor
+
+    var expanded: [CGPoint] = []
+    expanded.reserveCapacity(topLeft.count)
+    for p in topLeft {
+        let dx = p.x - cxPx
+        let dy = p.y - cyPx
+        expanded.append(CGPoint(
+            x: cxPx + dx * f,
+            y: cyPx + dy * f
+        ))
+    }
+
+    var topY = CGFloat.greatestFiniteMagnitude
+    var leftX = CGFloat.greatestFiniteMagnitude
+    var rightX = -CGFloat.greatestFiniteMagnitude
+    for p in expanded {
+        if p.y < topY { topY = p.y }
+        if p.x < leftX { leftX = p.x }
+        if p.x > rightX { rightX = p.x }
+    }
+    let bboxHeightPx = bboxNorm.height * CGFloat(imageHeight)
+    let lift = bboxHeightPx * 0.35
+    let topCanopyY = max(0, topY - lift)
+    let topMidX = (leftX + rightX) * 0.5
+    expanded.append(CGPoint(x: rightX, y: topCanopyY))
+    expanded.append(CGPoint(x: topMidX, y: topCanopyY))
+    expanded.append(CGPoint(x: leftX, y: topCanopyY))
+
+    var cxSum: CGFloat = 0
+    var cySum: CGFloat = 0
+    for p in expanded {
+        cxSum += p.x
+        cySum += p.y
+    }
+    let centroidX = cxSum / CGFloat(expanded.count)
+    let centroidY = cySum / CGFloat(expanded.count)
+    expanded.sort { a, b in
+        atan2(a.y - centroidY, a.x - centroidX) <
+            atan2(b.y - centroidY, b.x - centroidX)
+    }
+    return expanded
+}
+
+func pointInPolygonSafeModeV2(
+    x: CGFloat,
+    y: CGFloat,
+    polygon: [CGPoint]
+) -> Bool {
+    if polygon.count < 3 { return false }
+    var inside = false
+    var j = polygon.count - 1
+    for i in 0..<polygon.count {
+        let xi = polygon[i].x, yi = polygon[i].y
+        let xj = polygon[j].x, yj = polygon[j].y
+        let crosses = ((yi > y) != (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / ((yj - yi) == 0 ? 0.0001 : (yj - yi)) + xi)
+        if crosses { inside.toggle() }
+        j = i
+    }
+    return inside
 }
