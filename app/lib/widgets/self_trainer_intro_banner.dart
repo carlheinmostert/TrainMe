@@ -145,7 +145,7 @@ class _SelfTrainerIntroBannerState extends State<SelfTrainerIntroBanner> {
                         children: [
                           // [carl-review:] HEADLINE
                           const Text(
-                            '[carl-review:] My Workouts is live',
+                            'My Workouts is live',
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 15,
@@ -156,7 +156,7 @@ class _SelfTrainerIntroBannerState extends State<SelfTrainerIntroBanner> {
                           const SizedBox(height: 4),
                           // [carl-review:] UNIVERSAL BODY
                           const Text(
-                            '[carl-review:] Capture yourself, get plans '
+                            'Capture yourself, get plans '
                             'from your practitioner — all in one place.',
                             style: TextStyle(
                               fontFamily: 'Inter',
@@ -170,7 +170,7 @@ class _SelfTrainerIntroBannerState extends State<SelfTrainerIntroBanner> {
                             const SizedBox(height: 6),
                             // [carl-review:] GRANDFATHERED-EXTENSION LINE
                             const Text(
-                              '[carl-review:] Safe Mode is now a '
+                              'Safe Mode is now a '
                               "subscription. Because you've used it, "
                               "we've extended your access for free — "
                               'no action needed.',
@@ -204,7 +204,7 @@ class _SelfTrainerIntroBannerState extends State<SelfTrainerIntroBanner> {
                                 ),
                               ),
                               child: const Text(
-                                '[carl-review:] Got it',
+                                'Got it',
                                 style: TextStyle(
                                   fontFamily: 'Inter',
                                   fontSize: 14,

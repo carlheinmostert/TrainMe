@@ -3,6 +3,7 @@ import UIKit
 import Vision
 import CoreImage
 import AVFoundation
+import Accelerate
 import os.log
 
 // MARK: - Self-trainer face embedding channel (PR #3 + PR #5, 2026-05-25)
@@ -58,6 +59,30 @@ final class HomefitFaceEmbeddingChannel: NSObject {
         subsystem: "studio.homefit.app",
         category: "self.face_embedding"
     )
+
+    // R5-M4 — cosine-similarity floor for a single-reference match.
+    // Calibration target: Carl benches this against `Safe Mode Bench
+    // Report.html` (per `feedback_safe_mode_bench_report`) when
+    // tuning the self-trainer verifier. 0.5 mirrors Safe Mode v2's
+    // historic single-frame threshold (see VideoConverterChannel.swift
+    // line 3753 `kSafeModeV2FaceMatchThreshold`). Sits safely above
+    // bystander cosSim cluster (0.15-0.40) and below same-person
+    // cosSim (worst observed 0.25 for a single frontal reference).
+    private static let kSelfFaceSingleRefMatchThreshold: Double = 0.5
+
+    // R5-M3 — minimum face crop in pixels before we hand to
+    // MobileFaceNet. Below this, the embedder garbage-in / garbage-out;
+    // we'd rather treat it as no-face than embed a 32x32 thumbnail.
+    // The model itself resizes to 112x112 internally, so any source
+    // crop below ~64 effectively upsamples noise.
+    private static let kMinFaceCropPixels: Int = 64
+
+    // Cap at this max dimension when shrinking decoded frames before
+    // running Vision + MobileFaceNet. Same convention as the compute
+    // path; the embedder only needs a small face crop so spending a
+    // full 4K decode is wasteful (and on 4K video the verify path
+    // used to peak ~120 MB per frame).
+    private static let kVerifyMaxWorkDim: Int = 1920
 
     private let channel: FlutterMethodChannel
 
@@ -125,18 +150,12 @@ final class HomefitFaceEmbeddingChannel: NSObject {
                 }
             }
             // Threshold (cosine similarity floor) — caller may override
-            // via `threshold`. Default 0.5 mirrors Safe Mode v2's historic
-            // `kSafeModeV2FaceMatchThreshold` (see VideoConverterChannel.swift
-            // line 3753) — the absolute gate the v2 discriminator used
-            // before the relative pick-highest rule replaced it. 0.5 sits
-            // safely above the typical bystander cosSim cluster
-            // (0.15-0.40) and below same-person cosSim (worst observed
-            // 0.25 for a single frontal reference; >= 0.55 with a well-
-            // enrolled multi-reference set per `kSafeModeV2MultiRefThreshold`).
-            // For self-verification we use a single frontal reference
-            // (the public-profile selfie), so 0.5 is appropriately
-            // conservative.
-            let thresholdArg = (args["threshold"] as? Double) ?? 0.5
+            // via `threshold`. Default = `kSelfFaceSingleRefMatchThreshold`.
+            // R5-M4 — named constant for the calibration target; see
+            // class-level doc on the constant for the bench-rationale.
+            let thresholdArg =
+                (args["threshold"] as? Double)
+                ?? Self.kSelfFaceSingleRefMatchThreshold
             // Sample-frame count for videos (ignored for photos which
             // are always a single sample). Caller may override; default
             // 3 evenly-spaced samples is the brief's spec.
@@ -309,6 +328,26 @@ final class HomefitFaceEmbeddingChannel: NSObject {
             width: cropW.rounded(.up),
             height: cropH.rounded(.up)
         )
+        // R5-M3 — minimum-crop guard. Same rationale as the verify
+        // path: below `kMinFaceCropPixels` the embedder hallucinates.
+        // In the compute path (deliberate selfie capture) this is
+        // unlikely but possible if the user holds the camera at arm's
+        // length in a wide-angle frame. Treat as no-face per the
+        // brief — the Dart wrapper surfaces `null` and prompts a
+        // retake.
+        if Int(pixelCropRect.width) < Self.kMinFaceCropPixels
+            || Int(pixelCropRect.height) < Self.kMinFaceCropPixels {
+            os_log(
+                "compute: rejecting %dx%d face crop (min %d) — treating as no-face",
+                log: Self.log, type: .info,
+                Int(pixelCropRect.width), Int(pixelCropRect.height),
+                Self.kMinFaceCropPixels
+            )
+            DispatchQueue.main.async {
+                result(nil)
+            }
+            return
+        }
         guard let faceCrop = uprightCG.cropping(to: pixelCropRect) else {
             os_log("compute: CGImage.cropping returned nil",
                    log: Self.log, type: .error)
@@ -328,7 +367,22 @@ final class HomefitFaceEmbeddingChannel: NSObject {
         // verbatim in the Dart layer.
         do {
             let blob = try MobileFaceNetEmbedder.shared.embed(face: faceCrop)
-            let floats = unpackFloats(from: blob)
+            guard let floats = unpackFloats(from: blob) else {
+                // Short blob — already logged inside unpackFloats.
+                // Treat as a hard embedder failure rather than silently
+                // returning a partial embedding.
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "EMBEDDER_SHORT_BLOB",
+                        message:
+                            "MobileFaceNet returned \(blob.count) bytes; "
+                            + "expected "
+                            + "\(MobileFaceNetEmbedder.embeddingDimension * 4)",
+                        details: nil
+                    ))
+                }
+                return
+            }
             os_log("compute: success — %d floats",
                    log: Self.log, type: .info, floats.count)
             DispatchQueue.main.async {
@@ -544,7 +598,11 @@ final class HomefitFaceEmbeddingChannel: NSObject {
         // camera / end-of-record blur). For sampleFrames=3 + duration=10s
         // this picks 2.5s / 5.0s / 7.5s.
         let n = max(1, sampleFrames)
-        let inset = max(0.05, min(0.20, 0.1))  // 10% inset, clamped [5%, 20%]
+        // R5-M4 — was `max(0.05, min(0.20, 0.1))`, a dead clamp that
+        // always evaluated to 0.10. Collapsed to a literal; the
+        // surrounding constants stay in case we later want a tunable
+        // inset.
+        let inset = 0.10
         let usable = duration * (1.0 - 2.0 * inset)
         var sampleTimes: [CMTime] = []
         for i in 0..<n {
@@ -562,7 +620,17 @@ final class HomefitFaceEmbeddingChannel: NSObject {
         for time in sampleTimes {
             do {
                 let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-                if let emb = embedLargestFace(in: cgImage) {
+                // R5-M2 — shrink 4K source frames to a max 1920 px
+                // dimension before the Vision pass + crop. The
+                // embedder only needs a small face crop; carrying full
+                // 4K through Vision + cropping spiked memory in the
+                // verify path. Mirrors the shrink in the `compute`
+                // path (lines 215-222).
+                let shrunk = shrink(
+                    cgImage: cgImage,
+                    maxDim: Self.kVerifyMaxWorkDim
+                )
+                if let emb = embedLargestFace(in: shrunk) {
                     out.append(emb)
                 }
             } catch {
@@ -575,6 +643,32 @@ final class HomefitFaceEmbeddingChannel: NSObject {
             }
         }
         return out
+    }
+
+    /// Shrink a CGImage to fit inside `maxDim x maxDim`, preserving
+    /// aspect ratio. Returns the original CGImage if it's already
+    /// within bounds or if the redraw fails. R5-M2 — extracted so
+    /// the verify path can share the compute path's shrink convention.
+    private func shrink(cgImage: CGImage, maxDim: Int) -> CGImage {
+        let srcW = cgImage.width
+        let srcH = cgImage.height
+        let maxSrc = max(srcW, srcH)
+        if maxSrc <= maxDim { return cgImage }
+        let scale = Double(maxDim) / Double(maxSrc)
+        let dstW = max(1, Int((Double(srcW) * scale).rounded()))
+        let dstH = max(1, Int((Double(srcH) * scale).rounded()))
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.scale = 1.0
+        fmt.opaque = true
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: dstW, height: dstH),
+            format: fmt
+        )
+        let uiSrc = UIImage(cgImage: cgImage)
+        let downscaled = renderer.image { _ in
+            uiSrc.draw(in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
+        }
+        return downscaled.cgImage ?? cgImage
     }
 
     /// Run Vision face detection on [cgImage], pick the largest face by
@@ -628,11 +722,27 @@ final class HomefitFaceEmbeddingChannel: NSObject {
             width: cropW.rounded(.up),
             height: cropH.rounded(.up)
         )
-        if pixelRect.width < 8 || pixelRect.height < 8 { return nil }
+        // R5-M3 — raised from 8x8 to 64x64. Below 64 px the embedder
+        // is effectively upsampling noise to fit its 112x112 input,
+        // which produces unreliable cosSim scores. Logging the
+        // rejection helps surface a pattern if it surfaces in
+        // production (e.g. distant subjects in the verify path).
+        if Int(pixelRect.width) < Self.kMinFaceCropPixels
+            || Int(pixelRect.height) < Self.kMinFaceCropPixels {
+            os_log(
+                "embedLargestFace: rejecting %dx%d face crop (min %d)",
+                log: Self.log, type: .info,
+                Int(pixelRect.width), Int(pixelRect.height),
+                Self.kMinFaceCropPixels
+            )
+            return nil
+        }
         guard let faceCrop = cgImage.cropping(to: pixelRect) else { return nil }
 
         do {
             let blob = try MobileFaceNetEmbedder.shared.embed(face: faceCrop)
+            // Short blob already logged inside unpackFloats; nil
+            // propagation = "treat this frame as no-face".
             return unpackFloats(from: blob)
         } catch {
             os_log("embedLargestFace: MobileFaceNet failed %{public}@",
@@ -715,9 +825,20 @@ final class HomefitFaceEmbeddingChannel: NSObject {
     private func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Double {
         precondition(a.count == b.count,
                      "cosineSimilarity: dim mismatch \(a.count) vs \(b.count)")
+        // R5-L2 — use vDSP_dotpr to mirror the companion implementation
+        // in `MobileFaceNetEmbedder.cosineSimilarity(_:_:)` (line 154).
+        // Both vectors are L2-normalised by contract so the dot product
+        // IS the cosine similarity.
         var dot: Float = 0
-        for i in 0..<a.count {
-            dot += a[i] * b[i]
+        a.withUnsafeBufferPointer { aPtr in
+            b.withUnsafeBufferPointer { bPtr in
+                vDSP_dotpr(
+                    aPtr.baseAddress!, 1,
+                    bPtr.baseAddress!, 1,
+                    &dot,
+                    vDSP_Length(a.count)
+                )
+            }
         }
         return Double(dot)
     }
@@ -727,16 +848,36 @@ final class HomefitFaceEmbeddingChannel: NSObject {
     /// Unpack the embedder's 2048-byte Data (512 FP32 LE) into a Swift
     /// `[Float]` for the Flutter result channel. Length is always
     /// `MobileFaceNetEmbedder.embeddingDimension` (512).
-    private func unpackFloats(from data: Data) -> [Float] {
+    ///
+    /// R5-L1 — strict size contract. Debug builds `precondition`-crash
+    /// on a short blob so the bug surfaces during testing; release
+    /// builds log a Console.app warning and return nil so the caller
+    /// can treat it as no-face rather than silently padding zeros.
+    /// The historical `min(count, src.count)` masked short-embedding
+    /// regressions (same family of bug as PR #489's 512-bytes-vs-2048
+    /// units mismatch).
+    private func unpackFloats(from data: Data) -> [Float]? {
         let count = MobileFaceNetEmbedder.embeddingDimension
+        // Debug build hard-fails so the bug doesn't escape testing.
+        assert(
+            data.count == count * MemoryLayout<Float32>.size,
+            "unpackFloats: MobileFaceNet returned \(data.count) bytes; "
+            + "expected \(count * MemoryLayout<Float32>.size)"
+        )
+        // Release fallback — log + return nil so the caller can treat
+        // it as no-face rather than silently embedding garbage.
+        if data.count < count * MemoryLayout<Float32>.size {
+            os_log(
+                "unpackFloats: embedder returned %d bytes; expected %d — returning nil",
+                log: Self.log, type: .error,
+                data.count, count * MemoryLayout<Float32>.size
+            )
+            return nil
+        }
         var out = [Float](repeating: 0, count: count)
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             let src = raw.bindMemory(to: Float32.self)
-            // Defensive: tolerate any byte count that is at least
-            // `count` floats; we never accept a short embedding (the
-            // embedder contract is exact-size or throw).
-            let available = min(count, src.count)
-            for i in 0..<available {
+            for i in 0..<count {
                 out[i] = src[i]
             }
         }

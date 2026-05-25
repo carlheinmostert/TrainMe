@@ -41,3 +41,11 @@ const int kSafeModeAlgorithmVersion = 3;
 /// truncated / corrupted wire payload is rejected loudly rather than
 /// silently hydrating a partial fingerprint.
 const int kFaceEmbeddingBytes = 2048;
+
+/// Canonical FLOAT count of a single MobileFaceNet face embedding.
+/// Twin of [kFaceEmbeddingBytes] for the [List<double>] code paths
+/// (Dart-side `computeForImage` / `getMySelfFaceEmbedding`). Always
+/// equals `kFaceEmbeddingBytes / 4` (i.e. 512). Use this constant —
+/// never the literal 512 — so the units bug that motivated PR #489
+/// can't recur.
+const int kSelfFaceEmbeddingFloats = 512;

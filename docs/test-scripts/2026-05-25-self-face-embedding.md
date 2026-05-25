@@ -108,6 +108,15 @@ see `.env.test`. Direct DB checks use the staging service role key.
   message — proves the wire path doesn't silently accept malformed
   embeddings.
 
+  **Dart-layer twin** (added in the hotfix B wave, 2026-05-25):
+  `app/test/services/face_embedding_service_test.dart` mocks the native
+  channel returning a 100-element list and asserts
+  `FaceEmbeddingService.computeForImage` returns null rather than
+  propagating the bad-dim list. Run it locally with
+  `cd app && flutter test test/services/face_embedding_service_test.dart`
+  to verify the Dart wrapper's dim contract is enforced before the
+  embedding ever reaches the RPC.
+
 ---
 
 ## Cleanup
