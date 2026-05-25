@@ -237,6 +237,29 @@ private let handDilationSpreadMultiplier: Double = 1.4
 /// occluded fingertips when the practitioner is gripping a barbell.
 private let handDilationConfidenceMin: Float = 0.20
 
+// MARK: - Safe Mode v2 shared composite constants
+//
+// The Safe Mode v2 photo + video composites use the SAME Gaussian-blur
+// radius scaling formula. Extracted to a named constant + helper so the
+// two sites (and the Mac-bench mirror) don't drift independently.
+//
+// Scaling rationale: 35.0 pixels reads as a strong but not destructive
+// blur at 1080p (the v2 photo / video target resolution); proportional
+// scaling preserves the apparent blur strength at smaller frame sizes
+// (e.g. 720p preview); the 0.25 floor stops the radius from collapsing
+// to near-zero on heavily-downsampled frames where the blur would
+// otherwise become a no-op.
+private let kSafeModeV2BlurRadius1080: Double = 35.0
+
+/// Gaussian blur radius for the Safe Mode v2 composite, scaled to the
+/// frame's shorter dimension. Used identically by the v2 photo and
+/// v2 video pipelines in this file AND mirrored by the Mac-side bench
+/// at `tools/safe-mode-v2-bench/Sources/SafeModeBench/SafeModeV2VideoPipeline.swift`.
+/// Three call sites total — keep them aligned via this helper.
+private func safeModeV2BlurRadius(forMinDim minDim: Double) -> Double {
+    return kSafeModeV2BlurRadius1080 * max(0.25, minDim / 1080.0)
+}
+
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
 /// Uses AVAssetReader/Writer for H.264/265 I/O (which OpenCV can't handle on iOS)
@@ -287,6 +310,14 @@ class VideoConverterChannel {
         )
         // Stream channel name is locked in the v2 video spec section 8.
         // Dart MUST match this exact string.
+        //
+        // `safeModeV2VideoProgressHandler` is intentionally a SINGLE
+        // shared instance for the lifetime of the channel. Dart subscribes
+        // once at app start, runs N video conversions over the session,
+        // and never explicitly unsubscribes. onListen/onCancel manage
+        // the per-stream `sink` reference inside the handler instead of
+        // tearing down + recreating the FlutterStreamHandler. This is the
+        // typical pattern for long-lived FlutterEventChannel handlers.
         safeModeV2VideoProgressHandler = SafeModeV2VideoProgressHandler()
         safeModeV2VideoProgressChannel = FlutterEventChannel(
             name: "homefit-safe-mode-v2-video-progress",
@@ -3774,11 +3805,12 @@ class VideoConverterChannel {
         }
 
         // --- Composite via CIBlendWithMask ---
-        // Blur radius scales with frame dim — 35.0 at 1080p, scaled
-        // proportionally for smaller frames. Same convention as the
-        // v2 video processor's per-frame composite below.
+        // Blur radius scales with frame dim via the shared helper. Same
+        // convention as the v2 video processor's per-frame composite
+        // below + the Mac-bench mirror. See `kSafeModeV2BlurRadius1080`
+        // at the top of this file.
         let minDim = Double(min(width, height))
-        let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
+        let blurRadius = safeModeV2BlurRadius(forMinDim: minDim)
 
         // Attempt-1 (autonomous iteration 2026-05-25): default CIContext
         // (working space = extendedLinearSRGB), DeviceGray maskCI, no
@@ -5472,10 +5504,18 @@ private class HandPoseDilator {
 //   .lost          — tracker confidence dropped; immediate face-rec retry.
 //   .noSubject     — subject not identified; re-attempt every M seconds.
 //
-// "Miss" definition matches v1 video + the just-merged zero-detection spec:
-// a frame counts as a miss when Vision detected ZERO humans (face or
-// segmentation). Frames where Vision found humans but no face matched the
-// subject are NOT misses — they correctly produce no-subject-mode output.
+// "Miss" definition is intentionally tighter than v1's face-detect-only
+// rule. Per spec section 6b: a frame counts as a miss ONLY when Vision
+// detected ZERO faces AND person segmentation returned no positive
+// pixels — BOTH signals must fail. Legitimate backlit captures (face
+// hidden, silhouette present) and back-to-camera sections do NOT
+// register as misses; segmentation keeps the frame out of the bucket.
+// The 5-100% rejection band now triggers only on catastrophic detection
+// failures where both Vision modalities fail simultaneously (severely
+// overexposed frames, fully-obscured lens, subject outside the visible
+// spectrum). Frames where Vision found humans but no face matched the
+// subject are NOT misses — they correctly produce no-subject-mode
+// output.
 //
 // AVAssetWriter multi-track drain uses the proven concurrent-drain pattern
 // (per `gotchas_publish_path` + `audio-on-Line-treatment` notes): separate
@@ -5508,6 +5548,17 @@ enum SafeModeV2VideoProcessor {
     static let reConfirmIntervalSec: Double = 2.0
     static let trackerConfidenceFloor: Float = 0.5
     static let reSeedProximityRadiusFrac: Double = 0.2
+
+    /// Number of CONSECUTIVE re-confirm frames the state machine
+    /// tolerates face-rec returning no match before dropping the
+    /// tracker. While the tracker's independent confidence stays
+    /// above `trackerConfidenceFloor`, we trust it through this many
+    /// re-confirm misses — single bad frames (motion blur, eyes
+    /// closed, brief head turn, transient backlight) should not
+    /// flip the subject to no-subject mode. Once exceeded, we fall
+    /// back to the original drop-tracker behaviour. Spec section 6d
+    /// (re-confirm tracker-drop softening).
+    static let reConfirmConsecutiveMissTolerance: Int = 3
 
     enum State {
         case seeding
@@ -5672,7 +5723,7 @@ enum SafeModeV2VideoProcessor {
             return .failure("CIFilter init failed (CIGaussianBlur / CIBlendWithMask)")
         }
         let minDim = Double(min(videoWidth, videoHeight))
-        let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
+        let blurRadius = safeModeV2BlurRadius(forMinDim: minDim)
 
         let faceSequenceHandler = VNSequenceRequestHandler()
         let trackerSequenceHandler = VNSequenceRequestHandler()
@@ -5685,11 +5736,17 @@ enum SafeModeV2VideoProcessor {
         let reConfirmIntervalFrames = max(1, Int(reConfirmIntervalSec * frameRate))
         let reSeedRadiusPx = Double(videoHeight) * reSeedProximityRadiusFrac
 
+        // `framesProcessed`, `framesMissed`, and the event counters mutate
+        // inside the `requestMediaDataWhenReady` closure below. They are
+        // safe to read+write without locks because `videoQueue` is a
+        // serial DispatchQueue — closure invocations are strictly
+        // ordered and never race against each other.
         var framesProcessed = 0
         var framesMissed = 0
         var reConfirmEventCount = 0
         var reSeedEventCount = 0
         var trackerLossEventCount = 0
+        var consecutiveReConfirmMisses = 0
         var lastProgressFrame = -1
 
         let group = DispatchGroup()
@@ -5762,6 +5819,7 @@ enum SafeModeV2VideoProcessor {
                         reConfirmEventCount: &reConfirmEventCount,
                         reSeedEventCount: &reSeedEventCount,
                         trackerLossEventCount: &trackerLossEventCount,
+                        consecutiveReConfirmMisses: &consecutiveReConfirmMisses,
                         frameIdx: framesProcessed,
                         reConfirmIntervalFrames: reConfirmIntervalFrames,
                         reSeedRadiusPx: reSeedRadiusPx,
@@ -6099,6 +6157,7 @@ enum SafeModeV2VideoProcessor {
         reConfirmEventCount: inout Int,
         reSeedEventCount: inout Int,
         trackerLossEventCount: inout Int,
+        consecutiveReConfirmMisses: inout Int,
         frameIdx: Int,
         reConfirmIntervalFrames: Int,
         reSeedRadiusPx: Double,
@@ -6172,6 +6231,7 @@ enum SafeModeV2VideoProcessor {
                         lastReConfirmFrameIdx: &lastReConfirmFrameIdx,
                         reConfirmEventCount: &reConfirmEventCount,
                         reSeedEventCount: &reSeedEventCount,
+                        consecutiveReConfirmMisses: &consecutiveReConfirmMisses,
                         frameIdx: frameIdx,
                         reSeedRadiusPx: reSeedRadiusPx,
                         pixelBuffer: pixelBuffer,
@@ -6188,7 +6248,14 @@ enum SafeModeV2VideoProcessor {
                 )
                 return StateMachineDecision(subjectFaceIdx: idx)
             } else {
+                // Tracker's own confidence dropped — strong signal that
+                // the lock was genuinely lost. Reset the consecutive-miss
+                // counter and transition to .lost regardless of recent
+                // re-confirm history (per spec section 6d the counter
+                // only guards face-rec misses while the tracker holds
+                // confidence; an independent tracker drop bypasses it).
                 trackerLossEventCount += 1
+                consecutiveReConfirmMisses = 0
                 state = .lost
                 trackObservation = nil
                 subjectBboxNormalized = nil
@@ -6197,6 +6264,17 @@ enum SafeModeV2VideoProcessor {
             }
 
         case .reConfirming:
+            // Unreachable in steady-state: re-confirm runs synchronously
+            // inside the .tracking branch above (and inside the post-loss
+            // / no-subject branches below); reConfirm() always exits by
+            // setting `state = .tracking` or `state = .noSubject` before
+            // returning. The state machine never re-enters a frame with
+            // `state == .reConfirming`. We keep the case to compile
+            // exhaustively and assert in DEBUG so a future refactor
+            // that breaks the invariant surfaces loudly. Defensive
+            // fallback in RELEASE: route through reConfirm() so behaviour
+            // stays correct even if something unexpected lands here.
+            assertionFailure("SafeModeV2VideoProcessor.advanceStateMachine: unreachable — reConfirm() always exits to .tracking or .noSubject before the next frame")
             return reConfirm(
                 state: &state,
                 trackObservation: &trackObservation,
@@ -6205,6 +6283,7 @@ enum SafeModeV2VideoProcessor {
                 lastReConfirmFrameIdx: &lastReConfirmFrameIdx,
                 reConfirmEventCount: &reConfirmEventCount,
                 reSeedEventCount: &reSeedEventCount,
+                consecutiveReConfirmMisses: &consecutiveReConfirmMisses,
                 frameIdx: frameIdx,
                 reSeedRadiusPx: reSeedRadiusPx,
                 pixelBuffer: pixelBuffer,
@@ -6230,6 +6309,7 @@ enum SafeModeV2VideoProcessor {
                 subjectBboxPixelTopLeft = subject.pixelRectTopLeft
                 state = .tracking
                 reSeedEventCount += 1
+                consecutiveReConfirmMisses = 0
                 return StateMachineDecision(subjectFaceIdx: idx)
             }
             state = .noSubject
@@ -6251,6 +6331,7 @@ enum SafeModeV2VideoProcessor {
                     subjectBboxPixelTopLeft = subject.pixelRectTopLeft
                     state = .tracking
                     reSeedEventCount += 1
+                    consecutiveReConfirmMisses = 0
                     return StateMachineDecision(subjectFaceIdx: idx)
                 }
             }
@@ -6266,6 +6347,7 @@ enum SafeModeV2VideoProcessor {
         lastReConfirmFrameIdx: inout Int,
         reConfirmEventCount: inout Int,
         reSeedEventCount: inout Int,
+        consecutiveReConfirmMisses: inout Int,
         frameIdx: Int,
         reSeedRadiusPx: Double,
         pixelBuffer: CVPixelBuffer,
@@ -6284,6 +6366,9 @@ enum SafeModeV2VideoProcessor {
             soloFloor: soloFloor
         )
         if let idx = pick.subjectFaceIdx {
+            // Face-rec matched — reset the consecutive-miss tolerance
+            // and run the existing confirm-or-re-seed logic.
+            consecutiveReConfirmMisses = 0
             let candidate = detectedFaces[idx]
             if let prevBbox = subjectBboxPixelTopLeft {
                 let prevCx = prevBbox.midX
@@ -6303,6 +6388,29 @@ enum SafeModeV2VideoProcessor {
             reSeedEventCount += 1
             return StateMachineDecision(subjectFaceIdx: idx)
         }
+
+        // Face-rec missed. Per spec section 6d (tracker-drop softening),
+        // tolerate up to `reConfirmConsecutiveMissTolerance` consecutive
+        // re-confirm misses while the tracker is still holding a valid
+        // bbox (the tracker's own confidence drop has its own .lost
+        // transition above and never lands here with a valid trackObservation).
+        // Single-frame face-rec failures (motion blur, eyes closed,
+        // brief head turn) should NOT drop the tracker.
+        consecutiveReConfirmMisses += 1
+        if consecutiveReConfirmMisses < reConfirmConsecutiveMissTolerance,
+           trackObservation != nil,
+           let prevBbox = subjectBboxPixelTopLeft {
+            // Keep the tracker; stay in .tracking; return the nearest
+            // detected face index (if any) for compositing. The next
+            // frame will resume the normal .tracking branch.
+            state = .tracking
+            let idx = faceIndexNearestToBbox(bbox: prevBbox, faces: detectedFaces)
+            return StateMachineDecision(subjectFaceIdx: idx)
+        }
+
+        // Tolerance exhausted (or tracker was already gone). Fall through
+        // to the original drop-tracker behaviour.
+        consecutiveReConfirmMisses = 0
         state = .noSubject
         trackObservation = nil
         subjectBboxNormalized = nil

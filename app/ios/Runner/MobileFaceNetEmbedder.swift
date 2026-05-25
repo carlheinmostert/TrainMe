@@ -186,7 +186,15 @@ final class MobileFaceNetEmbedder {
     /// Branch the hybrid pick-highest rule fell into. Surfaced for
     /// diagnostic logging — Carl's bench / device logs grep on this.
     enum PickBranch: String {
+        /// Vision detected no faces in the frame. Caller runs no-subject
+        /// mode (silhouettes sharp, nothing to blur).
         case noFaces       = "no-faces"
+        /// Vision detected faces BUT the client has no enrolled
+        /// embeddings, so subject identification can't be performed.
+        /// Caller should treat this as no-subject mode defensively;
+        /// upstream gating (`SafeModeService.subjectEmbedding`) should
+        /// have blocked the capture, so this branch is mostly diagnostic.
+        case noReferences  = "no-references"
         case soloFloor     = "solo-floor"
         case multiRelative = "multi-relative"
     }
@@ -261,9 +269,14 @@ final class MobileFaceNetEmbedder {
 
         let subjectIdentified: Bool
         let branch: PickBranch
-        if matches.isEmpty || slots.isEmpty {
+        if matches.isEmpty {
             subjectIdentified = false
             branch = .noFaces
+        } else if slots.isEmpty {
+            // Faces detected but caller passed no enrolled references.
+            // Disambiguated from .noFaces — see PickBranch docs.
+            subjectIdentified = false
+            branch = .noReferences
         } else if matches.count == 1 {
             // Solo branch — trust practitioner intent unless cosSim is
             // suspiciously low. The single-face threshold IS the solo

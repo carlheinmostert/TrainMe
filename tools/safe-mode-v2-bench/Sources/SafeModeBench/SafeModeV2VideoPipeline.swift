@@ -240,8 +240,11 @@ enum SafeModeV2VideoPipeline {
               let blendFilter = CIFilter(name: "CIBlendWithMask") else {
             throw SafeModeV2VideoPipelineError.allocFailed("CIFilter init")
         }
+        // Blur radius scales with frame dim via the bench-local helper.
+        // Mirrors iOS `safeModeV2BlurRadius` exactly. Three call sites
+        // total — iOS photo, iOS video, this bench. Keep aligned.
         let minDim = Double(min(videoWidth, videoHeight))
-        let blurRadius = 35.0 * max(0.25, minDim / 1080.0)
+        let blurRadius = SafeModeV2VideoPipeline.safeModeV2BlurRadius(forMinDim: minDim)
 
         let faceSequenceHandler = VNSequenceRequestHandler()
         let trackerSequenceHandler = VNSequenceRequestHandler()
@@ -260,6 +263,7 @@ enum SafeModeV2VideoPipeline {
         var trackerLossEvents = 0
         var reSeedEvents = 0
         var reConfirmEvents = 0
+        var consecutiveReConfirmMisses = 0
         var totalFaceCount = 0
         var subjectCosSimSum: Double = 0
         var subjectCosSimSamples: Int = 0
@@ -351,7 +355,11 @@ enum SafeModeV2VideoPipeline {
                     }
                     let trackResult = trackReq.results?.first as? VNDetectedObjectObservation
                     if trackFailed {
+                        // Tracker's own confidence dropped — independent
+                        // signal, bypasses the consecutive-miss tolerance
+                        // (spec section 6d).
                         trackerLossEvents += 1
+                        consecutiveReConfirmMisses = 0
                         state = .lost
                         trackObservation = nil
                         subjectBboxNormalized = nil
@@ -373,6 +381,7 @@ enum SafeModeV2VideoPipeline {
                                 lastReConfirmFrameIdx: &lastReConfirmFrameIdx,
                                 reConfirmEvents: &reConfirmEvents,
                                 reSeedEvents: &reSeedEvents,
+                                consecutiveReConfirmMisses: &consecutiveReConfirmMisses,
                                 frameIdx: framesProcessed,
                                 reSeedRadiusPx: reSeedRadiusPx,
                                 pixelBuffer: pixelBuffer,
@@ -393,6 +402,7 @@ enum SafeModeV2VideoPipeline {
                         }
                     } else {
                         trackerLossEvents += 1
+                        consecutiveReConfirmMisses = 0
                         state = .lost
                         trackObservation = nil
                         subjectBboxNormalized = nil
@@ -403,6 +413,12 @@ enum SafeModeV2VideoPipeline {
                 }
 
             case .reConfirming:
+                // Unreachable in steady-state (re-confirm runs inline in
+                // the .tracking branch above and always exits to .tracking
+                // or .noSubject). The case is preserved for exhaustive
+                // switch + the bench fires an assertion if the invariant
+                // ever breaks. Mirrors iOS native.
+                assertionFailure("SafeModeV2VideoPipeline: unreachable — doReConfirm() always exits to .tracking or .noSubject before the next frame")
                 let step = doReConfirm(
                     state: &state,
                     trackObservation: &trackObservation,
@@ -411,6 +427,7 @@ enum SafeModeV2VideoPipeline {
                     lastReConfirmFrameIdx: &lastReConfirmFrameIdx,
                     reConfirmEvents: &reConfirmEvents,
                     reSeedEvents: &reSeedEvents,
+                    consecutiveReConfirmMisses: &consecutiveReConfirmMisses,
                     frameIdx: framesProcessed,
                     reSeedRadiusPx: reSeedRadiusPx,
                     pixelBuffer: pixelBuffer,
@@ -439,6 +456,7 @@ enum SafeModeV2VideoPipeline {
                     subjectBboxPixelTopLeft = subject.pixelRectTopLeft
                     state = .tracking
                     reSeedEvents += 1
+                    consecutiveReConfirmMisses = 0
                     picked = StateMachineStep(subjectFaceIdx: idx, cosSim: pick.bestSim)
                     subjectCosSimSum += pick.bestSim
                     subjectCosSimSamples += 1
@@ -462,6 +480,7 @@ enum SafeModeV2VideoPipeline {
                         subjectBboxPixelTopLeft = subject.pixelRectTopLeft
                         state = .tracking
                         reSeedEvents += 1
+                        consecutiveReConfirmMisses = 0
                         picked = StateMachineStep(subjectFaceIdx: idx, cosSim: pick.bestSim)
                         subjectCosSimSum += pick.bestSim
                         subjectCosSimSamples += 1
@@ -565,6 +584,13 @@ enum SafeModeV2VideoPipeline {
 
             // Append — wait for the input to be ready. expectsMediaDataInRealTime
             // is false so this is a tight serial loop.
+            //
+            // Bench-only busy-wait; do NOT port this pattern to iOS — the
+            // iOS path uses requestMediaDataWhenReady on a background
+            // queue with a DispatchGroup gating finishWriting, which is
+            // the correct production pattern for AVAssetWriter. The
+            // bench prioritises deterministic stats over throughput, so
+            // a 1ms-tick busy-wait inside a synchronous pump is fine here.
             while !writerInput.isReadyForMoreMediaData {
                 Thread.sleep(forTimeInterval: 0.001)
             }
@@ -623,6 +649,17 @@ enum SafeModeV2VideoPipeline {
     }
 
     // MARK: - Helpers (mirror iOS `SafeModeV2VideoProcessor`)
+
+    /// Reference blur radius for the v2 composite at 1080p. Three call
+    /// sites in the codebase use this value: iOS photo, iOS video,
+    /// this bench. Mirrors `kSafeModeV2BlurRadius1080` in iOS native.
+    static let kSafeModeV2BlurRadius1080: Double = 35.0
+
+    /// Gaussian blur radius scaled to the frame's shorter dimension.
+    /// Mirrors iOS native `safeModeV2BlurRadius(forMinDim:)`.
+    static func safeModeV2BlurRadius(forMinDim minDim: Double) -> Double {
+        return kSafeModeV2BlurRadius1080 * max(0.25, minDim / 1080.0)
+    }
 
     struct StateMachineStep {
         let subjectFaceIdx: Int?
@@ -766,6 +803,12 @@ enum SafeModeV2VideoPipeline {
         )
     }
 
+    /// Tolerance count for consecutive re-confirm misses before dropping
+    /// the tracker. Mirrors iOS native
+    /// `SafeModeV2VideoProcessor.reConfirmConsecutiveMissTolerance`.
+    /// Spec section 6d (re-confirm tracker-drop softening).
+    static let reConfirmConsecutiveMissTolerance: Int = 3
+
     static func doReConfirm(
         state: inout State,
         trackObservation: inout VNDetectedObjectObservation?,
@@ -774,6 +817,7 @@ enum SafeModeV2VideoPipeline {
         lastReConfirmFrameIdx: inout Int,
         reConfirmEvents: inout Int,
         reSeedEvents: inout Int,
+        consecutiveReConfirmMisses: inout Int,
         frameIdx: Int,
         reSeedRadiusPx: Double,
         pixelBuffer: CVPixelBuffer,
@@ -790,6 +834,7 @@ enum SafeModeV2VideoPipeline {
             soloFloor: soloFloor
         )
         if let idx = pick.subjectFaceIdx {
+            consecutiveReConfirmMisses = 0
             let candidate = detectedFaces[idx]
             if let prevBbox = subjectBboxPixelTopLeft {
                 let dx = Double(candidate.centerXPx) - Double(prevBbox.midX)
@@ -807,6 +852,20 @@ enum SafeModeV2VideoPipeline {
             reSeedEvents += 1
             return StateMachineStep(subjectFaceIdx: idx, cosSim: pick.bestSim)
         }
+
+        // Face-rec missed. Soften the tracker drop per spec section 6d.
+        // Tolerate up to `reConfirmConsecutiveMissTolerance` consecutive
+        // misses while the tracker is still holding a valid bbox.
+        consecutiveReConfirmMisses += 1
+        if consecutiveReConfirmMisses < reConfirmConsecutiveMissTolerance,
+           trackObservation != nil,
+           let prevBbox = subjectBboxPixelTopLeft {
+            state = .tracking
+            let idx = faceIndexNearestToBbox(bbox: prevBbox, faces: detectedFaces)
+            return StateMachineStep(subjectFaceIdx: idx, cosSim: nil)
+        }
+
+        consecutiveReConfirmMisses = 0
         state = .noSubject
         trackObservation = nil
         subjectBboxNormalized = nil
