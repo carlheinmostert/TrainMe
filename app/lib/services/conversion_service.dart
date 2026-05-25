@@ -18,7 +18,6 @@ import 'local_storage_service.dart';
 import 'loud_swallow.dart';
 import 'path_resolver.dart';
 import 'safe_mode.dart';
-import 'safe_mode_service.dart';
 
 /// Maximum tolerated Vision miss-rate (0.0–1.0) for a Safe Mode
 /// capture before [ConversionService] rejects it with
