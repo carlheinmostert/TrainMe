@@ -24,7 +24,7 @@ import '../theme.dart';
 ///                        button that opens the portal's
 ///                        `/safe-mode` page. Returns `false`.
 ///
-/// Mounted via [showSafeModePaywallSheet] which returns a Future<bool>
+/// Mounted via [showSafeModePaywallSheet] which returns a `Future<bool>`
 /// telling the caller whether the gate was cleared (true = trial was
 /// just started; false = user cancelled or was sent to the portal).
 ///

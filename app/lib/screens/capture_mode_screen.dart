@@ -1048,6 +1048,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       _pendingStopAfterStart = false;
       return;
     }
+    if (!mounted) return;
 
     // Safe Mode v2 (2026-05-23) — video Safe Mode doesn't ship in
     // this wave. Suppress the long-press-to-record gesture entirely
