@@ -1,0 +1,1107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Safe Mode v2 — Enrolment Polish (Phase 2 wireframe)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0F1117;
+      --base: #1A1D27;
+      --raised: #242733;
+      --border: #2E3140;
+      --ink: #F0F0F5;
+      --ink-secondary: #9CA3AF;
+      --ink-muted: #6B7280;
+      --coral: #FF6B35;
+      --coral-dark: #E85A24;
+      --coral-light: #FF8F5E;
+      --coral-tint-bg: rgba(255, 107, 53, 0.12);
+      --coral-tint-border: rgba(255, 107, 53, 0.30);
+      --sage: #86EFAC;
+      --amber: #F59E0B;
+      --amber-light: #FCD34D;
+      --rose: #F87171;
+      --rose-tint-bg: rgba(248, 113, 113, 0.12);
+      --rose-tint-border: rgba(248, 113, 113, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #060709;
+      color: var(--ink);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px 96px;
+      gap: 32px;
+    }
+
+    h1.page-title {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 800;
+      font-size: 24px;
+      letter-spacing: -0.4px;
+      color: var(--ink);
+      margin: 0;
+      text-align: center;
+    }
+
+    p.page-sub {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0;
+      text-align: center;
+      max-width: 640px;
+      line-height: 1.55;
+    }
+
+    nav.toc {
+      background: var(--base);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 24px;
+      max-width: 640px;
+      width: 100%;
+    }
+
+    nav.toc h2 {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin: 0 0 12px;
+    }
+
+    nav.toc ol {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      line-height: 1.7;
+    }
+
+    nav.toc a {
+      color: var(--ink);
+      text-decoration: none;
+    }
+
+    nav.toc a:hover { color: var(--coral-light); text-decoration: underline; }
+
+    section.state {
+      width: 100%;
+      max-width: 960px;
+      display: grid;
+      grid-template-columns: 390px 1fr;
+      gap: 32px;
+      align-items: start;
+      padding: 24px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    section.state:first-of-type { border-top: none; padding-top: 8px; }
+
+    .device-col { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+    .stage-label {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .annotations {
+      padding-top: 8px;
+    }
+
+    .annotations h3 {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--ink);
+      margin: 0 0 6px;
+      letter-spacing: -0.2px;
+    }
+
+    .annotations .sub {
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin: 0 0 16px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+
+    .annotations ul {
+      margin: 0 0 14px;
+      padding-left: 18px;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      line-height: 1.65;
+    }
+
+    .annotations ul li { margin-bottom: 4px; }
+
+    .annotations strong { color: var(--ink); font-weight: 600; }
+
+    .annotations .callout {
+      margin-top: 16px;
+      padding: 12px 14px;
+      border-left: 3px solid var(--coral);
+      background: var(--coral-tint-bg);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: var(--ink);
+      line-height: 1.55;
+    }
+
+    .annotations .callout strong { color: var(--coral-light); }
+
+    .annotations .callout.warn {
+      border-left-color: var(--amber);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    .annotations .callout.warn strong { color: var(--amber-light); }
+
+    /* iPhone-sized frame */
+    .device {
+      width: 390px;
+      height: 844px;
+      background: var(--bg);
+      border-radius: 48px;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6), 0 0 0 8px #1a1a1a;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .notch {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 110px;
+      height: 32px;
+      background: #000;
+      border-radius: 999px;
+      z-index: 20;
+    }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    /* ===== Shared viewfinder ===== */
+    .viewfinder {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 50% 42%, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0.55) 75%, rgba(0,0,0,0.85) 100%),
+        linear-gradient(180deg, #1a1f2a 0%, #0c0e14 100%);
+    }
+
+    .face-mock {
+      position: absolute;
+      left: 50%;
+      top: 38%;
+      transform: translate(-50%, -50%);
+      width: 220px;
+      height: 280px;
+      opacity: 0.55;
+      filter: blur(0.3px);
+    }
+
+    .face-mock svg { width: 100%; height: 100%; }
+
+    /* Chrome chips (cancel, slot counter, flip) */
+    .chip-base {
+      position: absolute;
+      border-radius: 999px;
+      background: rgba(36, 39, 51, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    .cancel-chip {
+      top: 64px;
+      left: 16px;
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+    }
+
+    .cancel-chip svg { width: 18px; height: 18px; stroke: var(--ink); fill: none; stroke-width: 2; stroke-linecap: round; }
+
+    .flip-chip {
+      top: 64px;
+      right: 16px;
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+    }
+
+    .flip-chip svg { width: 20px; height: 20px; stroke: var(--ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    .slot-counter {
+      top: 64px;
+      right: 64px;
+      padding: 8px 14px;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: 0.3px;
+    }
+
+    .quality-badge {
+      top: 110px;
+      right: 16px;
+      padding: 6px 12px;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .quality-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .quality-badge.good { color: var(--coral-light); border-color: var(--coral-tint-border); }
+    .quality-badge.mid  { color: var(--amber-light); border-color: rgba(245, 158, 11, 0.45); }
+    .quality-badge.bad  { color: var(--rose); border-color: var(--rose-tint-border); }
+
+    /* ===== Guidance ring (6 segments) ===== */
+    .ring-wrap {
+      position: absolute;
+      left: 50%;
+      top: 38%;
+      transform: translate(-50%, -50%);
+      width: 320px;
+      height: 320px;
+      pointer-events: none;
+    }
+
+    .ring-wrap svg { width: 100%; height: 100%; overflow: visible; }
+
+    .segment {
+      fill: none;
+      stroke-width: 10;
+      stroke-linecap: round;
+      transition: stroke 200ms ease-out, opacity 200ms ease-out, filter 200ms ease-out;
+    }
+
+    .segment.dim {
+      stroke: rgba(255, 107, 53, 0.18);
+    }
+
+    .segment.lit {
+      stroke: var(--coral);
+      filter: drop-shadow(0 0 6px rgba(255, 107, 53, 0.55));
+    }
+
+    .face-guide-circle {
+      fill: none;
+      stroke: rgba(255, 107, 53, 0.6);
+      stroke-width: 1.5;
+      stroke-dasharray: 4 6;
+      opacity: 0.7;
+    }
+
+    /* Segment labels (small, around the ring) */
+    .segment-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      fill: var(--ink-muted);
+      text-anchor: middle;
+    }
+
+    .segment-label.lit { fill: var(--coral-light); }
+
+    /* ===== Hint text + sweep status ===== */
+    .hint-text {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(38% + 200px);
+      text-align: center;
+      padding: 0 32px;
+      z-index: 5;
+    }
+
+    .hint-text .primary {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 17px;
+      letter-spacing: -0.2px;
+      color: var(--ink);
+      line-height: 1.35;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+      margin: 0;
+    }
+
+    .hint-text .secondary {
+      margin-top: 8px;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 400;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+    }
+
+    /* Reject toast — brief X flash */
+    .reject-toast {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      top: calc(38% + 268px);
+      padding: 8px 14px;
+      border-radius: 10px;
+      background: var(--rose-tint-bg);
+      border: 1px solid var(--rose-tint-border);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--rose);
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      z-index: 6;
+      box-shadow: 0 4px 16px rgba(248, 113, 113, 0.15);
+    }
+
+    .reject-toast .x {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: var(--rose);
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .reject-toast .score-pill {
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(248, 113, 113, 0.18);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--rose);
+      letter-spacing: 0.3px;
+    }
+
+    /* ===== State 3 — post-sweep confirm grid ===== */
+    .confirm-screen {
+      position: absolute;
+      inset: 0;
+      background: var(--bg);
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .confirm-top {
+      padding: 72px 24px 0;
+    }
+
+    .confirm-title {
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      color: var(--ink);
+      letter-spacing: -0.3px;
+      margin: 0 0 4px;
+    }
+
+    .confirm-sub {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0 0 14px;
+      line-height: 1.5;
+    }
+
+    /* Quality histogram */
+    .quality-histogram {
+      display: flex;
+      gap: 4px;
+      align-items: flex-end;
+      height: 38px;
+      padding: 6px 10px;
+      background: var(--base);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .quality-histogram .bar-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .quality-histogram .bar {
+      width: 100%;
+      border-radius: 3px 3px 0 0;
+      background: var(--coral);
+      min-height: 4px;
+      transition: height 200ms ease-out;
+    }
+
+    .quality-histogram .bar.mid { background: var(--amber); }
+    .quality-histogram .bar.bad { background: var(--rose); }
+
+    .quality-histogram .bar-num {
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--ink-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 6-cell face grid */
+    .grid-section {
+      padding: 16px 24px 0;
+    }
+
+    .grid-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin: 14px 0 10px;
+    }
+
+    .face-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .face-cell {
+      aspect-ratio: 3 / 4;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #2a2f3d 0%, #161922 100%);
+      border: 2px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 150ms ease-out, transform 120ms ease-out;
+    }
+
+    .face-cell:hover { transform: translateY(-1px); border-color: var(--coral-tint-border); }
+
+    .face-cell.selected {
+      border-color: var(--coral);
+      box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.18);
+    }
+
+    .face-cell svg.face {
+      position: absolute;
+      inset: 8px 8px 24px;
+      width: calc(100% - 16px);
+      height: calc(100% - 32px);
+      opacity: 0.8;
+    }
+
+    .face-cell .score-chip {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(15, 17, 23, 0.85);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--coral-light);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.2px;
+    }
+
+    .face-cell .score-chip.mid  { color: var(--amber-light); }
+    .face-cell .score-chip.bad  { color: var(--rose); }
+
+    .face-cell .pose-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 4px 6px 5px;
+      background: rgba(15, 17, 23, 0.75);
+      text-align: center;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+    }
+
+    .face-cell.selected .pose-label { color: var(--coral-light); }
+
+    .face-cell .frontal-star {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: var(--coral);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .face-cell .frontal-star svg { width: 9px; height: 9px; fill: white; }
+
+    /* Confirm bottom actions */
+    .confirm-actions {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 40px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 14px 18px;
+      border-radius: 14px;
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      text-align: center;
+      letter-spacing: -0.1px;
+      border: none;
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease;
+    }
+
+    .btn-primary {
+      background: var(--coral);
+      color: white;
+    }
+
+    .btn-primary:hover { background: var(--coral-dark); }
+
+    .btn-secondary {
+      background: var(--raised);
+      color: var(--ink);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { color: var(--coral-light); border-color: var(--coral-tint-border); }
+
+    /* ===== State 4 — avatar-only single-shot ===== */
+    .shutter-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 64px;
+      display: flex;
+      justify-content: center;
+      z-index: 8;
+    }
+
+    .shutter {
+      width: 84px;
+      height: 84px;
+      border-radius: 999px;
+      background: white;
+      border: 4px solid rgba(255, 255, 255, 0.5);
+      cursor: pointer;
+      transition: transform 80ms ease;
+      box-shadow: 0 0 0 6px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .shutter:active { transform: scale(0.95); }
+
+    .shutter-hint {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 162px;
+      text-align: center;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+      z-index: 5;
+      font-weight: 500;
+      letter-spacing: 0.1px;
+    }
+
+    /* Footer */
+    .footer {
+      margin-top: 16px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.3px;
+      text-align: center;
+    }
+
+    .footer a { color: var(--coral-light); text-decoration: none; }
+    .footer a:hover { color: var(--coral); text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1 class="page-title">Safe Mode v2 — Enrolment Polish (Phase 2)</h1>
+  <p class="page-sub">Four states / screens covering the Phase 2 changes from <code>docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md</code>: real-time pose-gated sweep, live quality scoring, manual avatar selection grid, and the avatar-only single-shot mode for when face-rec consent is OFF.</p>
+
+  <nav class="toc">
+    <h2>States in this wireframe</h2>
+    <ol>
+      <li><a href="#state-1">State 1 — Sweep start (full mode)</a></li>
+      <li><a href="#state-2">State 2 — Sweep mid-capture (3 of 6 + rejection)</a></li>
+      <li><a href="#state-3">State 3 — Sweep complete: manual avatar selection grid</a></li>
+      <li><a href="#state-4">State 4 — Avatar-only mode (face-rec consent OFF)</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================= -->
+  <!-- STATE 1 — Sweep start -->
+  <!-- ============================================================= -->
+  <section class="state" id="state-1">
+    <div class="device-col">
+      <div class="stage-label">State 1 — Sweep start</div>
+      <div class="device">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="viewfinder"></div>
+
+          <!-- Cancel top-left -->
+          <div class="chip-base cancel-chip" title="Cancel enrolment">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6L18 18M18 6L6 18"/></svg>
+          </div>
+
+          <!-- Slot counter top-right -->
+          <div class="chip-base slot-counter">0 of 6 captured</div>
+
+          <!-- Camera flip — smaller, far right -->
+          <div class="chip-base flip-chip" title="Flip camera">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 7h14l-3-3"/>
+              <path d="M21 17H7l3 3"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+
+          <!-- Face silhouette behind ring -->
+          <div class="face-mock">
+            <svg viewBox="0 0 220 280" aria-hidden="true">
+              <defs>
+                <linearGradient id="faceG1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3a4050" stop-opacity="0.9"/>
+                  <stop offset="100%" stop-color="#1f2330" stop-opacity="0.5"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="110" cy="120" rx="78" ry="98" fill="url(#faceG1)"/>
+              <ellipse cx="86" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <ellipse cx="134" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <path d="M95 162 Q110 172 125 162" stroke="#0c0e14" stroke-width="2" stroke-opacity="0.4" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <!-- 6-segment guidance ring (all dim) -->
+          <div class="ring-wrap">
+            <svg viewBox="0 0 320 320" aria-hidden="true">
+              <!-- Dashed face guide -->
+              <circle class="face-guide-circle" cx="160" cy="160" r="118"/>
+              <!-- 6 segments around the ring (radius 142) -->
+              <g id="ring-1"></g>
+              <g id="labels-1"></g>
+            </svg>
+          </div>
+
+          <!-- Hint -->
+          <div class="hint-text">
+            <p class="primary">Look at the camera to begin</p>
+            <p class="secondary">We'll guide you through six head angles</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotations">
+      <h3>Sweep start</h3>
+      <p class="sub">Initial frame · before any pose is committed</p>
+      <ul>
+        <li><strong>Guidance ring</strong> — six radial segments around the face guide. All segments dim coral (18% opacity). Each segment maps to a pose bucket: front, front-left, front-right, left, right, slight-up.</li>
+        <li><strong>Dashed face guide</strong> — soft coral dashed circle marks where the client's face should sit. Replaces the prior solid breathing circle (less visually loud while six segments compete for attention).</li>
+        <li><strong>Slot counter</strong> top-right — pill chip <code>"0 of 6 captured"</code>. New element; the Wave-D editor had no slot counter.</li>
+        <li><strong>Camera flip chip</strong> top-right corner — Phase 1 element re-shown here for context. Persisted last-used per device.</li>
+        <li><strong>Cancel</strong> top-left — same X chip as Wave-D.</li>
+        <li><strong>Hint text</strong> below the ring — first prompt is passive (<em>"Look at the camera to begin"</em>) until the first pose is detected. Then switches to active guidance toward missing buckets.</li>
+        <li><strong>No "Start" button</strong> — the sweep auto-begins as soon as Vision sees a face. Removes a tap vs Wave-D.</li>
+      </ul>
+      <div class="callout">
+        <strong>Open question 1 (pose-bucket count).</strong> This wireframe uses <strong>6 segments</strong> per the spec recommendation. Spec section 10 flags 8 as the alternative. Carl: confirm 6 vs 8 before Phase 2 lands.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- STATE 2 — Sweep in progress -->
+  <!-- ============================================================= -->
+  <section class="state" id="state-2">
+    <div class="device-col">
+      <div class="stage-label">State 2 — Sweep mid-capture</div>
+      <div class="device">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="viewfinder"></div>
+
+          <div class="chip-base cancel-chip" title="Cancel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6L18 18M18 6L6 18"/></svg>
+          </div>
+
+          <div class="chip-base slot-counter">3 of 6 captured</div>
+
+          <div class="chip-base flip-chip" title="Flip camera">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 7h14l-3-3"/>
+              <path d="M21 17H7l3 3"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+
+          <!-- Quality badge — last accepted slot score -->
+          <div class="chip-base quality-badge good">
+            <span class="dot"></span>
+            <span>Last slot: 87</span>
+          </div>
+
+          <!-- Face silhouette — turned slightly to suggest motion -->
+          <div class="face-mock" style="transform: translate(calc(-50% + 8px), -50%);">
+            <svg viewBox="0 0 220 280" aria-hidden="true">
+              <defs>
+                <linearGradient id="faceG2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3a4050" stop-opacity="0.9"/>
+                  <stop offset="100%" stop-color="#1f2330" stop-opacity="0.5"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="116" cy="120" rx="74" ry="98" fill="url(#faceG2)"/>
+              <ellipse cx="94" cy="118" rx="5" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <ellipse cx="142" cy="118" rx="5" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <path d="M104 162 Q118 172 132 162" stroke="#0c0e14" stroke-width="2" stroke-opacity="0.4" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <!-- 6-segment ring, 3 lit (front, front-left, left) -->
+          <div class="ring-wrap">
+            <svg viewBox="0 0 320 320" aria-hidden="true">
+              <circle class="face-guide-circle" cx="160" cy="160" r="118"/>
+              <g id="ring-2"></g>
+              <g id="labels-2"></g>
+            </svg>
+          </div>
+
+          <!-- Hint -->
+          <div class="hint-text">
+            <p class="primary">Turn slightly to your right</p>
+            <p class="secondary">3 captured · 3 to go</p>
+          </div>
+
+          <!-- Reject toast — recent low-quality frame -->
+          <div class="reject-toast">
+            <span class="x">×</span>
+            <span>Slot rejected — quality too low</span>
+            <span class="score-pill">42</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotations">
+      <h3>Sweep mid-capture</h3>
+      <p class="sub">3 of 6 captured · one frame rejected</p>
+      <ul>
+        <li><strong>Three segments lit coral</strong> — front, front-left, left. Lit segments glow softly (<code>drop-shadow</code> at 55% coral). Three missing: front-right, right, slight-up.</li>
+        <li><strong>Quality badge top-right</strong> (<code>"Last slot: 87"</code>) — newly-added live feedback. Colour-coded: coral &ge; 80, amber 60-79, rose &lt; 60. The badge displays the most recently <em>accepted</em> slot's composite score (5-component weighted sum from spec section 4c).</li>
+        <li><strong>Hint text</strong> derives from which missing bucket is closest to the current detected pose. Implementation: <code>argmin(poseDistance(currentPose, bucketCentre)) for bucket in unfilled</code>.</li>
+        <li><strong>Reject toast</strong> (rose-tinted pill) — surfaces briefly (~1s) when a candidate frame is rejected for quality. Shows the actual score so the practitioner understands why. The slot counter does NOT increment.</li>
+        <li><strong>Slot counter live-updates</strong> — <code>"3 of 6 captured"</code>. No animation on increment; just a flat label change to avoid jitter.</li>
+        <li><strong>No haptic on accept/reject</strong> — iOS suppresses haptics during active mic / camera capture (gotcha memory). Visual feedback only.</li>
+      </ul>
+      <div class="callout">
+        <strong>Open question 2 (quality threshold).</strong> Spec recommends <strong>60</strong> as the reject threshold; 42 in the wireframe is well below. The wireframe also shows the rejected score on the toast so practitioners can calibrate — confirm we want to expose the raw number vs a softer "Move into better light" message.
+      </div>
+      <div class="callout warn">
+        <strong>Pose-distance threshold (open question 4).</strong> 25&deg; Manhattan sum is the spec default. With 6 buckets ~60&deg; apart, that gives roughly 35&deg; of slop per bucket — generous. Tune in Phase 2 device QA.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- STATE 3 — Sweep complete: confirm grid -->
+  <!-- ============================================================= -->
+  <section class="state" id="state-3">
+    <div class="device-col">
+      <div class="stage-label">State 3 — Manual avatar selection</div>
+      <div class="device">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="confirm-screen">
+            <div class="confirm-top">
+              <h2 class="confirm-title">Pick the avatar</h2>
+              <p class="confirm-sub">All 6 angles saved. Tap the photo to use as the client's profile image.</p>
+
+              <!-- Quality histogram -->
+              <div class="quality-histogram" id="hist-3"></div>
+            </div>
+
+            <div class="grid-section">
+              <p class="grid-label">Captured angles · 6</p>
+              <div class="face-grid" id="face-grid-3"></div>
+            </div>
+
+            <div class="confirm-actions">
+              <button class="btn btn-secondary">Retake</button>
+              <button class="btn btn-primary">Confirm</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotations">
+      <h3>Manual avatar selection grid</h3>
+      <p class="sub">Sweep complete · full mode (both consents ON)</p>
+      <ul>
+        <li><strong>Quality histogram</strong> at top — six narrow bars, one per captured slot, colour-coded by quality band. Visual at-a-glance "spread" of how well the sweep went. If the average is &lt; 70 a separate retake-suggestion banner would show above the grid (not pictured here — that's the "low quality" variant).</li>
+        <li><strong>6-cell face grid</strong> (3 wide × 2 tall) — each cell shows the cropped face, a quality-score chip top-right, the pose label bottom (<code>"front-left"</code>, <code>"front"</code>, etc.), and the frontal star top-left on the default pick.</li>
+        <li><strong>Default selection is the frontal pick</strong> (highlighted with coral border + glow). The practitioner can tap any other cell to override; <code>:hover</code> states preview the swap.</li>
+        <li><strong>Confirm</strong> (primary coral) — persists embeddings + chosen-frame avatar JPG.</li>
+        <li><strong>Retake</strong> (secondary) — discards all six slots and restarts the sweep. No "Are you sure?" modal (R-01).</li>
+        <li><strong>Grid is hidden when avatar consent is OFF</strong> — see spec section 3 consent matrix. In that mode (face-rec ON, avatar OFF) the sweep completes silently, embeddings persist, and the screen pops.</li>
+      </ul>
+      <div class="callout">
+        <strong>Pose-label grammar.</strong> Wireframe uses human-readable labels (<code>"front-left"</code>, <code>"slight-up"</code>) over the spec example (<code>"front-left, 0&deg; pitch"</code>). The numeric pitch is noisy and not actionable for the practitioner; the bucket name is what matters. Confirm.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- STATE 4 — Avatar-only single-shot -->
+  <!-- ============================================================= -->
+  <section class="state" id="state-4">
+    <div class="device-col">
+      <div class="stage-label">State 4 — Avatar-only mode</div>
+      <div class="device">
+        <div class="notch"></div>
+        <div class="screen">
+          <div class="viewfinder"></div>
+
+          <div class="chip-base cancel-chip" title="Cancel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6L18 18M18 6L6 18"/></svg>
+          </div>
+
+          <div class="chip-base flip-chip" title="Flip camera">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 7h14l-3-3"/>
+              <path d="M21 17H7l3 3"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+
+          <!-- Face silhouette centred — no ring overlay -->
+          <div class="face-mock">
+            <svg viewBox="0 0 220 280" aria-hidden="true">
+              <defs>
+                <linearGradient id="faceG4" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3a4050" stop-opacity="0.9"/>
+                  <stop offset="100%" stop-color="#1f2330" stop-opacity="0.5"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="110" cy="120" rx="78" ry="98" fill="url(#faceG4)"/>
+              <ellipse cx="86" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <ellipse cx="134" cy="118" rx="6" ry="3" fill="#0c0e14" opacity="0.55"/>
+              <path d="M95 162 Q110 172 125 162" stroke="#0c0e14" stroke-width="2" stroke-opacity="0.4" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <!-- Hint above shutter -->
+          <div class="shutter-hint">Tap to capture client's avatar</div>
+
+          <!-- Centered shutter -->
+          <div class="shutter-row">
+            <div class="shutter" title="Capture"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotations">
+      <h3>Avatar-only mode</h3>
+      <p class="sub">Face-rec consent OFF · avatar consent ON</p>
+      <ul>
+        <li><strong>No guidance ring</strong> — there's no multi-reference sweep to guide. Just frame the face and tap.</li>
+        <li><strong>No slot counter, no quality badge</strong> — single capture. (Internally a sharpness + lighting gate can still reject a blurred shutter press; the spec leaves quality scoring "optional" for this mode.)</li>
+        <li><strong>Centered shutter</strong> — large coral-edged white circle, matches the existing Capture screen shutter for familiarity. Active state: scale to 0.95.</li>
+        <li><strong>Shutter hint</strong> below the shutter — disambiguates "this is an avatar, not a workout capture". Drops once the user has captured one (not pictured).</li>
+        <li><strong>Camera flip + Cancel</strong> chips identical to the full-mode states.</li>
+        <li><strong>No grid afterward</strong> — single tap captures, saves to <code>raw-archive/{practice}/avatars/{clientId}.jpg</code>, pops the screen. Acts as the legacy avatar-capture flow.</li>
+      </ul>
+      <div class="callout">
+        <strong>Consent matrix coverage.</strong> The other two combinations are not separate screens: <strong>face-rec ON / avatar OFF</strong> reuses States 1–2 but skips State 3 (no grid). <strong>Both OFF</strong> never opens the editor — entry-point widgets show a SnackBar redirecting to the consent sheet.
+      </div>
+    </div>
+  </section>
+
+  <p class="footer">Spec: <a href="../specs/2026-05-25-safe-mode-v2-enrolment-polish.md">docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md</a> · Wave-D mockup (Phase 1 baseline): <a href="safe-mode-v2-enrolment.html">safe-mode-v2-enrolment.html</a></p>
+
+  <script>
+    (function () {
+      // Helper: build N arc-segments around (cx, cy) of radius r, each spanning gapDeg less than the bucket angle.
+      // Returns SVG path strings.
+      function arcPath(cx, cy, r, startDeg, endDeg) {
+        const toRad = d => (d - 90) * Math.PI / 180; // 0deg = 12 o'clock
+        const sx = cx + r * Math.cos(toRad(startDeg));
+        const sy = cy + r * Math.sin(toRad(startDeg));
+        const ex = cx + r * Math.cos(toRad(endDeg));
+        const ey = cy + r * Math.sin(toRad(endDeg));
+        const large = (endDeg - startDeg) > 180 ? 1 : 0;
+        return `M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`;
+      }
+
+      function buildRing(gid, labelsGid, lit) {
+        // 6 segments. Bucket angle = 60deg. 8deg gap.
+        const cx = 160, cy = 160, r = 142;
+        const buckets = 6;
+        const bucketDeg = 360 / buckets;
+        const gapDeg = 10;
+        const labels = ['UP', 'F-RIGHT', 'RIGHT', 'DOWN', 'LEFT', 'F-LEFT'];
+        // Start at top (UP segment centered at 0deg).
+        const g = document.getElementById(gid);
+        const lg = document.getElementById(labelsGid);
+        if (!g) return;
+        for (let i = 0; i < buckets; i++) {
+          const centerDeg = i * bucketDeg;
+          const startDeg = centerDeg - bucketDeg/2 + gapDeg/2;
+          const endDeg = centerDeg + bucketDeg/2 - gapDeg/2;
+          const isLit = lit.indexOf(i) !== -1;
+          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          p.setAttribute('d', arcPath(cx, cy, r, startDeg, endDeg));
+          p.setAttribute('class', 'segment ' + (isLit ? 'lit' : 'dim'));
+          g.appendChild(p);
+
+          // Label position — sit outside the ring at radius r + 16
+          const toRad = (centerDeg - 90) * Math.PI / 180;
+          const lx = cx + (r + 18) * Math.cos(toRad);
+          const ly = cy + (r + 18) * Math.sin(toRad) + 3;
+          const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          t.setAttribute('x', lx);
+          t.setAttribute('y', ly);
+          t.setAttribute('class', 'segment-label ' + (isLit ? 'lit' : ''));
+          t.textContent = labels[i];
+          lg.appendChild(t);
+        }
+      }
+
+      // State 1 — nothing lit
+      buildRing('ring-1', 'labels-1', []);
+      // State 2 — front-left, left, and front lit. Indexes per labels order:
+      //   0=UP, 1=F-RIGHT, 2=RIGHT, 3=DOWN, 4=LEFT, 5=F-LEFT
+      // For "front, front-left, left captured" we light: 5 (F-LEFT), 4 (LEFT), and we treat "front"
+      // as the central guide (the inner dashed circle) — but Vision considers the face directly
+      // at-camera as a separate bucket; for the wireframe we represent it as the small upward sweep
+      // by lighting bucket 0 (UP, neutral) plus 5 + 4.
+      buildRing('ring-2', 'labels-2', [0, 5, 4]);
+
+      // ===== State 3 — face grid + histogram =====
+      const slots = [
+        { pose: 'front',       cx: 110, ry: 100, score: 92, pick: true,  band: 'good' },
+        { pose: 'front-left',  cx: 122, ry: 100, score: 87, band: 'good' },
+        { pose: 'left',        cx: 132, ry: 100, score: 81, band: 'good' },
+        { pose: 'front-right', cx: 98,  ry: 100, score: 84, band: 'good' },
+        { pose: 'right',       cx: 88,  ry: 100, score: 68, band: 'mid'  },
+        { pose: 'slight-up',   cx: 110, ry: 92,  score: 76, band: 'mid'  }
+      ];
+
+      const grid = document.getElementById('face-grid-3');
+      slots.forEach(function (s, i) {
+        const cell = document.createElement('div');
+        cell.className = 'face-cell' + (s.pick ? ' selected' : '');
+        cell.innerHTML = (
+          '<svg class="face" viewBox="0 0 220 280" aria-hidden="true">' +
+            '<defs>' +
+              '<linearGradient id="gridFace' + i + '" x1="0" y1="0" x2="0" y2="1">' +
+                '<stop offset="0%" stop-color="#3a4050" stop-opacity="0.92"/>' +
+                '<stop offset="100%" stop-color="#1f2330" stop-opacity="0.65"/>' +
+              '</linearGradient>' +
+            '</defs>' +
+            '<ellipse cx="' + s.cx + '" cy="120" rx="76" ry="' + s.ry + '" fill="url(#gridFace' + i + ')"/>' +
+            '<ellipse cx="' + (s.cx - 24) + '" cy="118" rx="5" ry="3" fill="#0c0e14" opacity="0.55"/>' +
+            '<ellipse cx="' + (s.cx + 24) + '" cy="118" rx="5" ry="3" fill="#0c0e14" opacity="0.55"/>' +
+          '</svg>' +
+          '<div class="score-chip ' + (s.band === 'good' ? '' : s.band) + '">' + s.score + '</div>' +
+          (s.pick
+            ? '<div class="frontal-star"><svg viewBox="0 0 12 12"><polygon points="6,1 7.4,4.5 11,4.7 8.3,7.1 9.2,10.7 6,8.8 2.8,10.7 3.7,7.1 1,4.7 4.6,4.5"/></svg></div>'
+            : ''
+          ) +
+          '<div class="pose-label">' + s.pose + '</div>'
+        );
+
+        cell.addEventListener('click', function () {
+          grid.querySelectorAll('.face-cell').forEach(function (c) { c.classList.remove('selected'); });
+          cell.classList.add('selected');
+        });
+
+        grid.appendChild(cell);
+      });
+
+      // Histogram — same scores as slots.
+      const hist = document.getElementById('hist-3');
+      slots.forEach(function (s) {
+        const wrap = document.createElement('div');
+        wrap.className = 'bar-wrap';
+        const bar = document.createElement('div');
+        bar.className = 'bar' + (s.band === 'good' ? '' : ' ' + s.band);
+        // Height proportional: scale 60..100 -> 6..28px
+        const h = Math.max(4, Math.round(((s.score - 50) / 50) * 28));
+        bar.style.height = h + 'px';
+        const num = document.createElement('div');
+        num.className = 'bar-num';
+        num.textContent = s.score;
+        wrap.appendChild(bar);
+        wrap.appendChild(num);
+        hist.appendChild(wrap);
+      });
+    })();
+  </script>
+</body>
+</html>
