@@ -14,6 +14,7 @@ import '../models/pending_op.dart';
 import '../models/session.dart' as model;
 import '../models/treatment.dart';
 import '../config.dart';
+import '../utils/timestamp_parse.dart';
 import 'api_client.dart';
 import 'client_defaults_api.dart';
 import 'local_storage_service.dart';
@@ -557,12 +558,12 @@ class SyncService {
     final title = json['title'] is String ? json['title'] as String : null;
 
     final createdAt =
-        _parseIso(json['created_at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final sentAt = _parseIso(json['sent_at']);
-    final firstOpenedAt = _parseIso(json['first_opened_at']);
-    final lastOpenedAt = _parseIso(json['last_opened_at']);
-    final lastPublishedAt = _parseIso(json['last_published_at']);
-    final unlockCreditPrepaidAt = _parseIso(json['unlock_credit_prepaid_at']);
+        parseTimestamp(json['created_at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final sentAt = parseTimestamp(json['sent_at']);
+    final firstOpenedAt = parseTimestamp(json['first_opened_at']);
+    final lastOpenedAt = parseTimestamp(json['last_opened_at']);
+    final lastPublishedAt = parseTimestamp(json['last_published_at']);
+    final unlockCreditPrepaidAt = parseTimestamp(json['unlock_credit_prepaid_at']);
 
     final version = (json['version'] is num)
         ? (json['version'] as num).toInt()
@@ -691,7 +692,7 @@ class SyncService {
                 ? null
                 : (mediaUrl.isEmpty ? null : mediaUrl));
       final createdAt =
-          _parseIso(json['created_at']) ??
+          parseTimestamp(json['created_at']) ??
           DateTime.fromMillisecondsSinceEpoch(0);
 
       final sets = <ExerciseSet>[];
@@ -782,16 +783,6 @@ class SyncService {
       );
     }
     return out;
-  }
-
-  /// Tolerant ISO-8601 parser that accepts either a string or a
-  /// pre-parsed DateTime. Returns null on miss so callers can leave the
-  /// destination column NULL.
-  static DateTime? _parseIso(Object? value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
-    return null;
   }
 
   // ---------------------------------------------------------------------------

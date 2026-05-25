@@ -435,6 +435,12 @@ async function handleVideoError(evt) {
   if (!videoId || _videoRetrySet.has(videoId)) return; // already retried once
   _videoRetrySet.add(videoId);
 
+  // Log original error code to aid debugging (1=ABORTED 2=NETWORK 3=DECODE 4=SRC_NOT_SUPPORTED)
+  const mediaErr = video.error;
+  if (mediaErr) {
+    try { console.warn('[homefit] video error', mediaErr.code, mediaErr.message, videoId); } catch (_) {}
+  }
+
   const planId = (plan && plan.id) || getPlanIdFromURL();
   if (!planId) return;
 

@@ -92,6 +92,13 @@ export function ClientsList({
         clientName: string;
         firedAtMs: number;
       };
+      if (
+        !parsed.clientId ||
+        typeof parsed.clientName !== 'string' ||
+        typeof parsed.firedAtMs !== 'number'
+      ) {
+        return;
+      }
       const age = Date.now() - (parsed.firedAtMs ?? 0);
       if (age < 0 || age > 7000) return;
       const remaining = Math.max(1000, 7000 - age);
