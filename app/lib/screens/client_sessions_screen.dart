@@ -9,6 +9,7 @@ import '../models/session.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/conversion_service.dart';
+import '../services/face_enrolment_service.dart';
 import '../models/exercise_capture.dart';
 import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
@@ -447,48 +448,51 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
 
   /// Tap on the avatar glyph next to the client name.
   ///
-  /// Wave-D (2026-05-24) — the avatar slot is now also the entry point
-  /// for Safe Mode v2 multi-reference face enrolment. The single-shot
-  /// avatar capture is replaced by the Face-ID-style rotating-head
-  /// sweep (`FaceEnrolmentScreen`) which produces 3-8 face embeddings
-  /// AND writes the most-frontal frame as the avatar JPG. Spec:
+  /// Wave-D (2026-05-24) — the avatar slot is the entry point for
+  /// Safe Mode v2 face enrolment. The single-shot avatar capture is
+  /// replaced by the Face-ID-style rotating-head sweep
+  /// (`FaceEnrolmentScreen`) which produces 3-8 face embeddings AND
+  /// writes the most-frontal frame as the avatar JPG. Spec:
   /// docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md
   ///
-  /// Flow per spec [Re-enrol affordance]:
+  /// Phase 1 polish (2026-05-25) — the avatar-tap intercept now
+  /// consults the consent matrix from spec section 3 and routes to
+  /// one of FOUR outcomes:
   ///
-  ///   1. `client.avatarAllowed == false` → open the consent sheet
-  ///      highlighted on the avatar row (display consent for the web
-  ///      player — orthogonal to face-recognition consent below).
-  ///   2. `client.safeModeFaceRecognitionAllowed == false` → inline
-  ///      coral toast nudging the practitioner to enable Safe Mode
-  ///      face recognition in the consent sheet first. No enrolment
-  ///      UI rendered.
-  ///   3. No existing avatar → push [FaceEnrolmentScreen] directly.
-  ///   4. Existing avatar → bottom sheet with "Replace avatar and
-  ///      re-enrol" → push [FaceEnrolmentScreen].
+  ///   - `full` (face-rec ON, avatar ON) → push enrolment screen,
+  ///     full sweep + grid (grid is Phase 2).
+  ///   - `embeddingOnly` (face-rec ON, avatar OFF) → push enrolment
+  ///     screen, sweep runs, no avatar persist.
+  ///   - `avatarOnly` (face-rec OFF, avatar ON) → push enrolment
+  ///     screen in simple-shot mode (one tap = one frame = avatar
+  ///     JPG, no sweep, no embedding).
+  ///   - `disabled` (both OFF) → SnackBar with "Open consent" action.
+  ///
+  /// Existing avatar still routes through `_confirmReEnrolSheet`
+  /// regardless of mode — the destructive replace is the same.
   ///
   /// Per R-01 (no modal confirmations) the bottom sheet is dismiss-
   /// able by tapping outside / pulling down. The coral button fires
   /// immediately without an "are you sure" interstitial.
+  ///
+  /// Polish spec: docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md
   Future<void> _openAvatarFlow() async {
     HapticFeedback.selectionClick();
 
-    // Step 1 — display consent gate (web-player avatar share).
-    if (!_client.avatarAllowed) {
-      await _openConsent(highlightAvatar: true);
-      return;
-    }
+    final mode = resolveFaceEnrolmentMode(
+      faceRecognitionAllowed: _client.safeModeFaceRecognitionAllowed,
+      avatarAllowed: _client.avatarAllowed,
+    );
 
-    // Step 2 — Safe Mode face-recognition consent gate. Without this
-    // we cannot store the enrolment embeddings at all (the RPC
-    // refuses + the discriminator has nothing to match against). Show
-    // a coral toast pointing the practitioner at the consent sheet
-    // rather than silently dropping into a single-photo capture.
-    if (!_client.safeModeFaceRecognitionAllowed) {
+    // Disabled mode → SnackBar with consent-sheet entry. Phase 1
+    // spec 4f, matrix row 4. The SnackBar replaces the old
+    // separate-paths (one for avatarAllowed=false, one for face-rec
+    // off); both consents off is the only true blocker now.
+    if (mode == FaceEnrolmentMode.disabled) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-            "Enable Safe Mode face recognition in Client consent first.",
+            "Toggle face recognition or avatar consent first.",
             style: TextStyle(fontFamily: 'Inter', fontSize: 14),
           ),
           backgroundColor: AppColors.surfaceBase,
@@ -510,9 +514,9 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       return;
     }
 
-    // Step 3 / 4 — empty avatar slot → enrol straight away. Existing
-    // avatar → confirm via bottom sheet first (single-button R-01
-    // sheet, no "are you sure").
+    // Empty avatar slot → enrol straight away. Existing avatar →
+    // confirm via bottom sheet first (single-button R-01 sheet, no
+    // "are you sure").
     final hasExistingAvatar =
         _client.avatarPath != null && _client.avatarPath!.isNotEmpty;
     bool shouldEnrol = !hasExistingAvatar;

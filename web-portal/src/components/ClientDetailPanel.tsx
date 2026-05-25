@@ -61,6 +61,12 @@ export function ClientDetailPanel({
   // Wave 40.3 — Avatar (Wave-30 consent slot) finally surfaced on the
   // portal. Mirrors the mobile sheet's Profile group toggle.
   const [avatar, setAvatar] = useState(initialConsent.avatar);
+  // 2026-05-25 enrolment polish Phase 1 — Safe Mode face-recognition
+  // toggle in the Profile group (R-10 parity with the mobile sheet
+  // restructure; spec section 4e).
+  const [safeModeFaceRecognition, setSafeModeFaceRecognition] = useState(
+    initialConsent.safe_mode_face_recognition,
+  );
   const [savedConsent, setSavedConsent] = useState(initialConsent);
   const [toast, setToast] = useState<Toast>(null);
   const [pending, startTransition] = useTransition();
@@ -72,7 +78,8 @@ export function ClientDetailPanel({
   const dirty =
     grayscale !== savedConsent.grayscale ||
     original !== savedConsent.original ||
-    avatar !== savedConsent.avatar;
+    avatar !== savedConsent.avatar ||
+    safeModeFaceRecognition !== savedConsent.safe_mode_face_recognition;
 
   // "Narrowing" = the save would turn OFF a currently-granted treatment.
   // The soft warning below explains the effect on already-published plans.
@@ -83,7 +90,8 @@ export function ClientDetailPanel({
   const narrowing =
     (savedConsent.grayscale && !grayscale) ||
     (savedConsent.original && !original) ||
-    (savedConsent.avatar && !avatar);
+    (savedConsent.avatar && !avatar) ||
+    (savedConsent.safe_mode_face_recognition && !safeModeFaceRecognition);
 
   /**
    * Delete the client. R-01: fires immediately. After the RPC lands we
@@ -142,11 +150,26 @@ export function ClientDetailPanel({
         const supabase = getBrowserClient();
         const api = createPortalApi(supabase);
         await api.setClientVideoConsent(clientId, grayscale, original, avatar);
+        // 2026-05-25 enrolment polish Phase 1 — the Safe Mode face-rec
+        // toggle hits its own RPC (`set_client_safe_mode_consent`)
+        // because on toggle-off the server additionally zeros the
+        // biometric template + slot table atomically with the consent
+        // flip. Only call when actually changed to avoid spurious
+        // audit events.
+        if (
+          safeModeFaceRecognition !== savedConsent.safe_mode_face_recognition
+        ) {
+          await api.setClientSafeModeConsent(
+            clientId,
+            safeModeFaceRecognition,
+          );
+        }
         setSavedConsent({
           line_drawing: true,
           grayscale,
           original,
           avatar,
+          safe_mode_face_recognition: safeModeFaceRecognition,
         });
         setToast({ text: 'Saved.', tone: 'info' });
       } catch (e) {
@@ -160,15 +183,17 @@ export function ClientDetailPanel({
   // Wave 40.3 — granted-count for the collapsed-state header chip.
   // line_drawing is locked-on so it always counts; we surface
   // "{granted}/{total}" so the practitioner sees the headline without
-  // having to expand the panel. Total = 4 (line_drawing + grayscale +
-  // original + avatar). Reads from the LIVE state so dragging a toggle
-  // before saving updates the chip immediately — tighter feedback loop.
-  const totalToggles = 4;
+  // having to expand the panel. Total = 5 (line_drawing + grayscale +
+  // original + avatar + safe_mode_face_recognition since 2026-05-25).
+  // Reads from the LIVE state so dragging a toggle before saving
+  // updates the chip immediately — tighter feedback loop.
+  const totalToggles = 5;
   const grantedToggles =
     1 + // line_drawing always
     (grayscale ? 1 : 0) +
     (original ? 1 : 0) +
-    (avatar ? 1 : 0);
+    (avatar ? 1 : 0) +
+    (safeModeFaceRecognition ? 1 : 0);
 
   return (
     <section aria-labelledby="client-heading">
@@ -308,7 +333,14 @@ export function ClientDetailPanel({
          * body-focus blurred still that replaces the initials monogram on
          * practitioner-facing surfaces. Different category from playback —
          * kept in its own group so the practitioner reads it as "what we
-         * store of {Name}" not "how the client sees themselves". */}
+         * store of {Name}" not "how the client sees themselves".
+         *
+         * 2026-05-25 enrolment polish Phase 1 — Safe Mode face-recognition
+         * toggle joined this group (R-10 parity with mobile, spec
+         * section 4e). Both artifacts (avatar JPG + biometric template)
+         * are profile-level data about the client; the prior dedicated
+         * "Safe Mode" section on mobile was dead weight (single row, no
+         * useful grouping). */}
         <p className="mt-5 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
           Profile
         </p>
@@ -318,6 +350,12 @@ export function ClientDetailPanel({
             helper={`Single capture with the background blurred — replaces the initials circle on ${clientName}.`}
             checked={avatar}
             onChange={setAvatar}
+          />
+          <ToggleRow
+            label="Face recognition for Safe Mode"
+            helper={`Stores a biometric fingerprint derived from ${clientName}'s avatar so we can recognise them in Safe Mode captures. Required to use Safe Mode with this client.`}
+            checked={safeModeFaceRecognition}
+            onChange={setSafeModeFaceRecognition}
           />
         </ul>
 

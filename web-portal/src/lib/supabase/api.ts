@@ -137,6 +137,24 @@ export type ClientVideoConsent = {
   grayscale: boolean;
   original: boolean;
   avatar: boolean;
+  /**
+   * Safe Mode v2 (2026-05-23) — practitioner-granted permission to
+   * store a biometric face fingerprint (MobileFaceNet embedding,
+   * 2048 bytes) derived on-device from the client's avatar JPG.
+   * Required to use Safe Mode (v2, face-recognition based) with this
+   * client; without an embedding the native pipeline can't tell
+   * subject from bystander.
+   *
+   * R-10 parity with mobile (PR #44 sheet structure):
+   *   - 2026-05-25 enrolment polish Phase 1 moved this toggle into
+   *     the portal's "Profile" group below the avatar row, matching
+   *     the mobile sheet restructure (spec section 4e).
+   *   - Default false. Toggle writes go through the dedicated
+   *     `set_client_safe_mode_consent` RPC (not bundled into
+   *     `set_client_video_consent`) so the server can additionally
+   *     zero the embedding column atomically on toggle-off.
+   */
+  safe_mode_face_recognition: boolean;
 };
 
 /**
@@ -598,6 +616,40 @@ export class PortalApi {
       p_original: original,
       p_avatar: avatar,
     });
+    if (error) throw new Error(error.message);
+  }
+
+  /**
+   * Toggle the Safe Mode v2 face-recognition consent flag for a client.
+   *
+   * Wraps the `set_client_safe_mode_consent(p_client_id, p_allowed)`
+   * SECURITY DEFINER RPC (Safe Mode v2, 2026-05-23). This is a
+   * separate RPC from `set_client_video_consent` because on toggle-OFF
+   * the server additionally zeros `clients.face_embedding` AND empties
+   * `client_face_embeddings` slots in the same transaction — a load-
+   * bearing privacy step that must run server-side atomically with
+   * the consent flip.
+   *
+   * R-10 parity with mobile (`ApiClient.setClientSafeModeConsent`).
+   * The portal exposes this toggle in the Profile group of
+   * `/clients/[id]` (2026-05-25 enrolment polish Phase 1, spec
+   * section 4e).
+   *
+   * Throws on RPC error so the caller can surface a toast. Returns
+   * void on success; callers that need the updated row refetch via
+   * `getClientById`.
+   */
+  async setClientSafeModeConsent(
+    clientId: string,
+    allowed: boolean,
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc(
+      'set_client_safe_mode_consent',
+      {
+        p_client_id: clientId,
+        p_allowed: allowed,
+      },
+    );
     if (error) throw new Error(error.message);
   }
 
@@ -2161,9 +2213,20 @@ function normaliseConsent(raw: unknown): ClientVideoConsent {
       // Wave 40.3 — surface the Wave-30 avatar slot to the portal. Default
       // false when the key is missing on legacy rows.
       avatar: Boolean(obj.avatar),
+      // 2026-05-25 enrolment polish Phase 1 — surface the Safe Mode
+      // face-recognition consent slot to the portal. Default false
+      // when the key is missing on legacy rows. R-10 parity with the
+      // mobile sheet's Profile group.
+      safe_mode_face_recognition: Boolean(obj.safe_mode_face_recognition),
     };
   }
-  return { line_drawing: true, grayscale: false, original: false, avatar: false };
+  return {
+    line_drawing: true,
+    grayscale: false,
+    original: false,
+    avatar: false,
+    safe_mode_face_recognition: false,
+  };
 }
 
 /**

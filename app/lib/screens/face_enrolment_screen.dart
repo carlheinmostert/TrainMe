@@ -7,9 +7,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/client.dart';
+import '../services/api_client.dart';
+import '../services/face_embedding_service.dart';
 import '../services/face_enrolment_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/orientation_lock_guard.dart';
 
@@ -30,22 +34,39 @@ import '../widgets/orientation_lock_guard.dart';
 ///   - The persist step (local SQLite + cloud RPC + avatar copy).
 ///
 /// Spec: docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md
+/// Polish Phase 1: docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md
 ///
 /// Entry points (Wave-D):
 ///   - Empty avatar slot tap on client detail → push this screen directly.
 ///   - Existing avatar tap → bottom sheet → "Replace avatar and re-enrol"
 ///     → push this screen.
 ///
-/// POPIA: the parent screen MUST gate on
-/// [PracticeClient.safeModeFaceRecognitionAllowed]. This screen does not
-/// re-check — gating is the caller's responsibility so the toast copy
-/// matches the surrounding UX surface.
+/// POPIA: the parent screen MUST gate on the consent matrix from spec
+/// section 3 BEFORE pushing this screen. [FaceEnrolmentMode.disabled]
+/// is a programming error here — callers route to the consent sheet
+/// SnackBar instead of pushing.
+///
+/// Phase 1 polish (2026-05-25):
+///   - Camera flip toggle (rear vs selfie). Default rear (practitioner
+///     enrolling client across desk); selfie when self-enrolling.
+///     Sticky per-device via SharedPreferences.
+///   - Consent-aware mode resolution. Branches between full /
+///     embeddingOnly / avatarOnly. Disabled is the caller's
+///     responsibility.
+///   - avatarOnly mode: single-shot capture (no sweep, no embedding).
 class FaceEnrolmentScreen extends StatefulWidget {
   final PracticeClient client;
+
+  /// Resolved consent mode. The caller (avatar-tap intercept on
+  /// client detail OR the capture screen's "Set face" CTA) computes
+  /// this from the cached client snapshot and refuses to push when
+  /// the resolution is [FaceEnrolmentMode.disabled].
+  final FaceEnrolmentMode mode;
 
   const FaceEnrolmentScreen({
     super.key,
     required this.client,
+    required this.mode,
   });
 
   @override
@@ -54,24 +75,46 @@ class FaceEnrolmentScreen extends StatefulWidget {
   /// Convenience push. Returns `true` if enrolment succeeded, `false`
   /// on cancel / failure. Callers use the result to optionally pop a
   /// confirm chip; both outcomes are non-destructive.
+  ///
+  /// Resolves the [FaceEnrolmentMode] from the supplied client's
+  /// consent flags. Callers that have already gated on the consent
+  /// matrix (the production entry points) get the correct mode for
+  /// free; callers that haven't gated and pass a fully-revoked client
+  /// will see this method return false immediately without rendering
+  /// anything — they should have shown the SnackBar instead. Phase 1
+  /// guidance: ALWAYS gate before pushing.
   static Future<bool> push(
     BuildContext context, {
     required PracticeClient client,
   }) async {
+    final mode = resolveFaceEnrolmentMode(
+      faceRecognitionAllowed: client.safeModeFaceRecognitionAllowed,
+      avatarAllowed: client.avatarAllowed,
+    );
+    if (mode == FaceEnrolmentMode.disabled) {
+      // Defensive — production callers gate above this; bail rather
+      // than render an unusable editor.
+      return false;
+    }
     final ok = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         fullscreenDialog: true,
-        builder: (_) => FaceEnrolmentScreen(client: client),
+        builder: (_) => FaceEnrolmentScreen(client: client, mode: mode),
       ),
     );
     return ok ?? false;
   }
 }
 
+/// SharedPreferences key for the sticky camera-direction choice.
+/// String value: "rear" or "front". Default rear when absent.
+const String _kCameraDirectionPrefKey = 'face_enrolment_camera_direction';
+
 class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     with WidgetsBindingObserver {
-  /// Front-camera controller — selfie convention. Re-built across
-  /// app-lifecycle resume.
+  /// Active camera controller — front or rear depending on
+  /// [_useFrontCamera]. Re-built across app-lifecycle resume AND
+  /// across camera-flip taps.
   CameraController? _cameraController;
 
 
@@ -85,6 +128,8 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   String? _cameraErrorMessage;
 
   /// Lifecycle controller for the service. Reused across retries.
+  /// Constructed from [widget.mode] so the service knows whether to
+  /// run sweep + embedding vs the simple-shot avatarOnly path.
   late final FaceEnrolmentService _service;
 
   StreamSubscription<FaceEnrolmentError>? _errorSub;
@@ -104,14 +149,40 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   /// `_resetForRetry` and when the screen pops.
   Directory? _producerTempDir;
 
+  /// True when the front-facing (selfie) camera is active. Persisted
+  /// per-device via SharedPreferences under [_kCameraDirectionPrefKey].
+  /// Default = false (rear) for practitioner-enrolling-client which
+  /// is the 99% real-world case. Flipped to true when (a) the user
+  /// taps the flip toggle, OR (b) the heuristic in [_resolveDefaultDirection]
+  /// detects self-enrolment on first open (rare, Carl-sentinel-claim).
+  bool _useFrontCamera = false;
+
+  /// True while the camera flip toggle is busy tearing down + re-
+  /// initialising. Suppresses repeated taps that would race the
+  /// camera plugin's lifecycle.
+  bool _cameraFlipping = false;
+
+  /// True while a single-shot capture (avatarOnly mode) is in flight.
+  /// Locks the shutter to prevent double-fire.
+  bool _simpleShotInFlight = false;
+
+  /// True when the avatarOnly mode has just completed and is in its
+  /// "saving" overlay state, blocking interaction until the screen
+  /// pops with success.
+  bool _simpleShotPersisting = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _service = FaceEnrolmentService();
+    _service = FaceEnrolmentService(mode: widget.mode);
     _service.addListener(_onServiceChanged);
     _errorSub = _service.errorStream.listen(_onServiceError);
-    _initCamera();
+    // Load the sticky camera direction, then init the camera.
+    unawaited(_resolveDefaultDirection().then((_) {
+      if (!mounted) return;
+      _initCamera();
+    }));
   }
 
   @override
@@ -169,9 +240,110 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     }
   }
 
+  // ── Camera direction resolution ─────────────────────────────────────────
+
+  /// Pick the default camera direction the first time the screen
+  /// opens AFTER any prior session. Reads the sticky pref if present;
+  /// otherwise falls back to a heuristic:
+  ///
+  ///   - Self-enrolment (Carl-sentinel-claim case) → selfie. Detected
+  ///     by comparing the client name to the local part of the
+  ///     practitioner's email (case-insensitive trimmed). This is a
+  ///     soft heuristic — the user can always flip via the toggle.
+  ///   - Anyone else (the 99% case: practitioner enrolling client
+  ///     across a desk) → rear.
+  Future<void> _resolveDefaultDirection() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_kCameraDirectionPrefKey);
+      if (stored == 'front') {
+        _useFrontCamera = true;
+        return;
+      }
+      if (stored == 'rear') {
+        _useFrontCamera = false;
+        return;
+      }
+      // No sticky pref yet — pick by heuristic.
+      _useFrontCamera = _detectSelfEnrolment();
+    } catch (_) {
+      // SharedPreferences unavailable — fall through to heuristic.
+      _useFrontCamera = _detectSelfEnrolment();
+    }
+  }
+
+  /// True when the client being enrolled appears to be the
+  /// practitioner themselves. Heuristic: client name matches the
+  /// email-local-part (case-insensitive, both trimmed). False when
+  /// either name is empty or no email is available.
+  bool _detectSelfEnrolment() {
+    final email = ApiClient.instance.currentUserEmail;
+    if (email == null || email.isEmpty) return false;
+    final at = email.indexOf('@');
+    if (at <= 0) return false;
+    final localPart = email.substring(0, at).trim().toLowerCase();
+    final clientName = widget.client.name.trim().toLowerCase();
+    if (localPart.isEmpty || clientName.isEmpty) return false;
+    return localPart == clientName;
+  }
+
+  /// Persist the chosen direction so the next open uses it.
+  Future<void> _persistCameraDirection() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _kCameraDirectionPrefKey,
+        _useFrontCamera ? 'front' : 'rear',
+      );
+    } catch (_) {
+      // Best-effort; the toggle still works in-session if the pref
+      // write fails.
+    }
+  }
+
+  Future<void> _onCameraFlipTap() async {
+    if (_cameraFlipping) return;
+    // Block flip during active sweep / embedding / persisting — the
+    // resulting frames would mix selfie + rear orientations which
+    // would corrupt the pose-uniqueness pick on the native side.
+    if (_service.state == FaceEnrolmentState.sweepingYaw ||
+        _service.state == FaceEnrolmentState.sweepingPitch ||
+        _service.state == FaceEnrolmentState.embedding ||
+        _service.state == FaceEnrolmentState.persisting) {
+      return;
+    }
+    HapticFeedback.selectionClick();
+    setState(() {
+      _cameraFlipping = true;
+      _useFrontCamera = !_useFrontCamera;
+      _cameraReady = false;
+    });
+    unawaited(_persistCameraDirection());
+    // Tear down the current controller, then init the new one. The
+    // service's frame producer hook stays bound (it dereferences the
+    // current controller on every tick).
+    final old = _cameraController;
+    _cameraController = null;
+    if (old != null) {
+      try {
+        await old.dispose();
+      } catch (_) {}
+    }
+    await _initCamera(skipAutoStart: true);
+    if (!mounted) return;
+    setState(() {
+      _cameraFlipping = false;
+    });
+  }
+
   // ── Camera lifecycle ────────────────────────────────────────────────────
 
-  Future<void> _initCamera() async {
+  /// Initialise the camera in the direction dictated by
+  /// [_useFrontCamera]. When [skipAutoStart] is true, the
+  /// post-initialisation `_service.startSweep()` kick-off is
+  /// suppressed — used by the flip path which never wants to
+  /// auto-restart a fresh sweep mid-flow.
+  Future<void> _initCamera({bool skipAutoStart = false}) async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
@@ -182,13 +354,18 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
         });
         return;
       }
-      final front = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
+      final preferred = _useFrontCamera
+          ? CameraLensDirection.front
+          : CameraLensDirection.back;
+      final picked = cameras.firstWhere(
+        (c) => c.lensDirection == preferred,
+        // Graceful degrade if the device lacks the preferred direction
+        // (e.g. iPad with only one camera in the simulator).
         orElse: () => cameras.first,
       );
 
       final controller = CameraController(
-        front,
+        picked,
         ResolutionPreset.medium,
         enableAudio: false, // No mic — keeps haptics live + cuts permission noise.
         imageFormatGroup: ImageFormatGroup.jpeg,
@@ -211,6 +388,12 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
         _cameraFailed = false;
         _cameraErrorMessage = null;
       });
+
+      // avatarOnly mode never auto-starts a sweep — the user controls
+      // capture via the shutter button. full / embeddingOnly auto-
+      // start the sweep once the preview has a half-beat to settle.
+      if (skipAutoStart) return;
+      if (widget.mode == FaceEnrolmentMode.avatarOnly) return;
 
       // Tiny delay so the preview has a frame on screen before the
       // ring starts spinning — gives the user a half-beat to read the
@@ -282,6 +465,110 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     }
   }
 
+  // ── avatarOnly simple-shot capture ──────────────────────────────────────
+
+  /// Single-tap shutter for [FaceEnrolmentMode.avatarOnly]. Captures
+  /// one frame and persists it as the avatar JPG via SyncService.
+  /// No sweep, no embedding generation — face-rec consent is OFF in
+  /// this mode so we have no business computing a biometric template.
+  ///
+  /// Path mirrors the avatar-only branch of
+  /// [FaceEnrolmentService.commit]: copy the frame into
+  /// `{docs}/avatars/{clientId}.png` + best-effort cloud upload via
+  /// `ApiClient.uploadRawArchive` + `SyncService.queueSetAvatar`.
+  Future<void> _onSimpleShotTap() async {
+    if (_simpleShotInFlight || _simpleShotPersisting) return;
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _simpleShotInFlight = true;
+    });
+    try {
+      final xFile = await controller.takePicture();
+      if (!mounted) return;
+      setState(() {
+        _simpleShotInFlight = false;
+        _simpleShotPersisting = true;
+      });
+
+      // Persist locally first so the avatar exists even if the cloud
+      // upload fails — matches the offline-first contract for the
+      // multi-ref path in [FaceEnrolmentService.commit].
+      final docsDir = await getApplicationDocumentsDirectory();
+      final avatarsDir = Directory(p.join(docsDir.path, 'avatars'));
+      if (!avatarsDir.existsSync()) {
+        avatarsDir.createSync(recursive: true);
+      }
+      final clientId = widget.client.id;
+      final localAbs = p.join(avatarsDir.path, '$clientId.png');
+      try {
+        if (File(localAbs).existsSync()) {
+          File(localAbs).deleteSync();
+        }
+      } catch (_) {}
+      await File(xFile.path).copy(localAbs);
+      // Best-effort temp-file cleanup.
+      try {
+        await File(xFile.path).delete();
+      } catch (_) {}
+
+      // Queue cloud avatar upload via SyncService — same path shape
+      // as the multi-ref branch so the raw-archive bucket gets
+      // `<practiceId>/<clientId>/avatar.png`.
+      try {
+        final cached = await SyncService.instance.storage
+            .getCachedClientById(clientId);
+        if (cached != null) {
+          final cloudPath = '${cached.practiceId}/$clientId/avatar.png';
+          try {
+            await ApiClient.instance.uploadRawArchive(
+              path: cloudPath,
+              file: File(localAbs),
+              contentType: 'image/png',
+            );
+          } catch (_) {
+            // Best-effort — local stands.
+          }
+          await SyncService.instance.queueSetAvatar(
+            clientId: clientId,
+            avatarPath: cloudPath,
+          );
+        }
+      } catch (_) {
+        // Best-effort.
+      }
+
+      // Clear any stale embedding cache for this client — face-rec
+      // consent is OFF in avatarOnly so the FaceEmbeddingService
+      // shouldn't be holding a template at all.
+      try {
+        FaceEmbeddingService.instance.resetFor(clientId);
+      } catch (_) {}
+
+      if (!mounted) return;
+      _popWithResult(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _simpleShotInFlight = false;
+        _simpleShotPersisting = false;
+      });
+      _showInlineToast("Couldn't capture — try again ($e)");
+    }
+  }
+
+  void _showInlineToast(String message) {
+    setState(() {
+      _toast = message;
+    });
+    _toastTimer?.cancel();
+    _toastTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      setState(() => _toast = null);
+    });
+  }
+
   // ── Service ↔ UI ────────────────────────────────────────────────────────
 
   void _onServiceChanged() {
@@ -335,6 +622,10 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     HapticFeedback.selectionClick();
     _service.cancel();
     // _onServiceChanged handles the pop once state transitions.
+    // For avatarOnly mode the service stays idle — pop directly.
+    if (widget.mode == FaceEnrolmentMode.avatarOnly) {
+      _popWithResult(false);
+    }
   }
 
   Future<void> _onCommitTap() async {
@@ -406,6 +697,21 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   }
 
   Widget _buildBody() {
+    if (widget.mode == FaceEnrolmentMode.avatarOnly) {
+      return _SimpleShotView(
+        cameraController: _cameraController,
+        cameraReady: _cameraReady,
+        clientName: widget.client.name,
+        useFrontCamera: _useFrontCamera,
+        shotInFlight: _simpleShotInFlight,
+        persisting: _simpleShotPersisting,
+        onCancel: _onCancelTap,
+        onShutter: _onSimpleShotTap,
+        onCameraFlip: _onCameraFlipTap,
+        toast: _toast,
+      );
+    }
+
     final state = _service.state;
     if (state == FaceEnrolmentState.confirming) {
       return _ConfirmView(
@@ -421,7 +727,9 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       progress: _service.progress,
       instructionText: _service.instructionText,
       state: state,
+      useFrontCamera: _useFrontCamera,
       onCancel: _onCancelTap,
+      onCameraFlip: _onCameraFlipTap,
       toast: _toast,
     );
   }
@@ -436,7 +744,9 @@ class _SweepView extends StatelessWidget {
   final double progress;
   final String? instructionText;
   final FaceEnrolmentState state;
+  final bool useFrontCamera;
   final VoidCallback onCancel;
+  final VoidCallback onCameraFlip;
   final String? toast;
 
   const _SweepView({
@@ -445,7 +755,9 @@ class _SweepView extends StatelessWidget {
     required this.progress,
     required this.instructionText,
     required this.state,
+    required this.useFrontCamera,
     required this.onCancel,
+    required this.onCameraFlip,
     required this.toast,
   });
 
@@ -454,8 +766,8 @@ class _SweepView extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 1. Front-camera preview (or loading spinner). Mirrored via
-        //    the camera plugin's natural selfie behaviour.
+        // 1. Camera preview (or loading spinner). Rear cam: natural
+        //    orientation; front cam (selfie): camera plugin auto-mirrors.
         if (cameraReady && cameraController != null)
           // Dim to ~70% so the coral overlay reads cleanly per spec.
           Opacity(
@@ -543,6 +855,16 @@ class _SweepView extends StatelessWidget {
           child: _CancelChip(onTap: onCancel),
         ),
 
+        // 7b. Camera flip toggle top-right (Phase 1 spec 4a).
+        Positioned(
+          top: 12,
+          right: 12,
+          child: _CameraFlipChip(
+            useFrontCamera: useFrontCamera,
+            onTap: onCameraFlip,
+          ),
+        ),
+
         // Persisting overlay — full-screen dim + spinner.
         if (state == FaceEnrolmentState.persisting)
           Positioned.fill(
@@ -574,6 +896,181 @@ class _SweepView extends StatelessWidget {
         if (toast != null)
           Positioned(
             top: 64,
+            left: 16,
+            right: 16,
+            child: _ErrorToast(message: toast!),
+          ),
+      ],
+    );
+  }
+}
+
+/// The single-shot capture view for [FaceEnrolmentMode.avatarOnly].
+/// Viewfinder + big coral shutter button at the bottom; no sweep ring,
+/// no instruction copy, no embedding pass. Tapping the shutter
+/// captures one frame and persists it as the avatar JPG (Phase 1
+/// spec 4f, avatarOnly row of section 3 matrix).
+///
+/// This branch resurrects the legacy single-photo avatar capture flow
+/// as a mode of the new editor — the Wave-D PR retired the standalone
+/// `pushClientAvatarCapture` entry point.
+class _SimpleShotView extends StatelessWidget {
+  final CameraController? cameraController;
+  final bool cameraReady;
+  final String clientName;
+  final bool useFrontCamera;
+  final bool shotInFlight;
+  final bool persisting;
+  final VoidCallback onCancel;
+  final VoidCallback onShutter;
+  final VoidCallback onCameraFlip;
+  final String? toast;
+
+  const _SimpleShotView({
+    required this.cameraController,
+    required this.cameraReady,
+    required this.clientName,
+    required this.useFrontCamera,
+    required this.shotInFlight,
+    required this.persisting,
+    required this.onCancel,
+    required this.onShutter,
+    required this.onCameraFlip,
+    required this.toast,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final shutterEnabled = cameraReady && !shotInFlight && !persisting;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 1. Camera preview (or loading spinner).
+        if (cameraReady && cameraController != null)
+          SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: cameraController!.value.previewSize?.height ??
+                    MediaQuery.of(context).size.width,
+                height: cameraController!.value.previewSize?.width ??
+                    MediaQuery.of(context).size.height,
+                child: CameraPreview(cameraController!),
+              ),
+            ),
+          )
+        else
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: AppColors.primary),
+                  SizedBox(height: 16),
+                  Text(
+                    'Preparing camera',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // 2. Cancel chip top-left.
+        Positioned(
+          top: 12,
+          left: 12,
+          child: _CancelChip(onTap: onCancel),
+        ),
+
+        // 3. Camera flip toggle top-right.
+        Positioned(
+          top: 12,
+          right: 12,
+          child: _CameraFlipChip(
+            useFrontCamera: useFrontCamera,
+            onTap: onCameraFlip,
+          ),
+        ),
+
+        // 4. Title strip — explains what the single tap will do.
+        if (cameraReady)
+          Positioned(
+            top: 72,
+            left: 24,
+            right: 24,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              ),
+              child: Text(
+                clientName.isEmpty
+                    ? 'Tap the shutter to capture an avatar'
+                    : "Tap the shutter to capture $clientName's avatar",
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+
+        // 5. Big coral shutter button at the bottom.
+        if (cameraReady)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 40,
+            child: Center(
+              child: _ShutterButton(
+                enabled: shutterEnabled,
+                inFlight: shotInFlight,
+                onTap: onShutter,
+              ),
+            ),
+          ),
+
+        // 6. Persisting overlay — full-screen dim + spinner.
+        if (persisting)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.55),
+              alignment: Alignment.center,
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: AppColors.primary),
+                  SizedBox(height: 16),
+                  Text(
+                    'Saving',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // 7. Toast (capture failed).
+        if (toast != null)
+          Positioned(
+            top: 132,
             left: 16,
             right: 16,
             child: _ErrorToast(message: toast!),
@@ -821,6 +1318,104 @@ class _CancelChip extends StatelessWidget {
             Icons.close,
             color: Colors.white,
             size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Camera flip toggle — top-right of viewfinder. Coral border on
+/// selfie mode (visual cue that the practitioner-facing direction is
+/// active), neutral surface on rear. Tap = flip; sticky pref persists.
+///
+/// Phase 1 spec 4a. The icon changes orientation to mirror the active
+/// direction (`cameraswitch_outlined` rotates 180° between modes).
+class _CameraFlipChip extends StatelessWidget {
+  final bool useFrontCamera;
+  final VoidCallback onTap;
+
+  const _CameraFlipChip({
+    required this.useFrontCamera,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceRaised,
+      shape: CircleBorder(
+        side: BorderSide(
+          color: useFrontCamera
+              ? AppColors.primary.withValues(alpha: 0.85)
+              : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: const SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(
+            Icons.cameraswitch_outlined,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Big coral shutter for the avatarOnly simple-shot view. Disabled
+/// state shows a dim coral with no inner ring; active state shows a
+/// crisp coral with the inner white ring; in-flight state collapses
+/// the inner ring to a small spinner.
+class _ShutterButton extends StatelessWidget {
+  final bool enabled;
+  final bool inFlight;
+  final VoidCallback onTap;
+
+  const _ShutterButton({
+    required this.enabled,
+    required this.inFlight,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colour = enabled
+        ? AppColors.primary
+        : AppColors.primary.withValues(alpha: 0.40);
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        width: 84,
+        height: 84,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: colour, width: 4),
+        ),
+        child: Center(
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: colour,
+            ),
+            child: inFlight
+                ? const Padding(
+                    padding: EdgeInsets.all(18),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : null,
           ),
         ),
       ),
