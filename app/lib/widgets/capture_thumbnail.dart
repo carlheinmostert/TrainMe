@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
+import '../services/conversion_service.dart';
 import '../services/exercise_hero_resolver.dart';
 import '../theme.dart';
 import '../utils/hero_crop_alignment.dart';
@@ -142,8 +144,11 @@ class CaptureThumbnail extends StatelessWidget {
           errorBuilder: (context, error, stackTrace) => Container(
             color: AppColors.surfaceRaised,
             child: const Center(
-              child: Icon(Icons.play_circle_outline,
-                  color: Colors.white54, size: 28),
+              child: Icon(
+                Icons.play_circle_outline,
+                color: Colors.white54,
+                size: 28,
+              ),
             ),
           ),
         );
@@ -156,8 +161,11 @@ class CaptureThumbnail extends StatelessWidget {
             thumb,
             if (showChrome)
               Center(
-                child: Icon(Icons.play_circle_outline,
-                    color: Colors.white70, size: size * 0.4),
+                child: Icon(
+                  Icons.play_circle_outline,
+                  color: Colors.white70,
+                  size: size * 0.4,
+                ),
               ),
           ],
         );
@@ -165,7 +173,11 @@ class CaptureThumbnail extends StatelessWidget {
       return Container(
         color: AppColors.surfaceRaised,
         child: const Center(
-          child: Icon(Icons.play_circle_outline, color: Colors.white54, size: 28),
+          child: Icon(
+            Icons.play_circle_outline,
+            color: Colors.white54,
+            size: 28,
+          ),
         ),
       );
     }
@@ -181,7 +193,11 @@ class CaptureThumbnail extends StatelessWidget {
       errorBuilder: (context, error, stackTrace) => Container(
         color: AppColors.surfaceRaised,
         child: const Center(
-          child: Icon(Icons.broken_image_outlined, color: AppColors.grey500, size: 24),
+          child: Icon(
+            Icons.broken_image_outlined,
+            color: AppColors.grey500,
+            size: 24,
+          ),
         ),
       ),
     );
@@ -192,13 +208,34 @@ class CaptureThumbnail extends StatelessWidget {
   }
 
   /// Conversion status overlay:
-  /// - Pending/converting: subtle circular progress indicator
-  /// - Done: small checkmark badge
-  /// - Failed: warning icon
+  /// - Pending/converting (Safe Mode v2 video): determinate coral
+  ///   progress bar at the bottom edge of the thumbnail, driven by
+  ///   [ConversionService.onSafeModeV2VideoProgress] for the
+  ///   matching exercise id. Per the Safe Mode v2 video spec
+  ///   (`docs/specs/2026-05-25-safe-mode-v2-video.md` section 6f),
+  ///   the worst-case wait under the 2x real-time ceiling is ~60s
+  ///   for a 30s capture — long enough that an indeterminate
+  ///   spinner would feel broken. Coral matches the brand accent
+  ///   (`AppColors.primary` / `#FF6B35`).
+  /// - Pending/converting (everything else): legacy translucent
+  ///   indeterminate spinner.
+  /// - Done: small checkmark badge.
+  /// - Failed: warning icon.
   Widget _buildConversionOverlay() {
     switch (exercise.conversionStatus) {
       case ConversionStatus.pending:
       case ConversionStatus.converting:
+        // Safe Mode v2 video conversion: render a determinate coral
+        // progress bar bound to the per-exercise stream. Everything
+        // else keeps the legacy indeterminate spinner.
+        final isSafeVideo =
+            exercise.mediaType == MediaType.video && exercise.safeModeActive;
+        if (isSafeVideo) {
+          return _SafeModeV2VideoProgressOverlay(
+            exerciseId: exercise.id,
+            barHeight: (size * 0.06).clamp(3.0, 6.0),
+          );
+        }
         return Container(
           color: Colors.black26,
           child: Center(
@@ -237,7 +274,11 @@ class CaptureThumbnail extends StatelessWidget {
               color: Colors.red,
               shape: BoxShape.circle,
             ),
-            child: Icon(Icons.warning_amber, size: size * 0.18, color: Colors.white),
+            child: Icon(
+              Icons.warning_amber,
+              size: size * 0.18,
+              color: Colors.white,
+            ),
           ),
         );
     }
@@ -275,3 +316,95 @@ class CaptureThumbnail extends StatelessWidget {
   }
 }
 
+/// Determinate coral progress bar for an in-flight Safe Mode v2
+/// video conversion (2026-05-25).
+///
+/// Subscribes to [ConversionService.onSafeModeV2VideoProgress] and
+/// filters for the matching [exerciseId]. The bar sits at the bottom
+/// edge of the thumbnail under a dim translucent veil so the heroframe
+/// underneath stays legible while the safe variant is being composited.
+///
+/// Coral matches the brand accent
+/// (`AppColors.primary` / `#FF6B35`) per the spec's section 6f
+/// styling guidance.
+///
+/// Falls back to a 0% bar before the first progress event arrives so
+/// the surface never goes blank for the brief window between the
+/// `converting` status flip and the first frame composited.
+class _SafeModeV2VideoProgressOverlay extends StatefulWidget {
+  /// Id of the exercise whose Safe Mode v2 video pass is in flight.
+  /// Used to filter events on
+  /// [ConversionService.onSafeModeV2VideoProgress] so a parallel
+  /// capture's progress doesn't bleed into this card.
+  final String exerciseId;
+
+  /// Pixel height of the coral progress bar at the bottom of the
+  /// thumbnail. Sized as a fraction of the overall thumbnail size by
+  /// the parent, then clamped to a sensible 3–6 px range so it stays
+  /// visible at the smallest peek size and doesn't dominate the
+  /// larger Studio card.
+  final double barHeight;
+
+  const _SafeModeV2VideoProgressOverlay({
+    required this.exerciseId,
+    required this.barHeight,
+  });
+
+  @override
+  State<_SafeModeV2VideoProgressOverlay> createState() =>
+      _SafeModeV2VideoProgressOverlayState();
+}
+
+class _SafeModeV2VideoProgressOverlayState
+    extends State<_SafeModeV2VideoProgressOverlay> {
+  StreamSubscription<SafeModeV2VideoProgress>? _sub;
+  double _fraction = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = ConversionService.instance.onSafeModeV2VideoProgress.listen((event) {
+      if (!mounted) return;
+      if (event.exerciseId != widget.exerciseId) return;
+      setState(() => _fraction = event.fraction);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Dim veil sits over the thumbnail so the bar reads cleanly
+        // against any background. Matches the spinner's translucency
+        // so the visual weight of "converting" is unchanged.
+        Container(color: Colors.black26),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: SizedBox(
+            height: widget.barHeight,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(8),
+                bottomRight: Radius.circular(8),
+              ),
+              child: LinearProgressIndicator(
+                value: _fraction.clamp(0.0, 1.0),
+                backgroundColor: Colors.white24,
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  AppColors.primary,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
