@@ -4,6 +4,7 @@ Open each script in Claude Code Desktop's preview pane via `Cmd+Shift+V`. Give p
 
 ## Active wave
 
+- [2026-05-25 — My Workouts body + FAB + self-capture cards](2026-05-25-my-workouts-body.md) — PR #9 of the self-trainer wave. Replaces the locked "Coming soon" teaser with the real My Workouts list, wires the FAB to the full capture-entry path, and surfaces `clients.user_id` through `list_practice_clients`. 13 items.
 - [2026-05-25 — Publish cost preview + consume_credit free path](2026-05-25-publish-cost-preview.md) — PR #6 of the self-trainer wave. `preview_publish_cost` RPC + Studio CAPS pill cost label + `consume_credit` writes `delta=0, type='publish_free'` for self-trainer all-verified publishes. 10 items.
 - [2026-05-25 — Safe Mode v2 enrolment polish Phase 2](2026-05-25-safe-mode-v2-enrolment-polish-phase2.md) — stacked PR on Phase 1 #491. Real-time pose-gated capture + per-embedding quality scoring + manual avatar selection grid. 20 items across A-E.
 - [2026-05-25 — Safe Mode v2 enrolment polish Phase 1](2026-05-25-safe-mode-v2-enrolment-polish-phase1.md) — PR #491. Camera flip toggle + consent matrix scaffolding + consent sheet restructure + avatarOnly simple-shot mode.

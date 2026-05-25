@@ -18,6 +18,7 @@ import '../services/local_storage_service.dart';
 import '../services/self_trainer_bootstrap.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
+import '../utils/session_title.dart';
 import '../widgets/bootstrap_error_banner.dart';
 import '../widgets/classes_coming_soon_view.dart';
 import '../widgets/client_avatar_glyph.dart';
@@ -30,8 +31,9 @@ import '../widgets/self_face_consent_sheet.dart';
 import '../widgets/self_trainer_intro_banner.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/undo_snackbar.dart';
-import '../widgets/workouts_coming_soon_view.dart';
 import 'client_sessions_screen.dart';
+import 'my_workouts_screen.dart';
+import 'session_shell_screen.dart';
 import 'settings_screen.dart';
 
 /// Landing screen — now the clients list.
@@ -117,6 +119,13 @@ class _HomeScreenState extends State<HomeScreen> {
   /// overrides this initializer when present. See [HomeScopeSegmented]
   /// for the IA rationale.
   HomeScope _scope = HomeScope.workouts;
+
+  /// Bumped every time the My Workouts body should re-read from
+  /// SQLite (e.g. after returning from `SessionShellScreen` or after
+  /// the FAB mints a fresh session). Drives the body widget's
+  /// `didUpdateWidget` reload — keeps the parent in charge of when
+  /// the list refreshes without exposing a GlobalKey-on-state.
+  int _workoutsReloadToken = 0;
 
   static const String _scopePrefsKey = 'home_scope_v1';
 
@@ -434,29 +443,47 @@ class _HomeScreenState extends State<HomeScreen> {
     await NetworkShareSheet.show(context);
   }
 
-  /// Stub for the "New Session" FAB on the My Workouts scope. PR #9
-  /// of the self-trainer wave wires the full capture-entry path per
-  /// `docs/SELF_TRAINER_WAVE.md` § Capture-entry path from My Workouts.
+  /// "New Session" FAB on the My Workouts scope. Wires the full
+  /// capture-entry path from `docs/SELF_TRAINER_WAVE.md`
+  /// § Capture-entry path from My Workouts:
   ///
-  /// PR #4 (this PR) covers the consent-gating portion: if the user has
-  /// no Self-client yet (face_embedding_consented_at IS NULL), surface
-  /// the consent sheet first. On Yes → register + then continue with
-  /// the existing PR #9 stub path. On Not now → no session created.
-  Future<void> _newSelfSessionStub() async {
+  /// 1. If the practitioner has `face_embedding_consented_at` stamped
+  ///    AND a Self-client row exists locally → straight to step 4.
+  /// 2. If there's no avatar at all → point them at Settings →
+  ///    Public profile (no popup, no embedded selfie path here).
+  /// 3. If there's an avatar but no consent → surface the inline
+  ///    consent sheet from PR #4. On consent, refresh the local
+  ///    cache so the freshly-minted Self-client row shows up.
+  /// 4. Mint a local Session bound to the Self-client and navigate
+  ///    into `SessionShellScreen` with Camera as the default mode.
+  ///
+  /// All cache reads/writes route through [LocalStorageService] +
+  /// [SyncService]. The session-create path mirrors the existing
+  /// `ClientSessionsScreen._startNewSession` flow exactly — there is
+  /// no separate server-side `create_session` RPC (creation is local;
+  /// the cloud only sees the session at publish time via
+  /// `replace_plan_exercises`).
+  Future<void> _newSelfSession() async {
     HapticFeedback.selectionClick();
 
-    // Check whether we need to surface the consent sheet first. If the
-    // practitioner already has face_embedding_consented_at stamped, skip
-    // straight to the existing PR #9 stub.
+    final userId = AuthService.instance.currentUserId;
+    if (userId == null) {
+      // AuthGate normally blocks Home pre-auth; this is just defensive.
+      return;
+    }
+
     final profile = await ApiClient.instance.getMyPractitionerProfile();
     if (!mounted) return;
 
-    if (profile == null || profile.faceEmbeddingConsentedAt == null) {
-      final avatarUrl = profile?.avatarUrl?.trim();
-      if (avatarUrl == null || avatarUrl.isEmpty) {
-        // No selfie at all — the user needs to set their Public profile
-        // first. The Practice tab covers this flow; tell them where
-        // (don't pop a modal — R-01).
+    final hasConsent = profile?.faceEmbeddingConsentedAt != null;
+    final hasAvatar =
+        profile?.avatarUrl != null && profile!.avatarUrl!.trim().isNotEmpty;
+
+    if (!hasConsent) {
+      if (!hasAvatar) {
+        // No selfie at all — direct them to the Public profile flow
+        // (no embedded selfie capture here per R-01 / no popups). The
+        // Practice tab covers the camera surface for the selfie.
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -470,13 +497,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // Have a selfie but no consent stamp — surface the same consent
-      // sheet the lazy backfill uses. Resolve the local path via the
-      // bootstrap helper (downloads to a stable temp path).
-      //
-      // We compose the bootstrap's download path inline rather than
-      // re-exposing it as public API — keeps the bootstrap surface tight
-      // and the FAB path is the only other call site.
-      final localPath = await _downloadAvatarToTempForFab(avatarUrl: avatarUrl);
+      // sheet the lazy backfill uses.
+      final avatarUrl = profile.avatarUrl!.trim();
+      final localPath =
+          await _downloadAvatarToTempForFab(avatarUrl: avatarUrl);
       if (!mounted) return;
       if (localPath == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -497,23 +521,79 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!mounted) return;
       if (!outcome.isRegistered) {
-        // Not now / dismissed — leave the user on My Workouts. No
-        // session created. The brief calls for this explicit non-action.
+        // Not now / dismissed — no session created. The brief calls
+        // for this explicit non-action.
         return;
       }
-      // Yes — fall through to PR #9 stub (the consent landed; PR #9
-      // will replace this stub with the session-mint flow).
+      // Registered — pull the personal practice so the cache
+      // mirrors the freshly-created Self-client row before we mint a
+      // session against it. The personal practice is the user's
+      // owner-practice; fall back to the current practice if for
+      // some reason the cache hasn't surfaced an owner yet.
+      final practiceForPull = await _resolveOwnerOrCurrentPracticeId();
+      if (practiceForPull != null) {
+        await SyncService.instance.pullAll(practiceForPull);
+      }
+      if (!mounted) return;
     }
 
-    // PR #9 placeholder — the actual capture-entry path. Until then,
-    // toast confirms the slot is wired.
+    // Step 4 — mint the session bound to the Self-client.
+    final selfClient = await widget.storage.getCachedSelfClient(userId);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Coming in PR #9'),
-        duration: Duration(seconds: 2),
+    if (selfClient == null) {
+      // Cache miss after registration. Could happen if the personal
+      // practice isn't in cached_practices yet, or the post-register
+      // pull failed silently. Surface the state and bail rather than
+      // minting against a guessed id (no exception-driven control flow,
+      // no silent fallback per `feedback_no_silent_fallbacks`).
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Couldn't load your self profile. Try again in a moment.",
+          ),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    final session = Session.create(
+      clientName: selfClient.name,
+      clientId: selfClient.id,
+      title: formatSessionTitle(selfClient.name, DateTime.now()),
+      practiceId: selfClient.practiceId,
+    );
+    await widget.storage.saveSession(session);
+
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SessionShellScreen(
+          session: session,
+          storage: widget.storage,
+          initialPage: 1, // Camera-first (per design doc § Q6.4).
+        ),
       ),
     );
+    if (mounted) {
+      setState(() {
+        _workoutsReloadToken += 1;
+      });
+    }
+  }
+
+  /// Find the practice id whose pull we should fire after a fresh
+  /// `register_self_face` call — the user's owner-practice (where the
+  /// Self-client row lands) if cached, else the currently-active
+  /// practice, else null.
+  Future<String?> _resolveOwnerOrCurrentPracticeId() async {
+    final cached = await widget.storage.getCachedPractices();
+    for (final p in cached) {
+      if (p.role == PracticeRole.owner) {
+        return p.id;
+      }
+    }
+    return AuthService.instance.currentPracticeId.value;
   }
 
   /// Download the practitioner's PUBLIC avatar URL to a stable temp
@@ -749,15 +829,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   // pill is gone (informational read sits on the dashboard
                   // tile in the portal). The "Updated N min ago" sync hint
                   // below is the only thing that survives in this slot.
-                  // "Updated N min ago" hint, only when we have a successful
-                  // sync to report AND the body is the clients list (not
-                  // loading / error / empty). Suppressed on Classes scope —
-                  // the sync timestamp is about the clients cache.
-                  if (_scope == HomeScope.clients &&
-                      _lastSyncedMs != null &&
-                      !_loading &&
-                      _loadError == null &&
-                      _clients.isNotEmpty)
+                  // "Updated N min ago" hint. Surfaced on Clients (anchored
+                  // to the populated list) AND on My Workouts (per the
+                  // design doc § "Chrome on My Workouts" — the workouts
+                  // list is sessions-cache-backed and benefits from the
+                  // same "fresh enough?" anchor). Suppressed on Classes
+                  // (no client/sessions cache to anchor to yet).
+                  if (((_scope == HomeScope.clients &&
+                              !_loading &&
+                              _loadError == null &&
+                              _clients.isNotEmpty) ||
+                          _scope == HomeScope.workouts) &&
+                      _lastSyncedMs != null)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
                       child: Row(
@@ -773,20 +856,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                  // Inline sync-failure banner. Only shown when we're online
-                  // AND the most recent pullAll hit an RPC error. The clients
-                  // list (if any) stays visible behind it, so Carl's mental
-                  // model is preserved: "I have N clients cached, I see them,
-                  // the banner tells me we can't reach the cloud right now,
-                  // nothing is broken." We only suppress it when the list is
-                  // empty — that case falls through to the bigger "Couldn't
-                  // load your clients" empty state which carries the same
-                  // retry affordance. Suppressed on Classes scope — the
-                  // failure is about the clients cache, not Classes.
-                  if (_scope == HomeScope.clients &&
-                      _syncFailed &&
-                      !_loading &&
-                      _clients.isNotEmpty)
+                  // Inline sync-failure banner. Surfaces when we're online
+                  // AND the most recent pullAll hit an RPC error. The
+                  // cached body (if any) stays visible behind it, so the
+                  // mental model is preserved: "I have N rows cached, I
+                  // see them, the banner tells me we can't reach the
+                  // cloud right now, nothing is broken." Suppressed on
+                  // Clients when the list is empty (the bigger empty
+                  // state carries the same retry affordance). Extends
+                  // to My Workouts per the design doc § "Chrome on My
+                  // Workouts" — the sessions cache benefits from the
+                  // same banner. Suppressed on Classes (no cache to
+                  // anchor to yet).
+                  if (_syncFailed &&
+                      ((_scope == HomeScope.clients &&
+                              !_loading &&
+                              _clients.isNotEmpty) ||
+                          _scope == HomeScope.workouts))
                     _SyncFailedBanner(
                       retryCount: _syncRetryCount,
                       retrying: _retrying,
@@ -833,7 +919,31 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? _buildLoadErrorCard(_loadError!)
                                   : _buildBody()),
                       HomeScope.classes => const ClassesComingSoonView(),
-                      HomeScope.workouts => const WorkoutsComingSoonView(),
+                      HomeScope.workouts => MyWorkoutsScreen(
+                          storage: widget.storage,
+                          reloadToken: _workoutsReloadToken,
+                          onTapSession: (session) async {
+                            // Self-captures are always owned by the
+                            // practitioner — route to Studio mode. Inbound
+                            // (from-practitioner / subscribed-class)
+                            // cards will route to PlanPreviewScreen
+                            // when that path ships in a follow-up PR.
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => SessionShellScreen(
+                                  session: session,
+                                  storage: widget.storage,
+                                  initialPage: 0, // Studio first.
+                                ),
+                              ),
+                            );
+                            if (mounted) {
+                              setState(() {
+                                _workoutsReloadToken += 1;
+                              });
+                            }
+                          },
+                        ),
                     },
                   ),
                   // Primary CTA. Coral FAB pinned above the footer so the
@@ -872,12 +982,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                  // My Workouts primary CTA. Stub for this PR — tap shows a
-                  // SnackBar pointing at PR #9, which wires the inline selfie
-                  // sheet + capture entry path per
-                  // `docs/SELF_TRAINER_WAVE.md` § Capture-entry path from
-                  // My Workouts. Mirrors the Clients FAB style (coral
-                  // FilledButton.icon, 56px, 16px radius).
+                  // My Workouts primary CTA. Wires the full capture-entry
+                  // path per `docs/SELF_TRAINER_WAVE.md` § Capture-entry
+                  // path from My Workouts (PR #9). Mirrors the Clients
+                  // FAB style (coral FilledButton.icon, 56px, 16px radius).
                   if (_scope == HomeScope.workouts)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
@@ -886,7 +994,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         height: 56,
                         child: FilledButton.icon(
                           onPressed: () {
-                            unawaited(_newSelfSessionStub());
+                            unawaited(_newSelfSession());
                           },
                           icon: const Icon(
                             Icons.fitness_center_rounded,

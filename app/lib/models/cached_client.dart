@@ -101,6 +101,22 @@ class CachedClient {
   /// `clients.face_embedding_model_version smallint`.
   final int? faceEmbeddingModelVersion;
 
+  /// Supabase `auth.users.id` of the user this client represents.
+  ///
+  /// Non-NULL only for the Self-client row in the practitioner's
+  /// personal practice — the row created by `register_self_face` per
+  /// `docs/SELF_TRAINER_WAVE.md`. Used by the My Workouts screen to
+  /// identify the Self-client locally (no second round-trip) so the
+  /// FAB can mint sessions bound to its id and the workouts list can
+  /// filter by `client_id == self_client_id`. Cloud-side enforced by
+  /// the partial unique index
+  /// `(practice_id, user_id) WHERE user_id IS NOT NULL AND deleted_at IS NULL`.
+  ///
+  /// Self-trainer wave PR #9 (2026-05-25). Mirrors `clients.user_id`
+  /// surfaced through `list_practice_clients` per the companion
+  /// migration `20260525145747_list_practice_clients_user_id.sql`.
+  final String? userId;
+
   /// Epoch-ms of the last successful cloud pull that confirmed this
   /// row. Null for offline-created rows that haven't synced yet.
   final int? syncedAt;
@@ -129,6 +145,7 @@ class CachedClient {
     this.consentExplicitlySetAt,
     this.faceEmbedding,
     this.faceEmbeddingModelVersion,
+    this.userId,
     this.syncedAt,
     this.dirty = false,
     this.deleted = false,
@@ -163,6 +180,9 @@ class CachedClient {
       explicitMs = explicit;
     }
     final pathRaw = json['avatar_path'];
+    final userIdRaw = json['user_id'];
+    final String? userId =
+        (userIdRaw is String && userIdRaw.isNotEmpty) ? userIdRaw : null;
     final embedding = _decodeFaceEmbedding(json['face_embedding']);
     final modelVersionRaw = json['face_embedding_model_version'];
     int? modelVersion;
@@ -188,6 +208,7 @@ class CachedClient {
       consentExplicitlySetAt: explicitMs,
       faceEmbedding: embedding,
       faceEmbeddingModelVersion: embedding == null ? null : modelVersion,
+      userId: userId,
       syncedAt: nowMs,
       dirty: false,
       deleted: false,
@@ -304,6 +325,7 @@ class CachedClient {
         '$len bytes (expected $kFaceEmbeddingBytes)',
       );
     }
+    final userIdRaw = row['user_id'];
     return CachedClient(
       id: row['id'] as String,
       practiceId: row['practice_id'] as String,
@@ -321,6 +343,7 @@ class CachedClient {
       faceEmbedding: embedding,
       faceEmbeddingModelVersion:
           embedding == null ? null : row['face_embedding_model_version'] as int?,
+      userId: (userIdRaw is String && userIdRaw.isNotEmpty) ? userIdRaw : null,
       syncedAt: row['synced_at'] as int?,
       dirty: (row['dirty'] as int? ?? 0) == 1,
       deleted: (row['deleted'] as int? ?? 0) == 1,
@@ -347,6 +370,7 @@ class CachedClient {
       'consent_explicitly_set_at': consentExplicitlySetAt,
       'face_embedding': faceEmbedding,
       'face_embedding_model_version': faceEmbeddingModelVersion,
+      'user_id': userId,
       'synced_at': syncedAt,
       'dirty': dirty ? 1 : 0,
       'deleted': deleted ? 1 : 0,
@@ -386,6 +410,8 @@ class CachedClient {
     Uint8List? faceEmbedding,
     bool clearFaceEmbedding = false,
     int? faceEmbeddingModelVersion,
+    String? userId,
+    bool clearUserId = false,
     int? syncedAt,
     bool? dirty,
     bool? deleted,
@@ -411,6 +437,7 @@ class CachedClient {
       faceEmbeddingModelVersion: clearFaceEmbedding
           ? null
           : (faceEmbeddingModelVersion ?? this.faceEmbeddingModelVersion),
+      userId: clearUserId ? null : (userId ?? this.userId),
       syncedAt: syncedAt ?? this.syncedAt,
       dirty: dirty ?? this.dirty,
       deleted: deleted ?? this.deleted,
