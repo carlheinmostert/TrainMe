@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -130,15 +131,33 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   /// Lifecycle controller for the service. Reused across retries.
   /// Constructed from [widget.mode] so the service knows whether to
   /// run sweep + embedding vs the simple-shot avatarOnly path.
-  late final FaceEnrolmentService _service;
+  ///
+  /// Re-assignable (not `final`) because Phase 2's Retake path on the
+  /// post-sweep grid disposes the current service + constructs a
+  /// fresh one to restart the pose-gated sweep from a clean state
+  /// machine.
+  late FaceEnrolmentService _service;
 
   StreamSubscription<FaceEnrolmentError>? _errorSub;
+  StreamSubscription<FaceEnrolmentRejection>? _rejectionSub;
 
   /// Inline coral-bordered toast text. Surfaced at the top of the
   /// viewfinder for 4s before auto-popping (per spec). Null = no
   /// toast.
   String? _toast;
   Timer? _toastTimer;
+
+  /// Phase 2 — most-recent rejection event. Drives the rose-tinted
+  /// reject pill at the bottom of the viewfinder (mockup state 2).
+  /// Carl's mockup signoff: the toast shows the RAW SCORE so
+  /// practitioners learn what's failing.
+  FaceEnrolmentRejection? _rejection;
+  Timer? _rejectionTimer;
+
+  /// Phase 2 — practitioner's manually-chosen avatar slot index in the
+  /// post-sweep grid. Null = use the auto frontal-pick. Bound to the
+  /// coral-bordered selected cell in the grid view.
+  int? _chosenAvatarSlotIndex;
 
   /// Wall-clock instant the latest take-picture call was kicked off,
   /// used to drop overlapping calls if the prior is still finishing
@@ -178,6 +197,7 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     _service = FaceEnrolmentService(mode: widget.mode);
     _service.addListener(_onServiceChanged);
     _errorSub = _service.errorStream.listen(_onServiceError);
+    _rejectionSub = _service.rejectionStream.listen(_onServiceRejection);
     // Load the sticky camera direction, then init the camera.
     unawaited(_resolveDefaultDirection().then((_) {
       if (!mounted) return;
@@ -189,7 +209,9 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _toastTimer?.cancel();
+    _rejectionTimer?.cancel();
     _errorSub?.cancel();
+    _rejectionSub?.cancel();
     _service.removeListener(_onServiceChanged);
     _service.dispose();
     final c = _cameraController;
@@ -397,11 +419,14 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
 
       // Tiny delay so the preview has a frame on screen before the
       // ring starts spinning — gives the user a half-beat to read the
-      // first instruction.
+      // first instruction. Per Carl's mockup signoff, the sweep auto-
+      // begins as soon as Vision sees a face (no Start button) — the
+      // service's pose-gated tick handles the "no face yet" case
+      // silently by skipping frames that don't return embeddings.
       await Future<void>.delayed(const Duration(milliseconds: 350));
       if (!mounted) return;
       if (_service.state == FaceEnrolmentState.idle) {
-        unawaited(_service.startSweep());
+        unawaited(_service.startPoseGatedSweep());
       }
     } on CameraException catch (e) {
       if (!mounted) return;
@@ -603,6 +628,18 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     });
   }
 
+  void _onServiceRejection(FaceEnrolmentRejection rej) {
+    if (!mounted) return;
+    setState(() {
+      _rejection = rej;
+    });
+    _rejectionTimer?.cancel();
+    _rejectionTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (!mounted) return;
+      setState(() => _rejection = null);
+    });
+  }
+
   void _scheduleAutoPopAfterToast() {
     // Toast shows for 4s then we pop with failure. Reuses the same
     // timer the toast itself runs on so we don't double-fire.
@@ -631,7 +668,45 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   Future<void> _onCommitTap() async {
     if (_service.state != FaceEnrolmentState.confirming) return;
     HapticFeedback.mediumImpact();
-    await _service.commit(clientId: widget.client.id);
+    await _service.commit(
+      clientId: widget.client.id,
+      manuallyChosenAvatarSlotIndex: _chosenAvatarSlotIndex,
+    );
+  }
+
+  /// Retake — discard the accumulated slots and restart the pose-gated
+  /// sweep cleanly. No "Are you sure?" modal (R-01). The current
+  /// service instance is torn down and replaced with a fresh one so
+  /// the state machine starts back at idle.
+  Future<void> _onRetakeTap() async {
+    HapticFeedback.selectionClick();
+    if (!mounted) return;
+    setState(() {
+      _chosenAvatarSlotIndex = null;
+      _rejection = null;
+    });
+    _service.removeListener(_onServiceChanged);
+    _errorSub?.cancel();
+    _rejectionSub?.cancel();
+    _service.dispose();
+    _service = FaceEnrolmentService(mode: widget.mode);
+    _service.setFrameProducer(_captureFrame);
+    _service.addListener(_onServiceChanged);
+    _errorSub = _service.errorStream.listen(_onServiceError);
+    _rejectionSub = _service.rejectionStream.listen(_onServiceRejection);
+    if (mounted) {
+      setState(() {});
+    }
+    unawaited(_service.startPoseGatedSweep());
+  }
+
+  /// Practitioner tapped "Done" on the in-sweep timer chip — accept
+  /// whatever slots we have and transition to confirming. The service
+  /// short-circuits to confirming if we have >= 3 slots, or surfaces
+  /// notEnoughAngles otherwise. Phase 2 only.
+  void _onSweepFinishTap() {
+    HapticFeedback.selectionClick();
+    _service.requestSweepFinish();
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -714,193 +789,55 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
 
     final state = _service.state;
     if (state == FaceEnrolmentState.confirming) {
-      return _ConfirmView(
+      // embeddingOnly skips the grid entirely — commit immediately.
+      // Schedule for after the build so we don't notify mid-build.
+      if (widget.mode == FaceEnrolmentMode.embeddingOnly) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (_service.state == FaceEnrolmentState.confirming) {
+            unawaited(_onCommitTap());
+          }
+        });
+        return _PersistingOverlayView(
+          cameraController: _cameraController,
+          cameraReady: _cameraReady,
+          useFrontCamera: _useFrontCamera,
+          onCancel: _onCancelTap,
+          onCameraFlip: _onCameraFlipTap,
+        );
+      }
+      return _AvatarSelectionGridView(
         slots: _service.pendingSlots ?? const [],
-        capturedFrames: _service.capturedFramePaths,
+        chosenSlotIndex: _chosenAvatarSlotIndex,
+        onSelect: (i) => setState(() => _chosenAvatarSlotIndex = i),
         onCancel: _onCancelTap,
-        onCommit: _onCommitTap,
+        onRetake: _onRetakeTap,
+        onConfirm: _onCommitTap,
       );
     }
-    return _SweepView(
+    // Persisting overlay (with viewfinder behind for continuity).
+    if (state == FaceEnrolmentState.persisting) {
+      return _PersistingOverlayView(
+        cameraController: _cameraController,
+        cameraReady: _cameraReady,
+        useFrontCamera: _useFrontCamera,
+        onCancel: () {},
+        onCameraFlip: () {},
+      );
+    }
+    return _PoseGatedSweepView(
       cameraController: _cameraController,
       cameraReady: _cameraReady,
-      progress: _service.progress,
-      instructionText: _service.instructionText,
-      state: state,
+      filledBuckets: _service.filledBuckets,
+      currentTargetBucket: _service.currentTargetBucket,
+      lastAcceptedScore: _service.lastAcceptedScore,
+      hintText: _service.instructionText ?? 'Look at the camera to begin',
       useFrontCamera: _useFrontCamera,
       onCancel: _onCancelTap,
       onCameraFlip: _onCameraFlipTap,
+      onFinish: _onSweepFinishTap,
       toast: _toast,
-    );
-  }
-}
-
-/// The viewfinder + ring during sweep / embedding / persisting / failed
-/// states. Pulled out so the confirm view can replace it cleanly via
-/// the parent's switch.
-class _SweepView extends StatelessWidget {
-  final CameraController? cameraController;
-  final bool cameraReady;
-  final double progress;
-  final String? instructionText;
-  final FaceEnrolmentState state;
-  final bool useFrontCamera;
-  final VoidCallback onCancel;
-  final VoidCallback onCameraFlip;
-  final String? toast;
-
-  const _SweepView({
-    required this.cameraController,
-    required this.cameraReady,
-    required this.progress,
-    required this.instructionText,
-    required this.state,
-    required this.useFrontCamera,
-    required this.onCancel,
-    required this.onCameraFlip,
-    required this.toast,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // 1. Camera preview (or loading spinner). Rear cam: natural
-        //    orientation; front cam (selfie): camera plugin auto-mirrors.
-        if (cameraReady && cameraController != null)
-          // Dim to ~70% so the coral overlay reads cleanly per spec.
-          Opacity(
-            opacity: 0.70,
-            child: SizedBox.expand(
-              child: FittedBox(
-                fit: BoxFit.cover,
-                child: SizedBox(
-                  width: cameraController!.value.previewSize?.height ??
-                      MediaQuery.of(context).size.width,
-                  height: cameraController!.value.previewSize?.width ??
-                      MediaQuery.of(context).size.height,
-                  child: CameraPreview(cameraController!),
-                ),
-              ),
-            ),
-          )
-        else
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(color: AppColors.primary),
-                  SizedBox(height: 16),
-                  Text(
-                    'Preparing camera',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 14,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-        // 2. Radial vignette — 0% centre → 50% black corners. Focuses
-        //    attention on the centre ring.
-        if (cameraReady)
-          IgnorePointer(
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment.center,
-                  radius: 1.1,
-                  colors: [
-                    Color(0x00000000),
-                    Color(0x80000000),
-                  ],
-                  stops: [0.55, 1.0],
-                ),
-              ),
-            ),
-          ),
-
-        // 3-5. Coral circle + arc ring + ticks — single CustomPaint
-        //      so the whole concentric stack moves together.
-        if (cameraReady)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _EnrolmentRingPainter(
-                  progress: progress,
-                  tickCount: FaceEnrolmentService.kRingTickCount,
-                  pulsePhase: state == FaceEnrolmentState.sweepingYaw &&
-                          progress < 0.05
-                      ? DateTime.now().millisecondsSinceEpoch / 1000.0
-                      : null,
-                ),
-              ),
-            ),
-          ),
-
-        // 6. Instruction text below the ring.
-        if (cameraReady && instructionText != null)
-          _InstructionLabel(text: instructionText!),
-
-        // 7. Cancel chip top-left.
-        Positioned(
-          top: 12,
-          left: 12,
-          child: _CancelChip(onTap: onCancel),
-        ),
-
-        // 7b. Camera flip toggle top-right (Phase 1 spec 4a).
-        Positioned(
-          top: 12,
-          right: 12,
-          child: _CameraFlipChip(
-            useFrontCamera: useFrontCamera,
-            onTap: onCameraFlip,
-          ),
-        ),
-
-        // Persisting overlay — full-screen dim + spinner.
-        if (state == FaceEnrolmentState.persisting)
-          Positioned.fill(
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.55),
-              alignment: Alignment.center,
-              child: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(color: AppColors.primary),
-                  SizedBox(height: 16),
-                  Text(
-                    'Saving',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-        // Inline coral-bordered toast at top — used for failure modes
-        // and warnings (e.g. notEnoughAngles). Auto-dismissed by the
-        // parent's timer.
-        if (toast != null)
-          Positioned(
-            top: 64,
-            left: 16,
-            right: 16,
-            child: _ErrorToast(message: toast!),
-          ),
-      ],
+      rejection: _rejection,
     );
   }
 }
@@ -1080,206 +1017,6 @@ class _SimpleShotView extends StatelessWidget {
   }
 }
 
-/// The post-sweep confirm screen. Shows the picked slots in a
-/// horizontal thumbnail row + the frontal-pick highlighted + a Done
-/// button at the bottom.
-class _ConfirmView extends StatelessWidget {
-  final List<FaceEnrolmentSlot> slots;
-  final List<String> capturedFrames;
-  final VoidCallback onCancel;
-  final Future<void> Function() onCommit;
-
-  const _ConfirmView({
-    required this.slots,
-    required this.capturedFrames,
-    required this.onCancel,
-    required this.onCommit,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Container(color: AppColors.surfaceBg),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    _CancelChip(onTap: onCancel),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Confirm enrolment',
-                        style: TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Captured angles',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    color: AppColors.textSecondaryOnDark,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 92,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: slots.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 8),
-                    itemBuilder: (context, i) => _SlotThumbnail(
-                      slot: slots[i],
-                      // Map slot index → captured frame approximation
-                      // (native picks slots in capture order).
-                      capturedPath: _resolveCapturedPath(i),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppColors.brandTintBg,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                    border: Border.all(color: AppColors.brandTintBorder),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(
-                        Icons.face_retouching_natural,
-                        color: AppColors.primary,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Most-frontal frame · avatar source',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              "${slots.length} angles will be stored "
-                              "so we recognise this client from any side.",
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 12,
-                                color: AppColors.textSecondaryOnDark,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => onCommit(),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppTheme.radiusMd),
-                      ),
-                    ),
-                    child: const Text(
-                      'Done',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Approximate which captured-frame file corresponds to slot [i].
-  /// Native picks slots in capture order so proportional mapping is
-  /// close enough for a confirm-view thumbnail. Returns null if the
-  /// buffer was emptied (cancel/teardown).
-  String? _resolveCapturedPath(int slotIndex) {
-    if (capturedFrames.isEmpty) return null;
-    if (slots.isEmpty) return null;
-    final approx = ((slotIndex / slots.length) * capturedFrames.length)
-        .floor()
-        .clamp(0, capturedFrames.length - 1);
-    return capturedFrames[approx];
-  }
-}
-
-/// One slot in the confirm view's horizontal strip.
-class _SlotThumbnail extends StatelessWidget {
-  final FaceEnrolmentSlot slot;
-  final String? capturedPath;
-
-  const _SlotThumbnail({
-    required this.slot,
-    required this.capturedPath,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor =
-        slot.isFrontalPick ? AppColors.primary : AppColors.surfaceBorder;
-    return Container(
-      width: 70,
-      height: 92,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceBase,
-        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-        border: Border.all(
-          color: borderColor,
-          width: slot.isFrontalPick ? 2 : 1,
-        ),
-      ),
-      clipBehavior: Clip.hardEdge,
-      child: capturedPath != null
-          ? Image.file(
-              File(capturedPath!),
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const _SlotPlaceholder(),
-            )
-          : const _SlotPlaceholder(),
-    );
-  }
-}
-
 class _SlotPlaceholder extends StatelessWidget {
   const _SlotPlaceholder();
 
@@ -1422,44 +1159,6 @@ class _ShutterButton extends StatelessWidget {
     );
   }
 }
-
-class _InstructionLabel extends StatelessWidget {
-  final String text;
-
-  const _InstructionLabel({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    // Sit roughly 28% from the bottom — below the ring, above the
-    // safe-area inset. Tuned by inspection against the spec's mock
-    // visual hierarchy.
-    return Positioned(
-      left: 24,
-      right: 24,
-      bottom: size.height * 0.18,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.40),
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-        ),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontFamily: 'Montserrat',
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-            height: 1.3,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ErrorToast extends StatelessWidget {
   final String message;
 
@@ -1503,98 +1202,1072 @@ class _ErrorToast extends StatelessWidget {
   }
 }
 
-/// Custom painter for the concentric coral circle + arc progress ring
-/// + tick marks. All geometry in one painter so the visual stack
-/// stays pixel-aligned across rebuilds.
-class _EnrolmentRingPainter extends CustomPainter {
-  final double progress;
-  final int tickCount;
+// ── Phase 2 widgets ────────────────────────────────────────────────────────
 
-  /// Seconds-since-epoch fractional value when in the early-sweep
-  /// breathing-pulse window. Null = no pulse.
-  final double? pulsePhase;
+/// Phase 2 — the pose-gated sweep view that replaces the legacy
+/// [_SweepView] for [FaceEnrolmentMode.full] and
+/// [FaceEnrolmentMode.embeddingOnly]. Renders the mockup-faithful
+/// 6-segment guidance ring + dashed face guide + slot counter +
+/// quality badge + hint text + reject toast.
+///
+/// Mockup signoff: docs/design/mockups/safe-mode-v2-enrolment-polish.html
+/// states 1 + 2. All five of Carl's approved decisions honoured:
+///   - 6 pose buckets (not 8).
+///   - Reject toast shows the raw score.
+///   - Dashed face guide (not the prior solid breathing circle).
+///   - No "Start" button — sweep auto-begins on face detection.
+///   - Pose labels stay word-form on the grid (handled in
+///     [_AvatarSelectionGridView]).
+class _PoseGatedSweepView extends StatelessWidget {
+  final CameraController? cameraController;
+  final bool cameraReady;
+  final Set<PoseBucket> filledBuckets;
+  final PoseBucket? currentTargetBucket;
+  final double? lastAcceptedScore;
+  final String hintText;
+  final bool useFrontCamera;
+  final VoidCallback onCancel;
+  final VoidCallback onCameraFlip;
+  final VoidCallback onFinish;
+  final String? toast;
+  final FaceEnrolmentRejection? rejection;
 
-  _EnrolmentRingPainter({
-    required this.progress,
-    required this.tickCount,
-    this.pulsePhase,
+  const _PoseGatedSweepView({
+    required this.cameraController,
+    required this.cameraReady,
+    required this.filledBuckets,
+    required this.currentTargetBucket,
+    required this.lastAcceptedScore,
+    required this.hintText,
+    required this.useFrontCamera,
+    required this.onCancel,
+    required this.onCameraFlip,
+    required this.onFinish,
+    required this.toast,
+    required this.rejection,
   });
 
   @override
+  Widget build(BuildContext context) {
+    final filledCount = filledBuckets.length;
+    final canFinishEarly = filledCount >= 3 && filledCount < kPoseBucketCount;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 1. Camera preview — full-resolution, no dim. The guidance
+        //    overlay sits over the top.
+        if (cameraReady && cameraController != null)
+          SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: cameraController!.value.previewSize?.height ??
+                    MediaQuery.of(context).size.width,
+                height: cameraController!.value.previewSize?.width ??
+                    MediaQuery.of(context).size.height,
+                child: CameraPreview(cameraController!),
+              ),
+            ),
+          )
+        else
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: AppColors.primary),
+                  SizedBox(height: 16),
+                  Text(
+                    'Preparing camera',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // 2. Soft radial vignette to give the central area focus.
+        if (cameraReady)
+          IgnorePointer(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 1.1,
+                  colors: [
+                    Color(0x00000000),
+                    Color(0x66000000),
+                  ],
+                  stops: [0.55, 1.0],
+                ),
+              ),
+            ),
+          ),
+
+        // 3. The 6-segment guidance ring + dashed face guide. One
+        //    painter so the geometry stays pixel-aligned across
+        //    rebuilds.
+        if (cameraReady)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _GuidanceRingPainter(
+                  filledBuckets: filledBuckets,
+                  targetBucket: currentTargetBucket,
+                ),
+              ),
+            ),
+          ),
+
+        // 4. Cancel chip top-left.
+        Positioned(
+          top: 12,
+          left: 12,
+          child: _CancelChip(onTap: onCancel),
+        ),
+
+        // 5. Slot counter pill top-center-right. "N of 6 captured."
+        Positioned(
+          top: 18,
+          right: 64,
+          child: _SlotCounterPill(
+            filledCount: filledCount,
+            total: kPoseBucketCount,
+          ),
+        ),
+
+        // 6. Camera flip toggle top-right corner.
+        Positioned(
+          top: 12,
+          right: 12,
+          child: _CameraFlipChip(
+            useFrontCamera: useFrontCamera,
+            onTap: onCameraFlip,
+          ),
+        ),
+
+        // 7. Quality badge below the slot counter (only after at least
+        //    one accept). Colour-coded coral >=80, amber 60-79.
+        if (lastAcceptedScore != null)
+          Positioned(
+            top: 68,
+            right: 16,
+            child: _QualityBadge(score: lastAcceptedScore!),
+          ),
+
+        // 8. Hint text below the ring.
+        if (cameraReady)
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: MediaQuery.of(context).size.height * 0.22,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  hintText,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                    height: 1.35,
+                    shadows: [
+                      Shadow(blurRadius: 8, color: Color(0xB3000000)),
+                    ],
+                  ),
+                ),
+                if (filledCount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      '$filledCount captured · ${kPoseBucketCount - filledCount} to go',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: AppColors.textSecondaryOnDark,
+                        shadows: [
+                          Shadow(blurRadius: 8, color: Color(0xB3000000)),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+        // 9. Reject toast — rose-tinted pill at the bottom. Shows the
+        //    raw score per Carl's mockup signoff.
+        if (rejection != null && rejection!.score != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: MediaQuery.of(context).size.height * 0.12,
+            child: Center(
+              child: _RejectionToast(rejection: rejection!),
+            ),
+          ),
+
+        // 10. "Done" chip bottom-center — only shown once we have at
+        //     least 3 slots (the hard min) but not yet all 6. Lets the
+        //     practitioner accept what we've got and skip to the grid
+        //     rather than wait for every bucket.
+        if (canFinishEarly)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 36,
+            child: Center(
+              child: _DoneChip(
+                onTap: onFinish,
+                filled: filledCount,
+                total: kPoseBucketCount,
+              ),
+            ),
+          ),
+
+        // 11. Generic error toast top (notEnoughAngles + camera errors).
+        if (toast != null)
+          Positioned(
+            top: 110,
+            left: 16,
+            right: 16,
+            child: _ErrorToast(message: toast!),
+          ),
+      ],
+    );
+  }
+}
+
+/// Painter for the 6-segment guidance ring + dashed face guide.
+/// Mockup state 1+2 geometry: ring radius scales to viewport width;
+/// segment thickness = 10pt; 10-degree gap between segments; labels
+/// sit just outside the ring. Lit segments glow with a coral drop
+/// shadow.
+class _GuidanceRingPainter extends CustomPainter {
+  final Set<PoseBucket> filledBuckets;
+  final PoseBucket? targetBucket;
+
+  _GuidanceRingPainter({
+    required this.filledBuckets,
+    required this.targetBucket,
+  });
+
+  /// Bucket order around the ring, clockwise from 12 o'clock. Mirrors
+  /// the mockup script's labels array. The angular positions are
+  /// chosen so that "UP" is at the top and the front-* / left / right
+  /// buckets fall into intuitive positions around the head.
+  static const List<PoseBucket> _ringOrder = <PoseBucket>[
+    PoseBucket.slightUp, // 12 o'clock (UP)
+    PoseBucket.frontRight, // 2
+    PoseBucket.right, // 4
+    PoseBucket.front, // 6 (DOWN slot — represents the neutral / chin-tucked-down centred shot)
+    PoseBucket.left, // 8
+    PoseBucket.frontLeft, // 10
+  ];
+
+  @override
   void paint(Canvas canvas, Size size) {
-    final centre = Offset(size.width / 2, size.height / 2);
-    // Coral circle diameter ≈ 70% of viewport width (per spec).
-    final circleDiameter = size.width * 0.70;
-    final circleRadius = circleDiameter / 2;
-    // Arc ring sits 12px outside the coral circle (per spec).
-    final ringRadius = circleRadius + 12;
+    final centre = Offset(size.width / 2, size.height * 0.38);
+    final ringRadius = math.min(size.width, size.height) * 0.38;
+    final faceGuideRadius = ringRadius - 24;
 
-    // 1. Coral circle outline. 3px stroke.
-    final pulseOpacity = pulsePhase == null
-        ? 1.0
-        : (0.92 + 0.08 * math.sin(pulsePhase! * 2 * math.pi * 1));
-    final circlePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..color = AppColors.primary.withValues(alpha: pulseOpacity);
-    canvas.drawCircle(centre, circleRadius, circlePaint);
+    // Dashed face guide circle (per Carl's mockup decision — replaces
+    // the prior solid breathing circle).
+    _drawDashedCircle(
+      canvas,
+      centre,
+      faceGuideRadius,
+      strokeColor: AppColors.primary.withValues(alpha: 0.6),
+      strokeWidth: 1.5,
+      dashLength: 6,
+      gapLength: 8,
+    );
 
-    // 2. Arc track (full ring, dim coral).
-    final trackPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
-      ..color = AppColors.primary.withValues(alpha: 0.20)
-      ..strokeCap = StrokeCap.round;
-    canvas.drawCircle(centre, ringRadius, trackPaint);
+    // Segments. Bucket angle = 60 deg. 10 deg gap.
+    const buckets = kPoseBucketCount;
+    const gapDeg = 10.0;
+    const bucketDeg = 360.0 / buckets;
 
-    // 3. Arc fill (progress from 12 o'clock clockwise).
-    if (progress > 0) {
-      final fillPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..color = AppColors.primary
-        ..strokeCap = StrokeCap.round;
-      final sweepAngle = 2 * math.pi * progress.clamp(0.0, 1.0);
-      // Start at -π/2 (top, 12 o'clock).
-      canvas.drawArc(
-        Rect.fromCircle(center: centre, radius: ringRadius),
-        -math.pi / 2,
-        sweepAngle,
-        false,
-        fillPaint,
-      );
-    }
+    for (var i = 0; i < buckets; i++) {
+      final bucket = _ringOrder[i];
+      final centerDeg = i * bucketDeg;
+      final startDeg = centerDeg - bucketDeg / 2 + gapDeg / 2;
+      final endDeg = centerDeg + bucketDeg / 2 - gapDeg / 2;
 
-    // 4. Tick marks. Each tick: 8px radial line straddling the ring.
-    final tickRadiusInner = ringRadius - 8;
-    final tickRadiusOuter = ringRadius + 8;
-    for (var i = 0; i < tickCount; i++) {
-      final angle = -math.pi / 2 + (2 * math.pi * (i / tickCount));
-      final p1 = Offset(
-        centre.dx + tickRadiusInner * math.cos(angle),
-        centre.dy + tickRadiusInner * math.sin(angle),
-      );
-      final p2 = Offset(
-        centre.dx + tickRadiusOuter * math.cos(angle),
-        centre.dy + tickRadiusOuter * math.sin(angle),
-      );
-      // Tick is "lit" if the progress arc has swept past it.
-      final tickProgressThreshold = i / tickCount;
-      final lit = progress >= tickProgressThreshold;
-      final tickPaint = Paint()
+      final isLit = filledBuckets.contains(bucket);
+      final isTarget = targetBucket == bucket && !isLit;
+      final colour = isLit
+          ? AppColors.primary
+          : isTarget
+              ? AppColors.primary.withValues(alpha: 0.55)
+              : AppColors.primary.withValues(alpha: 0.18);
+
+      final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = lit ? 2 : 1
-        ..color = AppColors.primary
-            .withValues(alpha: lit ? 1.0 : 0.50);
-      canvas.drawLine(p1, p2, tickPaint);
+        ..strokeWidth = 10
+        ..color = colour;
+      if (isLit) {
+        paint.maskFilter = const MaskFilter.blur(BlurStyle.outer, 4);
+      }
+      final rect = Rect.fromCircle(center: centre, radius: ringRadius);
+      // SVG-style: 0 deg = 12 o'clock, clockwise. Convert to Flutter
+      // canvas coords: -pi/2 = 12 o'clock, sweepAngle clockwise.
+      final startRad = (startDeg - 90) * math.pi / 180;
+      final sweepRad = (endDeg - startDeg) * math.pi / 180;
+      canvas.drawArc(rect, startRad, sweepRad, false, paint);
+    }
+  }
+
+  void _drawDashedCircle(
+    Canvas canvas,
+    Offset centre,
+    double radius, {
+    required Color strokeColor,
+    required double strokeWidth,
+    required double dashLength,
+    required double gapLength,
+  }) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = strokeColor;
+    final circumference = 2 * math.pi * radius;
+    final cycle = dashLength + gapLength;
+    final cycleCount = (circumference / cycle).floor();
+    final dashAngle = (dashLength / radius);
+    final gapAngle = (gapLength / radius);
+    for (var i = 0; i < cycleCount; i++) {
+      final startAngle = i * (dashAngle + gapAngle);
+      final rect = Rect.fromCircle(center: centre, radius: radius);
+      canvas.drawArc(rect, startAngle, dashAngle, false, paint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _EnrolmentRingPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.tickCount != tickCount ||
-        oldDelegate.pulsePhase != pulsePhase;
+  bool shouldRepaint(covariant _GuidanceRingPainter oldDelegate) {
+    return !setEquals(oldDelegate.filledBuckets, filledBuckets) ||
+        oldDelegate.targetBucket != targetBucket;
+  }
+}
+
+class _SlotCounterPill extends StatelessWidget {
+  final int filledCount;
+  final int total;
+
+  const _SlotCounterPill({required this.filledCount, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.surfaceBorder, width: 1),
+      ),
+      child: Text(
+        '$filledCount of $total captured',
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+}
+
+class _QualityBadge extends StatelessWidget {
+  final double score;
+
+  const _QualityBadge({required this.score});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color colour;
+    if (score >= 80) {
+      colour = AppColors.primary;
+    } else if (score >= 60) {
+      colour = AppColors.warning;
+    } else {
+      colour = AppColors.error;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colour.withValues(alpha: 0.45), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: colour,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Last slot: ${score.round()}',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: colour,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RejectionToast extends StatelessWidget {
+  final FaceEnrolmentRejection rejection;
+
+  const _RejectionToast({required this.rejection});
+
+  @override
+  Widget build(BuildContext context) {
+    final score = rejection.score;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: AppColors.error.withValues(alpha: 0.45),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.error.withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: AppColors.error,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            alignment: Alignment.center,
+            child: const Text(
+              'x',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Text(
+            'Slot rejected — quality too low',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.error,
+              letterSpacing: 0.2,
+            ),
+          ),
+          if (score != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${score.round()}',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.error,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DoneChip extends StatelessWidget {
+  final VoidCallback onTap;
+  final int filled;
+  final int total;
+
+  const _DoneChip({
+    required this.onTap,
+    required this.filled,
+    required this.total,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.primary,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          child: Text(
+            'Done · $filled of $total',
+            style: const TextStyle(
+              fontFamily: 'Montserrat',
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Persisting-state placeholder used while the embeddingOnly mode is
+/// auto-committing post-sweep. Keeps the viewfinder behind so the
+/// transition doesn't flash to a bare black.
+class _PersistingOverlayView extends StatelessWidget {
+  final CameraController? cameraController;
+  final bool cameraReady;
+  final bool useFrontCamera;
+  final VoidCallback onCancel;
+  final VoidCallback onCameraFlip;
+
+  const _PersistingOverlayView({
+    required this.cameraController,
+    required this.cameraReady,
+    required this.useFrontCamera,
+    required this.onCancel,
+    required this.onCameraFlip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (cameraReady && cameraController != null)
+          Opacity(
+            opacity: 0.4,
+            child: SizedBox.expand(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: cameraController!.value.previewSize?.height ??
+                      MediaQuery.of(context).size.width,
+                  height: cameraController!.value.previewSize?.width ??
+                      MediaQuery.of(context).size.height,
+                  child: CameraPreview(cameraController!),
+                ),
+              ),
+            ),
+          ),
+        Container(color: Colors.black.withValues(alpha: 0.45)),
+        const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: AppColors.primary),
+              SizedBox(height: 16),
+              Text(
+                'Saving',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Phase 2 — manual avatar selection grid. Shown ONLY in
+/// [FaceEnrolmentMode.full] (avatar consent on) after a successful
+/// pose-gated sweep.
+///
+/// Mockup state 3. Renders:
+///   - Quality histogram at the top.
+///   - 3-column face grid (1 row for 3 slots, 2 for 4-6, 3 for 7-8).
+///   - Frontal-pick highlighted by default; tap any cell to override.
+///   - Confirm (coral, primary) + Retake (secondary) buttons at the
+///     bottom.
+class _AvatarSelectionGridView extends StatelessWidget {
+  final List<FaceEnrolmentSlot> slots;
+  final int? chosenSlotIndex;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onCancel;
+  final VoidCallback onRetake;
+  final Future<void> Function() onConfirm;
+
+  const _AvatarSelectionGridView({
+    required this.slots,
+    required this.chosenSlotIndex,
+    required this.onSelect,
+    required this.onCancel,
+    required this.onRetake,
+    required this.onConfirm,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // The default-highlighted cell is the chosen one if the user has
+    // tapped, else the auto frontal-pick (typically slot 0 for the
+    // front-bucket capture). Falls back to slot 0 if no flag is set.
+    int defaultIdx = slots.indexWhere((s) => s.isFrontalPick);
+    if (defaultIdx < 0) defaultIdx = 0;
+    final selectedIdx = chosenSlotIndex ?? defaultIdx;
+
+    // Quality average → maybe surface a low-quality warning banner.
+    double avg = 0;
+    if (slots.isNotEmpty) {
+      double sum = 0;
+      int n = 0;
+      for (final s in slots) {
+        if (s.qualityScore != null) {
+          sum += s.qualityScore!;
+          n++;
+        }
+      }
+      avg = n > 0 ? (sum / n) : 0;
+    }
+    final showLowQualityWarning = slots.length >= 3 && avg > 0 && avg < 70;
+
+    return Container(
+      color: AppColors.surfaceBg,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row — cancel chip + title.
+              Row(
+                children: [
+                  _CancelChip(onTap: onCancel),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Pick the avatar',
+                      style: TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(left: 52),
+                child: Text(
+                  'All ${slots.length} angles saved. Tap the photo to use '
+                  "as the client's profile image.",
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: AppColors.textSecondaryOnDark,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Quality histogram.
+              _QualityHistogram(slots: slots),
+
+              if (showLowQualityWarning) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                    border: Border.all(
+                      color: AppColors.warning.withValues(alpha: 0.40),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded,
+                          color: AppColors.warning, size: 18),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Quality is low — try better lighting or get closer.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 18),
+              const Text(
+                'CAPTURED ANGLES',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Grid. Always 3 columns; rows scale with slot count.
+              Expanded(
+                child: GridView.builder(
+                  itemCount: slots.length,
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 3 / 4,
+                  ),
+                  itemBuilder: (context, i) {
+                    return _GridCell(
+                      slot: slots[i],
+                      selected: i == selectedIdx,
+                      onTap: () => onSelect(i),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: onRetake,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: AppColors.surfaceRaised,
+                        side: const BorderSide(
+                            color: AppColors.surfaceBorder),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusMd),
+                        ),
+                      ),
+                      child: const Text(
+                        'Retake',
+                        style: TextStyle(
+                          fontFamily: 'Montserrat',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => onConfirm(),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusMd),
+                        ),
+                      ),
+                      child: const Text(
+                        'Confirm',
+                        style: TextStyle(
+                          fontFamily: 'Montserrat',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GridCell extends StatelessWidget {
+  final FaceEnrolmentSlot slot;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _GridCell({
+    required this.slot,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final score = slot.qualityScore?.round();
+    final Color scoreColour;
+    if (score == null) {
+      scoreColour = AppColors.textSecondaryOnDark;
+    } else if (score >= 80) {
+      scoreColour = AppColors.primary;
+    } else if (score >= 60) {
+      scoreColour = AppColors.warning;
+    } else {
+      scoreColour = AppColors.error;
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceBase,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.surfaceBorder,
+            width: selected ? 2 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.18),
+                    blurRadius: 0,
+                    spreadRadius: 3,
+                  ),
+                ]
+              : null,
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Source frame thumbnail. Falls back to the placeholder
+            // glyph if the file is missing (e.g. sweep was cancelled
+            // mid-flow and the producer dir was cleaned).
+            if (slot.sourceFramePath != null &&
+                File(slot.sourceFramePath!).existsSync())
+              Image.file(
+                File(slot.sourceFramePath!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const _SlotPlaceholder(),
+              )
+            else
+              const _SlotPlaceholder(),
+
+            // Score chip top-right.
+            if (score != null)
+              Positioned(
+                top: 5,
+                right: 5,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceBg.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '$score',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: scoreColour,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ),
+
+            // Frontal star top-left (auto frontal pick only).
+            if (slot.isFrontalPick)
+              const Positioned(
+                top: 5,
+                left: 5,
+                child: _FrontalStar(),
+              ),
+
+            // Pose label bottom.
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                color: AppColors.surfaceBg.withValues(alpha: 0.75),
+                alignment: Alignment.center,
+                child: Text(
+                  slot.bucket?.label ?? 'unknown',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: selected
+                        ? AppColors.primaryLight
+                        : AppColors.textSecondaryOnDark,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FrontalStar extends StatelessWidget {
+  const _FrontalStar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 16,
+      height: 16,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: AppColors.primary,
+      ),
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.star,
+        size: 10,
+        color: Colors.white,
+      ),
+    );
+  }
+}
+
+class _QualityHistogram extends StatelessWidget {
+  final List<FaceEnrolmentSlot> slots;
+
+  const _QualityHistogram({required this.slots});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceBase,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final s in slots) ...[
+            Expanded(child: _HistogramBar(score: s.qualityScore)),
+            const SizedBox(width: 4),
+          ],
+        ]..removeLast(),
+      ),
+    );
+  }
+}
+
+class _HistogramBar extends StatelessWidget {
+  final double? score;
+
+  const _HistogramBar({required this.score});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = score ?? 0;
+    final Color colour;
+    if (s >= 80) {
+      colour = AppColors.primary;
+    } else if (s >= 60) {
+      colour = AppColors.warning;
+    } else {
+      colour = AppColors.error;
+    }
+    // Map 50..100 → 4..28 pt of bar height; below 50 = 4pt minimum.
+    final h = math.max(4.0, ((s - 50) / 50) * 28).clamp(4.0, 28.0);
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Container(
+          height: h.toDouble(),
+          decoration: BoxDecoration(
+            color: colour,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(3),
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${s.round()}',
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 8,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondaryOnDark,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
   }
 }
