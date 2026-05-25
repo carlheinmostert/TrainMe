@@ -34,7 +34,11 @@ export function TaglineHelper({
       <span className="font-mono text-[11px] uppercase tracking-wider text-ink-muted">
         Tagline
       </span>
-      <span className="min-w-[200px] flex-1 text-sm text-ink">
+      {/* iPhone-portrait follow-up (2026-05-25): drop the hardcoded
+          200px floor on `< sm` so the tagline copy can shrink into a
+          single-column iPhone-portrait card. At sm+ the original
+          floor returns so the tagline reads at a comfortable width. */}
+      <span className="min-w-0 flex-1 text-sm text-ink sm:min-w-[200px]">
         {taglineText}
       </span>
       <CopyButton

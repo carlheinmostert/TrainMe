@@ -212,14 +212,18 @@ export function DashboardTile({
       {footerBand && (
         <Link
           href={footerBand.href}
-          className="group/band flex items-center justify-between gap-3 border-t border-[rgba(255,107,53,0.25)] bg-[rgba(255,107,53,0.08)] px-5 py-2.5 text-xs font-medium text-brand-light transition hover:bg-[rgba(255,107,53,0.10)] focus:outline-none focus-visible:bg-[rgba(255,107,53,0.10)]"
+          className="group/band flex flex-col items-start gap-1 border-t border-[rgba(255,107,53,0.25)] bg-[rgba(255,107,53,0.08)] px-5 py-2.5 text-xs font-medium text-brand-light transition hover:bg-[rgba(255,107,53,0.10)] focus:outline-none focus-visible:bg-[rgba(255,107,53,0.10)] sm:flex-row sm:items-center sm:justify-between sm:gap-3"
         >
-          {/* iPhone-portrait fix (2026-05-25): allow the copy span to
-              shrink + wrap so "Earn free credits from your network"
-              isn't truncated to "Earn n..." when the tile is the full
-              ~342px iPhone-portrait width. The CTA on the right is
-              short + no-wrap so it always reads as a single unit. */}
-          <span className="min-w-0 flex-1">{footerBand.copy}</span>
+          {/* iPhone-portrait follow-up (2026-05-25): the previous fix
+              (min-w-0 flex-1 + whitespace-nowrap on the CTA) prevented
+              wrapping but let the CTA get clipped on narrow viewports
+              when natural copy + CTA width exceeded the band. We now
+              stack vertically by default and only switch to a single
+              row at `sm+` where there's room. Copy is on row 1, CTA
+              "Earn more →" sits on its own row 2 left-aligned with the
+              copy so the eye flows down into it as a clear call-to-
+              action. On desktop the original one-line layout returns. */}
+          <span className="min-w-0">{footerBand.copy}</span>
           <span className="whitespace-nowrap font-semibold text-brand transition group-hover/band:translate-x-0.5">
             Earn more &rarr;
           </span>

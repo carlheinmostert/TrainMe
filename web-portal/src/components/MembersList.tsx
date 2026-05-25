@@ -258,7 +258,13 @@ export function MembersList({
           onSubmit={handleAdd}
           className="mt-6 flex flex-wrap items-end gap-3 rounded-lg border border-surface-border bg-surface-base p-5"
         >
-          <div className="flex-1 min-w-[220px]">
+          {/* iPhone-portrait follow-up (2026-05-25): drop the hardcoded
+              220px floor on `< sm` so the input + Add button can shrink
+              into a single-column iPhone-portrait card without forcing
+              the form past the viewport. At sm+ the original min-width
+              returns so the field reads at a comfortable size when the
+              card is roomier. */}
+          <div className="flex-1 min-w-0 sm:min-w-[220px]">
             <label
               htmlFor="add-member-email"
               className="mb-1 block text-xs font-medium text-ink-muted"
@@ -306,91 +312,100 @@ export function MembersList({
             No members found for this practice.
           </p>
         ) : (
+          // iPhone-portrait follow-up (2026-05-25): wrap the table in
+          // `overflow-x-auto` so 5-column rows can scroll horizontally
+          // INSIDE the card on narrow viewports instead of overflowing
+          // the card chrome and pushing past the page edge. Same pattern
+          // as the /audit table (which also has more columns than fit
+          // on iPhone). The card's outer rounding is kept by leaving
+          // the parent's `overflow-hidden` intact.
           <div className="mt-3 overflow-hidden rounded-lg border border-surface-border bg-surface-base">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-surface-raised text-xs uppercase tracking-wider text-ink-dim">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Email</th>
-                  <th className="px-5 py-3 font-medium">Name</th>
-                  <th className="px-5 py-3 font-medium">Role</th>
-                  <th className="px-5 py-3 font-medium">Joined</th>
-                  <th className="px-5 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border">
-                {members.map((m) => (
-                  <tr key={m.trainerId} className="align-middle">
-                    <td className="px-5 py-3 text-ink">
-                      <span className="break-all">{m.email || '—'}</span>
-                      {m.isCurrentUser && (
-                        <span className="ml-2 rounded-full bg-surface-raised px-2 py-0.5 text-xs text-ink-muted">
-                          you
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
-                      {m.fullName || <span className="text-ink-dim">—</span>}
-                    </td>
-                    <td className="px-5 py-3">
-                      {isOwner && !m.isCurrentUser ? (
-                        <select
-                          value={m.role}
-                          onChange={(e) =>
-                            handleRoleChange(
-                              m,
-                              e.target.value as 'owner' | 'practitioner',
-                            )
-                          }
-                          className="rounded-md border border-surface-border bg-surface-raised px-2 py-1 text-xs font-semibold uppercase text-ink"
-                          aria-label={`Set role for ${displayName(m)}`}
-                        >
-                          <option value="owner">OWNER</option>
-                          <option value="practitioner">PRACTITIONER</option>
-                        </select>
-                      ) : (
-                        <span
-                          className={
-                            m.role === 'owner'
-                              ? 'rounded-full bg-brand/15 px-3 py-1 text-xs font-semibold uppercase text-brand'
-                              : 'rounded-full bg-surface-raised px-3 py-1 text-xs font-semibold uppercase text-ink-muted'
-                          }
-                        >
-                          {m.role}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-ink-dim">
-                      {m.joinedAt
-                        ? new Date(m.joinedAt).toLocaleDateString('en-ZA', {
-                            dateStyle: 'medium',
-                          })
-                        : '—'}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      {m.isCurrentUser ? (
-                        <button
-                          type="button"
-                          onClick={handleLeave}
-                          className="text-xs font-semibold uppercase tracking-wider text-error transition hover:text-error/80"
-                        >
-                          Leave practice
-                        </button>
-                      ) : isOwner ? (
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(m)}
-                          className="text-xs font-semibold uppercase tracking-wider text-error transition hover:text-error/80"
-                        >
-                          Remove
-                        </button>
-                      ) : (
-                        <span className="text-xs text-ink-dim">—</span>
-                      )}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-surface-raised text-xs uppercase tracking-wider text-ink-dim">
+                  <tr>
+                    <th className="px-5 py-3 font-medium">Email</th>
+                    <th className="px-5 py-3 font-medium">Name</th>
+                    <th className="px-5 py-3 font-medium">Role</th>
+                    <th className="px-5 py-3 font-medium">Joined</th>
+                    <th className="px-5 py-3 font-medium text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-surface-border">
+                  {members.map((m) => (
+                    <tr key={m.trainerId} className="align-middle">
+                      <td className="px-5 py-3 text-ink">
+                        <span className="break-all">{m.email || '—'}</span>
+                        {m.isCurrentUser && (
+                          <span className="ml-2 rounded-full bg-surface-raised px-2 py-0.5 text-xs text-ink-muted">
+                            you
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-ink-muted">
+                        {m.fullName || <span className="text-ink-dim">—</span>}
+                      </td>
+                      <td className="px-5 py-3">
+                        {isOwner && !m.isCurrentUser ? (
+                          <select
+                            value={m.role}
+                            onChange={(e) =>
+                              handleRoleChange(
+                                m,
+                                e.target.value as 'owner' | 'practitioner',
+                              )
+                            }
+                            className="rounded-md border border-surface-border bg-surface-raised px-2 py-1 text-xs font-semibold uppercase text-ink"
+                            aria-label={`Set role for ${displayName(m)}`}
+                          >
+                            <option value="owner">OWNER</option>
+                            <option value="practitioner">PRACTITIONER</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={
+                              m.role === 'owner'
+                                ? 'rounded-full bg-brand/15 px-3 py-1 text-xs font-semibold uppercase text-brand'
+                                : 'rounded-full bg-surface-raised px-3 py-1 text-xs font-semibold uppercase text-ink-muted'
+                            }
+                          >
+                            {m.role}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-ink-dim">
+                        {m.joinedAt
+                          ? new Date(m.joinedAt).toLocaleDateString('en-ZA', {
+                              dateStyle: 'medium',
+                            })
+                          : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {m.isCurrentUser ? (
+                          <button
+                            type="button"
+                            onClick={handleLeave}
+                            className="text-xs font-semibold uppercase tracking-wider text-error transition hover:text-error/80"
+                          >
+                            Leave practice
+                          </button>
+                        ) : isOwner ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRemove(m)}
+                            className="text-xs font-semibold uppercase tracking-wider text-error transition hover:text-error/80"
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <span className="text-xs text-ink-dim">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>
@@ -414,46 +429,52 @@ export function MembersList({
               an email above to queue a colleague.
             </p>
           ) : (
+            // iPhone-portrait follow-up (2026-05-25): same nested
+            // `overflow-x-auto` pattern as the Members table above so
+            // the Pending table can scroll its columns inside the
+            // card on narrow viewports.
             <div className="mt-3 overflow-hidden rounded-lg border border-surface-border bg-surface-base">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-surface-raised text-xs uppercase tracking-wider text-ink-dim">
-                  <tr>
-                    <th className="px-5 py-3 font-medium">Email</th>
-                    <th className="px-5 py-3 font-medium">Queued</th>
-                    <th className="px-5 py-3 font-medium text-right">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-border">
-                  {pending.map((p) => (
-                    <tr key={p.email} className="align-middle">
-                      <td className="px-5 py-3 text-ink">
-                        <span className="break-all">{p.email}</span>
-                        <span className="ml-2 rounded-full bg-surface-raised px-2 py-0.5 text-xs text-ink-muted">
-                          pending signup
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-ink-dim">
-                        {p.addedAt
-                          ? new Date(p.addedAt).toLocaleDateString('en-ZA', {
-                              dateStyle: 'medium',
-                            })
-                          : '—'}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleRemovePending(p)}
-                          className="text-xs font-semibold uppercase tracking-wider text-error transition hover:text-error/80"
-                        >
-                          Remove
-                        </button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-surface-raised text-xs uppercase tracking-wider text-ink-dim">
+                    <tr>
+                      <th className="px-5 py-3 font-medium">Email</th>
+                      <th className="px-5 py-3 font-medium">Queued</th>
+                      <th className="px-5 py-3 font-medium text-right">
+                        Actions
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border">
+                    {pending.map((p) => (
+                      <tr key={p.email} className="align-middle">
+                        <td className="px-5 py-3 text-ink">
+                          <span className="break-all">{p.email}</span>
+                          <span className="ml-2 rounded-full bg-surface-raised px-2 py-0.5 text-xs text-ink-muted">
+                            pending signup
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-ink-dim">
+                          {p.addedAt
+                            ? new Date(p.addedAt).toLocaleDateString('en-ZA', {
+                                dateStyle: 'medium',
+                              })
+                            : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePending(p)}
+                            className="text-xs font-semibold uppercase tracking-wider text-error transition hover:text-error/80"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </section>

@@ -176,7 +176,11 @@ export function AuditFilterBar({
 
         {/* Bottom row: Practitioner dropdown + Date range + Apply/Clear. */}
         <div className="flex flex-wrap items-end gap-4">
-          <label className="flex min-w-[180px] flex-col gap-1">
+          {/* iPhone-portrait follow-up (2026-05-25): swap the hardcoded
+              180px floor for `min-w-0 sm:min-w-[180px]` so the dropdown
+              can shrink to fit the iPhone-portrait audit card. On sm+
+              the original 180px floor returns. */}
+          <label className="flex min-w-0 flex-col gap-1 sm:min-w-[180px]">
             <span className="text-xs font-medium uppercase tracking-wider text-ink-muted">
               Practitioner
             </span>

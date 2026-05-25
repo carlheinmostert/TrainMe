@@ -9,6 +9,7 @@
 - [Build chip — below content, not over it](#4-build-chip--below-content-not-over-it)
 - [Desktop regression check](#5-desktop-regression-check)
 - [Back-arrow hoist regression check](#6-back-arrow-hoist-regression-check)
+- [Follow-up to 2026-05-25-portal-iphone-portrait](#follow-up-to-2026-05-25-portal-iphone-portrait)
 
 ## What changed
 
@@ -157,3 +158,86 @@ before — the rendering fix should not have regressed it.)
       left slot is empty (these pages either are root surfaces or carry
       their own inline back nav, by design — not in scope for this
       wave).
+
+---
+
+## Follow-up to 2026-05-25-portal-iphone-portrait
+
+PR #495 fixed the header safe-area, identity cluster stacking, and
+trapped accidental shadow overflow with `body { overflow-x-hidden }`.
+Device QA on the same day surfaced three holes that the follow-up
+PR closes:
+
+1. **Cards still overflowed horizontally** inside their card chrome
+   because of hardcoded `min-w-[Xpx]` floors that didn't shrink on
+   narrow viewports — the most visible offenders were the Members
+   "Add a practitioner" form (`min-w-[220px]` on the email input
+   wrapper), the Audit Practitioner dropdown label
+   (`min-w-[180px]`), the Network ShareKit tagline span
+   (`min-w-[200px]`), and the Members + Pending tables (no
+   `overflow-x-auto` wrapper so 5-column tables clipped past the
+   card). Each `min-w-[X]` is now `min-w-0 sm:min-w-[X]`; tables now
+   nest `overflow-x-auto` inside the card chrome the same way the
+   /audit table does.
+2. **The Credits tile's "Earn free credits from your network" CTA
+   still truncated to `Earn n…`** because PR #495's `min-w-0 flex-1`
+   + `whitespace-nowrap` approach prevented the COPY from wrapping
+   but couldn't shrink the CTA past its natural width. The footer
+   band now stacks vertically by default (`flex-col`) so on iPhone
+   portrait the copy reads in full on row 1 and `Earn more →` sits
+   on its own left-aligned row 2; at `sm+` the original one-line
+   layout (`sm:flex-row sm:justify-between`) returns.
+3. **The fixed build chip painted over the bottom-most card** even
+   after PR #495 added `body { pb-12 }`. A fixed-layer chip floats
+   above whatever paints at its pixel coordinates regardless of body
+   padding (`pb-12` only extends the body's flow extent, not the
+   chip's position). The chip is now rendered as a normal in-flow
+   block at narrow viewports (`< md`) — full-width, right-aligned,
+   with a thin top border separating it from the last card — and
+   only switches to `position: fixed bottom-2 right-3` at `md+` so
+   the desktop chrome stays uncluttered. The `body { pb-12 }`
+   padding is removed since it's no longer needed.
+
+### How to test the follow-up
+
+Same setup as above (iPhone Safari portrait, ~390 px viewport, or
+DevTools "iPhone 14 Pro" emulation at 393 px). Stable numbering, prefix
+F.X.
+
+- [ ] F.1 `/dashboard`: scroll through every tile. The CLIENTS
+      (private) card and every other tile fit fully inside the
+      viewport with no right-edge clipping. The Credits tile's coral
+      footer band reads **"Earn free credits from your network"** on
+      one line (or wraps to two), with `Earn more →` underneath it
+      on its own row, both fully readable, neither clipped.
+- [ ] F.2 `/audit`: open the page. The Practitioner dropdown sits
+      inside the audit chrome with no overflow at iPhone portrait.
+      The table inside the card scrolls horizontally as before.
+- [ ] F.3 `/members` (owner accounts): the "Add a practitioner by
+      email" form fits inside its card. The Members table and the
+      Pending table both fit inside their cards with no overflow —
+      scrolling inside the card on x-axis reveals the rest of the
+      columns.
+- [ ] F.4 `/network`: scroll to the bottom of the Share kit. The
+      tagline row reads the full copy inside its rounded box — no
+      clipping past the right edge.
+- [ ] F.5 `/clients` and `/clients/[id]`: every card fits the
+      viewport. The 2-column client tile grid wraps to 1 column at
+      iPhone portrait. The detail page's name card, consent
+      accordion, and sessions list all stay inside the page chrome.
+- [ ] F.6 Scroll any of `/dashboard`, `/clients`, `/audit`,
+      `/network`, `/premises`, `/credits` to the very bottom. The
+      build chip (`<sha> · <branch>` at 35% opacity) renders as a
+      thin in-flow line BELOW the last card with a top hairline
+      border — never overlapping or merging visually with a card.
+- [ ] F.7 Desktop regression (≥ `md` viewport, ~1024 px): the build
+      chip returns to its fixed bottom-right corner at 35% opacity —
+      no in-flow line at the page bottom. The Credits tile's coral
+      footer band reads "Earn free credits from your network" +
+      "Earn more →" on one line as before. The audit Practitioner
+      dropdown shows its 180 px wide label. The Members "Add a
+      practitioner" form reads at the full 220 px width.
+- [ ] F.8 Sanity: no horizontal page scroll possible at iPhone
+      portrait. Drag any page horizontally — the page does not
+      scroll. (Tables inside cards CAN scroll horizontally inside
+      themselves — that's correct.)
