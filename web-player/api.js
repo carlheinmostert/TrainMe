@@ -318,7 +318,13 @@
     if (!payload || !payload.plan) throw new Error('Plan not found');
     const exercises = (payload.exercises || []).map(_normaliseExercise);
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    return { ...payload, exercises };
+    // PR #7 (plan_artifacts) — always present, possibly empty. Embedded
+    // preview bridge (unified_preview_scheme_bridge.dart) does not emit
+    // artifacts today, so default to []. Keeps the embedded + cloud
+    // surfaces shape-identical for downstream readers (no callers in v1;
+    // future PRs surface artifacts on the lobby).
+    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
+    return { ...payload, exercises, artifacts };
   }
 
   /**
@@ -362,7 +368,16 @@
     const exercises = (payload.exercises || []).map(_normaliseExercise);
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-    return { ...payload, exercises };
+    // PR #7 (plan_artifacts) — top-level sibling of plan + exercises.
+    // Each entry: { kind, status, output_url, generated_at, metadata }.
+    // For kind='plan_url' the output_url is NULL by design (URL is
+    // computed client-side as session.homefit.studio/p/{plan_id});
+    // future kinds (reel, pdf) will populate output_url with a signed
+    // URL. Always returned as an array — defensive default for legacy
+    // RPC responses or backfill misses (treat as empty).
+    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
+
+    return { ...payload, exercises, artifacts };
   }
 
   /**

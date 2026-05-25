@@ -58,6 +58,9 @@
  * Historical bump trail (kept for archaeology, NOT for new entries —
  * the rule above retires the manual-bump ritual):
  *
+ *   2026-05-25 — PR #7 (plan_artifacts): web-player/api.js + app.js
+ *                surface payload.artifacts (no behaviour change today,
+ *                forward-prep for ADR-0022 Reel artifact).
  *   2026-05-24 — feat(live): "View practice profile" link in
  *                practitioner popover on live page.
  *   2026-05-24 — fix(live): fit-to-polygon button CSS specificity.
