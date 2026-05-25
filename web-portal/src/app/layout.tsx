@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { BuildInfo } from '@/components/BuildInfo';
 import { TopProgressBar } from '@/components/TopProgressBar';
@@ -13,6 +13,20 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: '/favicon.ico' }],
   },
+};
+
+// Viewport (iPhone-portrait fix, 2026-05-25):
+//   - `viewportFit: 'cover'` is required for `env(safe-area-inset-*)`
+//     to resolve to a non-zero value on iOS. Without this the header's
+//     safe-area-inset top padding would no-op and the brand lockup
+//     would still paint into the iOS status-bar zone.
+//   - `width: 'device-width'` + `initialScale: 1` are the standard
+//     mobile defaults; declared explicitly so Next.js doesn't fall
+//     back to its older `width=device-width,initial-scale=1` string.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -35,7 +49,20 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen bg-surface-bg text-ink">
+      {/*
+        Body chrome (iPhone-portrait fix, 2026-05-25):
+          - `overflow-x-hidden` traps any accidental ~1-2px overflow from
+            shadows / focus rings / decorative chrome so iPhone portrait
+            doesn't surface a horizontal scrollbar. Every legitimate
+            layout uses `max-w-*` + `mx-auto`, so this is purely a
+            safety net.
+          - `pb-12` (48px) reserves space at the bottom of every page so
+            the fixed build-marker chip (bottom-2 right-3, ~22px tall)
+            never paints over the bottom-most card on narrow viewports.
+            min-h-screen still applies — content can grow past the
+            viewport and the chip stays anchored to the visual bottom.
+      */}
+      <body className="min-h-screen overflow-x-hidden bg-surface-bg pb-12 text-ink">
         <TopProgressBar />
         {children}
         {/* Discreet build-marker chip — git SHA + branch at 35% opacity
