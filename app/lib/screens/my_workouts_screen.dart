@@ -1,10 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/auth_service.dart';
+import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../theme.dart';
 import '../widgets/self_capture_card.dart';
+
+// `ExerciseCapture` and `ExerciseRemoval` flow through ConversionService
+// streams — the model import is load-bearing for the typed handler.
 
 /// Body widget for the My Workouts scope on Home.
 ///
@@ -70,10 +77,32 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
 
   bool _loading = true;
 
+  /// R2-M5 — mirror the ClientSessions pattern. Subscribe to the
+  /// conversion + removal streams so the My Workouts list refreshes
+  /// when a fresh capture's thumbnail lands AND when a Safe Mode
+  /// rejection orphans a row mid-conversion. Without these, the
+  /// session card filmstrip + count would only refresh on
+  /// navigator-pop refresh (`reloadToken`).
+  StreamSubscription<ExerciseCapture>? _conversionSub;
+  StreamSubscription<ExerciseRemoval>? _removalSub;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _conversionSub = ConversionService.instance.onConversionUpdate.listen(
+      _handleConversionUpdate,
+    );
+    _removalSub = ConversionService.instance.onExerciseRemoved.listen(
+      _handleExerciseRemoval,
+    );
+  }
+
+  @override
+  void dispose() {
+    _conversionSub?.cancel();
+    _removalSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -82,6 +111,32 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
     if (oldWidget.reloadToken != widget.reloadToken) {
       _load();
     }
+  }
+
+  /// Conversion-stream handler. Reloads if the firing exercise belongs
+  /// to a session in the rendered list. Mirrors the cheap-guard pattern
+  /// in `client_sessions_screen.dart`.
+  void _handleConversionUpdate(ExerciseCapture ex) {
+    if (!mounted) return;
+    final sessionIds = _sessions.map((s) => s.id).toSet();
+    if (!sessionIds.contains(ex.sessionId)) return;
+    _load();
+  }
+
+  /// Removal-stream handler (orphan-after-rejection guard). Mirrors the
+  /// ClientSessions pattern — when the snapshot is unavailable we fall
+  /// back to a blanket reload because the rejection still needs to
+  /// flush a stuck spinner somewhere in the list.
+  void _handleExerciseRemoval(ExerciseRemoval removal) {
+    if (!mounted) return;
+    final ex = removal.exercise;
+    if (ex == null) {
+      _load();
+      return;
+    }
+    final sessionIds = _sessions.map((s) => s.id).toSet();
+    if (!sessionIds.contains(ex.sessionId)) return;
+    _load();
   }
 
   Future<void> _load() async {

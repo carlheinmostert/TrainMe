@@ -1,6 +1,12 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
@@ -8,11 +14,13 @@ import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/capture_auto_save_preference.dart';
 import '../services/portal_links.dart';
+import '../services/self_trainer_bootstrap.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/practice_switcher_sheet.dart';
+import '../widgets/self_face_consent_sheet.dart';
 import '../widgets/set_password_sheet.dart';
 import '../widgets/undo_snackbar.dart';
 import 'diagnostics_screen.dart';
@@ -71,10 +79,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// stored value (default ON for fresh installs).
   bool? _autoSaveOriginals;
 
+  /// R4-M3 — true when the user has dismissed the lazy-backfill prompt
+  /// once (the SharedPreferences key in [SelfTrainerBootstrap] is set)
+  /// AND they have an avatar AND have NOT yet stamped face-embedding
+  /// consent. Drives the coral reminder row near the Public profile
+  /// entry. Null = still loading.
+  bool? _selfFaceReminderVisible;
+
+  /// Cached profile avatar URL — needed to download the selfie when
+  /// the user taps the reminder. Null when not loaded yet or when
+  /// the user has no avatar set.
+  String? _profileAvatarUrl;
+
   @override
   void initState() {
     super.initState();
     _loadAutoSavePref();
+    unawaited(_loadSelfFaceReminderState());
+  }
+
+  /// Resolve whether the coral "Turn on face verification" reminder
+  /// should appear under the Public profile section. Three conditions
+  /// must hold: a selfie exists, consent is NOT stamped, and the
+  /// lazy-backfill prompt has already been shown (otherwise the prompt
+  /// itself will surface — no need to nag twice).
+  Future<void> _loadSelfFaceReminderState() async {
+    try {
+      final userId = AuthService.instance.currentUserId;
+      if (userId == null) return;
+      final profile = await ApiClient.instance.getMyPractitionerProfile();
+      final avatarUrl = profile?.avatarUrl?.trim();
+      final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
+      final hasConsent = profile?.faceEmbeddingConsentedAt != null;
+      final prefs = await SharedPreferences.getInstance();
+      final promptShown =
+          prefs.getBool('homefit.self_trainer.consent_prompted.$userId') ??
+              false;
+      if (!mounted) return;
+      setState(() {
+        _profileAvatarUrl = hasAvatar ? avatarUrl : null;
+        _selfFaceReminderVisible =
+            hasAvatar && !hasConsent && promptShown;
+      });
+    } catch (e) {
+      debugPrint('SettingsScreen._loadSelfFaceReminderState failed: $e');
+    }
+  }
+
+  /// Open the consent sheet from the Settings reminder. Mirrors the
+  /// FAB path's avatar-download — uses the cached avatar URL to
+  /// resolve a local file the native MobileFaceNet pipeline can read.
+  /// Acquires the shared consent-sheet mutex so a rapid tap can't
+  /// stack two sheets.
+  Future<void> _openSelfFaceConsentFromReminder() async {
+    if (SelfTrainerBootstrap.consentPromptInFlight) return;
+    final avatarUrl = _profileAvatarUrl;
+    if (avatarUrl == null || avatarUrl.isEmpty) return;
+    final userId = AuthService.instance.currentUserId;
+    if (userId == null) return;
+    SelfTrainerBootstrap.setConsentPromptInFlight(true);
+    try {
+      final localPath = await _downloadAvatarToTemp(
+        avatarUrl: avatarUrl,
+        userId: userId,
+      );
+      if (!mounted) return;
+      if (localPath == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't load your selfie. Check your connection and "
+              'try again.',
+            ),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      await SelfFaceConsentSheet.show(context, selfiePath: localPath);
+      // Refresh the reminder state so a successful registration hides
+      // the row immediately.
+      if (mounted) {
+        await _loadSelfFaceReminderState();
+      }
+    } finally {
+      SelfTrainerBootstrap.setConsentPromptInFlight(false);
+    }
+  }
+
+  Future<String?> _downloadAvatarToTemp({
+    required String avatarUrl,
+    required String userId,
+  }) async {
+    final client = HttpClient();
+    try {
+      final uri = Uri.tryParse(avatarUrl);
+      if (uri == null) return null;
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
+      if (resp.statusCode != 200) return null;
+      final tmpDir = await getTemporaryDirectory();
+      final tmpFile = File(p.join(tmpDir.path, 'self_selfie_$userId.jpg'));
+      final sink = tmpFile.openWrite();
+      await resp.pipe(sink);
+      return tmpFile.path;
+    } catch (e) {
+      debugPrint('SettingsScreen._downloadAvatarToTemp failed: $e');
+      return null;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   Future<void> _loadAutoSavePref() async {
@@ -259,6 +374,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
+                  // R4-M3 — lazy backfill follow-up reminder. The
+                  // bootstrap prompt-shown flag burns on dialog-display
+                  // (intentional — a crash mid-prompt mustn't loop).
+                  // For users who dismissed without consenting, this
+                  // inline coral row is the persistent path back in.
+                  // R-01 compliant — inline, not a modal.
+                  if (_selfFaceReminderVisible == true)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _signOutPending
+                            ? null
+                            : () {
+                                HapticFeedback.selectionClick();
+                                unawaited(_openSelfFaceConsentFromReminder());
+                              },
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppColors.primary,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: const [
+                              Icon(
+                                Icons.face_retouching_natural,
+                                size: 22,
+                                color: AppColors.primary,
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Turn on face verification — '
+                                  'self-captures publish free.',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 20,
+                                color: AppColors.primary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 24),
                   _SectionHeader(label: 'Session capture'),
                   _SettingsGroup(

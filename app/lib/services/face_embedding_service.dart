@@ -8,7 +8,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../config.dart';
 import 'api_client.dart';
-import 'safe_mode.dart' show kSafeModeAlgorithmVersion;
+import 'safe_mode.dart'
+    show kSafeModeAlgorithmVersion, kSelfFaceEmbeddingFloats;
 import 'sync_service.dart';
 
 /// Diagnostics gate for hydration-path debug prints (2026-05-24).
@@ -320,6 +321,21 @@ class FaceEmbeddingService extends ChangeNotifier {
           );
           return null;
         }
+      }
+      // R5-M1 — dimension assertion. MobileFaceNet emits exactly
+      // [kSelfFaceEmbeddingFloats] (512) floats. A mismatch indicates
+      // either a corrupted native response or an upstream API change
+      // we missed; both are "unknown" failures per
+      // `feedback_no_silent_fallbacks`, not silent successes. Refuse
+      // to return a partial embedding — the caller treats null as
+      // "no face / unknown" and prompts a retake.
+      if (out.length != kSelfFaceEmbeddingFloats) {
+        debugPrint(
+          '[FaceEmbeddingService] computeForImage: dim mismatch — '
+          'got ${out.length} floats, expected $kSelfFaceEmbeddingFloats '
+          '(rejecting result for $imagePath)',
+        );
+        return null;
       }
       if (_kDiagLogs) {
         debugPrint(

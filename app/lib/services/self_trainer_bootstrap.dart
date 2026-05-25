@@ -47,17 +47,33 @@ class SelfTrainerBootstrap {
   String _prefsKey(String userId) =>
       'homefit.self_trainer.consent_prompted.$userId';
 
-  /// In-memory guard to prevent two simultaneous post-frame callbacks
-  /// (e.g. rapid practice-switch + auth-state-change) from racing the
-  /// sheet open twice. The SharedPreferences flag eventually persists,
-  /// but the in-memory guard prevents the race window.
-  bool _inFlight = false;
+  /// Module-level shared mutex preventing two simultaneous consent-sheet
+  /// opens — covers both the lazy-backfill path (this service) and the
+  /// FAB "New Self Session" path in `home_screen.dart`. Without sharing
+  /// the flag across both call sites, a rapid practice-switch +
+  /// FAB-tap could stack two `SelfFaceConsentSheet.show` calls.
+  ///
+  /// FAB callers MUST check + acquire via [consentPromptInFlight] /
+  /// [setConsentPromptInFlight] before opening their own consent sheet.
+  /// The SharedPreferences "we've offered this once" flag eventually
+  /// persists, but the in-memory mutex prevents the race window.
+  static bool _consentPromptInFlight = false;
+
+  /// Read the shared mutex. Returns true iff a consent sheet is
+  /// currently open on either the lazy-backfill OR the FAB path.
+  static bool get consentPromptInFlight => _consentPromptInFlight;
+
+  /// Acquire / release the shared mutex. Callers MUST release in a
+  /// `finally` block.
+  static void setConsentPromptInFlight(bool value) {
+    _consentPromptInFlight = value;
+  }
 
   /// Call from Home's `initState` post-frame callback. Idempotent and
   /// silent-on-failure.
   Future<void> maybePromptForLazyBackfill(BuildContext context) async {
-    if (_inFlight) return;
-    _inFlight = true;
+    if (_consentPromptInFlight) return;
+    _consentPromptInFlight = true;
     try {
       final userId = AuthService.instance.currentUserId;
       if (userId == null) return;
@@ -112,7 +128,7 @@ class SelfTrainerBootstrap {
       // Silent best-effort per the failure-modes contract above.
       debugPrint('SelfTrainerBootstrap.maybePromptForLazyBackfill failed: $e');
     } finally {
-      _inFlight = false;
+      _consentPromptInFlight = false;
     }
   }
 

@@ -4,6 +4,7 @@ Open each script in Claude Code Desktop's preview pane via `Cmd+Shift+V`. Give p
 
 ## Active wave
 
+- [2026-05-25 — Self-trainer mobile + iOS hotfix B](2026-05-25-self-trainer-mobile-hotfix.md) — 17 findings across banner copy strip, ConversionService cache wiring, `getMySelfFaceEmbedding` tri-state, FAB double-tap + shared mutex hardening, iOS dim assertion + 1920px shrink + 64px crop guard + threshold constant + vDSP_dotpr parity.
 - [2026-05-25 — Self-trainer DB hotfix](2026-05-25-self-trainer-db-hotfix.md) — 15 findings addressed: `credit_ledger` CHECK widened for `publish_free`, RLS REVOKEs on `clients.user_id` + `exercises.self_verified`, biometric SELECT lockdown on `practitioners.face_embedding`, `consume_credit` server-side cost recompute, audit events on face-consent grant/revoke. 24 items.
 - [2026-05-25 — My Workouts body + FAB + self-capture cards](2026-05-25-my-workouts-body.md) — PR #9 of the self-trainer wave. Replaces the locked "Coming soon" teaser with the real My Workouts list, wires the FAB to the full capture-entry path, and surfaces `clients.user_id` through `list_practice_clients`. 13 items.
 - [2026-05-25 — Publish cost preview + consume_credit free path](2026-05-25-publish-cost-preview.md) — PR #6 of the self-trainer wave. `preview_publish_cost` RPC + Studio CAPS pill cost label + `consume_credit` writes `delta=0, type='publish_free'` for self-trainer all-verified publishes. 10 items.

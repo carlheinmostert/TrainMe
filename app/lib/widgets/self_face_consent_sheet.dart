@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
+import '../services/conversion_service.dart';
 import '../services/face_embedding_service.dart';
 import '../theme.dart';
 
@@ -107,6 +108,12 @@ class _SelfFaceConsentSheetState extends State<SelfFaceConsentSheet> {
         embedding: embedding,
         consentedAt: DateTime.now().toUtc(),
       );
+
+      // Reset the ConversionService's in-memory self-face embedding
+      // cache so the next capture re-fetches via the RPC. Without this,
+      // captures within the same app session compare against the stale
+      // pre-registration cache (null → self_verified stays NULL).
+      ConversionService.instance.resetSelfFaceEmbeddingCache();
 
       if (!mounted) return;
       Navigator.of(

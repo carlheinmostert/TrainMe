@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/conversion_service.dart';
 import '../theme.dart';
 import '../widgets/self_face_consent_sheet.dart';
 import '../widgets/undo_snackbar.dart';
@@ -261,6 +262,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 
     try {
       final result = await ApiClient.instance.revokeSelfFace();
+      // Reset the ConversionService's in-memory self-face embedding
+      // cache so the next capture re-fetches via the RPC and sees the
+      // freshly-cleared NULL (rather than continuing to compare against
+      // the cached pre-revoke embedding).
+      ConversionService.instance.resetSelfFaceEmbeddingCache();
       if (!mounted) return;
       await _load();
       if (!mounted) return;

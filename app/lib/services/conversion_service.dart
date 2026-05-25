@@ -2302,22 +2302,40 @@ class ConversionService extends ChangeNotifier {
     if (done.mediaType == MediaType.rest) return;
 
     try {
-      // Step 2 — lazy fetch the reference embedding.
+      // Step 2 — lazy fetch the reference embedding via the tri-state
+      // RPC wrapper. Critical: only cache the "not registered" outcome.
+      // A transient network failure must NOT be promoted to "this user
+      // is opted out" — that's the silent-fallback trap
+      // `feedback_no_silent_fallbacks` warns against. Each capture
+      // retries the fetch until we see a definitive registered /
+      // notRegistered outcome.
       if (!_selfFaceEmbeddingFetched) {
-        _cachedSelfFaceEmbedding =
-            await ApiClient.instance.getMySelfFaceEmbedding();
-        _selfFaceEmbeddingFetched = true;
-        if (_cachedSelfFaceEmbedding == null) {
+        final result = await ApiClient.instance.getMySelfFaceEmbedding();
+        if (result.isRegistered) {
+          _cachedSelfFaceEmbedding = result.embedding;
+          _selfFaceEmbeddingFetched = true;
+          debugPrint(
+            '[ConversionService] self-verification: fetched reference '
+            'embedding (${_cachedSelfFaceEmbedding!.length} floats)',
+          );
+        } else if (result.isNotRegistered) {
+          _cachedSelfFaceEmbedding = null;
+          _selfFaceEmbeddingFetched = true;
           debugPrint(
             '[ConversionService] self-verification: no '
             'practitioners.face_embedding registered — skipping '
             '(self_verified stays NULL)',
           );
         } else {
+          // Unknown — RPC threw or returned bad shape. Do NOT mark
+          // fetched; next capture will retry. Skip THIS capture so we
+          // don't compare against a stale-or-empty cache.
           debugPrint(
-            '[ConversionService] self-verification: fetched reference '
-            'embedding (${_cachedSelfFaceEmbedding!.length} floats)',
+            '[ConversionService] self-verification: get_my_self_face_embedding '
+            'returned unknown state (${result.error}) — leaving cache '
+            'unset and skipping this capture',
           );
+          return;
         }
       }
       final reference = _cachedSelfFaceEmbedding;
@@ -2434,6 +2452,32 @@ class ConversionService extends ChangeNotifier {
   /// Visible for testing — the orphan-after-rejection regression in
   /// `app/test/services/conversion_service_rejection_test.dart` drives
   /// this directly without standing up the full conversion queue. In
+  /// R2-L2 — test surface for the SQLite re-read stamping path.
+  ///
+  /// Mirrors steps 6 + 7 of [_runSelfVerification] without the native
+  /// pipeline / RPC. Re-reads the latest row from SQLite (so an
+  /// intermediate update — e.g. raw-archive completion racing — isn't
+  /// clobbered) before stamping the supplied verified value. Returns
+  /// the persisted [ExerciseCapture] so tests can assert both the
+  /// stamped flag AND that no other fields were overwritten.
+  ///
+  /// Test-only — production callers must go through the full
+  /// [_runSelfVerification] pipeline, which sources the value from the
+  /// native verify channel.
+  @visibleForTesting
+  Future<ExerciseCapture?> stampSelfVerifiedForTest(
+    ExerciseCapture done,
+    bool verifiedValue,
+  ) async {
+    final base = (await _storage.getExerciseById(done.id)) ?? done;
+    final updated = base.copyWith(selfVerified: verifiedValue);
+    await _storage.saveExercise(updated);
+    if (!_updateController.isClosed) {
+      _updateController.add(updated);
+    }
+    return updated;
+  }
+
   /// production it's only called from the [_processQueue] catch block.
   ///
   /// SQLite delete failures are logged but not re-thrown — both the

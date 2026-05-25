@@ -1487,7 +1487,7 @@ class ApiClient {
     required List<double> embedding,
     required DateTime consentedAt,
   }) async {
-    final result = await _guardAuth(
+    Future<dynamic> callRpc() => _guardAuth(
       () => raw.rpc(
         'register_self_face',
         params: <String, dynamic>{
@@ -1499,6 +1499,33 @@ class ApiClient {
         },
       ),
     );
+
+    dynamic result;
+    try {
+      result = await callRpc();
+    } on PostgrestException catch (e) {
+      // R2-M3 — single-shot retry on 23505 (unique-violation). Per the
+      // RPC's own comment (migration 20260525114912 lines 192-196), a
+      // concurrent SELECT-then-INSERT race can collide on
+      // `clients_one_self_per_user_per_practice`. On retry the SELECT
+      // branch finds the row the winner inserted and the RPC succeeds
+      // idempotently.
+      //
+      // Not exception-as-control-flow per `feedback_no_exception_control_flow`
+      // — this is a documented transient DB error, not a
+      // status-code-as-signal path. The RPC contract itself sanctions
+      // the retry.
+      if (e.code == '23505') {
+        debugPrint(
+          'ApiClient.registerSelfFace: 23505 on first call — retrying '
+          '(documented transient race per RPC comment)',
+        );
+        result = await callRpc();
+      } else {
+        rethrow;
+      }
+    }
+
     if (result is String && result.isNotEmpty) {
       return result;
     }
@@ -1573,16 +1600,23 @@ class ApiClient {
   /// `practitioners.face_embedding` pgvector column out of the
   /// enumerated table-SELECT surface (per `feedback_no_direct_db_access`).
   ///
-  /// Errors are caught + debug-logged and surfaced as null — the
-  /// conversion service treats null as "skip self-verification, leave
-  /// the exercise's `self_verified` flag at NULL" so a transient RPC
-  /// failure cannot wedge the capture flow.
-  Future<List<double>?> getMySelfFaceEmbedding() async {
+  /// Returns a tri-state [SelfFaceEmbeddingResult]:
+  ///   * `registered(embedding)` — user has consented; embedding loaded.
+  ///   * `notRegistered()` — RPC succeeded but returned no row / empty
+  ///     embedding (user has not run the consent flow yet). Safe to
+  ///     cache this state across captures.
+  ///   * `unknown(error)` — RPC threw OR returned an unparseable shape.
+  ///     Per `feedback_no_silent_fallbacks` the caller MUST NOT cache
+  ///     this state — the next capture should retry rather than baking
+  ///     in a transient network flake as "the user is opted out".
+  Future<SelfFaceEmbeddingResult> getMySelfFaceEmbedding() async {
     try {
       final dynamic result = await _guardAuth(
         () => raw.rpc('get_my_self_face_embedding'),
       );
-      if (result == null) return null;
+      if (result == null) {
+        return const SelfFaceEmbeddingResult.notRegistered();
+      }
       if (result is List) {
         final out = <double>[];
         for (final v in result) {
@@ -1591,23 +1625,28 @@ class ApiClient {
           } else if (v is num) {
             out.add(v.toDouble());
           } else {
-            debugPrint(
+            final err = StateError(
               'ApiClient.getMySelfFaceEmbedding: unexpected element '
-              'type ${v.runtimeType} — returning null',
+              'type ${v.runtimeType}',
             );
-            return null;
+            debugPrint('$err');
+            return SelfFaceEmbeddingResult.unknown(err);
           }
         }
-        return out.isEmpty ? null : out;
+        if (out.isEmpty) {
+          return const SelfFaceEmbeddingResult.notRegistered();
+        }
+        return SelfFaceEmbeddingResult.registered(out);
       }
-      debugPrint(
+      final shapeErr = StateError(
         'ApiClient.getMySelfFaceEmbedding: unexpected result shape '
-        '${result.runtimeType} — returning null',
+        '${result.runtimeType}',
       );
-      return null;
+      debugPrint('$shapeErr');
+      return SelfFaceEmbeddingResult.unknown(shapeErr);
     } catch (e) {
       debugPrint('ApiClient.getMySelfFaceEmbedding failed: $e');
-      return null;
+      return SelfFaceEmbeddingResult.unknown(e);
     }
   }
 
@@ -2515,6 +2554,53 @@ class RevokeSelfFaceResult {
   /// True iff anything was actually revoked. The Settings flow uses
   /// this to decide whether to surface an Undo SnackBar (R-01).
   bool get changedAnything => embeddingCleared || selfClientDeleted != null;
+}
+
+/// Outcome of [ApiClient.getMySelfFaceEmbedding]. Tri-state so the
+/// caller can distinguish "user hasn't consented" from "network flake"
+/// (per `feedback_no_silent_fallbacks` — they must NOT collapse to the
+/// same `null` value or transient errors get silently treated as
+/// permanent opt-out).
+@immutable
+class SelfFaceEmbeddingResult {
+  /// 0 = registered (embedding populated), 1 = notRegistered, 2 = unknown.
+  final int _kind;
+
+  /// Non-null iff registered. The 512-float MobileFaceNet embedding.
+  final List<double>? _embedding;
+
+  /// Non-null iff unknown. The underlying error / exception that drove
+  /// the unknown state — surfaced via debug log so transient flakes are
+  /// inspectable.
+  final Object? _error;
+
+  const SelfFaceEmbeddingResult._({
+    required int kind,
+    List<double>? embedding,
+    Object? error,
+  }) : _kind = kind,
+       _embedding = embedding,
+       _error = error;
+
+  const SelfFaceEmbeddingResult.registered(List<double> embedding)
+    : this._(kind: 0, embedding: embedding);
+
+  const SelfFaceEmbeddingResult.notRegistered() : this._(kind: 1);
+
+  const SelfFaceEmbeddingResult.unknown(Object error)
+    : this._(kind: 2, error: error);
+
+  bool get isRegistered => _kind == 0;
+  bool get isNotRegistered => _kind == 1;
+  bool get isUnknown => _kind == 2;
+
+  /// Returns the embedding when registered, else null. Callers MUST
+  /// branch on [isRegistered] / [isNotRegistered] / [isUnknown] rather
+  /// than null-checking this directly — null is not informative here.
+  List<double>? get embedding => _embedding;
+
+  /// The error driving the unknown state, when applicable.
+  Object? get error => _error;
 }
 
 /// Outcome of a [ApiClient.findPremisesAt] call. Returned when the

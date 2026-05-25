@@ -195,4 +195,68 @@ void main() {
       },
     );
   });
+
+  // R2-L2 — race-protection contract for the self-verification stamp.
+  //
+  // `_runSelfVerification` re-reads the latest exercise row from SQLite
+  // immediately before stamping `self_verified`. The rationale (see
+  // ConversionService line ~2369): a parallel update (raw-archive
+  // completion, hero thumbnail regen, etc) can race the verification
+  // pipeline on the same row. Without the re-read, the stamp would
+  // clobber whatever the parallel update wrote.
+  //
+  // This test simulates the race: seed a row, simulate an intermediate
+  // update landing AFTER the verification's snapshot but BEFORE its
+  // persist call, then assert that the persisted row carries BOTH the
+  // racing update's field AND the verification's stamp.
+  group('self-verification stamp re-reads SQLite before persisting', () {
+    test(
+      'stampSelfVerifiedForTest uses the latest row, not a stale snapshot',
+      () async {
+        final storage = await LocalStorageService.openForTest(
+          path: inMemoryDatabasePath,
+          factory: databaseFactoryFfi,
+        );
+        addTearDown(storage.close);
+
+        // Seed a baseline exercise.
+        final initial = _safeModeExercise('self-verify-race-1');
+        await storage.saveExercise(initial);
+
+        final svc = ConversionService.forTest(storage);
+
+        // Simulate the intermediate update that the verification
+        // pipeline must NOT clobber. Field choice: thumbnailPath, which
+        // is touched by the parallel hero-regen path on the same row.
+        final racingUpdate = initial.copyWith(
+          thumbnailPath: 'racing/thumb.jpg',
+        );
+        await storage.saveExercise(racingUpdate);
+
+        // Stamp self_verified through the test surface. The helper
+        // mirrors the production re-read path: it must source from
+        // SQLite, not from the supplied `initial` snapshot.
+        final persisted =
+            await svc.stampSelfVerifiedForTest(initial, true);
+
+        expect(persisted, isNotNull);
+        expect(persisted!.selfVerified, isTrue,
+            reason: 'the stamped flag must persist');
+        expect(
+          persisted.thumbnailPath,
+          'racing/thumb.jpg',
+          reason:
+              'the intermediate write must not be clobbered — the '
+              "stamping path re-reads SQLite before applying its diff",
+        );
+
+        // Read straight from storage as a double-check that we wrote
+        // what we said we wrote.
+        final loaded = await storage.getExerciseById(initial.id);
+        expect(loaded, isNotNull);
+        expect(loaded!.selfVerified, isTrue);
+        expect(loaded.thumbnailPath, 'racing/thumb.jpg');
+      },
+    );
+  });
 }

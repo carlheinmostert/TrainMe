@@ -127,6 +127,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// the list refreshes without exposing a GlobalKey-on-state.
   int _workoutsReloadToken = 0;
 
+  /// Cheap UX hardening — disables the My Workouts FAB while a session
+  /// is being minted so a double-tap can't fire `_newSelfSession`
+  /// twice and stack two consent sheets / mint two sessions. Reset in
+  /// the `finally` block of [_newSelfSession].
+  bool _creatingSession = false;
+
   static const String _scopePrefsKey = 'home_scope_v1';
 
   @override
@@ -464,6 +470,26 @@ class _HomeScreenState extends State<HomeScreen> {
   /// the cloud only sees the session at publish time via
   /// `replace_plan_exercises`).
   Future<void> _newSelfSession() async {
+    // Defensive — double-tap protection + shared consent-sheet mutex
+    // (R2-L3 + R2-M2). The mutex is shared with SelfTrainerBootstrap so
+    // a rapid bootstrap-prompt + FAB-tap can't stack two consent sheets.
+    if (_creatingSession) return;
+    if (SelfTrainerBootstrap.consentPromptInFlight) return;
+    setState(() => _creatingSession = true);
+    SelfTrainerBootstrap.setConsentPromptInFlight(true);
+    try {
+      await _newSelfSessionInner();
+    } finally {
+      SelfTrainerBootstrap.setConsentPromptInFlight(false);
+      if (mounted) {
+        setState(() => _creatingSession = false);
+      } else {
+        _creatingSession = false;
+      }
+    }
+  }
+
+  Future<void> _newSelfSessionInner() async {
     HapticFeedback.selectionClick();
 
     final userId = AuthService.instance.currentUserId;
@@ -584,14 +610,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Find the practice id whose pull we should fire after a fresh
   /// `register_self_face` call — the user's owner-practice (where the
-  /// Self-client row lands) if cached, else the currently-active
-  /// practice, else null.
+  /// Self-client row lands) if cached, else the oldest membership of
+  /// any role, else the currently-active practice, else null.
+  ///
+  /// The ordering MUST match `register_self_face`'s server-side
+  /// resolution (see `supabase/migrations/20260525114912_register_self_face_rpc.sql`
+  /// lines 147-160): prefer owner roles ordered by `joined_at ASC`,
+  /// fall back to any membership ordered by `joined_at ASC`. The cached
+  /// list already arrives ordered by `joined_at ASC` from
+  /// [LocalStorageService.getCachedPractices], so a linear scan keeps
+  /// the tiebreak consistent.
   Future<String?> _resolveOwnerOrCurrentPracticeId() async {
     final cached = await widget.storage.getCachedPractices();
+    // Owner-first pass (matches the RPC's primary SELECT branch).
     for (final p in cached) {
       if (p.role == PracticeRole.owner) {
         return p.id;
       }
+    }
+    // Fallback to the oldest membership of any role — mirrors the
+    // RPC's secondary SELECT branch (no role filter, joined_at ASC).
+    if (cached.isNotEmpty) {
+      return cached.first.id;
     }
     return AuthService.instance.currentPracticeId.value;
   }
@@ -993,9 +1033,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: double.infinity,
                         height: 56,
                         child: FilledButton.icon(
-                          onPressed: () {
-                            unawaited(_newSelfSession());
-                          },
+                          // R2-L3 — disable while a session is being
+                          // minted so double-taps can't stack two
+                          // consent sheets / sessions.
+                          onPressed: _creatingSession
+                              ? null
+                              : () {
+                                  unawaited(_newSelfSession());
+                                },
                           icon: const Icon(
                             Icons.fitness_center_rounded,
                             size: 24,
