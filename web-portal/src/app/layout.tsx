@@ -35,7 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark overflow-x-hidden">
       <head>
         {/* Google Fonts — Montserrat (headings) + Inter (body). */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -67,6 +67,17 @@ export default function RootLayout({
             only switches to `position: fixed` at `md+`, so the chip can
             never visually paint over the bottom-most card on iPhone
             portrait and the desktop chrome stays uncluttered.
+
+        iPhone-portrait wave 3 follow-up (2026-05-25):
+          - `overflow-x-hidden` was added to `<html>` above (defensive
+            backstop). PR #495 trapped overflow on `<body>` only, but
+            when a descendant grew wider than the viewport the document
+            root (`<html>`) still scrolled horizontally on iOS Safari
+            because `<body>`'s clipping doesn't propagate up to the
+            initial containing block. The dashboard card inner-row + grid
+            fixes in PR #503 remove the cause of overflow; this html-
+            level clip is purely a backstop so a future regression can
+            never resurface horizontal scrolling at the document level.
       */}
       <body className="min-h-screen overflow-x-hidden bg-surface-bg text-ink">
         <TopProgressBar />
