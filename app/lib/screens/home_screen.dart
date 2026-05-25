@@ -100,13 +100,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String? _lastPracticeId;
 
-  /// Top-level scope on Home — Clients (today's only real surface) or
+  /// Top-level scope on Home — My Workouts (Self-trainer), Clients, or
   /// Classes (locked teaser until that feature ships). Persisted to
   /// SharedPreferences so the practitioner's last choice survives an
-  /// app restart; defaults to Clients on first launch so cold-start
-  /// behaviour is identical to pre-segmented-control Home. See
-  /// [HomeScopeSegmented] for the IA rationale.
-  HomeScope _scope = HomeScope.clients;
+  /// app restart; defaults to My Workouts on cold install per
+  /// `docs/SELF_TRAINER_WAVE.md` § IA changes (Self-trainer is the
+  /// universal entry point). Returning users with a persisted
+  /// `home_scope_v1` keep their last selection — [_loadScope]
+  /// overrides this initializer when present. See [HomeScopeSegmented]
+  /// for the IA rationale.
+  HomeScope _scope = HomeScope.workouts;
 
   static const String _scopePrefsKey = 'home_scope_v1';
 
@@ -143,12 +146,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (raw == null) return;
       final next = HomeScope.values.firstWhere(
         (s) => s.name == raw,
-        orElse: () => HomeScope.clients,
+        orElse: () => HomeScope.workouts,
       );
       if (!mounted || next == _scope) return;
       setState(() => _scope = next);
     } catch (_) {
-      // Best-effort. Default Clients scope remains.
+      // Best-effort. Default My Workouts scope remains.
     }
   }
 
@@ -160,7 +163,8 @@ class _HomeScreenState extends State<HomeScreen> {
       await prefs.setString(_scopePrefsKey, next.name);
     } catch (_) {
       // Persist failure leaves the in-memory selection intact for
-      // this session; the next launch falls back to Clients.
+      // this session; the next launch falls back to the cold-install
+      // default (My Workouts).
     }
   }
 
@@ -404,6 +408,21 @@ class _HomeScreenState extends State<HomeScreen> {
   /// need to thread anything through here.
   Future<void> _openNetworkShare() async {
     await NetworkShareSheet.show(context);
+  }
+
+  /// Stub for the "New Session" FAB on the My Workouts scope. PR #9
+  /// of the self-trainer wave wires the inline selfie sheet + capture
+  /// entry path per `docs/SELF_TRAINER_WAVE.md` § Capture-entry path
+  /// from My Workouts. Until then, tapping the FAB surfaces a
+  /// SnackBar so the slot is wired but no-op.
+  void _newSelfSessionStub() {
+    HapticFeedback.selectionClick();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Coming in PR #9'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _addClient() async {
@@ -710,6 +729,41 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: const Icon(Icons.person_add_alt_1_rounded, size: 24),
                     label: const Text(
                       'New Client',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            // My Workouts primary CTA. Stub for this PR — tap shows a
+            // SnackBar pointing at PR #9, which wires the inline selfie
+            // sheet + capture entry path per
+            // `docs/SELF_TRAINER_WAVE.md` § Capture-entry path from
+            // My Workouts. Mirrors the Clients FAB style (coral
+            // FilledButton.icon, 56px, 16px radius).
+            if (_scope == HomeScope.workouts)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: FilledButton.icon(
+                    onPressed: _newSelfSessionStub,
+                    icon: const Icon(
+                      Icons.fitness_center_rounded,
+                      size: 24,
+                    ),
+                    label: const Text(
+                      'New Session',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
