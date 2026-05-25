@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -127,6 +129,354 @@ FaceEnrolmentMode resolveFaceEnrolmentMode({
   return FaceEnrolmentMode.disabled;
 }
 
+// ── Phase 2 — pose bucketing + quality scoring ────────────────────────────
+//
+// Spec: docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md sections
+// 4b (real-time pose-gated capture) + 4c (per-embedding quality scoring).
+// Mockup-approved geometry: docs/design/mockups/safe-mode-v2-enrolment-polish.html
+// (6 pose buckets, NOT 8 — per Carl's signoff on open question 1).
+//
+// All math here is pure + unit-testable. The runtime service plugs the
+// helpers into its sweep loop; UI binds to the bucket fill state to drive
+// the guidance ring + hint copy.
+
+/// Six discrete pose buckets the practitioner is guided through during
+/// the sweep. Carl approved 6 over 8 at mockup signoff — covers the
+/// meaningful angles without over-constraining the practitioner.
+///
+/// Bucket centres (yaw, pitch) in DEGREES — yaw negative = head turned
+/// to camera-left (subject's right shoulder), positive = camera-right.
+/// Pitch negative = chin down, positive = chin up.
+///
+/// `front` is the neutral straight-on bucket. The two front-* buckets
+/// are 30 degrees off-axis (capturing the asymmetry typical of how
+/// people sit naturally without holding a perfect pose). `left` /
+/// `right` are full 60-degree profile angles. `slightUp` covers the
+/// chin-up angle that catches Vision missing the jaw under typical
+/// indoor lighting.
+enum PoseBucket {
+  front,
+  frontLeft,
+  frontRight,
+  left,
+  right,
+  slightUp,
+}
+
+extension PoseBucketLabel on PoseBucket {
+  /// Word-form label rendered in the manual-avatar-selection grid (per
+  /// Carl's mockup decision: "front-left" over "front-left, 0 deg pitch"
+  /// — the numeric pitch is noisy and not actionable).
+  String get label {
+    switch (this) {
+      case PoseBucket.front:
+        return 'front';
+      case PoseBucket.frontLeft:
+        return 'front-left';
+      case PoseBucket.frontRight:
+        return 'front-right';
+      case PoseBucket.left:
+        return 'left';
+      case PoseBucket.right:
+        return 'right';
+      case PoseBucket.slightUp:
+        return 'slight-up';
+    }
+  }
+
+  /// Short uppercase label rendered around the guidance ring (per
+  /// mockup: "FRONT", "F-LEFT", "UP" etc.).
+  String get ringLabel {
+    switch (this) {
+      case PoseBucket.front:
+        return 'FRONT';
+      case PoseBucket.frontLeft:
+        return 'F-LEFT';
+      case PoseBucket.frontRight:
+        return 'F-RIGHT';
+      case PoseBucket.left:
+        return 'LEFT';
+      case PoseBucket.right:
+        return 'RIGHT';
+      case PoseBucket.slightUp:
+        return 'UP';
+    }
+  }
+
+  /// Bucket centre in degrees (yaw, pitch). Used as both the ideal
+  /// target for the practitioner AND the reference point in the
+  /// closest-unfilled-bucket hint computation.
+  ({double yaw, double pitch}) get centerDeg {
+    switch (this) {
+      case PoseBucket.front:
+        return (yaw: 0.0, pitch: 0.0);
+      case PoseBucket.frontLeft:
+        return (yaw: -30.0, pitch: 0.0);
+      case PoseBucket.frontRight:
+        return (yaw: 30.0, pitch: 0.0);
+      case PoseBucket.left:
+        return (yaw: -60.0, pitch: 0.0);
+      case PoseBucket.right:
+        return (yaw: 60.0, pitch: 0.0);
+      case PoseBucket.slightUp:
+        return (yaw: 0.0, pitch: 20.0);
+    }
+  }
+}
+
+/// Manhattan-sum pose distance in degrees. The pose-gating algorithm
+/// uses this against a 25-degree threshold (spec section 4b + 6) to
+/// decide whether a candidate frame's pose is "meaningfully different"
+/// from every existing slot.
+///
+/// Pure function — no state, no side effects, trivially tested.
+double poseDistance(
+  ({double yaw, double pitch}) a,
+  ({double yaw, double pitch}) b,
+) {
+  return (a.yaw - b.yaw).abs() + (a.pitch - b.pitch).abs();
+}
+
+/// Pose-gating accept threshold (Manhattan-sum degrees). Below = reject.
+/// Tunable during device QA per spec section 10 open question 4.
+const double kPoseDistanceThresholdDeg = 25.0;
+
+/// Quality-scoring accept threshold (composite 0-100). Below = reject.
+/// Tunable per spec section 10 open question 2.
+const double kQualityThreshold = 60.0;
+
+/// Number of pose buckets in the guidance ring. Locked to 6 per Carl's
+/// mockup signoff on open question 1.
+const int kPoseBucketCount = 6;
+
+/// Pick the closest unfilled bucket to a given current pose. Drives
+/// the hint text ("Turn slightly to your right") — implementation is
+/// `argmin(poseDistance(current, bucket.center)) for bucket in unfilled`.
+///
+/// Returns null when every bucket is filled (sweep is complete).
+PoseBucket? closestUnfilledBucket(
+  ({double yaw, double pitch}) currentDeg,
+  Set<PoseBucket> filled,
+) {
+  PoseBucket? best;
+  double bestDist = double.infinity;
+  for (final b in PoseBucket.values) {
+    if (filled.contains(b)) continue;
+    final d = poseDistance(currentDeg, b.centerDeg);
+    if (d < bestDist) {
+      bestDist = d;
+      best = b;
+    }
+  }
+  return best;
+}
+
+/// Snap a measured pose to its nearest bucket. Used by the sweep loop
+/// to decide which bucket a passing-quality candidate fills.
+///
+/// Returns null when no bucket is within 35 degrees Manhattan sum
+/// (loose guard so we never assign a wildly off-pose frame to a
+/// bucket it doesn't really belong to — sweep ignores those frames).
+PoseBucket? snapToBucket(({double yaw, double pitch}) poseDeg) {
+  PoseBucket? best;
+  double bestDist = double.infinity;
+  for (final b in PoseBucket.values) {
+    final d = poseDistance(poseDeg, b.centerDeg);
+    if (d < bestDist) {
+      bestDist = d;
+      best = b;
+    }
+  }
+  // Loose guard — 35 degrees is generous (kPoseDistanceThresholdDeg + 10).
+  if (bestDist > 35.0) return null;
+  return best;
+}
+
+/// Decide whether a candidate pose is "meaningfully different" from
+/// every existing slot pose. Mirrors the spec's pose-gating rule
+/// verbatim — accept iff Manhattan distance to ALL existing slots
+/// is at or above [kPoseDistanceThresholdDeg].
+///
+/// Pure function — no state, no side effects. The runtime accept path
+/// also requires the candidate pass the quality gate (see
+/// [QualityScorer.score]); this only covers the pose half.
+bool isPoseGatedAcceptable({
+  required ({double yaw, double pitch}) candidateDeg,
+  required List<({double yaw, double pitch})> existingDeg,
+  double threshold = kPoseDistanceThresholdDeg,
+}) {
+  if (existingDeg.isEmpty) return true;
+  for (final existing in existingDeg) {
+    final d = poseDistance(candidateDeg, existing);
+    if (d < threshold) return false;
+  }
+  return true;
+}
+
+/// Composite 0-100 quality score per the spec's weighted formula:
+///
+/// | Metric            | Weight |
+/// | ----------------- | ------ |
+/// | Vision confidence |   30   |
+/// | Sharpness         |   25   |
+/// | Lighting          |   20   |
+/// | Pose uniqueness   |   15   |
+/// | Embedding norm    |   10   |
+///
+/// All input components are normalised to [0, 1] before weighting.
+/// The result is clamped to [0, 100]. Anything below
+/// [kQualityThreshold] (default 60) is rejected at the runtime
+/// accept site.
+///
+/// Implemented as a static helper class so the runtime call site +
+/// the unit tests share one source of truth.
+abstract final class QualityScorer {
+  /// Weighted-sum scorer per the spec.
+  static double score({
+    required double visionConfidence,
+    required double sharpness,
+    required double lighting,
+    required double poseUniqueness,
+    required double embeddingNorm,
+  }) {
+    final vc = visionConfidence.clamp(0.0, 1.0);
+    final sh = sharpness.clamp(0.0, 1.0);
+    final li = lighting.clamp(0.0, 1.0);
+    final pu = poseUniqueness.clamp(0.0, 1.0);
+    final normPenalty = (embeddingNorm - 1.0).abs().clamp(0.0, 1.0);
+    final normComponent = 1.0 - normPenalty;
+    final composite = 30.0 * vc +
+        25.0 * sh +
+        20.0 * li +
+        15.0 * pu +
+        10.0 * normComponent;
+    return composite.clamp(0.0, 100.0);
+  }
+
+  /// Normalised sharpness from the Laplacian variance of a grayscale
+  /// face crop. Higher variance = more edge energy = sharper image.
+  ///
+  /// Baseline: empirically a tack-sharp iPhone selfie crop yields a
+  /// variance around 400-1200 in 8-bit grayscale; a defocused crop
+  /// drops below 60. We normalise via `clamp(variance / 800, 0, 1)`
+  /// so the typical good-shot variance maps to roughly 0.5-1.0.
+  ///
+  /// Pure: takes a [img.Image] (grayscale or colour — we drop chroma
+  /// internally) and returns [0, 1].
+  static double sharpnessFromImage(img.Image source) {
+    final gray = img.grayscale(source);
+    return _normalisedLaplacianVariance(gray);
+  }
+
+  /// Normalised lighting score from contrast + dynamic range in the
+  /// face region. Rewards well-lit shots with usable dynamic range
+  /// (both shadow and highlight detail). Penalises crushed-black or
+  /// blown-white frames typical of bad backlight.
+  ///
+  /// Formula: 60% contrast (standard deviation / 64) + 40% dynamic
+  /// range ((max - min) / 255). Both terms clamped to [0, 1].
+  static double lightingFromImage(img.Image source) {
+    final gray = img.grayscale(source);
+    final width = gray.width;
+    final height = gray.height;
+    if (width == 0 || height == 0) return 0.0;
+    int minLum = 255;
+    int maxLum = 0;
+    double sum = 0.0;
+    double sumSq = 0.0;
+    int n = 0;
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        final px = gray.getPixel(x, y);
+        final lum = px.r.toInt();
+        if (lum < minLum) minLum = lum;
+        if (lum > maxLum) maxLum = lum;
+        sum += lum;
+        sumSq += lum * lum;
+        n++;
+      }
+    }
+    if (n == 0) return 0.0;
+    final mean = sum / n;
+    final variance = (sumSq / n) - (mean * mean);
+    final stdev = variance > 0 ? math.sqrt(variance) : 0.0;
+    // Typical well-lit selfie: stdev ~50-70 in 8-bit grayscale.
+    final contrastTerm = (stdev / 64.0).clamp(0.0, 1.0);
+    final rangeTerm = ((maxLum - minLum) / 255.0).clamp(0.0, 1.0);
+    return (0.6 * contrastTerm + 0.4 * rangeTerm).clamp(0.0, 1.0);
+  }
+
+  /// Pose-uniqueness score given a candidate pose and the existing
+  /// slot poses. 1.0 = maximally far from every existing slot, 0.0 =
+  /// effectively identical to one of them. Linear mapping of the
+  /// minimum pose-distance over a 60-degree reference span.
+  ///
+  /// First slot in an empty set always scores 1.0 (no competition).
+  static double poseUniquenessScore({
+    required ({double yaw, double pitch}) candidateDeg,
+    required List<({double yaw, double pitch})> existingDeg,
+  }) {
+    if (existingDeg.isEmpty) return 1.0;
+    double minDist = double.infinity;
+    for (final e in existingDeg) {
+      final d = poseDistance(candidateDeg, e);
+      if (d < minDist) minDist = d;
+    }
+    // 60 deg = a full pose bucket apart = pose-unique. Below that we
+    // scale linearly down to 0 (identical pose).
+    return (minDist / 60.0).clamp(0.0, 1.0);
+  }
+
+  /// L2 norm of a MobileFaceNet embedding. The model output is
+  /// L2-normalised so a healthy embedding's norm should be ~1.0;
+  /// deviations indicate a degenerate / saturated forward pass that
+  /// produces a less reliable template.
+  ///
+  /// Embeddings ship as 2048-byte buffers = 512 LE FP32 floats.
+  /// Returns the Euclidean norm or `double.nan` on a malformed input.
+  static double embeddingL2Norm(Uint8List bytes) {
+    if (bytes.length % 4 != 0 || bytes.isEmpty) return double.nan;
+    final view = ByteData.sublistView(bytes);
+    double sumSq = 0.0;
+    for (var i = 0; i < bytes.length; i += 4) {
+      final f = view.getFloat32(i, Endian.little);
+      sumSq += f * f;
+    }
+    return math.sqrt(sumSq);
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────────
+
+  static double _normalisedLaplacianVariance(img.Image gray) {
+    final width = gray.width;
+    final height = gray.height;
+    if (width < 3 || height < 3) return 0.0;
+    // 3x3 Laplacian kernel:  0 -1  0 / -1  4 -1 /  0 -1  0
+    // Compute response and accumulate variance.
+    double sum = 0.0;
+    double sumSq = 0.0;
+    int n = 0;
+    for (var y = 1; y < height - 1; y++) {
+      for (var x = 1; x < width - 1; x++) {
+        final c = gray.getPixel(x, y).r.toInt();
+        final t = gray.getPixel(x, y - 1).r.toInt();
+        final b = gray.getPixel(x, y + 1).r.toInt();
+        final l = gray.getPixel(x - 1, y).r.toInt();
+        final r = gray.getPixel(x + 1, y).r.toInt();
+        final lap = (4 * c - t - b - l - r).toDouble();
+        sum += lap;
+        sumSq += lap * lap;
+        n++;
+      }
+    }
+    if (n == 0) return 0.0;
+    final mean = sum / n;
+    final variance = (sumSq / n) - (mean * mean);
+    // Empirical normalisation — see docstring for the 800 baseline.
+    return (variance / 800.0).clamp(0.0, 1.0);
+  }
+}
+
 class FaceEnrolmentService extends ChangeNotifier {
   /// [mode] resolves the four-cell consent matrix from spec section 3.
   /// Defaults to [FaceEnrolmentMode.full] for back-compat with Wave-D
@@ -228,6 +578,42 @@ class FaceEnrolmentService extends ChangeNotifier {
       StreamController<FaceEnrolmentError>.broadcast();
   Stream<FaceEnrolmentError> get errorStream => _errorController.stream;
 
+  /// Phase 2 — broadcast stream for per-candidate rejections during
+  /// the pose-gated sweep. UI subscribes to surface the brief rose
+  /// toast at the bottom of the viewfinder (mockup state 2).
+  final StreamController<FaceEnrolmentRejection> _rejectionController =
+      StreamController<FaceEnrolmentRejection>.broadcast();
+  Stream<FaceEnrolmentRejection> get rejectionStream =>
+      _rejectionController.stream;
+
+  /// Phase 2 — buckets filled so far in the current sweep. Drives the
+  /// guidance ring's lit/dim per-segment state.
+  final Set<PoseBucket> _filledBuckets = <PoseBucket>{};
+  Set<PoseBucket> get filledBuckets => Set.unmodifiable(_filledBuckets);
+
+  /// Phase 2 — accumulated accepted slots during the pose-gated
+  /// sweep. Differs from [_pendingSlots] which is populated only when
+  /// the sweep transitions to confirming. The runtime sweep mutates
+  /// this; the confirming transition copies it into [_pendingSlots].
+  final List<FaceEnrolmentSlot> _accumulatedSlots = <FaceEnrolmentSlot>[];
+
+  /// Phase 2 — last accepted slot's composite quality score. Drives
+  /// the "Last slot: NN" badge top-right of the viewfinder. Null
+  /// before the first acceptance.
+  double? _lastAcceptedScore;
+  double? get lastAcceptedScore => _lastAcceptedScore;
+
+  /// Phase 2 — closest unfilled bucket to the most recently observed
+  /// pose. Drives the dynamic hint text below the ring. Null when
+  /// all buckets are filled or no pose has been observed yet.
+  PoseBucket? _currentTargetBucket;
+  PoseBucket? get currentTargetBucket => _currentTargetBucket;
+
+  /// Phase 2 — Manhattan-sum age of the most-recent observed pose
+  /// (used internally for the "no progress" timeout). Wall-clock
+  /// timestamp.
+  DateTime? _lastProgressAt;
+
   /// Cancellation flag — set by [cancel], read by the sweep + commit
   /// loops to short-circuit cleanly.
   bool _cancelled = false;
@@ -325,6 +711,439 @@ class FaceEnrolmentService extends ChangeNotifier {
     await _runEmbedding();
   }
 
+  /// Phase 2 — pose-gated sweep replacing the legacy timer-driven
+  /// [startSweep]. Captures frames continuously and runs each through
+  /// the existing native batch-of-1 path for pose + embedding; in
+  /// Dart we accept iff:
+  ///
+  ///   1. The candidate pose is at least [kPoseDistanceThresholdDeg]
+  ///      from every already-accepted slot's pose (Manhattan sum).
+  ///   2. The candidate's composite quality score >= [kQualityThreshold].
+  ///
+  /// Accepted candidates are stamped with their bucket + score and
+  /// stored in [_accumulatedSlots]. The sweep ends when every bucket
+  /// is filled, OR when [timeout] elapses with no progress, OR when
+  /// the practitioner calls [requestSweepFinish] (Done tap).
+  ///
+  /// After the sweep, transitions to confirming with the accumulated
+  /// slots so the UI can render the manual-avatar-selection grid (in
+  /// [FaceEnrolmentMode.full]) or fall through to commit (in
+  /// [FaceEnrolmentMode.embeddingOnly]).
+  Future<void> startPoseGatedSweep({
+    Duration timeout = const Duration(seconds: 30),
+    Duration noProgressTimeout = const Duration(seconds: 10),
+  }) async {
+    if (_state != FaceEnrolmentState.idle) {
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEnrolment] startPoseGatedSweep ignored — state=$_state',
+        );
+      }
+      return;
+    }
+    if (_frameProducer == null) {
+      _emitError(const FaceEnrolmentError(
+        type: FaceEnrolmentErrorType.camera,
+        message: "Camera not ready — try again.",
+      ));
+      return;
+    }
+    _cancelled = false;
+    _capturedFramePaths.clear();
+    _filledBuckets.clear();
+    _accumulatedSlots.clear();
+    _lastAcceptedScore = null;
+    _currentTargetBucket = null;
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final runId = DateTime.now().millisecondsSinceEpoch.toString();
+      _frameDir = Directory(p.join(tempDir.path, 'face_enrol_$runId'));
+      await _frameDir!.create(recursive: true);
+    } catch (e) {
+      _emitError(FaceEnrolmentError(
+        type: FaceEnrolmentErrorType.io,
+        message: "Couldn't prepare capture buffer: $e",
+      ));
+      return;
+    }
+
+    _setState(FaceEnrolmentState.sweepingYaw);
+    _instructionText = "Look at the camera to begin";
+    notifyListeners();
+
+    final sweepStart = DateTime.now();
+    _lastProgressAt = sweepStart;
+
+    // Tick at ~3Hz — the per-candidate native call is ~150-300ms on
+    // A17 so faster cadence would queue up; slower than 3Hz makes the
+    // ring feel sluggish.
+    const tickInterval = Duration(milliseconds: 333);
+
+    while (!_cancelled &&
+        _filledBuckets.length < kPoseBucketCount &&
+        DateTime.now().difference(sweepStart) < timeout &&
+        DateTime.now().difference(_lastProgressAt!) < noProgressTimeout) {
+      await _runPoseGatedTick();
+      // Update target bucket + hint text from the latest accepted /
+      // observed pose.
+      _updateHintText();
+      notifyListeners();
+      await Future<void>.delayed(tickInterval);
+    }
+
+    if (_cancelled) {
+      await _teardownFrames();
+      _setState(FaceEnrolmentState.cancelled);
+      return;
+    }
+
+    // Sweep ended — by completion, timeout, or no-progress. Decide
+    // whether to confirm or surface notEnoughAngles.
+    await _finishPoseGatedSweep();
+  }
+
+  /// Practitioner tap on "Done" mid-sweep — accept whatever we've got
+  /// and transition straight to confirming (or commit in embeddingOnly).
+  /// No-op outside of an active sweep.
+  void requestSweepFinish() {
+    if (_state != FaceEnrolmentState.sweepingYaw &&
+        _state != FaceEnrolmentState.sweepingPitch) {
+      return;
+    }
+    if (_kDiagLogs) {
+      debugPrint('[FaceEnrolment] requestSweepFinish — '
+          'filled=${_filledBuckets.length}/$kPoseBucketCount');
+    }
+    // Set the no-progress timer to a value that immediately satisfies
+    // the loop exit predicate. The loop polls every ~333ms.
+    _lastProgressAt = DateTime(2000);
+  }
+
+  /// One pose-gated tick: capture a frame, run it through native for
+  /// pose + embedding, decide accept/reject in Dart.
+  Future<void> _runPoseGatedTick() async {
+    final producer = _frameProducer;
+    if (producer == null) return;
+    String? framePath;
+    try {
+      framePath = await producer();
+    } catch (e) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] tick frame capture failed: $e');
+      }
+      return;
+    }
+    if (framePath == null) return;
+    _capturedFramePaths.add(framePath);
+
+    try {
+      final dynamic resp =
+          await videoChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'generateFaceEmbeddingsFromFrames',
+        <String, dynamic>{
+          'framePaths': <String>[framePath],
+          'expectedSlotCount': 1,
+        },
+      ).timeout(const Duration(seconds: 5));
+
+      if (resp == null) return;
+      final map = Map<String, dynamic>.from(resp as Map);
+      final embsRaw = (map['embeddings'] as List<dynamic>?) ?? const [];
+      final yawsRaw = (map['posesYaw'] as List<dynamic>?) ?? const [];
+      final pitchesRaw = (map['posesPitch'] as List<dynamic>?) ?? const [];
+      final confidencesRaw =
+          (map['confidences'] as List<dynamic>?) ?? const [];
+
+      if (embsRaw.isEmpty) {
+        // No face detected in the frame — silently skip; the next tick
+        // retries.
+        return;
+      }
+
+      final rawEmb = embsRaw.first;
+      final Uint8List embeddingBytes = rawEmb is Uint8List
+          ? rawEmb
+          : Uint8List.fromList((rawEmb as List<int>));
+
+      // Native returns pose in RADIANS today (Wave-D contract). Convert
+      // to degrees so all Dart-side math uses the same units as the
+      // bucket-centre constants.
+      final double yawDeg = yawsRaw.isNotEmpty
+          ? _radiansToDegreesIfNeeded((yawsRaw.first as num).toDouble())
+          : 0.0;
+      final double pitchDeg = pitchesRaw.isNotEmpty
+          ? _radiansToDegreesIfNeeded((pitchesRaw.first as num).toDouble())
+          : 0.0;
+      final visionConfidence = confidencesRaw.isNotEmpty
+          ? (confidencesRaw.first as num).toDouble().clamp(0.0, 1.0)
+          : 0.85; // Reasonable default for batches Vision actually returned a face on.
+
+      final candidatePose = (yaw: yawDeg, pitch: pitchDeg);
+
+      // Update the current-pose target so the hint text follows the
+      // user's head even when they're not yet at acceptable poses.
+      final targetBucket = closestUnfilledBucket(candidatePose, _filledBuckets);
+      _currentTargetBucket = targetBucket;
+
+      // Pose-gate: candidate must be sufficiently different from every
+      // accepted slot.
+      final existingPoses = _accumulatedSlots
+          .map((s) => (
+                yaw: s.poseYaw ?? 0.0,
+                pitch: s.posePitch ?? 0.0,
+              ))
+          .toList(growable: false);
+      if (!isPoseGatedAcceptable(
+        candidateDeg: candidatePose,
+        existingDeg: existingPoses,
+      )) {
+        // Too close to an existing slot — silently skip (no toast for
+        // this; it's the normal case while the user is mid-rotation).
+        return;
+      }
+
+      // Snap to a bucket — if the candidate is wildly off any bucket
+      // centre, refuse rather than assign it to a vaguely-near bucket
+      // and confuse the ring fill.
+      final bucket = snapToBucket(candidatePose);
+      if (bucket == null) return;
+      if (_filledBuckets.contains(bucket)) {
+        // The pose-gating threshold should normally catch this, but
+        // floating-point edge cases at the bucket boundary can slip
+        // through. Refuse and move on.
+        return;
+      }
+
+      // Quality scoring. Decode the frame for sharpness + lighting
+      // calculations — cheap (~10-30ms for a medium-resolution still
+      // off the camera plugin).
+      final scoreComponents = await _scoreCandidate(
+        framePath: framePath,
+        visionConfidence: visionConfidence,
+        candidatePose: candidatePose,
+        existingPoses: existingPoses,
+        embeddingBytes: embeddingBytes,
+      );
+      final composite = scoreComponents.composite;
+
+      if (composite < kQualityThreshold) {
+        // Reject — surface to UI via rejection stream.
+        if (!_rejectionController.isClosed) {
+          _rejectionController.add(FaceEnrolmentRejection(score: composite));
+        }
+        if (_kDiagLogs) {
+          debugPrint(
+            '[FaceEnrolment] tick REJECTED bucket=$bucket '
+            'score=${composite.toStringAsFixed(1)} '
+            'vc=${scoreComponents.visionConfidence.toStringAsFixed(2)} '
+            'sh=${scoreComponents.sharpness.toStringAsFixed(2)} '
+            'li=${scoreComponents.lighting.toStringAsFixed(2)} '
+            'pu=${scoreComponents.poseUniqueness.toStringAsFixed(2)} '
+            'nm=${scoreComponents.normPenalty.toStringAsFixed(2)}',
+          );
+        }
+        return;
+      }
+
+      // Accept — stamp the slot, fill the bucket, advance progress.
+      final isFirstAccepted = _accumulatedSlots.isEmpty;
+      final slot = FaceEnrolmentSlot(
+        slotIndex: _accumulatedSlots.length,
+        embedding: embeddingBytes,
+        // Frontal-pick defaults to the slot whose pose is closest to
+        // (0,0). Updated incrementally as new slots land.
+        isFrontalPick: false,
+        poseYaw: yawDeg,
+        posePitch: pitchDeg,
+        bucket: bucket,
+        qualityScore: composite,
+        sourceFramePath: framePath,
+      );
+      _accumulatedSlots.add(slot);
+      _filledBuckets.add(bucket);
+      _lastAcceptedScore = composite;
+      _lastProgressAt = DateTime.now();
+
+      // Re-evaluate the frontal pick over the running accumulator.
+      _updateFrontalPick();
+
+      // Drive the visible progress bar off the bucket fill ratio so
+      // the legacy ring painter still animates.
+      _progress = _filledBuckets.length / kPoseBucketCount;
+
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEnrolment] tick ACCEPTED bucket=$bucket '
+          'score=${composite.toStringAsFixed(1)} '
+          'progress=${_filledBuckets.length}/$kPoseBucketCount',
+        );
+      }
+
+      if (isFirstAccepted) {
+        // First accept — promote from "Look at the camera" to active
+        // bucket guidance.
+        _setState(FaceEnrolmentState.sweepingYaw);
+      }
+    } on PlatformException catch (e) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] tick native failed: ${e.code} ${e.message}');
+      }
+    } on TimeoutException catch (_) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] tick native timed out');
+      }
+    } catch (e) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] tick error: $e');
+      }
+    }
+  }
+
+  /// Update the [_isFrontalPick] flag across [_accumulatedSlots] so
+  /// exactly one slot — the one whose pose is closest to (0, 0) — is
+  /// the frontal pick at any time. Called after every accept.
+  void _updateFrontalPick() {
+    if (_accumulatedSlots.isEmpty) return;
+    var bestIdx = 0;
+    var bestDist = double.infinity;
+    for (var i = 0; i < _accumulatedSlots.length; i++) {
+      final s = _accumulatedSlots[i];
+      final pose = (yaw: s.poseYaw ?? 0.0, pitch: s.posePitch ?? 0.0);
+      final d = poseDistance(pose, const (yaw: 0.0, pitch: 0.0));
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    for (var i = 0; i < _accumulatedSlots.length; i++) {
+      final s = _accumulatedSlots[i];
+      _accumulatedSlots[i] = s.copyWith(isFrontalPick: i == bestIdx);
+    }
+  }
+
+  void _updateHintText() {
+    if (_accumulatedSlots.isEmpty) {
+      _instructionText = "Look at the camera to begin";
+      return;
+    }
+    if (_filledBuckets.length >= kPoseBucketCount) {
+      _instructionText = "All angles captured";
+      return;
+    }
+    final target = _currentTargetBucket;
+    if (target == null) {
+      _instructionText = "Slowly turn your head";
+      return;
+    }
+    switch (target) {
+      case PoseBucket.front:
+        _instructionText = "Look straight at the camera";
+        break;
+      case PoseBucket.frontLeft:
+        _instructionText = "Turn slightly to your right";
+        break;
+      case PoseBucket.frontRight:
+        _instructionText = "Turn slightly to your left";
+        break;
+      case PoseBucket.left:
+        _instructionText = "Turn further right";
+        break;
+      case PoseBucket.right:
+        _instructionText = "Turn further left";
+        break;
+      case PoseBucket.slightUp:
+        _instructionText = "Look up just a bit";
+        break;
+    }
+  }
+
+  /// Wrap-up after the pose-gated sweep loop exits. Surfaces
+  /// notEnoughAngles when we couldn't gather the minimum 3 slots;
+  /// otherwise transitions to confirming for the manual-avatar grid
+  /// (or directly to commit in embeddingOnly mode).
+  Future<void> _finishPoseGatedSweep() async {
+    if (_accumulatedSlots.length < _kHardMinSlotCount) {
+      _emitError(FaceEnrolmentError(
+        type: FaceEnrolmentErrorType.notEnoughAngles,
+        message:
+            "Not enough variety captured — try again with better lighting "
+            "or more head movement (got ${_accumulatedSlots.length} of $_kHardMinSlotCount min)",
+      ));
+      return;
+    }
+
+    _pendingSlots = List<FaceEnrolmentSlot>.unmodifiable(_accumulatedSlots);
+    _setState(FaceEnrolmentState.confirming);
+    _instructionText = null;
+    notifyListeners();
+  }
+
+  /// Best-effort radians→degrees conversion. Phase 2 wants pose in
+  /// degrees end-to-end (matches [PoseBucket.centerDeg] math + the
+  /// human-readable grammar in the grid). Native today returns
+  /// radians for the batch path, so we coerce here. The heuristic:
+  /// any value with |x| > 3.5 is already in degrees (radians cap at
+  /// pi/2 ~= 1.57); anything else assumed radians and multiplied.
+  double _radiansToDegreesIfNeeded(double v) {
+    if (v.abs() > 3.5) return v;
+    return v * (180.0 / math.pi);
+  }
+
+  /// Score all five components of a candidate frame and return them
+  /// as a single record. Decoding the frame is the expensive step
+  /// (~10-30ms); we do it once and reuse for sharpness + lighting.
+  Future<_CandidateScoreComponents> _scoreCandidate({
+    required String framePath,
+    required double visionConfidence,
+    required ({double yaw, double pitch}) candidatePose,
+    required List<({double yaw, double pitch})> existingPoses,
+    required Uint8List embeddingBytes,
+  }) async {
+    double sharpness = 0.5;
+    double lighting = 0.5;
+    try {
+      final bytes = await File(framePath).readAsBytes();
+      // Decode at a downscaled size — full-res face crops are wasteful
+      // for variance + min/max scans which are O(width * height).
+      final decoded = img.decodeImage(bytes);
+      if (decoded != null) {
+        final small = decoded.width > 240
+            ? img.copyResize(decoded, width: 240)
+            : decoded;
+        sharpness = QualityScorer.sharpnessFromImage(small);
+        lighting = QualityScorer.lightingFromImage(small);
+      }
+    } catch (e) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] frame decode for scoring failed: $e');
+      }
+    }
+
+    final poseUniqueness = QualityScorer.poseUniquenessScore(
+      candidateDeg: candidatePose,
+      existingDeg: existingPoses,
+    );
+    final norm = QualityScorer.embeddingL2Norm(embeddingBytes);
+    final normSafe = norm.isFinite ? norm : 1.0;
+    final normPenalty = (normSafe - 1.0).abs().clamp(0.0, 1.0).toDouble();
+    final composite = QualityScorer.score(
+      visionConfidence: visionConfidence,
+      sharpness: sharpness,
+      lighting: lighting,
+      poseUniqueness: poseUniqueness,
+      embeddingNorm: normSafe,
+    );
+    return _CandidateScoreComponents(
+      visionConfidence: visionConfidence,
+      sharpness: sharpness,
+      lighting: lighting,
+      poseUniqueness: poseUniqueness,
+      normPenalty: normPenalty,
+      composite: composite,
+    );
+  }
+
   /// Cancel the run cleanly. Safe at any state. The service
   /// transitions to [FaceEnrolmentState.cancelled] and the UI pops.
   ///
@@ -378,7 +1197,10 @@ class FaceEnrolmentService extends ChangeNotifier {
   ///      embedding state matches the new frontal-pick (back-compat
   ///      with conversion service callsites that still read the
   ///      singular cache during this release cycle).
-  Future<void> commit({required String clientId}) async {
+  Future<void> commit({
+    required String clientId,
+    int? manuallyChosenAvatarSlotIndex,
+  }) async {
     if (_state != FaceEnrolmentState.confirming) {
       if (_kDiagLogs) {
         debugPrint(
@@ -387,13 +1209,33 @@ class FaceEnrolmentService extends ChangeNotifier {
       }
       return;
     }
-    final slots = _pendingSlots;
-    if (slots == null || slots.isEmpty) {
+    final pendingOriginal = _pendingSlots;
+    if (pendingOriginal == null || pendingOriginal.isEmpty) {
       _emitError(const FaceEnrolmentError(
         type: FaceEnrolmentErrorType.notEnoughAngles,
         message: "Couldn't capture enough angles — try again",
       ));
       return;
+    }
+
+    // Phase 2 — if the practitioner picked a different cell as the
+    // avatar in the manual-selection grid (full mode only), re-stamp
+    // the frontal-pick flag onto that slot. embeddingOnly mode never
+    // exposes the grid so the override is meaningless there.
+    List<FaceEnrolmentSlot> slots = pendingOriginal;
+    if (manuallyChosenAvatarSlotIndex != null &&
+        mode == FaceEnrolmentMode.full &&
+        manuallyChosenAvatarSlotIndex >= 0 &&
+        manuallyChosenAvatarSlotIndex < slots.length) {
+      slots = List<FaceEnrolmentSlot>.unmodifiable(
+        List<FaceEnrolmentSlot>.generate(
+          slots.length,
+          (i) => slots[i].copyWith(
+            isFrontalPick: i == manuallyChosenAvatarSlotIndex,
+          ),
+        ),
+      );
+      _pendingSlots = slots;
     }
 
     _setState(FaceEnrolmentState.persisting);
@@ -467,16 +1309,22 @@ class FaceEnrolmentService extends ChangeNotifier {
     }
 
     // Step 3 + 4: copy frontal-pick frame to avatars/ and best-effort
-    // cloud avatar upload. We use the frontal-pick frame source from
-    // the captured frame buffer; the slot tracks its source frame
-    // index so we can copy the right file.
-    try {
-      await _writeFrontalAvatar(clientId: clientId, slots: slots);
-    } catch (e) {
-      // Avatar write is best-effort — the practitioner will see a
-      // missing-avatar slot but enrolment itself succeeded. Log only.
+    // cloud avatar upload. embeddingOnly mode SKIPS this — the client
+    // hasn't granted avatar consent, so we must not persist a face
+    // photo. (Spec section 3 + acceptance criterion 6.)
+    if (mode == FaceEnrolmentMode.embeddingOnly) {
       if (_kDiagLogs) {
-        debugPrint('[FaceEnrolment] avatar write failed: $e');
+        debugPrint('[FaceEnrolment] embeddingOnly — skipping avatar write');
+      }
+    } else {
+      try {
+        await _writeFrontalAvatar(clientId: clientId, slots: slots);
+      } catch (e) {
+        // Avatar write is best-effort — the practitioner will see a
+        // missing-avatar slot but enrolment itself succeeded. Log only.
+        if (_kDiagLogs) {
+          debugPrint('[FaceEnrolment] avatar write failed: $e');
+        }
       }
     }
 
@@ -704,25 +1552,22 @@ class FaceEnrolmentService extends ChangeNotifier {
   }) async {
     final frontalSlotIdx = slots.indexWhere((s) => s.isFrontalPick);
     if (frontalSlotIdx < 0) return;
-    if (_capturedFramePaths.isEmpty) return;
+    final frontalSlot = slots[frontalSlotIdx];
 
-    // Best approximation: native returns slots ordered by capture
-    // index, so the slot index roughly maps to a captured frame
-    // index in the original buffer. We don't have an exact mapping,
-    // so we use a proportional pick — the slot at idx `i` out of `N`
-    // came from approximately frame `i * (M / N)` where M is the
-    // captured buffer size. For the frontal pick (typically near the
-    // middle of the yaw phase), this lands close enough that the
-    // avatar JPG shows a recognisable headshot.
-    //
-    // Future improvement (out of scope for Wave-D): native returns the
-    // source frame index for each slot in the response payload so we
-    // can copy the exact frame.
-    final approxCapturedIdx = ((frontalSlotIdx / slots.length) *
-            _capturedFramePaths.length)
-        .floor()
-        .clamp(0, _capturedFramePaths.length - 1);
-    final sourcePath = _capturedFramePaths[approxCapturedIdx];
+    // Phase 2 — slots carry the exact source frame path so we can
+    // copy the right file (manual avatar override on the grid would
+    // be meaningless if we proportionally re-derived). Fall back to
+    // the legacy proportional-mapping for Wave-D-era slots that
+    // didn't carry the source path.
+    String? sourcePath = frontalSlot.sourceFramePath;
+    if (sourcePath == null || !File(sourcePath).existsSync()) {
+      if (_capturedFramePaths.isEmpty) return;
+      final approxCapturedIdx = ((frontalSlotIdx / slots.length) *
+              _capturedFramePaths.length)
+          .floor()
+          .clamp(0, _capturedFramePaths.length - 1);
+      sourcePath = _capturedFramePaths[approxCapturedIdx];
+    }
 
     final docsDir = await getApplicationDocumentsDirectory();
     final avatarsDir = Directory(p.join(docsDir.path, 'avatars'));
@@ -822,6 +1667,7 @@ class FaceEnrolmentService extends ChangeNotifier {
   void dispose() {
     _captureTimer?.cancel();
     _errorController.close();
+    _rejectionController.close();
     // Don't await — dispose is sync. Best-effort cleanup.
     unawaited(_teardownFrames());
     super.dispose();
@@ -879,15 +1725,36 @@ class FaceEnrolmentSlot {
   final Uint8List embedding;
 
   /// True for exactly one slot — the most-frontal frame. Used as the
-  /// avatar JPG source.
+  /// avatar JPG source (or the default-selected cell in the Phase 2
+  /// manual-avatar-selection grid).
   final bool isFrontalPick;
 
-  /// Estimated yaw angle (radians) of the picked frame. Optional —
-  /// older native builds may return 0.0. Stored for analytics only.
+  /// Estimated yaw angle (DEGREES) of the picked frame. Phase 2: the
+  /// pose-gated sweep stores degrees here directly (not radians) to
+  /// match the bucket-centre math in [PoseBucket.centerDeg]. Older
+  /// Wave-D native builds returned radians; the Phase 2 sweep
+  /// converts at the call site so this field is always degrees going
+  /// forward. Nullable for back-compat.
   final double? poseYaw;
 
-  /// Estimated pitch angle (radians) of the picked frame.
+  /// Estimated pitch angle (DEGREES). See [poseYaw] for units.
   final double? posePitch;
+
+  /// Bucket this slot was snapped to during the pose-gated sweep.
+  /// Phase 2 addition; null for legacy single-pass slots.
+  final PoseBucket? bucket;
+
+  /// Composite quality score (0-100) for this slot as accepted by the
+  /// sweep loop. Phase 2 addition; null for legacy slots.
+  final double? qualityScore;
+
+  /// Local file path to the captured frame this slot came from.
+  /// Phase 2 addition — the manual-avatar-selection grid needs to
+  /// render the actual face crop per cell, which requires knowing the
+  /// source file (the legacy proportional-mapping approximation in
+  /// `_resolveCapturedPath` is no longer sufficient when the user can
+  /// pick any cell as the avatar). Null for legacy slots.
+  final String? sourceFramePath;
 
   const FaceEnrolmentSlot({
     required this.slotIndex,
@@ -895,6 +1762,74 @@ class FaceEnrolmentSlot {
     required this.isFrontalPick,
     this.poseYaw,
     this.posePitch,
+    this.bucket,
+    this.qualityScore,
+    this.sourceFramePath,
+  });
+
+  FaceEnrolmentSlot copyWith({
+    int? slotIndex,
+    Uint8List? embedding,
+    bool? isFrontalPick,
+    double? poseYaw,
+    double? posePitch,
+    PoseBucket? bucket,
+    double? qualityScore,
+    String? sourceFramePath,
+  }) {
+    return FaceEnrolmentSlot(
+      slotIndex: slotIndex ?? this.slotIndex,
+      embedding: embedding ?? this.embedding,
+      isFrontalPick: isFrontalPick ?? this.isFrontalPick,
+      poseYaw: poseYaw ?? this.poseYaw,
+      posePitch: posePitch ?? this.posePitch,
+      bucket: bucket ?? this.bucket,
+      qualityScore: qualityScore ?? this.qualityScore,
+      sourceFramePath: sourceFramePath ?? this.sourceFramePath,
+    );
+  }
+}
+
+/// Internal record returned by `_scoreCandidate`. Bundles the
+/// per-component values + the composite so the diag log can dump
+/// all of them on a rejection.
+@immutable
+class _CandidateScoreComponents {
+  final double visionConfidence;
+  final double sharpness;
+  final double lighting;
+  final double poseUniqueness;
+  final double normPenalty;
+  final double composite;
+
+  const _CandidateScoreComponents({
+    required this.visionConfidence,
+    required this.sharpness,
+    required this.lighting,
+    required this.poseUniqueness,
+    required this.normPenalty,
+    required this.composite,
+  });
+}
+
+/// Phase 2 rejection event surfaced to the UI as the reject toast.
+/// Per Carl's mockup signoff (open question 2), the toast shows the
+/// RAW SCORE so practitioners learn what's failing — soft copy like
+/// "Move into better light" wins on warmth but loses on calibration.
+@immutable
+class FaceEnrolmentRejection {
+  /// Composite 0-100 score that fell below [kQualityThreshold]. Null
+  /// when the rejection was for pose-similarity rather than quality
+  /// (the toast then shows a generic "too similar to existing" copy).
+  final double? score;
+
+  /// True when the rejection reason was "candidate pose too close to
+  /// an already-captured slot". False = quality threshold breach.
+  final bool poseDuplicate;
+
+  const FaceEnrolmentRejection({
+    this.score,
+    this.poseDuplicate = false,
   });
 }
 
