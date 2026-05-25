@@ -96,6 +96,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   late Session _session;
   late ConversionService _conversionService;
   StreamSubscription<ExerciseCapture>? _conversionSub;
+  // 2026-05-25 — orphan-after-rejection fix. Subscribes alongside
+  // [_conversionSub] so when a Safe Mode rejection deletes a row
+  // from SQLite the in-memory card drops in the same paint instead
+  // of lingering as a stuck `converting` spinner until app restart.
+  StreamSubscription<ExerciseRemoval>? _removalSub;
   final ImagePicker _picker = ImagePicker();
 
   /// Shared ticker that drives the coral-halo breathing on every idle
@@ -410,6 +415,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   @override
   void dispose() {
     _conversionSub?.cancel();
+    _removalSub?.cancel();
     _lockTimer?.cancel();
     _analyticsPollTimer?.cancel();
     _publishJustSucceededTimer?.cancel();
@@ -554,6 +560,32 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   void _listenToConversions() {
+    // 2026-05-25 — orphan-after-rejection fix. Subscribe to the new
+    // removal stream so a Safe Mode rejection (today) or any future
+    // exercise-cleanup path drops the in-memory card synchronously
+    // alongside the SQLite delete. Pre-fix, list-rendering screens
+    // had no signal: SafeModeRejection fired the toast on the
+    // capture screen but Studio kept rendering a stuck `converting`
+    // spinner until the next parent refresh.
+    _removalSub =
+        _conversionService.onExerciseRemoved.listen((removal) {
+      if (!mounted) return;
+      final current = _session.exercises;
+      final idx = current.indexWhere((e) => e.id == removal.exerciseId);
+      if (idx < 0) return;
+      _conversionSeq++;
+      final next = List<ExerciseCapture>.from(current);
+      next.removeAt(idx);
+      // Re-stamp positions on the survivors so subsequent inserts
+      // get the right slot — matches the contract `_deleteExercise`
+      // already enforces for swipe-delete (Wave 41).
+      for (var i = 0; i < next.length; i++) {
+        next[i] = next[i].copyWith(position: i);
+      }
+      setState(() {
+        _pushSession(_session.copyWith(exercises: next));
+      });
+    });
     _conversionSub = _conversionService.onConversionUpdate.listen((updated) {
       if (!mounted) return;
       // Wave 40.6 — authoritative conversion path. The conversion

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/painting.dart' show decodeImageFromList;
@@ -11,6 +12,7 @@ import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 import '../config.dart';
 import '../models/exercise_capture.dart';
+import 'api_client.dart';
 import 'face_embedding_service.dart';
 import 'local_storage_service.dart';
 import 'loud_swallow.dart';
@@ -29,6 +31,29 @@ import 'safe_mode_service.dart';
 /// the user-facing surface treats this as a failed capture and
 /// removes the row.
 const double kSafeModeMaxMissRate = 0.05;
+
+/// Captures where Vision detected ZERO humans in every frame are
+/// accepted as no-PII (empty room, equipment, outdoor landscape) — the
+/// 2026-05-25 "accept zero-detection" relaxation. The 100% miss case
+/// is structurally distinct from a 50% middle-band miss: an empty
+/// frame contains nothing identifiable by definition, while a partial
+/// miss means Vision was struggling on a frame that probably did
+/// contain a human.
+///
+/// The `>=` comparison (vs `== 1.0`) tolerates floating-point jitter
+/// in the native miss-rate calculation. The native pipeline computes
+/// missed-frame-count ÷ total-frame-count; with hundreds of frames
+/// the result can land at 0.99999... due to division rounding even
+/// when every single frame missed.
+///
+/// Acceptance shape: when this branch fires, the safe variant file
+/// (a coral-painted copy of an empty frame — trivial overhead) is
+/// deleted and the canonical-source path falls through to the raw
+/// capture, just as it would for a Safe-Mode-off capture. One
+/// telemetry row writes to `capture_audit_events` via
+/// `record_safe_mode_capture_event` so practice owners can audit the
+/// accept-empty rate in production.
+const double kSafeModeFullEmptyThreshold = 0.999;
 
 /// Solo-face cosine-similarity floor passed to `applySafeModeV2ToPhoto`.
 ///
@@ -207,6 +232,28 @@ class SafeModeRejection implements Exception {
       '${(missRate * 100).toStringAsFixed(1)}%)';
 }
 
+/// Payload emitted on [ConversionService.onExerciseRemoved] after the
+/// service deletes an exercise row from SQLite (today: only the Safe
+/// Mode rejection cleanup path). Carries the exercise id (the
+/// authoritative pivot for list-screen removal) plus the last-known
+/// [ExerciseCapture] so listeners can scrub sibling state (session
+/// position, focus offsets) without an additional SQLite read.
+///
+/// The exercise row IS already gone by the time this fires — the
+/// payload is a snapshot, not a live reference.
+class ExerciseRemoval {
+  final String exerciseId;
+  final ExerciseCapture? exercise;
+  final String reason;
+  const ExerciseRemoval({
+    required this.exerciseId,
+    required this.reason,
+    this.exercise,
+  });
+  @override
+  String toString() => 'ExerciseRemoval($exerciseId, reason=$reason)';
+}
+
 /// Background line drawing conversion service.
 ///
 /// Architecture: Layer 2 of the three decoupled async layers.
@@ -240,6 +287,17 @@ class ConversionService extends ChangeNotifier {
   static ConversionService initialize(LocalStorageService storage) {
     _instance = ConversionService._(storage: storage);
     return _instance!;
+  }
+
+  /// Test-only factory — builds a [ConversionService] without touching
+  /// the singleton field. Used by `app/test/services/` regression tests
+  /// to drive the stream + cleanup contract against an in-memory
+  /// [LocalStorageService] without colliding with whatever real
+  /// instance an integration test may have spun up. Production code
+  /// must continue to call [initialize] / [instance].
+  @visibleForTesting
+  factory ConversionService.forTest(LocalStorageService storage) {
+    return ConversionService._(storage: storage);
   }
 
   /// Native iOS platform channel for video conversion.
@@ -276,6 +334,28 @@ class ConversionService extends ChangeNotifier {
   /// rejection toast on the capture screen.
   Stream<SafeModeRejection> get onSafeModeRejection =>
       _rejectionController.stream;
+
+  /// Stream controller for exercise removals (2026-05-25 — accept zero-
+  /// detection wave). Carries the exercise id (and the row contents at
+  /// the moment of removal) so list-rendering screens can drop the card
+  /// from their in-memory snapshot in the same paint as the SQLite
+  /// delete. Without this, [onSafeModeRejection] fires the toast on the
+  /// capture screen but Studio / ClientSessions keep showing a stuck
+  /// converting-spinner card until the next parent refresh — the
+  /// "orphan after rejection" symptom Carl reported.
+  ///
+  /// Production listeners (Studio, ClientSessions) treat the event as
+  /// "remove this exercise from your in-memory list". The id is the
+  /// authoritative pivot; the payload carries the last-known
+  /// [ExerciseCapture] in case a listener needs metadata (session id,
+  /// position) to clean up sibling state.
+  final _removalController =
+      StreamController<ExerciseRemoval>.broadcast();
+
+  /// Fires when an exercise row was removed from SQLite as part of the
+  /// Safe Mode rejection cleanup. Studio + ClientSessions listen here
+  /// to drop the card from their in-memory list synchronously.
+  Stream<ExerciseRemoval> get onExerciseRemoved => _removalController.stream;
 
   ConversionService._({required LocalStorageService storage})
       : _storage = storage {
@@ -440,23 +520,65 @@ class ConversionService extends ChangeNotifier {
         final result = await _convert(converting);
 
         // Safe Mode fail-closed (Safe Mode completion wave,
-        // 2026-05-21). If a safe variant was produced AND the Vision
-        // miss-rate exceeded the threshold, throw [SafeModeRejection]
-        // so the capture screen can discard the row + show a coral
-        // toast. Best-effort delete of the partial output files
-        // beforehand so we don't leave bytes around for a capture the
-        // user will be told was rejected. The outer try/catch
-        // re-throws — the per-item failure handler treats this as a
-        // real error path (no exception-driven control flow:
-        // [SafeModeRejection] is a genuine bubble, not a "treat as
-        // success" sentinel).
-        if (result.safePath != null &&
-            result.safeMissRate > kSafeModeMaxMissRate) {
-          await _deleteSafely(result.safePath);
-          await _deleteSafely(result.convertedPath);
-          await _deleteSafely(result.segmentedPath);
-          await _deleteSafely(result.maskPath);
-          throw SafeModeRejection(exercise.id, result.safeMissRate);
+        // 2026-05-21; relaxed 2026-05-25 to accept zero-detection
+        // captures). The unified rule:
+        //
+        //   0% .. 5%   miss → accept with safe variant
+        //   5% .. 100% miss → reject (partial Vision miss = struggling)
+        //   100%       miss → accept as no-PII (empty room, equipment)
+        //
+        // The same conditional applies to both photos and videos —
+        // photos can only land at the endpoints by arithmetic
+        // (single-frame miss is binary 0.0 or 1.0), so the middle-
+        // band rejection clause is vacuous for photos but the branch
+        // reads identically.
+        //
+        // [SafeModeRejection] remains a genuine bubble (not exception-
+        // driven control flow per `feedback_no_exception_control_flow`);
+        // the catch block toasts the practitioner and removes the row.
+        if (result.safePath != null) {
+          final isFullyEmpty =
+              result.safeMissRate >= kSafeModeFullEmptyThreshold;
+          final isPartialMiss =
+              result.safeMissRate > kSafeModeMaxMissRate && !isFullyEmpty;
+
+          if (isPartialMiss) {
+            // Existing rejection path — Vision struggled to track the
+            // subject through some frames. Best-effort delete of the
+            // partial output files before throwing.
+            await _deleteSafely(result.safePath);
+            await _deleteSafely(result.convertedPath);
+            await _deleteSafely(result.segmentedPath);
+            await _deleteSafely(result.maskPath);
+            throw SafeModeRejection(exercise.id, result.safeMissRate);
+          }
+
+          if (isFullyEmpty) {
+            // 2026-05-25 — accept zero-detection capture. The safe
+            // variant is a coral-painted copy of an empty frame
+            // (nothing to obscure); delete it and let the canonical-
+            // source resolver fall through to the raw capture, just
+            // as it would for a Safe-Mode-off capture. The line
+            // drawing + segmented + mask outputs stay (they were
+            // computed off the raw / safe pixels regardless).
+            //
+            // Telemetry is fire-and-forget — a network or RPC failure
+            // must NEVER block the capture flow (acceptance criterion
+            // 9 in the spec). Wrapped in `unawaited` + try/catch
+            // inside the helper so nothing bubbles back here.
+            await _deleteSafely(result.safePath);
+            unawaited(_recordSafeModeAcceptedEmpty(
+              exercise: exercise,
+              missRate: result.safeMissRate,
+            ));
+            // Mutate the local result so the downstream code path
+            // sees no safe variant. The pre-2026-05-25 code keyed off
+            // `result.safePath != null` to stamp `safeRawFilePath` on
+            // the saved exercise; falling through with safePath ==
+            // null routes the publish flow back to the normal raw-
+            // archive upload (no swap).
+            result.clearSafeVariant();
+          }
         }
 
         // Re-read from the database to pick up intermediate updates
@@ -791,28 +913,7 @@ class ConversionService extends ChangeNotifier {
         // here must not disturb the main conversion flow.
         unawaited(_archiveRawVideo(done));
       } on SafeModeRejection catch (rejection) {
-        // Safe Mode fail-closed. Two reasons today:
-        // [SafeModeRejectionReason.missRateExceeded] from the video
-        // path when the native Vision pass missed too many frames, and
-        // [SafeModeRejectionReason.missingFaceEmbedding] from the
-        // photo path when the cached subject embedding is gone at
-        // conversion time. Both delete the row from SQLite and
-        // broadcast on the rejection stream so the capture screen can
-        // show the toast. Best-effort SQLite delete; failure logs but
-        // doesn't re-throw (the row will become an orphan but the
-        // user gets the toast either way).
-        debugPrint('Safe Mode rejected ${rejection.exerciseId}: $rejection');
-        try {
-          await _storage.deleteExercise(rejection.exerciseId);
-        } catch (e) {
-          debugPrint(
-              'Safe Mode rejection: deleteExercise failed for '
-              '${rejection.exerciseId}: $e');
-        }
-        if (!_rejectionController.isClosed) {
-          _rejectionController.add(rejection);
-        }
-        notifyListeners();
+        await handleSafeModeRejection(rejection);
       } catch (e, stack) {
         // Write error to a log file for debugging (readable from simulator filesystem)
         try {
@@ -2148,6 +2249,64 @@ class ConversionService extends ChangeNotifier {
   /// failure mode is "documents dir unwritable".
   ///
   /// [contextKind] is an optional discriminator (e.g. `regen`, `backfill`,
+  /// Handle a [SafeModeRejection] bubbling up from the conversion
+  /// pipeline. Reads the row from SQLite (snapshot for the listener
+  /// payload), deletes it, emits on both the rejection stream (so the
+  /// capture screen toasts) AND on [onExerciseRemoved] (so Studio /
+  /// ClientSessions drop the card from their in-memory list in the
+  /// same paint as the SQLite delete).
+  ///
+  /// Visible for testing — the orphan-after-rejection regression in
+  /// `app/test/services/conversion_service_rejection_test.dart` drives
+  /// this directly without standing up the full conversion queue. In
+  /// production it's only called from the [_processQueue] catch block.
+  ///
+  /// SQLite delete failures are logged but not re-thrown — both the
+  /// toast and the removal event still fire so the listener can at
+  /// least drop the in-memory card. Pre-2026-05-25 behaviour swallowed
+  /// the delete failure AND never emitted any removal signal, leaving
+  /// the orphan card stuck in `converting` state until app restart.
+  @visibleForTesting
+  Future<void> handleSafeModeRejection(SafeModeRejection rejection) async {
+    debugPrint('Safe Mode rejected ${rejection.exerciseId}: $rejection');
+    // Snapshot the row BEFORE deleting so the removal payload carries
+    // the last-known ExerciseCapture (session id, position, etc — the
+    // listener uses these to scrub sibling state). Null is acceptable
+    // (the row may already be gone if a parallel cleanup ran first).
+    ExerciseCapture? snapshot;
+    try {
+      snapshot = await _storage.getExerciseById(rejection.exerciseId);
+    } catch (e) {
+      debugPrint(
+          'Safe Mode rejection: snapshot read failed for '
+          '${rejection.exerciseId}: $e');
+    }
+    try {
+      await _storage.deleteExercise(rejection.exerciseId);
+    } catch (e) {
+      debugPrint(
+          'Safe Mode rejection: deleteExercise failed for '
+          '${rejection.exerciseId}: $e');
+    }
+    if (!_rejectionController.isClosed) {
+      _rejectionController.add(rejection);
+    }
+    // Emit on the removal stream regardless of whether the SQLite
+    // delete itself succeeded. Even if the delete throws, telling
+    // Studio "drop this card from memory" is the right user-facing
+    // outcome — a stuck spinner is worse than a card that's gone from
+    // the UI but lingers in the DB as orphaned bytes (covered by the
+    // periodic cleanup sweep).
+    if (!_removalController.isClosed) {
+      _removalController.add(ExerciseRemoval(
+        exerciseId: rejection.exerciseId,
+        exercise: snapshot,
+        reason: 'safe_mode_rejection',
+      ));
+    }
+    notifyListeners();
+  }
+
   /// Best-effort delete of a file at an absolute path. Swallows
   /// every error — used by the Safe Mode rejection path to tidy
   /// up partial outputs before throwing [SafeModeRejection]. Skips
@@ -2161,6 +2320,168 @@ class ConversionService extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('_deleteSafely($path) ignored: $e');
+    }
+  }
+
+  /// Fire-and-forget telemetry write for the 2026-05-25 accept-zero-
+  /// detection branch. Computes a numerics-only scene fingerprint
+  /// (channel means, entropy, complexity) off the raw capture's first
+  /// frame and posts it through [ApiClient.recordSafeModeCaptureEvent].
+  ///
+  /// Failure handling: every error is caught and logged via debugPrint
+  /// only. The capture flow MUST NOT see a throw from this method
+  /// (spec acceptance criterion 9). The caller wraps the invocation in
+  /// `unawaited(...)`; this method's own try/catch is the second guard
+  /// against bubbling.
+  ///
+  /// Privacy posture: no image bytes leave the device — only aggregate
+  /// numerics. The scene fingerprint distinguishes "empty room" from
+  /// "complex scene Vision missed" by exposing outliers in the audit
+  /// feed without leaking pixels.
+  Future<void> _recordSafeModeAcceptedEmpty({
+    required ExerciseCapture exercise,
+    required double missRate,
+  }) async {
+    try {
+      final fingerprint =
+          await _computeSceneFingerprint(exercise.absoluteRawFilePath);
+      final metadata = <String, dynamic>{
+        'exercise_id': exercise.id,
+        'media_type': exercise.mediaType == MediaType.video ? 'video' : 'photo',
+        'miss_rate': missRate,
+        'scene_fingerprint': fingerprint,
+      };
+      await ApiClient.instance.recordSafeModeCaptureEvent(
+        premisesId: exercise.capturedInPremisesId,
+        metadata: metadata,
+      );
+    } catch (e) {
+      debugPrint(
+          'recordSafeModeCaptureEvent fire-and-forget failed for '
+          '${exercise.id}: $e');
+    }
+  }
+
+  /// Compute a numerics-only scene fingerprint off the first frame of
+  /// the raw capture at [rawFilePath]. Returns:
+  ///
+  ///   * `mean_r`, `mean_g`, `mean_b` — int channel means 0..255
+  ///   * `grayscale_entropy` — Shannon entropy of the luminance
+  ///     histogram, 0..8 (256 bins, max ~8 bits)
+  ///   * `complexity_score` — Laplacian-variance proxy, clamped 0..1
+  ///     by dividing by a typical empty-scene baseline (~50). Higher
+  ///     values mean "more edges / structure"; an empty wall sits near
+  ///     0, a busy outdoor scene approaches 1.
+  ///
+  /// Photos and videos both use the first frame (photo: the image
+  /// itself; video: t=0 sample). Video fingerprint extraction relies
+  /// on `package:video_thumbnail`, already in pubspec for hero
+  /// thumbnails.
+  ///
+  /// Defensive: never throws. On any decode failure returns
+  /// `{"error": "decode_failed"}` so the audit row still writes with
+  /// a clear marker. The fingerprint is informational, not load-
+  /// bearing — a missing reading degrades to "we accepted this but
+  /// can't characterise the scene."
+  Future<Map<String, dynamic>> _computeSceneFingerprint(
+    String rawFilePath,
+  ) async {
+    try {
+      // Pull a small decoded image (256x256 max) for cheap math.
+      // Videos go through video_thumbnail to grab t=0 as JPEG bytes;
+      // photos read the file bytes directly.
+      Uint8List? bytes;
+      final lower = rawFilePath.toLowerCase();
+      final isVideo = lower.endsWith('.mp4') ||
+          lower.endsWith('.mov') ||
+          lower.endsWith('.m4v');
+      if (isVideo) {
+        bytes = await vt.VideoThumbnail.thumbnailData(
+          video: rawFilePath,
+          imageFormat: vt.ImageFormat.JPEG,
+          maxWidth: 256,
+          quality: 60,
+          timeMs: 0,
+        );
+      } else {
+        bytes = await File(rawFilePath).readAsBytes();
+      }
+      if (bytes == null || bytes.isEmpty) {
+        return <String, dynamic>{'error': 'empty_frame'};
+      }
+      // Use opencv_dart (already imported) for decode + math.
+      // imdecode handles JPEG/HEIC/PNG transparently.
+      final mat = cv.imdecode(bytes, cv.IMREAD_COLOR);
+      if (mat.isEmpty) {
+        return <String, dynamic>{'error': 'decode_failed'};
+      }
+      // Resize down to 256x256 for cheap statistics.
+      final small = cv.resize(mat, (256, 256));
+      mat.dispose();
+      // Channel means — OpenCV `mean` returns Scalar(b, g, r, a).
+      final m = cv.mean(small);
+      final meanB = m.val1.round().clamp(0, 255);
+      final meanG = m.val2.round().clamp(0, 255);
+      final meanR = m.val3.round().clamp(0, 255);
+
+      // Grayscale conversion for entropy + complexity.
+      final gray = cv.cvtColor(small, cv.COLOR_BGR2GRAY);
+
+      // Walk the 256x256 grayscale pixels manually to build a
+      // histogram. Avoids the calcHist API surface which wants
+      // VecI32 / VecF32 wrappers — direct iteration is cheap on a
+      // 65k-pixel small image and keeps the helper resilient to
+      // opencv_dart API drift.
+      final histogram = List<int>.filled(256, 0);
+      final rows = gray.rows;
+      final cols = gray.cols;
+      var totalPixels = 0;
+      for (var y = 0; y < rows; y++) {
+        for (var x = 0; x < cols; x++) {
+          final v = gray.at<int>(y, x);
+          if (v >= 0 && v < 256) {
+            histogram[v] += 1;
+            totalPixels += 1;
+          }
+        }
+      }
+      double entropy = 0;
+      if (totalPixels > 0) {
+        for (var i = 0; i < 256; i++) {
+          if (histogram[i] == 0) continue;
+          final p = histogram[i] / totalPixels;
+          // log base 2 = ln(p) / ln(2)
+          entropy -= p * (math.log(p) / math.ln2);
+        }
+      }
+
+      // Laplacian variance as a complexity proxy. cv.laplacian + cv.meanStdDev.
+      final lap = cv.laplacian(gray, cv.MatType.CV_64F);
+      final stats = cv.meanStdDev(lap);
+      final stddev = stats.$2.val1;
+      final laplacianVar = stddev * stddev;
+      // Normalise to 0..1 by dividing by a typical busy-scene baseline
+      // (~250 variance for highly textured frames). Empty walls land
+      // near 0, complex outdoor scenes approach 1. Divisor chosen
+      // pragmatically — open question 12.2 in the spec to refine
+      // against real fixtures.
+      const baseline = 250.0;
+      final complexity = (laplacianVar / baseline).clamp(0.0, 1.0);
+
+      gray.dispose();
+      lap.dispose();
+      small.dispose();
+
+      return <String, dynamic>{
+        'mean_r': meanR,
+        'mean_g': meanG,
+        'mean_b': meanB,
+        'grayscale_entropy': entropy,
+        'complexity_score': complexity,
+      };
+    } catch (e) {
+      debugPrint('_computeSceneFingerprint failed for $rawFilePath: $e');
+      return <String, dynamic>{'error': 'decode_failed'};
     }
   }
 
@@ -2654,20 +2975,35 @@ class _ConvertResult {
   final String convertedPath;
   final String? segmentedPath;
   final String? maskPath;
-  final String? safePath;
+  // Mutable so the accept-zero-detection branch in [_processQueue]
+  // can null out the safe variant in place once it's been deleted
+  // (the rest of the downstream save block keys off `safePath !=
+  // null` to stamp `safeRawFilePath` on the exercise row — falling
+  // through with null routes the publish flow back to the normal
+  // raw-archive upload, no swap). Without this mutation we'd thread
+  // a copy through and the save block would still try to stamp a
+  // path to a file that no longer exists.
+  String? safePath;
   // Vision miss-rate from the Safe Mode pass when one ran. 0.0 when
   // no Safe Mode pass happened or every frame found a human. Used by
   // the conversion success branch to decide whether to keep the
   // capture (<= kSafeModeMaxMissRate) or throw [SafeModeRejection].
   final double safeMissRate;
 
-  const _ConvertResult({
+  _ConvertResult({
     required this.convertedPath,
     this.segmentedPath,
     this.maskPath,
     this.safePath,
     this.safeMissRate = 0.0,
   });
+
+  /// Null out the safe variant after the accept-zero-detection branch
+  /// has deleted the file. See the class-level comment on [safePath]
+  /// for the rationale.
+  void clearSafeVariant() {
+    safePath = null;
+  }
 }
 
 /// Result of the native-side `convertVideo` platform channel call.
