@@ -2,7 +2,7 @@
 
 **Status:** draft, awaiting Carl signoff. Extends Safe Mode v2 (face-recognition discriminator) from photos to videos.
 **Builds on:** `docs/specs/2026-05-23-safe-mode-face-rec.md` (algorithm + threshold), `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md` (per-client embedding rows), `docs/specs/2026-05-25-safe-mode-accept-zero-detection.md` (fail-closed rule + telemetry).
-**Algorithm version stamp:** `safe_mode_algorithm_version = 2` (no bump — same algorithm, new media type).
+**Algorithm version stamp:** `safe_mode_algorithm_version = 3` (inherits the constant bumped by PR #485 — v2 video doesn't introduce a separate algo version; the same constant gates both photo and video re-process affordance).
 
 ## Table of Contents
 
@@ -256,7 +256,7 @@ Typical solo-subject capture should hit closer to 1.2x–1.5x real-time on iPhon
 7. **Tracker loss recovers immediately.** Subject is briefly fully-occluded mid-video (walks behind a piece of equipment for ~1 second). Result: tracker confidence drops, no-subject mode for the occluded frames, subject re-identified the moment they reappear.
 8. **Fail-closed rule preserved with v2's tighter miss definition.** A heavily backlit video where Vision intermittently loses face detection but person segmentation stays visible → accepted with safe variant (background stays sharp because the subject is still segmented; face-hidden sections run in no-subject mode, but the segmentation positive pixels keep those frames out of the miss bucket). A capture where BOTH face detection AND segmentation fail across more than 5% of frames (e.g. severely overexposed footage, lens fully obscured) → rejected with the same "couldn't track everyone — try a different angle" toast as v1 today. Empty-room video (100% miss) → accepted as no-PII, no safe variant produced, audit event written.
 9. **Performance budget honoured.** 30-second 1080p capture on iPhone 13 or newer converts in ≤ 60 seconds wall-clock. Measured by the conversion service's existing timing instrumentation.
-10. **Algorithm version stamped.** Every video exercise captured under v2 has `safe_mode_algorithm_version = 2` written to the cloud `exercises` row. v1 video captures retain their existing `safe_mode_algorithm_version = 1` (or NULL for pre-v2 rows).
+10. **Algorithm version stamped.** Every video exercise captured under v2 has `safe_mode_algorithm_version = 3` written to the cloud `exercises` row (inherits the constant bumped by PR #485 — v2 video does not introduce a separate algo version; the same constant gates both photo and video re-process affordance). v1 video captures retain their existing `safe_mode_algorithm_version = 1` (or NULL for pre-v2 rows).
 11. **v1 video code paths removed.** No callsite in the codebase invokes the v1 video pipeline. The `SafeModeProcessor` class is deleted along with `applySafeModeToVideo` / `processSafeModeVideo` channel methods. Compile-time enforcement that v1 video is gone.
 12. **Existing v1 video safe variants continue to display.** Captures stamped `safe_mode_algorithm_version = 1` still render their stored safe variant on every surface (per `feedback_no_original_display_safe_mode`). The "Re-process Safe Mode" long-press affordance (from the v2 photo spec) extends to videos — tapping it on a v1 video capture re-runs v2 against the raw archive (if still within 90-day retention).
 13. **Progress UX visible during conversion.** The exercise card shows a determinate progress bar while v2 video conversion is in flight. No more indeterminate spinner for v2 video.
@@ -285,12 +285,16 @@ applySafeModeV2ToVideo(
     srcPath: String,                  // raw captured mp4
     destPath: String,                 // safe variant output path
     subjectEmbeddingSlots: [Data],    // client's enrolled embedding rows (5–8 slots, 128 FP32 each)
-    threshold: Double,                // cosine threshold, default 0.55–0.60 per the multi-ref spec
+    threshold: Double,                // solo-floor, default 0.10 per `kSafeModeV2SoloFloor` — see note below
     onProgress: (Double) -> Void      // 0.0–1.0 progress callback for the card UI
 ) -> SafeModeVideoOutcome
 ```
 
 `SafeModeVideoOutcome` mirrors the existing v1 outcome shape: `success: Bool, safeMissRate: Double, framesProcessed: Int, durationMs: Int`. No new fields needed — Dart's existing `_ConvertResult` consumption already handles these.
+
+Note: the `threshold` arg passed by Dart is the **solo-floor** (default 0.10 per `kSafeModeV2SoloFloor` in `app/lib/services/conversion_service.dart`) consulted only in the 1-face decision branch. The 2+ faces branch uses relative pick-highest with no absolute gate. The 0.55–0.60 cosine values cited in section 5 are aspirational tuning targets for multi-reference face matching — they describe the embedding quality required to recognise the subject reliably, NOT a runtime threshold sent over the channel.
+
+Progress is surfaced separately via a Flutter `EventChannel` named **`homefit-safe-mode-v2-video-progress`** (see `_safeModeV2VideoProgressChannel` in `app/lib/services/conversion_service.dart`). Payload is a single `Double` per event in the range `[0.0, 1.0]`, sourced from `frameIdx / totalFrameCount` and emitted once per composited frame. The Dart side subscribes for the duration of each `applySafeModeV2ToVideo` invocation and forwards each value into the `ConversionService.onSafeModeV2VideoProgress` broadcast stream tagged with the originating `ExerciseCapture.id`, so the Studio card overlay can filter by id and render its own determinate progress bar without cross-contamination from parallel captures. The channel name is the contract — renaming it requires updating both sides in lockstep.
 
 ### State machine for the hybrid pipeline
 

@@ -18,7 +18,6 @@ import 'local_storage_service.dart';
 import 'loud_swallow.dart';
 import 'path_resolver.dart';
 import 'safe_mode.dart';
-import 'safe_mode_service.dart';
 
 /// Maximum tolerated Vision miss-rate (0.0–1.0) for a Safe Mode
 /// capture before [ConversionService] rejects it with
@@ -308,6 +307,21 @@ class ConversionService extends ChangeNotifier {
   /// Simple native frame extraction channel (AVAssetImageGenerator).
   static const _thumbChannel = MethodChannel('com.raidme.native_thumb');
 
+  /// Safe Mode v2 video — per-frame progress stream from the native
+  /// pipeline (2026-05-25). The native `SafeModeV2VideoProcessor`
+  /// emits a `double` value in [0.0, 1.0] on this EventChannel after
+  /// each composited frame, sourced from
+  /// `frameIdx / totalFrameCount`. Subscribed once per
+  /// `applySafeModeV2ToVideo` invocation and forwarded into
+  /// [_safeVideoProgressController] so the Studio exercise card
+  /// (`CaptureThumbnail`) can render a determinate coral progress bar.
+  ///
+  /// Channel name is locked by section 8 of
+  /// `docs/specs/2026-05-25-safe-mode-v2-video.md` — do not rename
+  /// without updating the native side in lockstep.
+  static const _safeModeV2VideoProgressChannel =
+      EventChannel('homefit-safe-mode-v2-video-progress');
+
   /// The processing queue. Items are processed FIFO.
   final List<ExerciseCapture> _queue = [];
 
@@ -371,6 +385,27 @@ class ConversionService extends ChangeNotifier {
   /// Safe Mode rejection cleanup. Studio + ClientSessions listen here
   /// to drop the card from their in-memory list synchronously.
   Stream<ExerciseRemoval> get onExerciseRemoved => _removalController.stream;
+
+  /// Per-exercise Safe Mode v2 video conversion progress
+  /// (2026-05-25). Emits [SafeModeV2VideoProgress] records with
+  /// `(exerciseId, fraction)` pairs in [0.0, 1.0] sourced from the
+  /// native EventChannel. Listeners (the Studio exercise card via
+  /// `CaptureThumbnail`) subscribe and rebuild a determinate coral
+  /// progress bar in place of the legacy indeterminate spinner.
+  ///
+  /// One value of 1.0 is emitted at the end of a successful pass so
+  /// the bar fills cleanly before disappearing. Progress for an
+  /// exercise stops emitting after the conversion completes (success
+  /// or failure); listeners should treat the absence of further
+  /// events as terminal.
+  ///
+  /// Photos and non-Safe-Mode video conversions do NOT emit on this
+  /// stream — the legacy spinner stays for those paths.
+  final _safeVideoProgressController =
+      StreamController<SafeModeV2VideoProgress>.broadcast();
+
+  Stream<SafeModeV2VideoProgress> get onSafeModeV2VideoProgress =>
+      _safeVideoProgressController.stream;
 
   ConversionService._({required LocalStorageService storage})
       : _storage = storage {
@@ -1258,35 +1293,71 @@ class ConversionService extends ChangeNotifier {
       // it has no consumer (insurance for future playback-time compositing).
       final maskOutputPath =
           p.join(convertedDir, '${exercise.id}_mask.mp4');
-      // Safe Mode (2026-05-21) — when the session is inside an
-      // enforcing premises the native pipeline writes a 4th output with
-      // coral silhouettes baked over bystanders. Bypassed if Safe Mode
-      // is off (most sessions); the file simply isn't produced.
-      String? safeOutputPath;
-      try {
-        if (SafeModeService.instance.isActive) {
-          safeOutputPath = p.join(convertedDir, '${exercise.id}_safe.mp4');
-        }
-      } catch (_) {
-        // Service not initialised (e.g. tests). Fall through with no
-        // Safe Mode pass — line drawing + segmented still happen.
-      }
+      // Safe Mode v2 (2026-05-25). v1 video paths (single-call native
+      // `convertVideo` with `safeOutputPath`) have been removed. When
+      // the capture was inside an enforcing premises, the safe variant
+      // is now produced by a SEPARATE native pass —
+      // `applySafeModeV2ToVideo` — invoked after the line / segmented
+      // / mask outputs land. Subject identification uses
+      // MobileFaceNet embeddings via the bound client (same gate as
+      // v2 photo), not the v1 largest-bbox heuristic.
+      //
+      // Gate on the CAPTURE-time stamp (`exercise.safeModeActive`),
+      // not the runtime [SafeModeService.instance.isActive] check.
+      // The conversion runs asynchronously after capture; the practitioner
+      // may have walked out of the polygon between shutter and conversion,
+      // but the capture intent was Safe Mode. The stamp is the source of
+      // truth — matches the photo branch's policy.
       try {
         final segResult = await _convertVideo(
           exercise.absoluteRawFilePath,
           videoOutputPath,
           segmentedOutputPath: segmentedOutputPath,
           maskOutputPath: maskOutputPath,
-          safeOutputPath: safeOutputPath,
           includeAudio: AppConfig.audioMuxEnabled,
         );
+
+        // Step 2: Safe Mode v2 video pass (post-line-drawing).
+        // Produces `{exerciseId}_safe.mp4` from the raw source via
+        // first-frame identify + Vision tracker + sparse re-confirm
+        // (per `docs/specs/2026-05-25-safe-mode-v2-video.md` section
+        // 5 hybrid recommendation). The native side emits per-frame
+        // progress on
+        // [_safeModeV2VideoProgressChannel] which we forward into
+        // [onSafeModeV2VideoProgress] so the Studio exercise card can
+        // render a determinate coral progress bar.
+        String? safeVideoPath;
+        double safeVideoMissRate = 0.0;
+        if (exercise.safeModeActive) {
+          final safeOutResult = await _applySafeModeV2ToVideo(
+            exercise: exercise,
+            destPath: p.join(convertedDir, '${exercise.id}_safe.mp4'),
+          );
+          safeVideoPath = safeOutResult.safePath;
+          safeVideoMissRate = safeOutResult.safeMissRate;
+        }
+
         return _ConvertResult(
           convertedPath: videoOutputPath,
           segmentedPath: segResult.segmentedPath,
           maskPath: segResult.maskPath,
-          safePath: segResult.safePath,
-          safeMissRate: segResult.safeMissRate,
+          safePath: safeVideoPath,
+          safeMissRate: safeVideoMissRate,
         );
+      } on SafeModeRejection {
+        // C1 (sev1 privacy regression fix, code review on PR #497).
+        // A SafeModeRejection thrown from _applySafeModeV2ToVideo
+        // (cold-cache missing-embedding case OR native miss-rate exceed)
+        // must propagate to the queue handler's `on SafeModeRejection`
+        // block so the exercise row is deleted + the coral rejection
+        // toast fires. Without this rethrow, the catch (e, stack) below
+        // silently swallowed the rejection and fell through to the
+        // frame-extraction fallback, which produced a still-frame line
+        // drawing of the RAW UNBLURRED video. Result: _ConvertResult.safePath
+        // stayed null, UploadService stamped no safeRawFilePath, and the
+        // raw unblurred video uploaded to the cloud raw-archive bucket.
+        // Privacy guarantee broken.
+        rethrow;
       } catch (e, stack) {
         debugPrint(
             'Full video conversion failed for ${exercise.id}: $e — '
@@ -1835,7 +1906,6 @@ class ConversionService extends ChangeNotifier {
     String outputPath, {
     String? segmentedOutputPath,
     String? maskOutputPath,
-    String? safeOutputPath,
     bool includeAudio = true,
   }) async {
     // --- Attempt 1: Native iOS platform channel ---
@@ -1854,17 +1924,16 @@ class ConversionService extends ChangeNotifier {
       if (maskOutputPath != null) {
         args['maskOutputPath'] = maskOutputPath;
       }
-      // Safe Mode (2026-05-21) — when set, the native side runs a 4th
-      // output pass that composites a coral silhouette over every
-      // segmented person OTHER than the largest one (identified via
-      // VNDetectHumanRectanglesRequest). Failures inside that pass are
-      // non-fatal — the line drawing + segmented outputs still ship.
-      if (safeOutputPath != null) {
-        args['safeOutputPath'] = safeOutputPath;
-        args['safeModeEnabled'] = true;
-      }
+      // Safe Mode v1 removal (2026-05-25). The v1 path's
+      // `safeOutputPath` + `safeModeEnabled` flags routed through
+      // `convertVideo` for the largest-bbox-wins heuristic. v2 video
+      // runs as a separate `applySafeModeV2ToVideo` pass after the
+      // line / segmented / mask outputs land — see
+      // [_applySafeModeV2ToVideo] in this file and the architectural
+      // decision in `docs/specs/2026-05-25-safe-mode-v2-video.md`
+      // section 6.
       // Hard ceiling — if the native side stalls (AVAssetWriter drain
-       // deadlock, disk backpressure, etc.) we'd otherwise wedge the entire
+      // deadlock, disk backpressure, etc.) we'd otherwise wedge the entire
       // ConversionService queue forever. 3 min is ~30x the worst realistic
       // runtime for a 30s capture at 30fps; anything longer is pathological.
       final result = await _videoChannel.invokeMethod<Map>(
@@ -1882,23 +1951,16 @@ class ConversionService extends ChangeNotifier {
       if (result != null && result['success'] == true) {
         final segPath = result['segmentedOutputPath'] as String?;
         final maskPath = result['maskOutputPath'] as String?;
-        final safePath = result['safeOutputPath'] as String?;
-        final safeMiss =
-            (result['safeFramesMissedRate'] as num?)?.toDouble() ?? 0.0;
         debugPrint(
             'Native video conversion complete: '
             '${result["framesProcessed"]} frames '
             '(audioSamplesWritten=${result["audioSamplesWritten"]}, '
             'audioMuxEnabled=${AppConfig.audioMuxEnabled}, '
             'segFrames=${result["segFramesProcessed"] ?? 0}, '
-            'maskFrames=${result["maskFramesProcessed"] ?? 0}, '
-            'safeFrames=${result["safeFramesProcessed"] ?? 0}, '
-            'safeMissRate=${safeMiss.toStringAsFixed(3)}) -> $outputPath');
+            'maskFrames=${result["maskFramesProcessed"] ?? 0}) -> $outputPath');
         return _NativeVideoResult(
           segmentedPath: segPath,
           maskPath: maskPath,
-          safePath: safePath,
-          safeMissRate: safeMiss,
         );
       }
     } on PlatformException catch (e) {
@@ -1914,6 +1976,180 @@ class ConversionService extends ChangeNotifier {
     // --- Attempt 2: OpenCV VideoCapture/VideoWriter ---
     await _convertVideoViaOpenCV(inputPath, outputPath);
     return const _NativeVideoResult();
+  }
+
+  /// Safe Mode v2 video pass (2026-05-25). Invokes the native
+  /// `applySafeModeV2ToVideo` platform-channel method which runs the
+  /// hybrid first-frame-identify + Vision tracker + sparse re-confirm
+  /// pipeline per `docs/specs/2026-05-25-safe-mode-v2-video.md`.
+  ///
+  /// Resolves the bound client's multi-reference embedding slots via
+  /// [_resolveSubjectEmbeddings] (same source as the v2 photo path);
+  /// throws [SafeModeRejection] with
+  /// [SafeModeRejectionReason.missingFaceEmbedding] when none are
+  /// available so the upstream queue handler deletes the exercise row
+  /// and surfaces a coral toast (no silent fallback per
+  /// `feedback_no_silent_fallbacks`).
+  ///
+  /// Subscribes once to the native progress EventChannel for the
+  /// duration of the call and forwards the per-frame fractions into
+  /// [onSafeModeV2VideoProgress] tagged with [ExerciseCapture.id] so
+  /// the Studio exercise card can render a determinate coral
+  /// progress bar bound to the matching exercise.
+  ///
+  /// The native side returns
+  ///   `{ success: bool, safeMissRate: double, framesProcessed: int,
+  ///      durationMs: int }`
+  /// on success. The miss-rate semantics carry forward verbatim from
+  /// v1 video — fraction of frames where Vision detected zero humans
+  /// — and feed the unified fail-closed rule in the outer queue
+  /// handler (the tri-state rule from
+  /// `docs/specs/2026-05-25-safe-mode-accept-zero-detection.md`:
+  /// 0%–5% accept, 5%–100% reject, 100% accept as no-PII).
+  ///
+  /// The 3-minute timeout matches [_convertVideo]; a hung native pass
+  /// would otherwise wedge the conversion queue forever.
+  Future<_SafeModeV2VideoOutcome> _applySafeModeV2ToVideo({
+    required ExerciseCapture exercise,
+    required String destPath,
+  }) async {
+    // Resolve the bound client's embedding slot bundle. Same
+    // back-compat preference order as the v2 photo path: multi-reference
+    // slots first, legacy single avatar embedding second, empty list
+    // when neither has bytes. Empty list = capture cannot be made
+    // safe → throw SafeModeRejection so the outer queue handler
+    // deletes the exercise row + shows the coral toast.
+    final session = exercise.sessionId == null
+        ? null
+        : await _storage.getSession(exercise.sessionId!);
+    final clientId = session?.clientId;
+    final List<Uint8List> subjectEmbeddingSlots =
+        await _resolveSubjectEmbeddings(_storage, clientId);
+
+    if (subjectEmbeddingSlots.isEmpty) {
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [applySafeModeV2ToVideo refused: '
+          'no embedding for client=${clientId ?? "<none>"}]\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {
+        // Sanctioned log-of-log swallow.
+      }
+      throw SafeModeRejection(
+        exercise.id,
+        0.0,
+        reason: SafeModeRejectionReason.missingFaceEmbedding,
+      );
+    }
+
+    // Resolve the cosine threshold — same chain as the photo path so
+    // the debug-tuning sheet override applies to both media types.
+    final threshold = await _resolveSafeModeV2Threshold(null);
+
+    // Subscribe to the native progress EventChannel for the duration
+    // of this conversion. The native side emits one `double` value
+    // per composited frame in [0.0, 1.0]. We forward into
+    // [_safeVideoProgressController] tagged with the exercise id so
+    // the Studio card observer can rebuild a determinate progress
+    // bar bound to the matching exercise.
+    //
+    // Cancelled in the finally below regardless of outcome — leaving
+    // the subscription alive would leak observers across captures and
+    // cross-contaminate progress between exercises.
+    StreamSubscription<dynamic>? progressSub;
+    try {
+      progressSub = _safeModeV2VideoProgressChannel
+          .receiveBroadcastStream()
+          .listen((dynamic value) {
+        // EventChannel decodes Swift Doubles to Dart num — defensive
+        // toDouble + clamp so a wire glitch can't push a negative
+        // fraction or a > 1.0 sentinel into the bar.
+        final raw = (value is num) ? value.toDouble() : 0.0;
+        final clamped = raw.isNaN ? 0.0 : raw.clamp(0.0, 1.0);
+        if (!_safeVideoProgressController.isClosed) {
+          _safeVideoProgressController.add(SafeModeV2VideoProgress(
+            exerciseId: exercise.id,
+            fraction: clamped,
+          ));
+        }
+      });
+
+      // Invoke the native pass. Channel signature is locked in
+      // section 8 of `docs/specs/2026-05-25-safe-mode-v2-video.md`.
+      final result = await _videoChannel.invokeMethod<Map>(
+        'applySafeModeV2ToVideo',
+        <String, dynamic>{
+          'srcPath': exercise.absoluteRawFilePath,
+          'destPath': destPath,
+          'subjectEmbeddingSlots': subjectEmbeddingSlots,
+          'threshold': threshold,
+        },
+      ).timeout(
+        const Duration(minutes: 3),
+        onTimeout: () {
+          throw TimeoutException(
+            'Native applySafeModeV2ToVideo exceeded 3 min — treating '
+            'as failed (exercise=${exercise.id})',
+          );
+        },
+      );
+
+      if (result == null || result['success'] != true) {
+        debugPrint(
+          'applySafeModeV2ToVideo: native side reported failure for '
+          '${exercise.id} (result=$result)',
+        );
+        return const _SafeModeV2VideoOutcome();
+      }
+
+      final missRate =
+          (result['safeMissRate'] as num?)?.toDouble() ?? 0.0;
+      final framesProcessed = (result['framesProcessed'] as int?) ?? 0;
+      final durationMs = (result['durationMs'] as int?) ?? 0;
+      debugPrint(
+        'applySafeModeV2ToVideo complete for ${exercise.id}: '
+        'frames=$framesProcessed, '
+        'safeMissRate=${missRate.toStringAsFixed(3)}, '
+        'durationMs=$durationMs',
+      );
+
+      // Confirm the destination file actually landed before reporting
+      // a path back to the caller. Defensive — the native side claims
+      // success but a downstream disk error could still leave the
+      // file absent.
+      final destExists = await File(destPath).exists();
+      return _SafeModeV2VideoOutcome(
+        safePath: destExists ? destPath : null,
+        safeMissRate: missRate,
+      );
+    } on PlatformException catch (e, stack) {
+      debugPrint(
+        'applySafeModeV2ToVideo failed for ${exercise.id}: '
+        '${e.code} - ${e.message}',
+      );
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [applySafeModeV2ToVideo failed]\n$e\n$stack\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {
+        // Sanctioned log-of-log swallow.
+      }
+      return const _SafeModeV2VideoOutcome();
+    } on MissingPluginException {
+      debugPrint(
+        'applySafeModeV2ToVideo: native channel not available '
+        '(not iOS?) — Safe Mode pass skipped',
+      );
+      return const _SafeModeV2VideoOutcome();
+    } finally {
+      await progressSub?.cancel();
+    }
   }
 
   /// Convert a video frame-by-frame using OpenCV's VideoCapture/VideoWriter.
@@ -3225,25 +3461,79 @@ class _ConvertResult {
   }
 }
 
+/// Per-exercise Safe Mode v2 video conversion progress event
+/// (2026-05-25). Emitted on [ConversionService.onSafeModeV2VideoProgress]
+/// for each frame composited by the native `SafeModeV2VideoProcessor`.
+///
+/// `fraction` is a value in [0.0, 1.0] sourced from
+/// `frameIdx / totalFrameCount` on the native side. Listeners (the
+/// Studio exercise card via [CaptureThumbnail]) render a determinate
+/// coral progress bar bound to the latest value for the matching
+/// `exerciseId`.
+///
+/// Photos and non-Safe-Mode video conversions never emit on this
+/// stream — the legacy indeterminate spinner stays for those paths.
+class SafeModeV2VideoProgress {
+  /// The exercise whose Safe Mode v2 video pass is in flight.
+  final String exerciseId;
+
+  /// Fraction of frames composited so far, in [0.0, 1.0]. The native
+  /// side emits one final value of 1.0 at end-of-pass so the bar
+  /// fills cleanly before the conversion-done update arrives and the
+  /// card swaps to the finished thumbnail.
+  final double fraction;
+
+  const SafeModeV2VideoProgress({
+    required this.exerciseId,
+    required this.fraction,
+  });
+
+  @override
+  String toString() =>
+      'SafeModeV2VideoProgress($exerciseId, ${(fraction * 100).toStringAsFixed(1)}%)';
+}
+
 /// Result of the native-side `convertVideo` platform channel call.
 /// Plain value object — carries the optional sidecar paths the caller
-/// needs to thread back onto [ExerciseCapture]. The `safePath` is the
-/// Safe Mode raw archive (bystander-blurred), present only when the
-/// native pipeline was given a `safeOutputPath` AND the compositing
-/// pass produced a non-empty file. Failure of the safe pass never
-/// blocks the line drawing.
+/// needs to thread back onto [ExerciseCapture].
+///
+/// Safe Mode v2 video removal note (2026-05-25): the v1
+/// `safePath` / `safeMissRate` fields were dropped here when the v1
+/// largest-bbox pipeline was removed from `convertVideo`. The Safe
+/// Mode v2 pass runs through the separate `applySafeModeV2ToVideo`
+/// platform method and returns its outcome via
+/// [_SafeModeV2VideoOutcome] / `_ConvertResult` instead.
 class _NativeVideoResult {
   final String? segmentedPath;
   final String? maskPath;
-  final String? safePath;
-  // Vision miss-rate the native `SafeModeProcessor` accumulated over
-  // the conversion run. 0.0 when no Safe Mode pass ran (no
-  // `safeOutputPath` passed in); otherwise [0, 1].
-  final double safeMissRate;
 
   const _NativeVideoResult({
     this.segmentedPath,
     this.maskPath,
+  });
+}
+
+/// Result of a single [ConversionService._applySafeModeV2ToVideo]
+/// invocation. Returned to [ConversionService._convert]'s video
+/// branch which threads `safePath` + `safeMissRate` onto the broader
+/// [_ConvertResult] for fail-closed evaluation downstream.
+class _SafeModeV2VideoOutcome {
+  /// Absolute path to the safe variant mp4 written by the native
+  /// pipeline. Null when the native call failed before producing a
+  /// file, or when no embedding was available and conversion threw
+  /// [SafeModeRejection] (handled upstream).
+  final String? safePath;
+
+  /// Vision miss-rate accumulated over the video — fraction of frames
+  /// where the native pipeline detected zero humans. The unified
+  /// fail-closed rule (per
+  /// `docs/specs/2026-05-25-safe-mode-accept-zero-detection.md` and
+  /// section 6b of the v2 video spec) accepts 0%–5% as a normal
+  /// capture, accepts exactly 100% as no-PII, and rejects the
+  /// in-between band.
+  final double safeMissRate;
+
+  const _SafeModeV2VideoOutcome({
     this.safePath,
     this.safeMissRate = 0.0,
   });

@@ -1039,10 +1039,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
 
     // Self-trainer wave PR #8 (2026-05-25) — Safe Mode subscription
-    // gate. Runs BEFORE the v2 video-suppression so users without a
-    // sub get the paywall instead of a silent rejection (otherwise
-    // they'd just see the long-press do nothing). Returning false
-    // means the paywall took over and we should bail.
+    // gate. Runs BEFORE the v2 video face-embedding gate so users
+    // without a sub get the paywall instead of a silent rejection
+    // (otherwise they'd just see the long-press do nothing).
+    // Returning false means the paywall took over and we should bail.
     if (!await _assertSafeModeSubGate()) {
       _longPressActive = false;
       _pendingStopAfterStart = false;
@@ -1050,19 +1050,22 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
     if (!mounted) return;
 
-    // Safe Mode v2 (2026-05-23) — video Safe Mode doesn't ship in
-    // this wave. Suppress the long-press-to-record gesture entirely
-    // when Safe Mode is engaged. The banner in the top bar tells the
-    // practitioner photos are the only option for now.
-    try {
-      if (SafeModeService.instance.isActive) {
-        HomefitHaptics.light();
-        _longPressActive = false;
-        _pendingStopAfterStart = false;
-        return;
-      }
-    } catch (_) {
-      // Service not initialised — proceed.
+    // Safe Mode v2 video (2026-05-25) — videos are now supported
+    // under Safe Mode via the same face-recognition discriminator
+    // that ships for photos. The previous v2-wave block that
+    // suppressed video recording while Safe Mode was active has
+    // been lifted now that the native `applySafeModeV2ToVideo`
+    // pipeline lands the safe variant. The shared v2 gate
+    // ([_shouldGateOnSafeModeV2] + [_resolveSafeModeV2State]) still
+    // covers the "no embedding yet" branch and renders the
+    // [_SafeModeV2Banner] above the viewfinder, blocking capture
+    // (photo OR video) until the bound client's face embeddings are
+    // cached.
+    if (_shouldGateOnSafeModeV2() && !_resolveSafeModeV2State().isReady) {
+      HomefitHaptics.light();
+      _longPressActive = false;
+      _pendingStopAfterStart = false;
+      return;
     }
 
     // Best-effort haptic — iOS suppresses vibration while AVCaptureSession
