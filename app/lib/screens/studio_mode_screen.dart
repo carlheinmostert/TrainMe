@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -14,8 +15,11 @@ import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/publish_progress.dart';
 import '../models/session.dart';
+import '../services/clipboard_service.dart';
 import '../services/conversion_service.dart';
+import '../services/exercise_clone.dart';
 import '../services/exercise_hero_resolver.dart';
+import '../services/homefit_haptics.dart';
 import '../services/local_storage_service.dart';
 import '../services/media_prefetch_service.dart';
 import '../services/path_resolver.dart';
@@ -30,12 +34,15 @@ import '../utils/session_title.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
+import '../widgets/clipboard_chip.dart';
+import '../widgets/clipboard_flight_animation.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/exercise_editor_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/hero_crop_viewport.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
+import '../widgets/paste_bottom_sheet.dart';
 import '../widgets/preset_chip_row.dart';
 import '../widgets/publish_progress_sheet.dart';
 import '../widgets/safe_mode_icon.dart';
@@ -110,6 +117,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// See Design Rule R-09: affordances default to obvious; a soft
   /// coral breath around the dot advertises "this is tappable".
   late final AnimationController _pulseController;
+
+  /// GlobalKey anchored on the Studio AppBar's [ClipboardChip] so the
+  /// flight animation (`docs/specs/2026-05-25-exercise-clipboard.md`)
+  /// can resolve the chip's screen-space center as the target offset.
+  /// Null while the chip is mounted-but-invisible (count == 0); the
+  /// flight-trigger path tolerates a missing chip and falls back to
+  /// "fly into the top-right corner" so a long-swipe Copy still has
+  /// satisfying motion before the chip materialises.
+  final GlobalKey _clipboardChipKey = GlobalKey();
+
+  /// Counter bumped on every successful Copy so [ClipboardChip] can
+  /// run a brief pulse on landing. Passed through the chip's
+  /// `pulseTrigger` to drive its `didUpdateWidget` discriminator.
+  int _clipboardPulseCounter = 0;
+
+  /// `groupTag` shared by every `Slidable` row in this Studio session.
+  /// `SlidableAutoCloseBehavior` (wrapped around the list builder)
+  /// keeps only ONE row's action pane open at a time — matches the
+  /// Apple Mail multi-action swipe (D4 in
+  /// `docs/specs/2026-05-25-exercise-clipboard.md`).
+  static const String _studioSlidableGroup = 'studio-exercise-cards';
 
   /// Data index of the currently-expanded card, or null when collapsed.
   int? _expandedIndex;
@@ -626,6 +654,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _removalSub =
         _conversionService.onExerciseRemoved.listen((removal) {
       if (!mounted) return;
+      // Exercise Clipboard E1 — reactive pruning. Notify the
+      // singleton clipboard service so any items pointing at this
+      // row evaporate from the chip + paste sheet immediately. Safe
+      // to call even when the clipboard has no matching item (no-op).
+      ClipboardService.instance.notifySourceDeleted(removal.exerciseId);
       final current = _session.exercises;
       final idx = current.indexWhere((e) => e.id == removal.exerciseId);
       if (idx < 0) return;
@@ -1121,6 +1154,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
     try {
       await widget.storage.deleteExercise(removed.id);
+      // Exercise Clipboard E1 — reactive pruning. The Safe Mode
+      // rejection path goes through `onExerciseRemoved` and already
+      // notifies; the manual swipe-delete + peek-delete paths land
+      // here and need their own notification so the chip + paste
+      // sheet drop the dead row in the same paint as the SQLite
+      // delete.
+      ClipboardService.instance.notifySourceDeleted(removed.id);
     } catch (e, st) {
       debugPrint('deleteExercise failed: $e\n$st');
       if (!mounted) return;
@@ -1164,95 +1204,25 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final original = _session.exercises[index];
     if (original.isRest) return; // rest periods skip duplication
 
-    final newId = const Uuid().v4();
-
-    // Deep-copy files. Each helper resolves the original's relative path,
-    // copies to a new path with the new exercise ID, and returns the
-    // relative path for storage. Skips gracefully if the source doesn't
-    // exist.
-    String? newRawFilePath;
-    String? newConvertedFilePath;
-    String? newThumbnailPath;
-    String? newArchiveFilePath;
-    String? newSegmentedRawFilePath;
-    String? newMaskFilePath;
-
-    try {
-      newRawFilePath = await _copyExerciseFile(
-        original.rawFilePath,
-        original.id,
-        newId,
-      );
-      newConvertedFilePath = await _copyExerciseFile(
-        original.convertedFilePath,
-        original.id,
-        newId,
-      );
-      newThumbnailPath = await _copyExerciseFile(
-        original.thumbnailPath,
-        original.id,
-        newId,
-      );
-      // Also copy color + line thumbnail variants if they exist.
-      await _copyThumbnailVariant(original.id, newId, '_thumb_color.jpg');
-      await _copyThumbnailVariant(original.id, newId, '_thumb_line.jpg');
-
-      newArchiveFilePath = await _copyExerciseFile(
-        original.archiveFilePath,
-        original.id,
-        newId,
-      );
-      newSegmentedRawFilePath = await _copyExerciseFile(
-        original.segmentedRawFilePath,
-        original.id,
-        newId,
-      );
-      newMaskFilePath = await _copyExerciseFile(
-        original.maskFilePath,
-        original.id,
-        newId,
-      );
-    } catch (e) {
-      debugPrint('duplicateExercise file copy failed: $e');
-      // Continue with whatever we managed to copy.
-    }
-
-    // Build the duplicate exercise with a fresh UUID and position + 1.
-    // Per-set PLAN wave: deep-copy each set with a fresh uuid so the
-    // duplicate's child rows don't collide with the originals on the
-    // UNIQUE (exercise_id, position) index.
-    final duplicateSets = original.sets
-        .map((s) => s.copyWith(id: const Uuid().v4()))
-        .toList(growable: false);
-    final duplicate = ExerciseCapture(
-      id: newId,
-      position: original.position + 1,
-      rawFilePath: newRawFilePath ?? original.rawFilePath,
-      convertedFilePath: newConvertedFilePath,
-      thumbnailPath: newThumbnailPath,
-      mediaType: original.mediaType,
-      conversionStatus: original.conversionStatus,
-      sets: duplicateSets,
-      restHoldSeconds: original.restHoldSeconds,
-      notes: original.notes,
-      name: original.name,
-      createdAt: DateTime.now(),
-      sessionId: original.sessionId,
-      circuitId: original.circuitId,
-      includeAudio: original.includeAudio,
-      prepSeconds: original.prepSeconds,
-      videoDurationMs: original.videoDurationMs,
-      archiveFilePath: newArchiveFilePath,
-      archivedAt: original.archivedAt,
-      segmentedRawFilePath: newSegmentedRawFilePath,
-      maskFilePath: newMaskFilePath,
-      preferredTreatment: original.preferredTreatment,
-      startOffsetMs: original.startOffsetMs,
-      endOffsetMs: original.endOffsetMs,
-      videoRepsPerLoop: original.videoRepsPerLoop,
-      aspectRatio: original.aspectRatio,
-      rotationQuarters: original.rotationQuarters,
+    // Exercise Clipboard wave (2026-05-25) — duplicate-in-session
+    // and cross-session paste both run through the shared
+    // `cloneExerciseInto` helper now. Position override = `index + 1`
+    // splices the clone immediately below the source instead of
+    // appending (matches the pre-existing duplicate UX). Circuit
+    // membership is intentionally stripped on cross-session paste
+    // and ALSO stripped on in-session duplicate (clone-into is a
+    // new row; circuit membership is rebuilt via the linking
+    // gesture). For in-session duplicate today the spec keeps the
+    // original's circuit membership; we restore it via copyWith
+    // after the clone returns.
+    final cloned = await cloneExerciseInto(
+      source: original,
+      targetSession: _session,
+      positionOverride: index + 1,
     );
+    final duplicate = original.circuitId != null
+        ? cloned.copyWith(circuitId: original.circuitId)
+        : cloned;
 
     // Insert at index + 1 and shift all subsequent positions.
     final exercises = List<ExerciseCapture>.from(_session.exercises);
@@ -1306,46 +1276,209 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
-  /// Copy a single exercise file, replacing [oldId] with [newId] in the
-  /// filename. Returns the new relative path, or null if the source is
-  /// null or doesn't exist.
-  Future<String?> _copyExerciseFile(
-    String? relativePath,
-    String oldId,
-    String newId,
-  ) async {
-    if (relativePath == null || relativePath.isEmpty) return null;
-    final absSource = PathResolver.resolve(relativePath);
-    final sourceFile = File(absSource);
-    if (!sourceFile.existsSync()) return null;
+  // The deep-copy helpers `_copyExerciseFile` + `_copyThumbnailVariant`
+  // moved to `app/lib/services/exercise_clone.dart` (2026-05-25
+  // Exercise Clipboard wave) so duplicate-in-session and cross-session
+  // paste share one implementation. Both run through
+  // `cloneExerciseInto(...)`.
 
-    // Replace the old exercise ID in the filename with the new one.
-    final newRelative = relativePath.replaceAll(oldId, newId);
-    final absDest = PathResolver.resolve(newRelative);
+  // ---------------------------------------------------------------------------
+  // Exercise Clipboard (2026-05-25)
+  // ---------------------------------------------------------------------------
 
-    // Ensure the destination directory exists.
-    final destDir = Directory(p.dirname(absDest));
-    if (!destDir.existsSync()) {
-      destDir.createSync(recursive: true);
+  /// Copy the exercise at [dataIndex] into the in-memory clipboard
+  /// (`docs/specs/2026-05-25-exercise-clipboard.md`, D6).
+  ///
+  /// Source for both the partial-swipe `[Copy]` button and the
+  /// long-right-swipe auto-commit. Rest periods are silently ignored —
+  /// the Slidable startActionPane is suppressed on rest rows above
+  /// (D4) but the guard here is defensive.
+  ///
+  /// Side effects: bumps the chip pulse counter; emits a light haptic;
+  /// launches the coral flight-arc overlay from the card's centre to
+  /// the chip anchor.
+  Future<void> _copyExerciseToClipboard(
+    int dataIndex, {
+    required String fromContext,
+  }) async {
+    final source = _session.exercises[dataIndex];
+    if (source.isRest) return;
+
+    // Compute source point — centre of the card's RenderBox in global
+    // coords. Best-effort: fall back to a sensible default if we
+    // can't resolve the key (e.g. card just rebuilt).
+    Offset? sourceCenter;
+    final rowKey = _rowKeys[source.id];
+    final rowCtx = rowKey?.currentContext;
+    if (rowCtx != null) {
+      final box = rowCtx.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        sourceCenter = box.localToGlobal(
+          box.size.center(Offset.zero),
+        );
+      }
     }
 
-    await sourceFile.copy(absDest);
-    return newRelative;
+    // Compute target point — centre of the chip if it's mounted, else
+    // the screen's top-right corner so the first-ever Copy still has
+    // a satisfying arc destination.
+    final targetCenter = _resolveClipboardChipCenter(context);
+
+    // Pre-fire the haptic so it lands while the arc is in flight.
+    unawaited(HomefitHaptics.light());
+
+    final added =
+        ClipboardService.instance.addItem(source, _session);
+    if (mounted) {
+      setState(() {
+        _clipboardPulseCounter++;
+      });
+    }
+    debugPrint(
+      'clipboard.add via=$fromContext source=${source.id} added=${added != null}',
+    );
+
+    if (sourceCenter != null && mounted) {
+      // Don't await — the flight is decorative; the clipboard mutation
+      // already landed above.
+      unawaited(playClipboardFlight(
+        context,
+        from: sourceCenter,
+        to: targetCenter,
+      ));
+    }
   }
 
-  /// Copy a thumbnail variant (e.g. `_thumb_color.jpg`) if it exists.
-  /// These variants live next to the primary thumbnail but use a different
-  /// suffix.
-  Future<void> _copyThumbnailVariant(
-    String oldId,
-    String newId,
-    String suffix,
-  ) async {
-    final thumbDir = p.join(PathResolver.docsDir, 'thumbnails');
-    final sourceFile = File(p.join(thumbDir, '$oldId$suffix'));
-    if (!sourceFile.existsSync()) return;
-    final destPath = p.join(thumbDir, '$newId$suffix');
-    await sourceFile.copy(destPath);
+  /// Resolve the on-screen centre of the [ClipboardChip] mounted in
+  /// the AppBar. Falls back to a point near the top-right corner of
+  /// the screen when the chip is empty (and therefore has zero size)
+  /// or its RenderBox isn't yet available.
+  Offset _resolveClipboardChipCenter(BuildContext ctx) {
+    final chipCtx = _clipboardChipKey.currentContext;
+    if (chipCtx != null) {
+      final box = chipCtx.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize && box.size.width > 0) {
+        return box.localToGlobal(box.size.center(Offset.zero));
+      }
+    }
+    // Fallback — pin to the top-right corner just below the status bar.
+    final mq = MediaQuery.of(ctx);
+    return Offset(
+      mq.size.width - 36,
+      mq.viewPadding.top + 28,
+    );
+  }
+
+  /// Wired to the chip's `×`. Clears the clipboard. No undo at v1 —
+  /// the clipboard is transient by design (D3); the cost of a
+  /// mis-tap is "copy again", not "lose data".
+  void _clearClipboard() {
+    unawaited(HomefitHaptics.selection());
+    ClipboardService.instance.clearAll();
+  }
+
+  /// Wired to the chip's body. Opens the paste bottom sheet (D7) and
+  /// runs the integrated unlock-then-paste flow on confirmation (E2)
+  /// when the current session is past its 14-day structural-edit grace.
+  Future<void> _openPasteSheet() async {
+    if (ClipboardService.instance.count == 0) return;
+    final result = await showPasteBottomSheet(
+      context,
+      isTargetLocked: _isPlanLocked,
+    );
+    if (!mounted || result.isCancelled) return;
+
+    if (result.wantsUnlock) {
+      // Locked-target branch — run the existing unlock sheet first.
+      await _openUnlockSheet();
+      if (!mounted) return;
+      // If the unlock didn't land (insufficient credits, cancel), the
+      // plan is still locked. Bail without pasting; the practitioner
+      // can re-open the chip later.
+      if (_isPlanLocked) return;
+    }
+    await _pasteFromClipboard(result.selectedItemIds);
+  }
+
+  /// Run the actual deep-copy + persist for each selected clipboard
+  /// item, in the order the paste sheet committed them (FIFO, oldest
+  /// first per D7). Appends at the end of the current session.
+  Future<void> _pasteFromClipboard(List<String> itemIds) async {
+    if (itemIds.isEmpty) return;
+    final created = <ExerciseCapture>[];
+    final missing = <String>[];
+    for (final itemId in itemIds) {
+      final item = ClipboardService.instance.itemById(itemId);
+      if (item == null) {
+        missing.add(itemId);
+        continue;
+      }
+      // Resolve the live source row by id. If it's gone (the source
+      // session got deleted between paste-sheet-open and paste-commit),
+      // skip with a debug log. The clipboard's reactive pruning should
+      // have caught this already, but we double-check here.
+      ExerciseCapture? source;
+      try {
+        source = await widget.storage.getExerciseById(item.sourceExerciseId);
+      } catch (e) {
+        debugPrint('clipboard.paste lookup failed for ${item.sourceExerciseId}: $e');
+        missing.add(itemId);
+        continue;
+      }
+      if (source == null) {
+        ClipboardService.instance.notifySourceDeleted(item.sourceExerciseId);
+        missing.add(itemId);
+        continue;
+      }
+      final clone = await cloneExerciseInto(
+        source: source,
+        targetSession: _session,
+        positionOverride: _session.exercises.length + created.length,
+      );
+      created.add(clone);
+    }
+    if (created.isEmpty) return;
+
+    final exercises = List<ExerciseCapture>.from(_session.exercises)
+      ..addAll(created);
+    setState(() {
+      _touchAndPush(_session.copyWith(exercises: exercises));
+    });
+
+    // Persist each new exercise. Errors are non-fatal per row —
+    // log + continue. Matches the duplicate-in-session resilience
+    // model.
+    for (final ex in created) {
+      try {
+        await widget.storage.saveExercise(ex);
+      } catch (e, st) {
+        debugPrint('clipboard.paste saveExercise failed: $e\n$st');
+      }
+    }
+    _saveExerciseOrder();
+    if (!mounted) return;
+    final label = created.length == 1
+        ? 'Pasted 1 item'
+        : 'Pasted ${created.length} items';
+    showUndoSnackBar(
+      context,
+      label: '$label · Undo',
+      onUndo: () async {
+        for (final ex in created) {
+          try {
+            await widget.storage.deleteExercise(ex.id);
+          } catch (e) {
+            debugPrint('clipboard.paste undo deleteExercise failed: $e');
+          }
+        }
+        await _refreshSession();
+      },
+    );
+    if (missing.isNotEmpty) {
+      debugPrint(
+        'clipboard.paste skipped ${missing.length} item(s) — pruned by reactive cleanup',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1846,6 +1979,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               ),
             ),
       actions: [
+        // Exercise Clipboard chip — visible only when count >= 1
+        // (D5 in `docs/specs/2026-05-25-exercise-clipboard.md`).
+        // Lives BEFORE the settings cog so the chip sits closest to
+        // the AppBar's centre (matches the mockup layout). Tap the
+        // chip body to open the paste sheet; tap `×` to clear all.
+        ClipboardChip(
+          key: _clipboardChipKey,
+          pulseTrigger: _clipboardPulseCounter,
+          onTap: _openPasteSheet,
+          onClearAll: _clearClipboard,
+        ),
         _StudioAppBarSettingsButton(
           onTap: _openPlanSettings,
           showDot: settingsDeviateFromDefaults(_session),
@@ -2079,7 +2223,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         // children reliably. Swapped in after two sliver-based attempts
         // produced viewport-height rows on device. reverse:true keeps the
         // bottom-anchored feel (newest at the bottom).
-        child: ReorderableListView.builder(
+        //
+        // SlidableAutoCloseBehavior coordinates the new
+        // `flutter_slidable` rows so opening one row's action pane
+        // collapses any other open pane in the same group. Required
+        // by D4 of the Exercise Clipboard spec.
+        child: SlidableAutoCloseBehavior(
+          child: ReorderableListView.builder(
           // Wave 39 (Item 5) — owned by `_StudioModeScreenState` so the
           // reachability drop-pill can listen for upward scrolls and
           // gate its visibility on `maxScrollExtent > 0`.
@@ -2098,6 +2248,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               child: _buildRowWithContext(dataIndex, visualIndex),
             );
           },
+          ),
         ),
       ),
     );
@@ -2236,61 +2387,126 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               )
             : null,
       );
-      cardContent = Dismissible(
+      // Exercise Clipboard wave (2026-05-25, D4): swap `Dismissible`
+      // for `flutter_slidable`'s `Slidable` so right-swipe can reveal
+      // TWO actions `[Copy] [Duplicate]` while preserving the
+      // existing single-action delete on left-swipe. A long right-
+      // swipe (`DismissiblePane` past the extent) auto-commits Copy —
+      // the dominant action — so the dominant gesture matches the
+      // dominant intent. Tap-outside collapses the reveal via the
+      // surrounding `SlidableAutoCloseBehavior`. See
+      // `docs/specs/2026-05-25-exercise-clipboard.md`.
+      cardContent = Slidable(
         key: ValueKey('swipe_${exercise.id}'),
-        direction: DismissDirection.horizontal,
-        // Left-to-right swipe background: duplicate.
-        background: Container(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.only(left: 20),
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.85),
-            borderRadius: BorderRadius.circular(14),
+        groupTag: _studioSlidableGroup,
+        // Right-swipe (start → end) reveals `[Copy] [Duplicate]`.
+        startActionPane: ActionPane(
+          motion: const BehindMotion(),
+          // ~37% of the card extent gives room for two coral capsule
+          // buttons (D4: partial swipe = tap to choose). The long-
+          // swipe dismiss is wired separately via `DismissiblePane`.
+          extentRatio: 0.42,
+          dismissible: DismissiblePane(
+            onDismissed: () {
+              // Long right-swipe auto-commits the dominant action:
+              // Copy (D4). Snap the row back into place after the
+              // copy lands — `Slidable` doesn't have a built-in
+              // "snap back after dismiss"; the easiest way is to
+              // route through the same path as the tap.
+              unawaited(_copyExerciseToClipboard(
+                dataIndex,
+                fromContext: 'long-swipe',
+              ));
+            },
+            // Use a coral background while the long-swipe overshoot
+            // is in flight — matches the partial-swipe reveal's
+            // dominant Copy colour.
+            dismissThreshold: 0.7,
+            confirmDismiss: () async => true,
+            closeOnCancel: true,
           ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.copy_outlined, color: Colors.white, size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Duplicate',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
+          children: [
+            CustomSlidableAction(
+              onPressed: (_) {
+                Slidable.of(context)?.close();
+                unawaited(_copyExerciseToClipboard(
+                  dataIndex,
+                  fromContext: 'partial-swipe',
+                ));
+              },
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.zero,
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.content_paste, size: 20),
+                  SizedBox(height: 4),
+                  Text(
+                    'Copy',
+                    style: TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            CustomSlidableAction(
+              onPressed: (_) {
+                Slidable.of(context)?.close();
+                unawaited(_duplicateExercise(dataIndex));
+              },
+              backgroundColor:
+                  AppColors.primary.withValues(alpha: 0.55),
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.zero,
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.copy_outlined, size: 20),
+                  SizedBox(height: 4),
+                  Text(
+                    'Duplicate',
+                    style: TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        // Right-to-left swipe background: delete.
-        secondaryBackground: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.85),
-            borderRadius: BorderRadius.circular(14),
+        // Left-swipe (end → start) still dismisses → delete. Single
+        // action keeps the existing R-01 undo-snackbar contract.
+        endActionPane: ActionPane(
+          motion: const BehindMotion(),
+          extentRatio: 0.25,
+          dismissible: DismissiblePane(
+            onDismissed: () => _deleteExercise(dataIndex),
+            confirmDismiss: () async => true,
           ),
-          child: const Icon(
-            Icons.delete_outline,
-            color: Colors.white,
-            size: 24,
-          ),
+          children: [
+            CustomSlidableAction(
+              onPressed: (_) {
+                Slidable.of(context)?.close();
+                _deleteExercise(dataIndex);
+              },
+              backgroundColor:
+                  AppColors.primary.withValues(alpha: 0.85),
+              foregroundColor: Colors.white,
+              child: const Icon(
+                Icons.delete_outline,
+                size: 24,
+              ),
+            ),
+          ],
         ),
-        confirmDismiss: (direction) async {
-          if (direction == DismissDirection.startToEnd) {
-            // Right-swipe → duplicate, then return false to keep
-            // the card in place.
-            unawaited(_duplicateExercise(dataIndex));
-            return false;
-          }
-          // Left-swipe → delete (dismiss the card).
-          return true;
-        },
-        onDismissed: (_) => _deleteExercise(dataIndex),
         child: cardBody,
       );
     }

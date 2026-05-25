@@ -101,6 +101,17 @@ dependencies:
   # handles the Share path; no separate gallery-saver needed.
   photo_manager: ^3.6.0
 
+  # Exercise Clipboard (2026-05-25) — Apple Mail-style multi-action
+  # swipe reveal on Studio cards. Flutter's built-in `Dismissible`
+  # only supports a single action per swipe direction; `flutter_slidable`
+  # is the standard package for partial-swipe panels with multiple
+  # action buttons. Used to expose `[Copy] [Duplicate]` on right-swipe
+  # while preserving the existing single-action delete on left-swipe.
+  # Scope at v1: Studio card list only. Other Dismissible callsites
+  # (rest rows, ClientSessions, My Workouts) stay on Dismissible to
+  # keep the surface area of this PR focused.
+  flutter_slidable: ^3.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
