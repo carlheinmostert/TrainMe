@@ -155,6 +155,19 @@ export type ClientVideoConsent = {
    *     zero the embedding column atomically on toggle-off.
    */
   safe_mode_face_recognition: boolean;
+  /**
+   * Plan-analytics opt-in (Wave 17 — `analytics_allowed` jsonb key).
+   * Practitioner-toggled on the mobile consent sheet; the web portal
+   * doesn't surface a toggle today (analytics consent flows are mobile-
+   * primary). M9 (2026-05-25 mobile stack) added READ-side surfacing
+   * so the granted-count chip on `/clients/[id]` can reach the same
+   * ceiling as mobile (6 = line_drawing + grayscale + original +
+   * avatar + safe_mode_face_recognition + analytics). Default true on
+   * fresh rows server-side; client jsonb may omit the key on legacy
+   * rows so `normaliseConsent` treats absence as `true` for parity
+   * with the mobile model (`analyticsAllowed: consentMap['analytics_allowed'] != false`).
+   */
+  analytics_allowed: boolean;
 };
 
 /**
@@ -2331,6 +2344,14 @@ function normaliseConsent(raw: unknown): ClientVideoConsent {
       // when the key is missing on legacy rows. R-10 parity with the
       // mobile sheet's Profile group.
       safe_mode_face_recognition: Boolean(obj.safe_mode_face_recognition),
+      // M9 (2026-05-25 mobile stack) — surface the Wave-17 analytics
+      // slot READ-side so the granted-count chip can reach 6/6 in
+      // parity with mobile. Default true when the key is missing
+      // (matches the mobile model's `analyticsAllowed:
+      // consentMap['analytics_allowed'] != false` rule — legacy rows
+      // without the key default to "allowed"). No portal toggle yet;
+      // analytics consent is mobile-primary.
+      analytics_allowed: obj.analytics_allowed !== false,
     };
   }
   return {
@@ -2339,6 +2360,9 @@ function normaliseConsent(raw: unknown): ClientVideoConsent {
     original: false,
     avatar: false,
     safe_mode_face_recognition: false,
+    // Default true for fresh / unknown shapes — matches the server-
+    // side default + the mobile model's permissive-on-missing rule.
+    analytics_allowed: true,
   };
 }
 

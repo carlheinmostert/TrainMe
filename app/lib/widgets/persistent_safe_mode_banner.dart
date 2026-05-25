@@ -154,6 +154,23 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
         // window completes). Without this, the banner would just
         // pop-disappear, hiding the fact that the privacy promise
         // ended.
+        // M10 (2026-05-25 mobile stack) — when the practitioner is
+        // inside an enforcing premises (auto-mode) WITHOUT an active
+        // Safe Mode subscription, the compact `SafeModeSubscribeChip`
+        // mounted in Home handles the CTA. The full banner here would
+        // double up (and worse, the banner's prior shape truncated to
+        // "SA…" / "Man…" on iPhone 16e). Hide the banner in that case
+        // — manual-mode and subscribed-in-zone keep the existing
+        // banner since the messaging is different ("SAFE MODE ACTIVE,
+        // bystanders obscured" rather than "Subscribe to capture here").
+        bool? hasAccess;
+        try {
+          hasAccess = SafeModeSubscriptionService.instance.hasAccess;
+        } catch (_) {
+          hasAccess = null;
+        }
+        final showBanner = svc.isActive &&
+            !(!svc.isManual && hasAccess == false);
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 500),
           switchInCurve: Curves.easeOut,
@@ -168,7 +185,7 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
               ),
             );
           },
-          child: svc.isActive
+          child: showBanner
               ? _buildBanner(context, svc)
               : const SizedBox.shrink(key: ValueKey('safe-mode-banner-empty')),
         );

@@ -170,6 +170,11 @@ export function ClientDetailPanel({
           original,
           avatar,
           safe_mode_face_recognition: safeModeFaceRecognition,
+          // M9 (2026-05-25 mobile stack) — `analytics_allowed` is now
+          // required on `ClientVideoConsent` for the granted-count.
+          // The portal doesn't surface an analytics toggle, so pass
+          // through the initial value unchanged on save.
+          analytics_allowed: initialConsent.analytics_allowed,
         });
         setToast({ text: 'Saved.', tone: 'info' });
       } catch (e) {
@@ -183,17 +188,22 @@ export function ClientDetailPanel({
   // Wave 40.3 — granted-count for the collapsed-state header chip.
   // line_drawing is locked-on so it always counts; we surface
   // "{granted}/{total}" so the practitioner sees the headline without
-  // having to expand the panel. Total = 5 (line_drawing + grayscale +
-  // original + avatar + safe_mode_face_recognition since 2026-05-25).
-  // Reads from the LIVE state so dragging a toggle before saving
-  // updates the chip immediately — tighter feedback loop.
-  const totalToggles = 5;
+  // having to expand the panel. Reads from the LIVE state for
+  // grayscale/original/avatar/safe-mode-face-recognition (all four are
+  // portal-controlled toggles); analytics is read-only here per M9
+  // (the analytics toggle is mobile-primary).
+  //
+  // M9 (2026-05-25 mobile stack) — denominator bumped 5 → 6 with the
+  // addition of `analytics_allowed`. R-10 parity with mobile's
+  // `_consentGrantedCount(client)` which counts the same 6 slots.
+  const totalToggles = 6;
   const grantedToggles =
     1 + // line_drawing always
     (grayscale ? 1 : 0) +
     (original ? 1 : 0) +
     (avatar ? 1 : 0) +
-    (safeModeFaceRecognition ? 1 : 0);
+    (safeModeFaceRecognition ? 1 : 0) +
+    (initialConsent.analytics_allowed ? 1 : 0);
 
   return (
     <section aria-labelledby="client-heading">

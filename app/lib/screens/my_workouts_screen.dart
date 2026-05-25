@@ -260,10 +260,13 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
+                // M2 (2026-05-25 mobile stack) — copy revised. Line-drawing
+                // emphasis retired now that the player runs three treatments
+                // (line / B&W / colour); the empty state speaks to the
+                // self-trainer twin-purpose story instead.
                 const Text(
-                  'Tap New Session below to capture yourself moving — '
-                  'every clip becomes a line drawing you can play back '
-                  'anywhere.',
+                  'Tap New Session to record a workout. Use it as your '
+                  'own follow-along, or share it with the people you train.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontFamily: 'Inter',

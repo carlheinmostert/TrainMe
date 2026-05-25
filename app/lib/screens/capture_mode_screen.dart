@@ -23,6 +23,7 @@ import '../services/local_storage_service.dart';
 import '../services/original_video_service.dart';
 import '../services/path_resolver.dart';
 import '../services/safe_mode.dart';
+import '../services/safe_mode_debug_hud_preference.dart';
 import '../services/safe_mode_service.dart';
 import '../services/safe_mode_subscription_service.dart';
 import '../services/sticky_defaults.dart';
@@ -240,10 +241,21 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   _LocationGateStatus _locationGateStatus = _LocationGateStatus.pending;
   bool _retryingLocationGate = false;
 
+  /// M3 (2026-05-25 mobile stack) — Safe Mode debug HUD render gate.
+  /// Resolves from [SafeModeDebugHudPreference] in [initState]. Default
+  /// false so the practitioner-facing camera surface stays clean of
+  /// diagnostic chrome; flipping the Settings → Debug toggle on writes
+  /// the SharedPreferences key + bumps this flag via a per-resume
+  /// reload (the HUD is not load-bearing for capture, so we don't
+  /// listen for live changes — flip the toggle then re-open the
+  /// camera).
+  bool _safeModeDebugHudEnabled = SafeModeDebugHudPreference.defaultValue;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_loadSafeModeDebugHudPref());
     _captureCount = widget.session.exercises.length;
     // Seed _lastCapture with the most recent existing capture so the
     // peek box isn't empty on first open of an in-progress session.
@@ -286,6 +298,21 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   void _onFaceEmbeddingChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// M3 — best-effort read of the Safe Mode debug HUD pref. Silent
+  /// failure leaves the flag at its OFF default; this is a diagnostic
+  /// affordance, not a load-bearing surface.
+  Future<void> _loadSafeModeDebugHudPref() async {
+    try {
+      final enabled = await SafeModeDebugHudPreference.isEnabled();
+      if (!mounted) return;
+      if (_safeModeDebugHudEnabled != enabled) {
+        setState(() => _safeModeDebugHudEnabled = enabled);
+      }
+    } catch (_) {
+      // Best-effort; HUD stays hidden if the read fails.
+    }
   }
 
   @override
@@ -409,6 +436,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // viewfinder up. _evaluateLocationGate calls _initCamera once
       // the gate clears so we don't double-init.
       unawaited(_evaluateLocationGate());
+      // M3 — re-read the Safe Mode debug HUD pref so the toggle flip
+      // in Settings → Debug picks up without a full app restart.
+      unawaited(_loadSafeModeDebugHudPref());
       // Re-initialise if the controller was torn down (or never came up
       // cleanly). _initCamera() has its own guard against double-init.
       // Only runs when the gate is already clear; otherwise the gate
@@ -579,37 +609,53 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     );
     if (_activeCameraIndex < 0) _activeCameraIndex = 0;
 
-    // Wave 40.5 (M4) — identify back-wide vs back-ultrawide for 0.5x
-    // lens switching. On iPhones with dual/triple rear cameras,
-    // `availableCameras()` returns separate CameraDescription entries
-    // for each physical lens. The ultrawide typically has the lowest
-    // sensorOrientation or is listed after the main wide. We identify
-    // it by checking for "ultra" in the name (iOS reports
-    // "Back Ultra Wide Camera") or by picking the second back camera.
+    // M4 (2026-05-25 mobile stack) — identify back-wide vs back-
+    // ultrawide for the 0.5× lens switch. The prior wiring tried to
+    // match `name.contains('ultra')` which NEVER fires on iOS: the
+    // `camera_avfoundation` plugin reports `name = device.uniqueID`
+    // (e.g. "com.apple.avfoundation.avcapturedevice.built-in_video:0"),
+    // NOT a human-readable label. That dropped detection to the
+    // second-back-camera fallback, which on a triple-camera iPhone
+    // (Wide + UltraWide + Telephoto) frequently picked the telephoto
+    // entry — tapping 0.5× then swapped to telephoto and zoomed IN
+    // instead of OUT. (Symptom Carl reported on 2026-05-25.)
+    //
+    // Fix: use the `lensType` field exposed by
+    // `camera_platform_interface` 2.13+ (camera 0.11.4+) which
+    // bubbles the AVFoundation `deviceType` through as a typed enum.
+    // Match on `CameraLensType.ultraWide` exactly; no fallback to
+    // "second back camera" — false positives there are exactly what
+    // produced the zoom-in regression. On a wide-only device the
+    // ultrawide remains null and the 0.5× pill stays hidden (see
+    // `_buildLensListForRange`).
     final backCameras = _cameras
         .where((c) => c.lensDirection == CameraLensDirection.back)
         .toList();
     _backWideCamera = null;
     _backUltrawideCamera = null;
     _isOnUltrawide = false;
-    if (backCameras.length >= 2) {
-      // iOS names: "Back Camera", "Back Ultra Wide Camera",
-      // "Back Telephoto Camera". Match on "ultra" (case-insensitive).
-      for (final cam in backCameras) {
-        final name = cam.name.toLowerCase();
-        if (name.contains('ultra')) {
-          _backUltrawideCamera = cam;
-        } else {
+    for (final cam in backCameras) {
+      switch (cam.lensType) {
+        case CameraLensType.ultraWide:
+          _backUltrawideCamera ??= cam;
+          break;
+        case CameraLensType.wide:
           _backWideCamera ??= cam;
-        }
-      }
-      // Fallback: if no "ultra" name found, treat the second back camera
-      // as ultrawide (some older iOS versions don't label them).
-      if (_backUltrawideCamera == null && backCameras.length >= 2) {
-        _backWideCamera = backCameras[0];
-        _backUltrawideCamera = backCameras[1];
+          break;
+        case CameraLensType.telephoto:
+        case CameraLensType.unknown:
+          // Deliberately ignored — telephoto must never become the
+          // 0.5× target; unknown lenses can't be trusted to be
+          // ultrawide.
+          break;
       }
     }
+    // Wide camera is the default back lens. If the device only reports
+    // an `unknown` lens type (older plugin builds, simulators) fall
+    // back to the first back camera so single-lens devices still
+    // initialise; the ultrawide path stays null so the 0.5× pill
+    // doesn't render a no-op affordance.
+    _backWideCamera ??= backCameras.isNotEmpty ? backCameras.first : null;
 
     await _attachController(_cameras[_activeCameraIndex]);
   }
@@ -1793,40 +1839,36 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
             // Safe Mode debug HUD (added 2026-05-22 to chase "Banner B
             // not rendering on iPhone despite being inside the polygon").
-            // ALWAYS renders — that's the point: if the banner is invisible
-            // because the service is `notInZone`, this HUD shows the exact
-            // state + GPS + match data so we can tell whether GPS missed,
-            // the polygon's `enforced` flag is off, or the RPC simply
-            // didn't return a row.
-            //
-            // Outside the existing SafeArea Column so the HUD survives any
-            // layout collapse on the banner side. Lives in the Stack at
-            // top-right under the iOS status bar.
-            //
-            // Follow-up: gate behind `kDebugMode` or rip it out once the
-            // root cause is fixed. Tracked in the PR body.
-            Positioned(
-              top: 0,
-              right: 0,
-              child: SafeArea(
-                bottom: false,
-                left: false,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8, right: 8),
-                  child: IgnorePointer(
-                    child: ListenableBuilder(
-                      listenable: SafeModeService.instance,
-                      builder: (context, _) {
-                        return _SafeModeDebugHud(
-                          svc: SafeModeService.instance,
-                          locationGate: _locationGateStatus,
-                        );
-                      },
+            // ALWAYS rendered until M3 (2026-05-25 mobile stack) — now
+            // gated behind [SafeModeDebugHudPreference], default OFF.
+            // The Settings → Debug toggle flips this on per-device when
+            // someone needs the GPS / match data visible in the field
+            // (typically Carl + sub-agents chasing a Safe Mode regression).
+            // When OFF the practitioner-facing camera surface stays clean
+            // of diagnostic chrome.
+            if (_safeModeDebugHudEnabled)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  left: false,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8, right: 8),
+                    child: IgnorePointer(
+                      child: ListenableBuilder(
+                        listenable: SafeModeService.instance,
+                        builder: (context, _) {
+                          return _SafeModeDebugHud(
+                            svc: SafeModeService.instance,
+                            locationGate: _locationGateStatus,
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),

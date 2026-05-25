@@ -116,18 +116,29 @@ class StudioBottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasExercises = session.exercises.isNotEmpty;
 
-    return SafeArea(
-      top: false,
-      bottom: true,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surfaceBg,
-          border: Border(
-            top: BorderSide(color: AppColors.surfaceBorder, width: 1),
-          ),
+    // M11 (2026-05-25 mobile stack) — vertical balance fix. Prior
+    // wiring used `SafeArea(bottom: true)` which inserted the device's
+    // full bottom view-padding (~34 pt on iPhone 16e for the home
+    // indicator) below the workflow pill. The gap above the pill is
+    // only 6 pt (set in `_buildToolbar`'s outer padding); the visible
+    // asymmetry (Carl: "too much black space below the toolbar")
+    // followed directly from a ~28 pt mismatch.
+    //
+    // Fix: drop SafeArea(bottom) and add an explicit 8 pt clearance so
+    // the toolbar sits just above the home-indicator strip with the
+    // same ~6-8 pt breathing room above and below. Apple's HIG calls
+    // for at least 4 pt clearance from the home indicator; 8 pt sits
+    // comfortably above that threshold without wasting screen real
+    // estate on the SafeArea's full device-reported inset.
+    return Container(
+      padding: const EdgeInsets.only(bottom: 8),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceBg,
+        border: Border(
+          top: BorderSide(color: AppColors.surfaceBorder, width: 1),
         ),
-        child: _buildToolbar(hasExercises),
       ),
+      child: _buildToolbar(hasExercises),
     );
   }
 
