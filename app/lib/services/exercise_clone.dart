@@ -193,6 +193,11 @@ Future<ExerciseCapture> cloneExerciseInto({
     capturedInPremisesId: source.capturedInPremisesId,
     safeRawFilePath: newSafeRawFilePath,
     safeModeAlgorithmVersion: source.safeModeAlgorithmVersion,
+    // Carry — self-verification is a true statement about the footage
+    // (per spec D8). Harmless when the target client isn't the user;
+    // publish-credit logic only checks this when target session's Client
+    // is the User themselves.
+    selfVerified: source.selfVerified,
   );
 }
 

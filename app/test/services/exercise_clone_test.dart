@@ -144,6 +144,7 @@ Future<ExerciseCapture> _seedSourceExercise({
     capturedInPremisesId: 'premises-abc', // carry
     safeRawFilePath: safeRel,
     safeModeAlgorithmVersion: 2, // carry
+    selfVerified: true, // carry — D8: true statement about the footage
   );
 }
 
@@ -201,6 +202,11 @@ void main() {
       expect(clone.safeModeActive, src.safeModeActive);
       expect(clone.capturedInPremisesId, src.capturedInPremisesId);
       expect(clone.safeModeAlgorithmVersion, src.safeModeAlgorithmVersion);
+
+      // Self-verification (D8): true statement about the footage.
+      // Harmless when target client isn't the user; publish-credit logic
+      // only checks this when target session's Client is the User.
+      expect(clone.selfVerified, src.selfVerified);
 
       // archivedAt: timestamp of the source's archive — carries
       // because it describes the footage, not the row.
