@@ -2025,6 +2025,43 @@ class ApiClient {
     return null;
   }
 
+  /// `record_safe_mode_capture_event(p_premises_id, p_metadata)` —
+  /// telemetry row written every time the 2026-05-25 accept-zero-
+  /// detection branch fires (Vision found no humans in any frame,
+  /// safe variant skipped, raw capture used as canonical source).
+  ///
+  /// SECURITY DEFINER, scoped to `user_practice_ids()` via the
+  /// premises resolution (or — when [premisesId] is null because the
+  /// accepted-empty fired outside any polygon — via the caller's
+  /// first practice membership).
+  ///
+  /// [metadata] should carry the scene fingerprint computed by the
+  /// conversion service (mean RGB, grayscale entropy, complexity
+  /// score) plus the exercise id + media type. The portal audit feed
+  /// + live-page drawer key off these fields for the drill-in modal.
+  ///
+  /// Contract: fire-and-forget by the conversion service. Wrapped in
+  /// `unawaited(...)` at the caller — failure must NOT block the
+  /// capture flow (spec section 7, acceptance criterion 9). This
+  /// method's caller catches and swallows any throw to keep the
+  /// invariant intact.
+  ///
+  /// Returns the new audit row id on success, null on failure.
+  Future<String?> recordSafeModeCaptureEvent({
+    String? premisesId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    final params = <String, dynamic>{
+      'p_premises_id': premisesId,
+      'p_metadata': metadata ?? const <String, dynamic>{},
+    };
+    final result = await _guardAuth(
+      () => raw.rpc('record_safe_mode_capture_event', params: params),
+    );
+    if (result is String && result.isNotEmpty) return result;
+    return null;
+  }
+
   /// Upload an avatar JPEG to the public `media` bucket at
   /// `avatars/{trainer_id}.jpg`. Returns the public URL on success,
   /// null on failure. Uses upsert so re-uploads overwrite.

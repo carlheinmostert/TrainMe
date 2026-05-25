@@ -334,8 +334,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _safeToastClearTimer?.cancel();
     setState(() {
       _safeToastMessage = switch (reason) {
+        // 2026-05-25 — reworded to reflect the relaxed rule. The
+        // middle-band rejection now means "Vision found humans in
+        // some frames but lost them in others" — a different angle or
+        // steadier framing usually resolves. Zero-detection captures
+        // (empty room, equipment) are accepted by the new rule and
+        // never reach this toast.
         SafeModeRejectionReason.missRateExceeded =>
-          "Safe Mode couldn't track everyone — try a steadier shot or better lighting.",
+          "Couldn't track everyone in the shot — try a different angle.",
         SafeModeRejectionReason.missingFaceEmbedding =>
           "Face fingerprint isn't ready — try again in a moment.",
       };

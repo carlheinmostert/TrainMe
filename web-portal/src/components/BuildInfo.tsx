@@ -15,6 +15,19 @@
  * (signed-in dashboards, sign-in gate, privacy/terms scaffolds, etc.).
  * `position: fixed` with a low z-index so it never competes with modals
  * or content; `pointer-events: none` so it can't intercept clicks.
+ *
+ * iPhone-portrait fix (2026-05-25):
+ *   - `max-w-[60vw]` + `truncate` clamp long `fix/whatever-very-long-
+ *     branch-name` strings on narrow viewports so the chip never paints
+ *     wider than the safe right margin. The chip's `select-text` still
+ *     copies the full label via the title attribute when QA needs to
+ *     read it in full.
+ *   - The root layout's `pb-12` body padding keeps content above the
+ *     chip's footprint — this component itself only owns the chip's
+ *     anchored position. No z-index bump needed; cards in the page
+ *     flow render in a higher stacking context implicitly because the
+ *     chip is `pointer-events-none` + `z-10` on a fixed layer below the
+ *     normal flow.
  */
 export function BuildInfo() {
   const sha = process.env.NEXT_PUBLIC_GIT_SHA ?? 'dev';
@@ -25,7 +38,8 @@ export function BuildInfo() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed bottom-2 right-3 z-10 font-mono text-[10px] tracking-wide text-ink opacity-[0.35] select-text"
+      title={label}
+      className="pointer-events-none fixed bottom-2 right-3 z-10 max-w-[60vw] truncate font-mono text-[10px] tracking-wide text-ink opacity-[0.35] select-text"
     >
       {label}
     </div>
