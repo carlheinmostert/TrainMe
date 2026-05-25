@@ -10,6 +10,35 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## ZA lawyer review — self-trainer wave POPIA copy + biometric data privacy section
+
+**Status:** Queued **2026-05-25**. The self-trainer wave shipped with bracketed `[carl-review:]` placeholders in three places that need a lawyer red-pen pass before they're considered production-grade. Acceptable to live with the current draft copy in the meantime — none of it misrepresents what we collect, but legal-grade phrasing for POPIA is still pending.
+
+### Items to review
+
+1. **`web-portal/src/app/privacy/page.tsx` — Section 5(d) "Biometric data — face recognition"** (PR #492, merged). Three `[lawyer-review:]` bracketed placeholders:
+   - Cross-border transfer clause (Supabase region + lawful basis for international transfer).
+   - Lawful-basis statement under POPIA Section 11 (consent vs. legitimate interest framing for the biometric special-category data).
+   - Data subject rights phrasing (access / correction / deletion under POPIA Section 23-25).
+
+2. **`app/lib/widgets/self_face_consent_sheet.dart` — POPIA consent prompt** (PR #502, merged). All consent-sheet copy + the Settings → Public profile face-verification ON/OFF copy + the Stop-using-face-verification SnackBar copy. Marked `[carl-review:]` in code comments. POPIA Section 11(1)(b) "specific" consent — current draft is plain-English but should be lawyer-stress-tested for sufficiency.
+
+3. **`app/lib/widgets/self_trainer_intro_banner.dart` — Migration banner copy** (PR #501, merged). Less legally sensitive but Carl-voice pass needed. Two bracketed strings: the universal welcome line and the grandfathered-user "free Safe Mode extended" line.
+
+### Why this is deferred
+
+- Code paths work correctly with the draft copy in place — no user-facing bug.
+- Lawyer turnaround is the bottleneck, not engineering.
+- Apple Review will check copy for accuracy/clarity (already a backlog item alongside the existing privacy page), so this folds into that same legal pass naturally.
+
+### When to clear
+
+- ZA lawyer batch pass: this + the existing privacy / TOS scaffold placeholders (per the existing `Backlog` line in `CLAUDE.md`).
+- Sweep the three files above, replacing `[carl-review:]` / `[lawyer-review:]` with the legally-blessed phrasing.
+- Grep verification: `grep -rn "\[carl-review:\]\|\[lawyer-review:\]" web-portal/src/app/privacy/ app/lib/widgets/self_face_consent_sheet.dart app/lib/widgets/self_trainer_intro_banner.dart` should return zero matches.
+
+---
+
 ## Flutter hero-crop resolver — migrate the five mobile consumers (follow-up to 2026-05-16 web PR)
 
 **Status:** Queued **2026-05-16**. Web-side companion PR (`refactor/hero-crop-resolver-web` → `staging`) landed the same principle on `web-player/`: a single `hero_resolver.js` module owns the "given a portrait/landscape source JPG + a stored offset, produce the 1:1 view" transformation, replacing inline `object-position` math in `lobby.js` and fixing the PDF export's silently-squashed portrait heroes as a side effect.
