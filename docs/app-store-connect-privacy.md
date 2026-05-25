@@ -38,16 +38,17 @@ For each of the 9 rows below: tick the Apple category, mark **Collected = Yes**,
 | 6 | Identifiers → User ID | `NSPrivacyCollectedDataTypeUserID` | Yes | No | App Functionality | Supabase user UUID — server-side identifier scoped to the homefit.studio backend (multi-tenant practice membership). Not an advertising ID. |
 | 7 | Purchases → Purchase History | `NSPrivacyCollectedDataTypePurchaseHistory` | Yes | No | App Functionality | Credit-bundle purchases via PayFast. The app stores ledger rows (`credit_ledger`, `plan_issuances`); card data is handled by PayFast and never reaches the app. |
 | 8 | Usage Data → Product Interaction | `NSPrivacyCollectedDataTypeProductInteraction` | Yes | No | Analytics, App Functionality | Plan publish events and credit consumption events recorded server-side as a billing audit trail. Used for invoicing and credit accounting, not behavioural analytics. |
+| 9 | Sensitive Info → Sensitive Info | `NSPrivacyCollectedDataTypeSensitiveInfo` | Yes | No | App Functionality | Face recognition data (linked to user; not used for tracking; purpose: App Functionality — self-verification for credit-exempt publishing). Selfie image plus on-device MobileFaceNet embedding; opt-in via Settings → Public profile; deletable via the same screen. Apple's taxonomy has no dedicated biometric enum — Sensitive Info is the canonical bucket per Apple's "Describing data use in privacy manifests" docs. |
 
 > Note: Apple's taxonomy combines photos and videos into a single category, **"Photos or Videos"** — one tickbox covers both video capture and photo capture. The manifest constant is `NSPrivacyCollectedDataTypePhotosOrVideos`.
 
 ### What "Linked to user" means here
 
-Every collected data type is tied to the practitioner's Supabase account (email + UUID), so all 8 rows are Linked = Yes. Even client names are linked, because they're stored under the practitioner's practice. Choose **Linked to user** for each.
+Every collected data type is tied to the practitioner's Supabase account (email + UUID), so all 9 rows are Linked = Yes. Even client names are linked, because they're stored under the practitioner's practice. Choose **Linked to user** for each.
 
 ### What "Tracking" would have meant (and why we say No)
 
-Apple defines tracking as linking data with third-party data for advertising, or sharing it with a data broker. None of that happens. The app has no Firebase, no Sentry, no Mixpanel, no GA, no Amplitude, no IDFA access, and no advertising SDKs. **All 8 rows: Used for tracking = No.**
+Apple defines tracking as linking data with third-party data for advertising, or sharing it with a data broker. None of that happens. The app has no Firebase, no Sentry, no Mixpanel, no GA, no Amplitude, no IDFA access, and no advertising SDKs. **All 9 rows: Used for tracking = No.**
 
 ---
 
@@ -55,7 +56,7 @@ Apple defines tracking as linking data with third-party data for advertising, or
 
 App Store Connect asks 2-3 follow-up questions per data type. The answers are uniform:
 
-| Follow-up | Answer for all 8 rows |
+| Follow-up | Answer for all 9 rows |
 |---|---|
 | Is this data collected from this app linked to the user's identity? | **Yes** |
 | Do you or your third-party partners use this data to track users? | **No** |
@@ -124,7 +125,7 @@ If you add a new SDK or a new system API call, audit `NSPrivacyAccessedAPITypes`
 
 Before tapping **Publish** on the App Privacy form:
 
-- [ ] All 8 data types ticked with the table values above.
+- [ ] All 9 data types ticked with the table values above.
 - [ ] Tracking question: No.
 - [ ] No advertising/tracking SDK rows accidentally enabled.
 - [ ] Privacy Policy URL field set to `https://homefit.studio/privacy` (gap analysis is a separate task — make sure the page is live before submission).

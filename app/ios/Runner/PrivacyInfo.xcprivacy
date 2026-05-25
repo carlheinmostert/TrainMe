@@ -99,6 +99,19 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<!-- Face recognition data (biometric) — selfie + MobileFaceNet embedding used for self-verification (credit-exempt publishing). Opt-in via Settings → Public profile. Apple's taxonomy lacks a dedicated biometric enum; NSPrivacyCollectedDataTypeSensitiveInfo is the canonical bucket (per Apple's "Describing data use" docs, Sensitive Info covers biometric data). -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeSensitiveInfo</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 		<!-- Plan publish events and credit consumption events — billing audit trail (plan_issuances, credit_ledger). -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
