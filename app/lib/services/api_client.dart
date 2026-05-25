@@ -1335,6 +1335,56 @@ class ApiClient {
     return Uint8List(0);
   }
 
+  /// Self-trainer wave PR #3 (2026-05-25) —
+  /// `register_self_face(p_embedding vector(512), p_consented_at timestamptz)`
+  /// SECURITY DEFINER RPC. Writes the practitioner's self-verification
+  /// embedding + timestamps and lazily creates the Self-client row in
+  /// the user's personal practice.
+  ///
+  /// Returns the Self-client uuid on success. Throws on any RPC error
+  /// (the caller is the Settings → Public profile flow which surfaces
+  /// the error verbatim per `feedback_no_silent_fallbacks`).
+  ///
+  /// Idempotent — re-calling overwrites the embedding + consent
+  /// timestamp and reuses the existing Self-client row (enforced by
+  /// the partial unique index on `clients (practice_id, user_id) WHERE
+  /// user_id IS NOT NULL AND deleted_at IS NULL`).
+  ///
+  /// The embedding dim is 512 (MobileFaceNet on-device model output) —
+  /// the spec text in `docs/SELF_TRAINER_WAVE.md` calls for 192 but the
+  /// bundled mlmodel emits 512; the schema migration amends the column
+  /// to vector(512). See
+  /// `supabase/migrations/20260525114912_register_self_face_rpc.sql`.
+  ///
+  /// PostgREST serialises `List<double>` as a JSON number array, which
+  /// pgvector accepts as a vector literal — no special encoding needed
+  /// (unlike the bytea path in [setClientFaceEmbedding] which requires
+  /// the `\x`-prefixed hex string trick).
+  Future<String> registerSelfFace({
+    required List<double> embedding,
+    required DateTime consentedAt,
+  }) async {
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'register_self_face',
+        params: <String, dynamic>{
+          'p_embedding': embedding,
+          // Postgres wants ISO-8601; UTC normalisation matches the
+          // wave 39.4 Dart-wire-timestamp convention (all timestamps
+          // bound for Postgres are UTC).
+          'p_consented_at': consentedAt.toUtc().toIso8601String(),
+        },
+      ),
+    );
+    if (result is String && result.isNotEmpty) {
+      return result;
+    }
+    throw StateError(
+      'register_self_face returned unexpected shape: ${result.runtimeType} '
+      '($result)',
+    );
+  }
+
   /// `set_client_avatar(p_client_id, p_avatar_path)` — Wave 30. Commits
   /// the cloud-side pointer to the body-focus avatar PNG. Caller is
   /// expected to have already uploaded the file to the `raw-archive`

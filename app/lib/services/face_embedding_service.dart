@@ -63,6 +63,16 @@ class FaceEmbeddingService extends ChangeNotifier {
   /// `MissingPluginException` → caught and surfaced as `error`).
   static const _videoChannel = MethodChannel('com.raidme.video_converter');
 
+  /// Self-trainer wave PR #3 (2026-05-25) — dedicated platform channel
+  /// for the self-verification flow. Wraps the same
+  /// MobileFaceNetEmbedder singleton used by Safe Mode v2 client
+  /// enrolment, but with a simpler image-path → float-list surface (no
+  /// hard-fail on multi-face, returns null on no-face instead of
+  /// throwing). See `app/ios/Runner/HomefitFaceEmbeddingChannel.swift`.
+  static const _selfFaceChannel = MethodChannel(
+    'studio.homefit.face_embedding',
+  );
+
   /// Per-client embedding state. UI watches via [stateFor].
   final Map<String, EmbeddingState> _states = <String, EmbeddingState>{};
 
@@ -239,6 +249,94 @@ class FaceEmbeddingService extends ChangeNotifier {
   Uint8List? getEmbedding(String clientId) {
     final s = _states[clientId];
     if (s is _ReadyEmbeddingState) return s.bytes;
+    return null;
+  }
+
+  /// Self-trainer wave PR #3 (2026-05-25) — compute a one-shot
+  /// MobileFaceNet embedding for the supplied image (the practitioner's
+  /// own self-reference selfie). Returns the 512-d float vector ready
+  /// to ship to the `register_self_face` RPC, or `null` when no face
+  /// could be detected in the image.
+  ///
+  /// Unlike [ensureForClient], this method does NOT touch [_states] —
+  /// it's a stateless one-shot compute that the Settings → Public
+  /// profile flow invokes immediately before calling
+  /// [ApiClient.registerSelfFace]. There's no per-client state to
+  /// reuse; the practitioner-embedding lives in
+  /// `practitioners.face_embedding`, not `clients.face_embedding`.
+  ///
+  /// Failure mode contract:
+  ///   - File missing / decode failure / Vision pipeline failure /
+  ///     MobileFaceNet load or inference failure → THROWS the
+  ///     [PlatformException] verbatim so the caller can surface the
+  ///     native error code (per `feedback_no_silent_fallbacks`).
+  ///   - No face detected in the image → returns `null`. This is a
+  ///     benign outcome — the UI prompts the user to retake the photo.
+  ///
+  /// The 15-second timeout matches [ensureForClient]'s — the embed
+  /// itself is ~50ms on Neural Engine; the Vision pass + JPEG decode
+  /// on a 12 MP HEIC can stretch to a couple of seconds. Anything past
+  /// 15s indicates a stuck native call worth surfacing.
+  Future<List<double>?> computeForImage(String imagePath) async {
+    final dynamic raw = await _selfFaceChannel
+        .invokeMethod<Object?>(
+          'computeEmbeddingForImage',
+          <String, dynamic>{'imagePath': imagePath},
+        )
+        .timeout(const Duration(seconds: 15));
+
+    // Native returns nil on no-face. The Flutter channel boundary
+    // surfaces nil as a Dart null — we treat it as a benign "no face"
+    // outcome and return null to the caller, matching the brief's
+    // contract ("Returns null on no-face (does not throw)").
+    if (raw == null) {
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEmbeddingService] computeForImage: no face in $imagePath',
+        );
+      }
+      return null;
+    }
+
+    // The native side encodes the embedding as a `[Float]` which the
+    // Flutter codec delivers as a `List<double>` (Float32 widened to
+    // Dart's double). Accept the broad `List` shape for forward-compat
+    // and coerce element-wise.
+    if (raw is List) {
+      final out = <double>[];
+      for (final v in raw) {
+        if (v is double) {
+          out.add(v);
+        } else if (v is num) {
+          out.add(v.toDouble());
+        } else {
+          // Mixed-shape list — refuse to silently fudge. Surface a
+          // diagnostic and treat as a no-face outcome (caller will
+          // prompt for a retake; the cause will be in the Console.app
+          // log line).
+          debugPrint(
+            '[FaceEmbeddingService] computeForImage: unexpected element '
+            'type ${v.runtimeType} in result list',
+          );
+          return null;
+        }
+      }
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEmbeddingService] computeForImage: '
+          'got ${out.length} floats from $imagePath',
+        );
+      }
+      return out;
+    }
+
+    // Unrecognised shape. Refuse to silently fudge — return null so
+    // the caller treats it as no-face (and the debug log surfaces the
+    // real shape).
+    debugPrint(
+      '[FaceEmbeddingService] computeForImage: unexpected result type '
+      '${raw.runtimeType}',
+    );
     return null;
   }
 
