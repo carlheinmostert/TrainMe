@@ -173,10 +173,15 @@ export default async function DashboardPage({
       : 'Earn free credits from your network';
 
   // Clients — "active this week" = last_plan_at within last 7 days.
-  const clientCount = clients.length;
+  // Self-trainer wave hotfix (2026-05-25): exclude Self-clients
+  // (user_id IS NOT NULL) from the dashboard tile so the count stays
+  // consistent with /clients (which hides them) and the "your private
+  // one-on-one clients" tile copy.
+  const realClients = clients.filter((c) => c.userId === null);
+  const clientCount = realClients.length;
   const now = Date.now();
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-  const activeThisWeek = clients.filter((c) => {
+  const activeThisWeek = realClients.filter((c) => {
     if (!c.lastPlanAt) return false;
     const t = Date.parse(c.lastPlanAt);
     return Number.isFinite(t) && now - t < sevenDaysMs;

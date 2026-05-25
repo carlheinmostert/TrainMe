@@ -179,6 +179,14 @@ export type PracticeClient = {
    * the URL expires in 1 hour.
    */
   avatarUrl: string | null;
+  /**
+   * Self-trainer wave hotfix (2026-05-25) — non-null when this client
+   * row is the practitioner-as-self ("Self-client") for the user whose
+   * auth.uid() matches. Surfaced by `list_practice_clients` so the
+   * portal's `/clients` page can filter Self-clients out of the regular
+   * Clients grid (Self-clients belong on My Workouts on mobile only).
+   */
+  userId: string | null;
 };
 
 /**
@@ -638,6 +646,12 @@ export class PortalApi {
       avatarUrl:
         typeof r.avatar_url === 'string' && r.avatar_url.length > 0
           ? r.avatar_url
+          : null,
+      // Self-trainer wave hotfix — passthrough so the page can filter
+      // Self-clients (user_id IS NOT NULL) out of the Clients grid.
+      userId:
+        typeof r.user_id === 'string' && r.user_id.length > 0
+          ? r.user_id
           : null,
     }));
   }
