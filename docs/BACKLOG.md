@@ -39,6 +39,57 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+### Self-trainer wave — lawyer + voice red-pen pending merge to main
+
+Authored 2026-05-25 after code review surfaced that the placeholder markers are enumerable per-site. Lawyer markers need ZA legal review; carl markers need Carl's voice pass before App Store submission. Grep counts captured below were taken against the staging tip on 2026-05-25 (self-trainer wave merged into staging, not yet promoted to main).
+
+#### `[lawyer-review:]` placeholders (4 sites in `web-portal/src/app/privacy/page.tsx`)
+
+- [ ] `web-portal/src/app/privacy/page.tsx:275` — Supabase hosting region clause (CB-8 partial-fix landed on staging: region pinned to "AWS eu-central-1, Frankfurt"; surrounding cross-border-transfer wording still tagged for lawyer review).
+- [ ] `web-portal/src/app/privacy/page.tsx:306` — cross-border transfer clause (POPIA s.72 + s.26 interaction for biometric special personal information).
+- [ ] `web-portal/src/app/privacy/page.tsx:318` — lawful-basis statement (POPIA s.27(1)(a) consent vs. s.27(2) authorisation framing).
+- [ ] `web-portal/src/app/privacy/page.tsx:327` — data subject rights phrasing for special personal information (POPIA s.23-25 vs. s.26/s.27 interaction).
+- [ ] (R4-L1, added 2026-05-25) — new marker queued for POPIA s.71(2) automated-processing disclosure now that face matching is a credit-pricing gate (free vs. charged publish). Lawyer to advise on disclosure language; engineering to add marker in the next staging→main promotion.
+
+#### `[carl-review:]` placeholders (15 sites across 3 files)
+
+- [ ] `app/lib/widgets/self_trainer_intro_banner.dart` — 6 sites (file-doc comment + headline `[carl-review:] My Workouts is live` + universal-body `[carl-review:] Capture yourself, get plans from your practitioner — all in one place.` + grandfathered-extension line `[carl-review:] Safe Mode is now a subscription. Because you've used it, we've extended your access for free — no action needed.` + `[carl-review:] Got it` button label + inline-comment markers).
+- [ ] `app/lib/widgets/self_face_consent_sheet.dart` — 5 sites (file-doc comment + 4 POPIA-sensitive copy sites: consent sheet body, "stays on this device" clarifier, ON/OFF Settings copy, Stop-using-face-verification SnackBar).
+- [ ] `app/lib/screens/public_profile_screen.dart` — 4 sites (file-doc comment + 3 verbatim-from-brief inline-comment markers covering Settings row copy variants).
+
+#### Verify clean before staging→main promotion
+
+```
+grep -rn "lawyer-review\|carl-review" web-portal/src app/lib 2>/dev/null | grep -v node_modules | wc -l
+```
+
+Should equal zero before promotion to main.
+
+---
+
+## Self-trainer "personal practice" identification
+
+Today `register_self_face` resolves the Self-client's parent practice as "first-owned by joined_at ASC". Works for the MVP single-practice user; fragile for multi-practice owners. Future refactor: add `practices.is_personal boolean DEFAULT false` populated at bootstrap, OR stamp `practitioners.personal_practice_id uuid` at signup. Surfaces when a practitioner has 2+ owned practices. Cost: schema migration + bootstrap fn update + Self-client lookup refactor.
+
+---
+
+## Safe Mode subscription expiry reminder
+
+The active-sub check is a 30-day window over `credit_ledger` rows. No proactive reminder fires before lapse. Today: paying user's 30-day window expires; next Safe Mode capture drops them straight into the paywall mid-session. Need: daily scheduled function that scans for subs expiring in ≤ 3 days, queues a notification, sends via Resend. Tied to: removing the "we'll notify you" promise in the subscribe UI was the stopgap (M-9, landed on staging 2026-05-25); this is the real fix.
+
+---
+
+## Hostinger mailboxes — `support@homefit.studio` + `privacy@homefit.studio`
+
+**Status:** Pending Carl-side action. Both addresses are referenced from shipped surfaces and need to exist before App Store Review.
+
+- `support@homefit.studio` — referenced in `docs/app-store-metadata.md` as the App Store support URL and Privacy Policy linked from the App Privacy form. Mentioned in CLAUDE.md "Backlog → blocked on Carl" since 2026-04-28.
+- `privacy@homefit.studio` — referenced in `web-portal/src/app/privacy/page.tsx` § 11 ("A practitioner may request deletion of their account at any time by emailing privacy@homefit.studio."). Without this mailbox, account-deletion requests bounce.
+
+Both mailboxes can be set up from the Hostinger control panel (Email → Manage); the apex SPF was deliberately left untouched precisely so these mailboxes coexist with the Resend transactional sender on `send.homefit.studio`. See CLAUDE.md "Email" section.
+
+---
+
 ## Flutter hero-crop resolver — migrate the five mobile consumers (follow-up to 2026-05-16 web PR)
 
 **Status:** Queued **2026-05-16**. Web-side companion PR (`refactor/hero-crop-resolver-web` → `staging`) landed the same principle on `web-player/`: a single `hero_resolver.js` module owns the "given a portrait/landscape source JPG + a stored offset, produce the 1:1 view" transformation, replacing inline `object-position` math in `lobby.js` and fixing the PDF export's silently-squashed portrait heroes as a side effect.

@@ -85,7 +85,7 @@ App Store Connect may ask about retention. Brief answers Carl can adapt:
 | Prompt | Answer |
 |---|---|
 | Do you provide a way to delete account data? | Yes — practitioner can delete their account by emailing support; client records soft-delete with a 7-day recycle bin. |
-| Where is data stored? | Supabase (EU region). |
+| Where is data stored? | Supabase (AWS eu-central-1, Frankfurt). |
 | Do you encrypt data in transit? | Yes — TLS for all network traffic; signed URLs for media playback. |
 
 ---
