@@ -63,8 +63,82 @@ bool get _kDiagLogs => kDebugMode || AppConfig.env == 'staging';
 ///   - During persisting: same as embedding — we let the local write
 ///     complete (cheap) and discard. Cloud may still receive the
 ///     write if it was already in flight; acceptable trade-off.
+/// Editor mode resolved once at screen mount from the cached client's
+/// `video_consent` flags. Drives which UI branches render and which
+/// service paths run during commit.
+///
+/// Phase 1 (2026-05-25) — Safe Mode v2 enrolment polish.
+/// Spec: `docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md`,
+/// section 3 (Consent matrix) + 4f (Consent-aware UI behaviour).
+///
+/// | face-rec | avatar | mode             |
+/// |----------|--------|------------------|
+/// | ON       | ON     | [full]           |
+/// | ON       | OFF    | [embeddingOnly]  |
+/// | OFF      | ON     | [avatarOnly]     |
+/// | OFF      | OFF    | [disabled]       |
+///
+/// Phase 1 wires the enum end-to-end (resolution, screen branching,
+/// avatarOnly simple-shot capture path). Phase 2 will add the
+/// post-sweep manual selection grid and pose gating that the [full]
+/// branch hosts.
+enum FaceEnrolmentMode {
+  /// Both consents granted. Multi-reference sweep + (Phase 2)
+  /// post-sweep manual avatar selection grid. Both artifacts
+  /// (embeddings + avatar JPG) persist.
+  full,
+
+  /// Face-rec consent ON, avatar consent OFF. Multi-reference sweep
+  /// runs; only the embeddings persist. No avatar JPG is written to
+  /// the raw-archive bucket and no manual selection grid is shown on
+  /// the confirm screen.
+  embeddingOnly,
+
+  /// Avatar consent ON, face-rec consent OFF. Simple-mode single-shot
+  /// capture — viewfinder + single shutter button, no sweep, no
+  /// embedding generation. The captured frame persists as the avatar
+  /// JPG only. Resurrects the legacy single-photo avatar flow as a
+  /// mode of the multi-reference editor.
+  avatarOnly,
+
+  /// Both consents OFF. The editor refuses to open; the entry point
+  /// (avatar-tap intercept / "Set face" CTA) shows a SnackBar
+  /// directing the practitioner to the consent sheet.
+  disabled,
+}
+
+/// Resolve the editor mode from a cached client snapshot.
+///
+/// Pure function so test scaffolding can exercise all four
+/// permutations without spinning up the service.
+FaceEnrolmentMode resolveFaceEnrolmentMode({
+  required bool faceRecognitionAllowed,
+  required bool avatarAllowed,
+}) {
+  if (faceRecognitionAllowed && avatarAllowed) {
+    return FaceEnrolmentMode.full;
+  }
+  if (faceRecognitionAllowed && !avatarAllowed) {
+    return FaceEnrolmentMode.embeddingOnly;
+  }
+  if (!faceRecognitionAllowed && avatarAllowed) {
+    return FaceEnrolmentMode.avatarOnly;
+  }
+  return FaceEnrolmentMode.disabled;
+}
+
 class FaceEnrolmentService extends ChangeNotifier {
-  FaceEnrolmentService();
+  /// [mode] resolves the four-cell consent matrix from spec section 3.
+  /// Defaults to [FaceEnrolmentMode.full] for back-compat with Wave-D
+  /// callers; the screen passes the resolved mode explicitly going
+  /// forward.
+  FaceEnrolmentService({this.mode = FaceEnrolmentMode.full});
+
+  /// Resolved at construction by the caller (the enrolment screen)
+  /// from the cached client's consent snapshot. Reads as immutable
+  /// during the editor's lifecycle — changing consent mid-flow would
+  /// invalidate the run and is gated by the entry points.
+  final FaceEnrolmentMode mode;
 
   /// Same native channel as the conversion service. The
   /// `generateFaceEmbeddingsFromFrames` method was added by Wave-BC

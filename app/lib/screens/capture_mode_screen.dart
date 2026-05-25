@@ -17,6 +17,7 @@ import '../services/auth_service.dart';
 import '../services/capture_auto_save_preference.dart';
 import '../services/conversion_service.dart';
 import '../services/face_embedding_service.dart';
+import '../services/face_enrolment_service.dart';
 import '../services/homefit_haptics.dart';
 import '../services/local_storage_service.dart';
 import '../services/original_video_service.dart';
@@ -2563,6 +2564,16 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// client-detail screen. Spec:
   /// docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md
   ///
+  /// Phase 1 polish (2026-05-25) — gates on the consent matrix from
+  /// spec section 3 the same way the client-detail screen does. The
+  /// banner only shows this CTA when face-rec consent is granted
+  /// (otherwise the banner is in `consentMissing`), so in practice
+  /// this only ever reaches `full` or `embeddingOnly` modes. The
+  /// `disabled` fallback is defence-in-depth — if the banner state
+  /// resolution and the consent state diverge for any reason, the
+  /// user gets a clear SnackBar instead of an unusable editor. Spec:
+  /// docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md
+  ///
   /// `FaceEnrolmentService` writes embeddings to SQLite + the cloud
   /// RPC AND primes [FaceEmbeddingService] via `hydrateFromBytes` on
   /// success, so after the screen pops we only need to refresh the
@@ -2571,6 +2582,22 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     final cached = _cachedClientSnapshot;
     final cid = widget.session.clientId;
     if (cached == null || cid == null || cid.isEmpty) return;
+    final mode = resolveFaceEnrolmentMode(
+      faceRecognitionAllowed: cached.safeModeFaceRecognitionAllowed,
+      avatarAllowed: cached.avatarAllowed,
+    );
+    if (mode == FaceEnrolmentMode.disabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Toggle face recognition or avatar consent first.",
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14),
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
     HomefitHaptics.selection();
     final ok = await FaceEnrolmentScreen.push(
       context,

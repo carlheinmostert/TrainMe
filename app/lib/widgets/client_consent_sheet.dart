@@ -304,21 +304,15 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
                           onChanged: (v) => setState(() => _avatarAllowed = v),
                           highlight: widget.highlightAvatar,
                         ),
-                        const SizedBox(height: 20),
-                        _sectionHeader('Analytics'),
-                        const SizedBox(height: 4),
-                        _row(
-                          icon: Icons.bar_chart_rounded,
-                          title: 'Anonymous usage analytics',
-                          subtitle:
-                              'Track which exercises are completed or skipped '
-                              '— helps you refine plans.',
-                          value: _analyticsAllowed,
-                          onChanged: (v) => setState(() => _analyticsAllowed = v),
-                        ),
-                        const SizedBox(height: 20),
-                        _sectionHeader('Safe Mode'),
-                        const SizedBox(height: 4),
+                        const Divider(height: 1, color: AppColors.surfaceBorder),
+                        // Safe Mode v2 enrolment polish Phase 1 (2026-05-25) —
+                        // face-recognition toggle moved from a one-row "Safe
+                        // Mode" section into the Profile group below the
+                        // avatar row. Conceptually both artifacts (avatar JPG
+                        // + biometric template) are profile-level data about
+                        // the client; the prior dedicated section was dead
+                        // weight (one row, no useful grouping). Spec section
+                        // 4e: docs/specs/2026-05-25-safe-mode-v2-enrolment-polish.md
                         _row(
                           icon: Icons.face_retouching_natural_outlined,
                           title: 'Face recognition for Safe Mode',
@@ -330,6 +324,18 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
                           value: _safeModeFaceRecognitionAllowed,
                           onChanged: (v) => setState(
                               () => _safeModeFaceRecognitionAllowed = v),
+                        ),
+                        const SizedBox(height: 20),
+                        _sectionHeader('Analytics'),
+                        const SizedBox(height: 4),
+                        _row(
+                          icon: Icons.bar_chart_rounded,
+                          title: 'Anonymous usage analytics',
+                          subtitle:
+                              'Track which exercises are completed or skipped '
+                              '— helps you refine plans.',
+                          value: _analyticsAllowed,
+                          onChanged: (v) => setState(() => _analyticsAllowed = v),
                         ),
                         // Future consent groups slot in above this line —
                         // e.g. outcome-tracking, data sharing, reminder
