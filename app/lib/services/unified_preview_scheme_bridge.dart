@@ -49,8 +49,9 @@ class UnifiedPreviewSchemeBridge {
   static final UnifiedPreviewSchemeBridge instance =
       UnifiedPreviewSchemeBridge._();
 
-  static const MethodChannel _channel =
-      MethodChannel('com.raidme.unified_preview_scheme');
+  static const MethodChannel _channel = MethodChannel(
+    'com.raidme.unified_preview_scheme',
+  );
 
   Session? _session;
   LocalStorageService? _storage;
@@ -164,7 +165,17 @@ class UnifiedPreviewSchemeBridge {
       'brand_color': brandColor,
       'public_logo_url': publicLogoUrl,
     };
-    return jsonEncode({'plan': planJson, 'exercises': exercisesJson});
+    // PR #7 — plan_artifacts forward-compat. The embedded preview is
+    // pre-publish (no plan_artifacts row exists yet for the in-memory
+    // session), so always emit an empty array. Keeps the embedded
+    // payload shape-identical to the cloud `get_plan_full` response so
+    // the web-player bundle's parser (web-player/api.js getPlanFull)
+    // doesn't have to special-case the embedded path. ADR-0022.
+    return jsonEncode({
+      'plan': planJson,
+      'exercises': exercisesJson,
+      'artifacts': const <Map<String, dynamic>>[],
+    });
   }
 
   Future<String> _resolveMediaPath(dynamic args) async {
@@ -307,7 +318,9 @@ class UnifiedPreviewSchemeBridge {
       );
     } catch (e, st) {
       if (kDebugMode) {
-        debugPrint('[UnifiedPreviewSchemeBridge] consent resolve failed: $e\n$st');
+        debugPrint(
+          '[UnifiedPreviewSchemeBridge] consent resolve failed: $e\n$st',
+        );
       }
       return _ConsentFlags.lineOnly();
     }
@@ -319,17 +332,17 @@ class UnifiedPreviewSchemeBridge {
   ) {
     final lineUrl =
         e.mediaType == MediaType.video || e.mediaType == MediaType.photo
-            ? '/local/${e.id}/line'
-            : null;
+        ? '/local/${e.id}/line'
+        : null;
     // For videos the archive is the 720p H.264 file. For photos
     // (Wave 36) it's the raw colour JPG — no separate archive pipeline
     // for photos. The /archive route handler dispatches by mediaType.
-    final archiveUrl = e.mediaType == MediaType.video && e.archiveFilePath != null
+    final archiveUrl =
+        e.mediaType == MediaType.video && e.archiveFilePath != null
         ? '/local/${e.id}/archive'
-        : (e.mediaType == MediaType.photo &&
-                e.rawFilePath.isNotEmpty
-            ? '/local/${e.id}/archive'
-            : null);
+        : (e.mediaType == MediaType.photo && e.rawFilePath.isNotEmpty
+              ? '/local/${e.id}/archive'
+              : null);
     // Body Focus variant — segmented body-pop file written by the
     // converter. Practitioner is the viewer here, so consent is
     // implicit; gating is strictly file-presence. Wave 36 extends to
@@ -343,13 +356,15 @@ class UnifiedPreviewSchemeBridge {
     // server-side response). Each set carries the per-row fields the
     // bundle uses for the PLAN table + rep-stack timing.
     final setsJson = e.sets
-        .map((s) => <String, dynamic>{
-              'position': s.position,
-              'reps': s.reps,
-              'hold_seconds': s.holdSeconds,
-              'weight_kg': s.weightKg,
-              'breather_seconds_after': s.breatherSecondsAfter,
-            })
+        .map(
+          (s) => <String, dynamic>{
+            'position': s.position,
+            'reps': s.reps,
+            'hold_seconds': s.holdSeconds,
+            'weight_kg': s.weightKg,
+            'breather_seconds_after': s.breatherSecondsAfter,
+          },
+        )
         .toList(growable: false);
 
     return {
@@ -373,12 +388,12 @@ class UnifiedPreviewSchemeBridge {
       // gating only — consent doesn't apply (the file's on-device).
       'thumbnail_url_line':
           (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
-              ? '/local/${e.id}/hero_line'
-              : null,
+          ? '/local/${e.id}/hero_line'
+          : null,
       'thumbnail_url_color':
           (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
-              ? '/local/${e.id}/hero_color'
-              : null,
+          ? '/local/${e.id}/hero_color'
+          : null,
       // 2026-05-16 — bytes-baked B&W sibling for photos
       // (`_thumb_bw.jpg`). Photos only; videos already have
       // baked greyscale bytes in `_thumb.jpg` via the segmented
@@ -392,7 +407,8 @@ class UnifiedPreviewSchemeBridge {
       // matching the public-surface contract from
       // `get_plan_full` (which emits `thumbnail_url_bw` via an
       // existence check against the `media` bucket).
-      'thumbnail_url_bw': (e.mediaType == MediaType.photo &&
+      'thumbnail_url_bw':
+          (e.mediaType == MediaType.photo &&
               e.thumbnailPath != null &&
               e.thumbnailPath!.isNotEmpty)
           ? '/local/${e.id}/hero_bw'

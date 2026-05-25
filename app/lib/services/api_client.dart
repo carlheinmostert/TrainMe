@@ -814,7 +814,8 @@ class ApiClient {
 
   /// Fetch the server-side view of a plan via the `get_plan_full` RPC.
   /// Returns the raw JSON map (or null on any error). The response shape
-  /// carries the three-treatment URLs per exercise:
+  /// carries the three-treatment URLs per exercise, plus the plan-level
+  /// artifacts list added in PR #7 (self-trainer wave):
   ///
   /// ```
   /// {
@@ -827,9 +828,25 @@ class ApiClient {
   ///       "original_url":     "https://.../orig.mp4" | null,
   ///       ...
   ///     }
+  ///   ],
+  ///   "artifacts": [
+  ///     {
+  ///       "kind":         "plan_url",
+  ///       "status":       "ready",
+  ///       "output_url":   null,         // computed client-side for plan_url
+  ///       "generated_at": "2026-05-25T...",
+  ///       "metadata":     { }
+  ///     }
   ///   ]
   /// }
   /// ```
+  ///
+  /// The `artifacts` array is always present from the RPC; older plans get
+  /// a single backfilled `plan_url` entry, new plans get one written
+  /// inside the `consume_credit` transaction on publish. Future kinds
+  /// (`reel`, `pdf`) will surface here without an RPC change — see
+  /// `docs/adr/0022-plan-artifacts-abstraction-before-reel.md`. v1 has
+  /// no Dart-side consumers; this docstring is the forward contract.
   Future<Map<String, dynamic>?> getPlanFull(String planId) async {
     try {
       final result = await _guardAuth(
@@ -841,6 +858,36 @@ class ApiClient {
       debugPrint('ApiClient.getPlanFull failed for $planId: $e');
       return null;
     }
+  }
+
+  /// Pull the typed [PlanArtifact] list out of a [getPlanFull] response.
+  /// Returns an empty list on any shape mismatch or when the field is
+  /// absent (legacy / pre-PR-#7 RPC, or a brand-new plan that has never
+  /// been published). Callers should treat an empty list as "no artifacts
+  /// known"; the canonical Plan URL is still inferrable from `plan.id`.
+  List<PlanArtifact> artifactsFromPlanResponse(Map<String, dynamic>? response) {
+    if (response == null) return const [];
+    final raw = response['artifacts'];
+    if (raw is! List) return const [];
+    final out = <PlanArtifact>[];
+    for (final entry in raw) {
+      if (entry is! Map) continue;
+      final kind = entry['kind'];
+      final status = entry['status'];
+      if (kind is! String || status is! String) continue;
+      out.add(
+        PlanArtifact(
+          kind: kind,
+          status: status,
+          outputUrl: _stringOrNull(entry['output_url']),
+          generatedAt: _stringOrNull(entry['generated_at']),
+          metadata: entry['metadata'] is Map
+              ? Map<String, dynamic>.from(entry['metadata'] as Map)
+              : const {},
+        ),
+      );
+    }
+    return out;
   }
 
   /// Pull just the `line_drawing_url` / `grayscale_url` / `original_url`
@@ -1715,10 +1762,7 @@ class ApiClient {
       final dynamic result = await _guardAuth(
         () => raw.rpc(
           'find_premises_at',
-          params: {
-            'p_lat': latitude,
-            'p_lng': longitude,
-          },
+          params: {'p_lat': latitude, 'p_lng': longitude},
         ),
       );
       if (result is! List || result.isEmpty) return null;
@@ -1825,10 +1869,7 @@ class ApiClient {
       final dynamic result = await _guardAuth(
         () => raw.rpc(
           'can_use_safe_mode',
-          params: {
-            'p_trainer_id': trainerId,
-            'p_practice_id': practiceId,
-          },
+          params: {'p_trainer_id': trainerId, 'p_practice_id': practiceId},
         ),
       );
       if (result is! List || result.isEmpty) return null;
@@ -1936,10 +1977,8 @@ class ApiClient {
   Future<void> endCaptureSession({required String sessionId}) async {
     try {
       await _guardAuth(
-        () => raw.rpc(
-          'end_capture_session',
-          params: {'p_session_id': sessionId},
-        ),
+        () =>
+            raw.rpc('end_capture_session', params: {'p_session_id': sessionId}),
       );
     } catch (e) {
       debugPrint('ApiClient.endCaptureSession failed: $e');
@@ -1986,11 +2025,7 @@ class ApiClient {
     Map<String, dynamic>? metadata,
   }) async {
     if (kind != 'photo' && kind != 'video') {
-      throw ArgumentError.value(
-        kind,
-        'kind',
-        'must be "photo" or "video"',
-      );
+      throw ArgumentError.value(kind, 'kind', 'must be "photo" or "video"');
     }
     if (kind == 'video' && endedAt == null) {
       throw ArgumentError.value(
@@ -2072,7 +2107,9 @@ class ApiClient {
     try {
       final path = 'avatars/$trainerId.jpg';
       await _guardAuth(
-        () => raw.storage.from('media').upload(
+        () => raw.storage
+            .from('media')
+            .upload(
               path,
               file,
               fileOptions: const FileOptions(
@@ -2114,15 +2151,15 @@ class SafeModeGateResult {
   /// (the user can fix it in Settings). Drives the "Open Settings" vs
   /// "Open Portal" branch on the gate screen.
   bool get hasPractitionerGap =>
-      missing.contains('first_name')
-      || missing.contains('last_name')
-      || missing.contains('avatar_url');
+      missing.contains('first_name') ||
+      missing.contains('last_name') ||
+      missing.contains('avatar_url');
 
   /// True iff at least one of the missing items is practice-controlled.
   bool get hasPracticeGap =>
-      missing.contains('public_slug')
-      || missing.contains('public_blurb')
-      || missing.contains('public_profile_listed');
+      missing.contains('public_slug') ||
+      missing.contains('public_blurb') ||
+      missing.contains('public_profile_listed');
 }
 
 /// The caller's own practitioner identity row, populated by Settings.
@@ -2145,9 +2182,9 @@ class PractitionerProfile {
   /// True iff first + last + avatar are all set. Used to skip the
   /// first-time disclosure card on the second save.
   bool get isComplete =>
-      (firstName?.trim().isNotEmpty ?? false)
-      && (lastName?.trim().isNotEmpty ?? false)
-      && (avatarUrl?.trim().isNotEmpty ?? false);
+      (firstName?.trim().isNotEmpty ?? false) &&
+      (lastName?.trim().isNotEmpty ?? false) &&
+      (avatarUrl?.trim().isNotEmpty ?? false);
 }
 
 /// Outcome of a [ApiClient.findPremisesAt] call. Returned when the
@@ -2265,6 +2302,33 @@ String? _stringOrNull(dynamic v) {
 ///     converted file if available.
 ///   - `grayscaleUrl` null: client hasn't granted grayscale consent.
 ///   - `originalUrl` null: client hasn't granted original-colour consent.
+/// One entry from the `artifacts` array surfaced by the `get_plan_full`
+/// RPC (PR #7 of the self-trainer wave). Each plan has one row per
+/// artifact kind; v1 ships `kind='plan_url'` only. Future kinds (`reel`,
+/// `pdf`) land here without an RPC change — see
+/// `docs/adr/0022-plan-artifacts-abstraction-before-reel.md`.
+///
+/// For `kind='plan_url'`, [outputUrl] is intentionally null — the URL is
+/// computed client-side as `https://session.homefit.studio/p/{plan_id}`.
+/// Future materialised renders (Reel MP4 in a signed-URL bucket) populate
+/// [outputUrl] with the signed URL.
+@immutable
+class PlanArtifact {
+  final String kind;
+  final String status;
+  final String? outputUrl;
+  final String? generatedAt;
+  final Map<String, dynamic> metadata;
+
+  const PlanArtifact({
+    required this.kind,
+    required this.status,
+    this.outputUrl,
+    this.generatedAt,
+    this.metadata = const {},
+  });
+}
+
 @immutable
 class ExerciseTreatmentUrls {
   final String? lineDrawingUrl;
