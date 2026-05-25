@@ -76,15 +76,6 @@ export default async function CreditsPage({
         practices={practices}
       />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-        <nav className="mb-4 text-sm text-ink-muted">
-          <Link
-            href={`/dashboard?practice=${practiceId}`}
-            className="hover:text-brand"
-          >
-            ← Home
-          </Link>
-        </nav>
-
         <h1 className="font-heading text-3xl font-bold">Buy credits</h1>
         <p className="mt-2 text-sm text-ink-muted">
           One credit is charged each time you publish a plan to a client.

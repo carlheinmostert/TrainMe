@@ -1,6 +1,8 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { HomefitLogoLockup } from './HomefitLogo';
 import { HeaderIdentityStack } from './HeaderIdentityStack';
+import { HeaderBackLink } from './HeaderBackLink';
 import type { PracticeWithRole } from '@/lib/supabase/api';
 
 type Props = {
@@ -52,7 +54,16 @@ type Props = {
  * language (the lockup IS the brand language).
  *
  * R-02 (header purity): the only interactive content remains identity
- * + tenant-context. No page titles, breadcrumbs, or action buttons.
+ * + tenant-context + the back-arrow shortcut. No page titles,
+ * breadcrumbs, or action buttons.
+ *
+ * Back-arrow hoist (2026-05-25): the per-page `<- Home` / `<- Premises`
+ * / `<- Credits` link previously rendered as inline JSX below the
+ * header has been hoisted into the header's left slot, mirror-symmetric
+ * to the right-side identity stack. The link target is resolved from
+ * `usePathname()` inside `HeaderBackLink` — pages no longer need to
+ * pass any prop. The dashboard root and auth surfaces render nothing
+ * in the left slot (no back target).
  *
  * Practice propagation: callers that want their internal links to carry
  * the active practice append `?practice=<id>` themselves at the body
@@ -68,6 +79,20 @@ export function BrandHeader({
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
       <div className="relative mx-auto flex max-w-5xl items-center justify-center px-6 py-4">
+        {/* Left slot — back arrow. Mirror-symmetric to the right-side
+            identity stack. HeaderBackLink decides per-route whether to
+            render (dashboard root + auth surfaces render nothing).
+            Wrapped in Suspense because HeaderBackLink reads
+            useSearchParams() and statically-rendered pages (like
+            /help/credits, /privacy, /terms) would otherwise fail
+            prerender per the Next.js missing-suspense-with-csr-bailout
+            rule. */}
+        <div className="absolute inset-y-0 left-6 flex items-center">
+          <Suspense fallback={null}>
+            <HeaderBackLink />
+          </Suspense>
+        </div>
+
         <Link
           href="/"
           className="block text-ink transition hover:opacity-90"

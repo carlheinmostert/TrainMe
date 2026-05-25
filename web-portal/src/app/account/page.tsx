@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import QRCode from 'qrcode';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
@@ -81,15 +80,6 @@ export default async function AccountPage({
         practices={practices}
       />
       <div className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
-        <nav className="mb-4 text-sm text-ink-muted">
-          <Link
-            href={practiceId ? `/dashboard?practice=${practiceId}` : '/dashboard'}
-            className="hover:text-brand"
-          >
-            ← Home
-          </Link>
-        </nav>
-
         <h1 className="font-heading text-3xl font-bold">Account</h1>
         <p className="mt-2 text-sm text-ink-muted">
           Signed in as{' '}

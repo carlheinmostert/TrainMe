@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
@@ -123,15 +122,6 @@ export default async function NetworkPage({
         practices={myPractices}
       />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-        <nav className="mb-4 text-sm text-ink-muted">
-          <Link
-            href={`/credits?practice=${practiceId}`}
-            className="hover:text-brand"
-          >
-            ← Credits
-          </Link>
-        </nav>
-
         {/* Hero — the product pitch the practitioner wants to forward.
             Two rows: top row is H1 + sub + share-code chip; below that
             a body paragraph, a three-feature amplifier of the sub, and

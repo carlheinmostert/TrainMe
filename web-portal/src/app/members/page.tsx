@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
@@ -94,15 +93,6 @@ export default async function MembersPage({
         practices={practices}
       />
       <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
-        <nav className="mb-4 text-sm text-ink-muted">
-          <Link
-            href={`/dashboard?practice=${practiceId}`}
-            className="hover:text-brand"
-          >
-            ← Home
-          </Link>
-        </nav>
-
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="font-heading text-3xl font-bold">Members</h1>

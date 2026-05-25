@@ -1,5 +1,4 @@
 import { cookies, headers } from 'next/headers';
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
@@ -61,7 +60,6 @@ export default async function PremisesDetailPage({
     practices[0];
   const role = await api.getCurrentUserRole(selected.id, user.id);
   const isOwner = role === 'owner';
-  const qs = `?practice=${selected.id}`;
 
   // Practice slug + player origin → live URL preview in the slug editor.
   const profile = await api.getPracticePublicProfile(selected.id);
@@ -79,12 +77,6 @@ export default async function PremisesDetailPage({
         practices={practices}
       />
       <div className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">
-        <nav className="mb-4 text-sm text-ink-muted">
-          <Link href={`/premises${qs}`} className="hover:text-brand">
-            ← Premises
-          </Link>
-        </nav>
-
         <PremisesDetailPanel
           initial={premises}
           practiceId={selected.id}

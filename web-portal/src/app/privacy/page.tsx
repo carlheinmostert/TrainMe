@@ -35,12 +35,6 @@ export default function PrivacyPolicyPage() {
     <main className="flex min-h-screen flex-col">
       <BrandHeader />
       <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
-        <nav className="mb-4 text-sm text-ink-muted">
-          <Link href="/" className="hover:text-brand">
-            ← Home
-          </Link>
-        </nav>
-
         <h1 className="font-heading text-3xl font-bold sm:text-4xl">
           Privacy Policy
         </h1>
