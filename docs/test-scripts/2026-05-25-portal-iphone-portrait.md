@@ -10,6 +10,7 @@
 - [Desktop regression check](#5-desktop-regression-check)
 - [Back-arrow hoist regression check](#6-back-arrow-hoist-regression-check)
 - [Follow-up to 2026-05-25-portal-iphone-portrait](#follow-up-to-2026-05-25-portal-iphone-portrait)
+- [Wave 3 follow-up to 2026-05-25-portal-iphone-portrait](#wave-3-follow-up-to-2026-05-25-portal-iphone-portrait)
 
 ## What changed
 
@@ -241,3 +242,70 @@ F.X.
       portrait. Drag any page horizontally — the page does not
       scroll. (Tables inside cards CAN scroll horizontally inside
       themselves — that's correct.)
+
+## Wave 3 follow-up to 2026-05-25-portal-iphone-portrait
+
+### What changed in wave 3
+
+Three more responsive fixes after wave 2 (PR #499) shipped — device
+QA on staging `7f2a485` still showed the dashboard cards overflowing
+to ~461 px at iPhone portrait. A console probe at 402 px found that
+the dashboard card's inner row was a flex-row at every viewport, so
+the icon + text+CTA columns refused to shrink below their combined
+intrinsic content. That cascaded all the way up to `<html>` as a
+~487 px-wide document on a 402 px viewport.
+
+1. **Card inner row stacks at narrow viewports** — `DashboardTile`
+   and `DashboardAuditCard` both gain `flex-col items-stretch`
+   at base, switching to `flex-row items-start` only at `sm+`.
+   The icon block now sits ABOVE the text + CTAs at iPhone
+   portrait. The right-hand text column keeps `min-w-0 flex-1`
+   so wrapping continues to work in the row variant.
+2. **`<html>` overflow-x-hidden backstop** — added to the
+   `RootLayout` `<html>` className alongside `dark`. Wave 1
+   trapped overflow on `<body>` only, but `<body>` clipping
+   doesn't propagate up to the initial containing block, so
+   when a descendant grew wider than the viewport the document
+   root still scrolled horizontally on iOS Safari. This html-
+   level clip is a pure backstop — the card + grid fixes
+   above remove the actual cause.
+3. **Explicit `grid-cols-1` at base** — the dashboard grid and
+   the credits-bundle grid both said `grid gap-6 sm:grid-cols-2
+   lg:grid-cols-3` with no base column count. CSS Grid auto-flow
+   then sized the single column to `minmax(min-content, 1fr)`,
+   which is the widest child's intrinsic content. Prepending
+   `grid-cols-1` forces a single explicit column at narrow
+   viewports.
+
+### How to test wave 3
+
+Same setup as the earlier sections (iPhone Safari portrait, ~390 px
+viewport, or DevTools "iPhone 14 Pro" at 393 px). Stable numbering,
+prefix W3.X.
+
+- [ ] W3.1 `/dashboard`: the console diagnostic at 402 px viewport
+      returns an empty array. Open DevTools, paste:
+      `Array.from(document.querySelectorAll('*')).filter(el => el.scrollWidth > document.documentElement.clientWidth + 1)`
+      — result must be `[]`. Confirms no descendant overflows the
+      viewport.
+- [ ] W3.2 `/dashboard` card layout: each tile's icon sits ABOVE
+      the headline + text + CTA stack at iPhone portrait (vertical
+      layout). Tiles tap-target as before — the entire card is
+      clickable. The Credits tile's coral footer band still reads
+      and wraps correctly underneath the card body.
+- [ ] W3.3 Run the same console diagnostic from W3.1 on each of
+      `/clients`, `/credits`, `/audit`, `/network`, `/members`,
+      `/account`, `/premises`, `/getting-started`. Each result
+      must be `[]`. Confirms the html-level overflow trap holds
+      across every authenticated page.
+- [ ] W3.4 `/dashboard` at `sm+` (e.g. iPad portrait ~768 px):
+      cards revert to side-by-side flex-row layout (icon left,
+      text right). No regression versus pre-wave-3 desktop look.
+- [ ] W3.5 `/dashboard` at `lg+` (≥ 1024 px desktop): byte-
+      identical to staging pre-wave-3. Three-column grid, icons
+      on the left, footer band on Credits reads on one line.
+- [ ] W3.6 Wave 1 + Wave 2 regressions — re-run W2.F.1 through
+      W2.F.8 above. None should regress.
+- [ ] W3.7 iOS Safari only: attempt to drag the page horizontally
+      with a swipe-from-edge gesture. The page does not scroll
+      sideways. Inertial scroll is impossible to trigger.

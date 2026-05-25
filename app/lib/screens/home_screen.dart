@@ -27,6 +27,7 @@ import '../widgets/network_share_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/safe_mode_toggle_button.dart';
 import '../widgets/self_face_consent_sheet.dart';
+import '../widgets/self_trainer_intro_banner.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/undo_snackbar.dart';
 import '../widgets/workouts_coming_soon_view.dart';
@@ -731,6 +732,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
                     child: Center(child: HomefitLogoLockup(size: 180)),
                   ),
+                  // Self-trainer wave intro banner (PR #10 / #501). Renders
+                  // once per device on the first cold launch post-update,
+                  // then never again. Sits between the brand lockup and the
+                  // scope row so it reads as a top-of-Home announcement,
+                  // not a content-list chrome element. The widget self-hides
+                  // when the SharedPreferences dismiss flag is set, so this
+                  // slot is visually empty for users who've already seen it.
+                  const SelfTrainerIntroBanner(),
                   // Top-level scope picker. Permanent IA — both capsules are
                   // always present so the shape of Home doesn't change when
                   // Classes / My Workouts ship. See [HomeScopeSegmented].

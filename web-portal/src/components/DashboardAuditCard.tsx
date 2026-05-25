@@ -68,7 +68,15 @@ export function DashboardAuditCard({
         <Tooltip.Trigger asChild>
           <Link
             href={href}
-            className="group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring"
+            /* iPhone-portrait wave 3 follow-up (2026-05-25): stack the
+               icon block and audit-preview column vertically at base
+               width (matches the DashboardTile sibling treatment) and
+               restore the side-by-side flex-row at `sm+`. The
+               horizontal layout was forcing the card past the 402px
+               iPhone viewport because flex children default to
+               min-content sizing and the right-hand column has wide
+               intrinsic content (chips + email + timestamp rows). */
+            className="group relative flex h-full flex-col items-stretch gap-4 rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring focus:outline-none focus-visible:border-brand focus-visible:shadow-focus-ring sm:flex-row sm:items-start"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-muted transition group-hover:text-brand group-focus-visible:text-brand">
               {icon}

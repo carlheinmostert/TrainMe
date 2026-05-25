@@ -359,6 +359,45 @@ class ApiClient {
     }
   }
 
+  /// Whether the signed-in user has the Safe Mode grandfather flag set on
+  /// ANY of their `practice_members` rows.
+  ///
+  /// Self-trainer wave (PR #1 schema) added `practice_members.
+  /// safe_mode_grandfathered` — set true by the one-time migration backfill
+  /// for any practitioner who has ever captured a `safe_mode_active=true`
+  /// exercise. The flag short-circuits the Safe Mode subscription gate to
+  /// "always-on" for early adopters.
+  ///
+  /// Read directly from `practice_members` (same precedent as
+  /// [listMyPractices] — RLS scopes the SELECT to `trainer_id = auth.uid()`
+  /// rows). Returns `false` on any error so callers render the universal
+  /// banner copy rather than the grandfathered-extension line — false is
+  /// the safe default (it just means we don't show the bonus line).
+  ///
+  /// Used by [SelfTrainerIntroBanner] to decide whether to append the
+  /// "we've extended your Safe Mode access for free" line.
+  Future<bool> isCurrentUserSafeModeGrandfathered() async {
+    try {
+      final userId = raw.auth.currentUser?.id;
+      if (userId == null) return false;
+      final dynamic response = await _guardAuth(
+        () => raw
+            .from('practice_members')
+            .select('safe_mode_grandfathered')
+            .eq('trainer_id', userId)
+            .eq('safe_mode_grandfathered', true)
+            .limit(1),
+      );
+      if (response is! List) return false;
+      return response.isNotEmpty;
+    } catch (_) {
+      // Column may not yet exist on per-PR Branching DBs that haven't
+      // applied PR #1's migration, or the network may be flaky. Either
+      // way, default to false (= show the universal copy only).
+      return false;
+    }
+  }
+
   /// `practice_credit_balance(p_practice_id)` — SECURITY DEFINER fn that
   /// returns `SUM(delta)` over `credit_ledger` rows for the practice.
   ///

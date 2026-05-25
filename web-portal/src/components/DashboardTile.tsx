@@ -154,9 +154,22 @@ export function DashboardTile({
   const cardInteractiveOnOuter =
     ' transition hover:border-brand hover:shadow-focus-ring focus-within:border-brand focus-within:shadow-focus-ring';
 
+  // iPhone-portrait wave 3 follow-up (2026-05-25):
+  //   - The previous flex-row layout (`flex items-start gap-4`) forced
+  //     the card width to fit both the 40px icon block AND the right-
+  //     hand text+CTAs column side-by-side. Flex children default to
+  //     `min-width: auto` (= min-content) so the text column refused
+  //     to shrink below its intrinsic content (long copy + buttons),
+  //     pushing the card to ~461px at iPhone portrait and cascading
+  //     up to <html> as horizontal scroll.
+  //   - Stack vertically at base (icon on top, text+CTAs below) and
+  //     restore side-by-side at `sm+` where there's room. The text
+  //     column already had `min-w-0 flex-1`, so the row variant
+  //     continues to shrink correctly when a sibling tile in the same
+  //     grid row needs more space.
   const cardBodyClasses = footerBand
-    ? `group relative flex items-start gap-4 p-5 pb-3${comingSoon ? '' : ' focus:outline-none'}`
-    : `group relative flex h-full items-start gap-4 rounded-lg border border-surface-border bg-surface-base p-5${comingSoon ? '' : cardInteractiveOnBody}`;
+    ? `group relative flex flex-col items-stretch gap-4 p-5 pb-3 sm:flex-row sm:items-start${comingSoon ? '' : ' focus:outline-none'}`
+    : `group relative flex h-full flex-col items-stretch gap-4 rounded-lg border border-surface-border bg-surface-base p-5 sm:flex-row sm:items-start${comingSoon ? '' : cardInteractiveOnBody}`;
 
   // Outer wrapper carries the visible chrome (border + rounded + bg)
   // ONLY when a footer band is present. Otherwise the body owns it
