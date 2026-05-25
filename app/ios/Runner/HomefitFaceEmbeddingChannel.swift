@@ -569,8 +569,7 @@ final class HomefitFaceEmbeddingChannel: NSObject {
                 // Per-frame failure is non-fatal. Could be a blank /
                 // unreadable frame; the average over the remaining
                 // samples is still informative.
-                os_log("extractEmbeddingsFromVideo: copyCGImage failed at "
-                     + "%.2fs — %{public}@",
+                os_log("extractEmbeddingsFromVideo: copyCGImage failed at %.2fs — %{public}@",
                        log: Self.log, type: .info,
                        CMTimeGetSeconds(time), error.localizedDescription)
             }
