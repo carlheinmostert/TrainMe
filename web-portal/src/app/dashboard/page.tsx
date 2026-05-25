@@ -287,7 +287,15 @@ export default async function DashboardPage({
           tallest card (usually Audit).
         */}
         <DashboardTooltipProvider>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {/* iPhone-portrait wave 3 follow-up (2026-05-25): added
+              `grid-cols-1` at base so CSS Grid uses an explicit single
+              column on narrow viewports instead of falling back to the
+              implicit `minmax(min-content, 1fr)` track sizing which
+              expands the column to the widest child's intrinsic
+              content. The implicit behaviour was forcing the dashboard
+              grid (and every ancestor up to <html>) wider than the
+              402px iPhone viewport. */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <DashboardTile
               href={`/credits${qs}`}
               label="Credits"
