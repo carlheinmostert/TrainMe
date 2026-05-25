@@ -1524,6 +1524,56 @@ class ApiClient {
     );
   }
 
+  /// Self-trainer wave PR #5 (2026-05-25) —
+  /// `get_my_self_face_embedding()` SECURITY DEFINER RPC. Returns the
+  /// caller's own `practitioners.face_embedding` as a `List<double>`
+  /// (512 floats), or `null` when no self-face has been registered
+  /// (i.e. the user has not run the consent flow yet).
+  ///
+  /// Used by the capture-time self-verification step in
+  /// `app/lib/services/conversion_service.dart` to compare against the
+  /// freshly-converted exercise media. The RPC keeps the
+  /// `practitioners.face_embedding` pgvector column out of the
+  /// enumerated table-SELECT surface (per `feedback_no_direct_db_access`).
+  ///
+  /// Errors are caught + debug-logged and surfaced as null — the
+  /// conversion service treats null as "skip self-verification, leave
+  /// the exercise's `self_verified` flag at NULL" so a transient RPC
+  /// failure cannot wedge the capture flow.
+  Future<List<double>?> getMySelfFaceEmbedding() async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc('get_my_self_face_embedding'),
+      );
+      if (result == null) return null;
+      if (result is List) {
+        final out = <double>[];
+        for (final v in result) {
+          if (v is double) {
+            out.add(v);
+          } else if (v is num) {
+            out.add(v.toDouble());
+          } else {
+            debugPrint(
+              'ApiClient.getMySelfFaceEmbedding: unexpected element '
+              'type ${v.runtimeType} — returning null',
+            );
+            return null;
+          }
+        }
+        return out.isEmpty ? null : out;
+      }
+      debugPrint(
+        'ApiClient.getMySelfFaceEmbedding: unexpected result shape '
+        '${result.runtimeType} — returning null',
+      );
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.getMySelfFaceEmbedding failed: $e');
+      return null;
+    }
+  }
+
   /// `set_client_avatar(p_client_id, p_avatar_path)` — Wave 30. Commits
   /// the cloud-side pointer to the body-focus avatar PNG. Caller is
   /// expected to have already uploaded the file to the `raw-archive`

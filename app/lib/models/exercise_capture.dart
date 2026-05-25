@@ -444,6 +444,36 @@ class ExerciseCapture {
   /// sibling PR).
   final int? safeModeAlgorithmVersion;
 
+  /// Self-trainer wave PR #5 (2026-05-25) — result of the capture-time
+  /// MobileFaceNet check against the registered self-reference embedding
+  /// in `practitioners.face_embedding`.
+  ///
+  /// Tri-state semantics:
+  ///   * `null`  = not yet checked. Legacy rows captured before this
+  ///               wave landed. Also: captures recorded before the
+  ///               practitioner opted into self-verification (no
+  ///               reference embedding to compare against).
+  ///   * `true`  = MobileFaceNet matched the registered self at or
+  ///               above the cosine-similarity threshold. Feeds the
+  ///               publish-cost preview (PR #6) — a session where every
+  ///               exercise verified as self publishes free.
+  ///   * `false` = mismatch OR no face detected OR native pipeline
+  ///               threw. Conservative — unknown defaults to "not
+  ///               verified" so the publish path charges credits by
+  ///               default.
+  ///
+  /// Capture is NEVER blocked by a verification failure — the flag is
+  /// purely informational. Gym-equipment snapshots (no face), photos of
+  /// other people, and clips taken before consent are all valid
+  /// captures; only the publish cost diverges.
+  ///
+  /// Persistence: local SQLite `exercises.self_verified` (schema v47,
+  /// INTEGER 0/1/NULL) + Supabase `exercises.self_verified` (boolean
+  /// NULL, added in PR #1 — 20260525074056_self_trainer_wave.sql).
+  /// Round-trips through `replace_plan_exercises` on publish (PR #5
+  /// migration 20260525124222_self_verified_publish_plumbing.sql).
+  final bool? selfVerified;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -484,6 +514,7 @@ class ExerciseCapture {
     this.capturedInPremisesId,
     this.safeRawFilePath,
     this.safeModeAlgorithmVersion,
+    this.selfVerified,
   });
 
   /// Create a new capture with a generated UUID.
@@ -603,6 +634,12 @@ class ExerciseCapture {
       capturedInPremisesId: map['captured_in_premises_id'] as String?,
       safeRawFilePath: map['safe_raw_file_path'] as String?,
       safeModeAlgorithmVersion: map['safe_mode_algorithm_version'] as int?,
+      // Self-trainer PR #5: tri-state — null is the "not yet checked"
+      // marker (legacy / pre-consent rows) and must round-trip as null,
+      // not coerced to false.
+      selfVerified: map['self_verified'] == null
+          ? null
+          : (map['self_verified'] as int) != 0,
     );
   }
 
@@ -645,6 +682,10 @@ class ExerciseCapture {
       'captured_in_premises_id': capturedInPremisesId,
       'safe_raw_file_path': safeRawFilePath,
       'safe_mode_algorithm_version': safeModeAlgorithmVersion,
+      // Self-trainer PR #5: tri-state INTEGER 0/1/NULL. `null` must
+      // round-trip as null (not 0) so the publish-cost preview can
+      // distinguish "not yet checked" from "checked and unverified".
+      'self_verified': selfVerified == null ? null : (selfVerified! ? 1 : 0),
     };
   }
 
@@ -716,6 +757,8 @@ class ExerciseCapture {
     bool clearSafeRawFilePath = false,
     int? safeModeAlgorithmVersion,
     bool clearSafeModeAlgorithmVersion = false,
+    bool? selfVerified,
+    bool clearSelfVerified = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -793,6 +836,8 @@ class ExerciseCapture {
       safeModeAlgorithmVersion: clearSafeModeAlgorithmVersion
           ? null
           : (safeModeAlgorithmVersion ?? this.safeModeAlgorithmVersion),
+      selfVerified:
+          clearSelfVerified ? null : (selfVerified ?? this.selfVerified),
     );
   }
 

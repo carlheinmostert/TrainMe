@@ -1681,6 +1681,16 @@ class UploadService {
                 // column defaults exactly.
                 'safe_mode_active': e.safeModeActive,
                 'captured_in_premises_id': e.capturedInPremisesId,
+                // Self-trainer wave PR #5 (2026-05-25). Tri-state
+                // bool stamped at conversion time by
+                // ConversionService._runSelfVerification. NULL = not
+                // checked (no reference embedding registered, OR
+                // legacy capture pre-wave); 0 = mismatch / no face /
+                // pipeline error; 1 = MobileFaceNet matched the
+                // registered self. Round-trips through
+                // replace_plan_exercises so the publish-cost preview
+                // in PR #6 can aggregate it at the session level.
+                'self_verified': e.selfVerified,
               })
           .toList();
 

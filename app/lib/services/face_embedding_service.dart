@@ -340,6 +340,97 @@ class FaceEmbeddingService extends ChangeNotifier {
     return null;
   }
 
+  /// Self-trainer wave PR #5 (2026-05-25) — run the on-device
+  /// MobileFaceNet pipeline against [mediaPath] (an mp4/mov/m4v video
+  /// OR a jpg/jpeg/png/heic photo) and compare against [reference] (the
+  /// caller's own face embedding, read from
+  /// `practitioners.face_embedding` via [ApiClient.getMySelfFaceEmbedding]).
+  ///
+  /// Returns a [SelfVerificationOutcome] describing whether the subject
+  /// matched and the cosine distance (1.0 - similarity) for diagnostics.
+  ///
+  /// Failure modes (per `feedback_no_silent_fallbacks` — never silently
+  /// fudge into a false-positive verification):
+  ///   * `noFace` outcome — the native pipeline detected zero faces in
+  ///     any sampled frame. Conversion service treats this as
+  ///     `self_verified = false` (conservative).
+  ///   * `error` outcome — file missing, decode failure, embedder load
+  ///     failure, RPC timeout. The conversion service likewise stamps
+  ///     `self_verified = false` so unknown defaults to "not verified".
+  ///
+  /// The 30-second timeout is sized for a worst-case 3-frame video
+  /// sweep on a cold model + cold AVAssetReader; typical run is ~200ms.
+  /// Anything over 30s indicates a stuck native call worth surfacing.
+  Future<SelfVerificationOutcome> verifyAgainstReference({
+    required String mediaPath,
+    required List<double> reference,
+  }) async {
+    try {
+      final dynamic raw = await _selfFaceChannel
+          .invokeMethod<Object?>(
+            'verifyAgainstReference',
+            <String, dynamic>{
+              'mediaPath': mediaPath,
+              'referenceEmbedding': reference,
+            },
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (raw is! Map) {
+        debugPrint(
+          '[FaceEmbeddingService] verifyAgainstReference: unexpected '
+          'result shape ${raw.runtimeType} for $mediaPath',
+        );
+        return const SelfVerificationOutcome.error(
+          'Unexpected native result shape',
+        );
+      }
+      final map = Map<dynamic, dynamic>.from(raw);
+      final noFace = map['noFace'] == true;
+      if (noFace) {
+        if (_kDiagLogs) {
+          debugPrint(
+            '[FaceEmbeddingService] verifyAgainstReference: noFace '
+            'outcome for $mediaPath',
+          );
+        }
+        return const SelfVerificationOutcome.noFace();
+      }
+      final matched = map['matched'] == true;
+      final distRaw = map['distance'];
+      final double? distance = distRaw is num ? distRaw.toDouble() : null;
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEmbeddingService] verifyAgainstReference: '
+          'matched=$matched distance=$distance for $mediaPath',
+        );
+      }
+      return SelfVerificationOutcome.checked(
+        matched: matched,
+        distance: distance,
+      );
+    } on PlatformException catch (e) {
+      final msg = e.message?.trim().isNotEmpty == true
+          ? e.message!.trim()
+          : 'Self-verification failed (${e.code}).';
+      debugPrint(
+        '[FaceEmbeddingService] verifyAgainstReference PlatformException: '
+        '$msg for $mediaPath',
+      );
+      return SelfVerificationOutcome.error(msg);
+    } on MissingPluginException catch (_) {
+      return const SelfVerificationOutcome.error(
+        'Self-verification channel not registered',
+      );
+    } on TimeoutException catch (_) {
+      return const SelfVerificationOutcome.error(
+        'Self-verification timed out',
+      );
+    } catch (e) {
+      return SelfVerificationOutcome.error('Self-verification failed: $e');
+    }
+  }
+
   /// Cold-start rehydration entry point. Callers that already have the
   /// embedding bytes from local SQLite (`cached_clients.face_embedding`)
   /// can prime the in-memory state without re-running the native
@@ -517,4 +608,101 @@ class _ReadyEmbeddingState extends EmbeddingState {
 class _ErrorEmbeddingState extends EmbeddingState {
   final String message;
   const _ErrorEmbeddingState(this.message) : super._();
+}
+
+/// Self-trainer wave PR #5 (2026-05-25) — outcome of a
+/// capture-time self-verification compare run via
+/// [FaceEmbeddingService.verifyAgainstReference].
+///
+/// Three variants:
+///   * `checked`  — the native pipeline produced a result (faces were
+///                  detected and the embedding compared). [matched]
+///                  reflects whether the cosine similarity met the
+///                  threshold; [distance] is the cosine distance
+///                  (1 - sim) for diagnostics.
+///   * `noFace`   — no face was detected in any sampled frame. Benign
+///                  outcome (e.g. gym-equipment photo). The conversion
+///                  service stamps `self_verified = false`.
+///   * `error`    — file missing / decode failure / embedder load
+///                  failure / RPC timeout. The conversion service
+///                  likewise stamps `self_verified = false` so unknown
+///                  defaults to "not verified". [message] surfaces the
+///                  native error code for Console.app log inspection.
+@immutable
+class SelfVerificationOutcome {
+  final bool _checked;
+  final bool _matched;
+  final double? distance;
+  final bool _noFace;
+  final String? errorMessage;
+
+  const SelfVerificationOutcome._({
+    required bool checked,
+    required bool matched,
+    required this.distance,
+    required bool noFace,
+    required this.errorMessage,
+  })  : _checked = checked,
+        _matched = matched,
+        _noFace = noFace;
+
+  const factory SelfVerificationOutcome.checked({
+    required bool matched,
+    required double? distance,
+  }) = _CheckedSelfVerificationOutcome;
+
+  const factory SelfVerificationOutcome.noFace() =
+      _NoFaceSelfVerificationOutcome;
+
+  const factory SelfVerificationOutcome.error(String message) =
+      _ErrorSelfVerificationOutcome;
+
+  /// True iff the pipeline ran and matched the registered self.
+  bool get matched => _checked && _matched;
+
+  /// True iff no face was detected in any sampled frame.
+  bool get isNoFace => _noFace;
+
+  /// True iff the pipeline failed (hard error).
+  bool get isError => errorMessage != null;
+
+  /// Resolve the tri-state value to stamp on
+  /// `exercises.self_verified`. Per the brief: NULL is reserved for
+  /// "compare was not attempted" (e.g. no reference embedding). Once
+  /// the compare has actually run we stamp true/false explicitly —
+  /// `noFace` and `error` both resolve to false (conservative).
+  bool get verifiedValue => matched;
+}
+
+class _CheckedSelfVerificationOutcome extends SelfVerificationOutcome {
+  const _CheckedSelfVerificationOutcome({
+    required super.matched,
+    required super.distance,
+  }) : super._(
+          checked: true,
+          noFace: false,
+          errorMessage: null,
+        );
+}
+
+class _NoFaceSelfVerificationOutcome extends SelfVerificationOutcome {
+  const _NoFaceSelfVerificationOutcome()
+      : super._(
+          checked: true,
+          matched: false,
+          distance: null,
+          noFace: true,
+          errorMessage: null,
+        );
+}
+
+class _ErrorSelfVerificationOutcome extends SelfVerificationOutcome {
+  const _ErrorSelfVerificationOutcome(String message)
+      : super._(
+          checked: false,
+          matched: false,
+          distance: null,
+          noFace: false,
+          errorMessage: message,
+        );
 }
