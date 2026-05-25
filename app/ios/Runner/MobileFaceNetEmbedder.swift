@@ -157,6 +157,196 @@ final class MobileFaceNetEmbedder {
         }
     }
 
+    // MARK: - Subject pick (shared by v2 photo + v2 video paths)
+    //
+    // Shared "hybrid pick-highest" rule (per
+    // `docs/specs/2026-05-23-safe-mode-face-rec.md` and the multi-reference
+    // update `docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md`)
+    // factored out so the v2 photo (`applySafeModeV2ToPhoto`) and the v2
+    // video state machine (`SafeModeV2VideoProcessor`) make the same
+    // subject-vs-bystander decision frame for frame. Per-face cosSim is
+    // taken as the MAX over every entry in `slots` — multi-reference
+    // catches subjects at off-frontal angles whose frontal reference scores
+    // poorly but whose three-quarter or profile reference matches well.
+
+    /// Per-face cosine-similarity record handed back from `pickSubject`.
+    /// `cosSim` is the MAX cosSim across every reference slot (see
+    /// multi-reference spec). Indices align with the input `faces` array
+    /// the caller passed in — callers can map back to their own per-face
+    /// metadata (bbox, contour, etc.) by index.
+    struct FaceMatch {
+        public let index: Int
+        public let cosSim: Double
+        public init(index: Int, cosSim: Double) {
+            self.index = index
+            self.cosSim = cosSim
+        }
+    }
+
+    /// Branch the hybrid pick-highest rule fell into. Surfaced for
+    /// diagnostic logging — Carl's bench / device logs grep on this.
+    enum PickBranch: String {
+        /// Vision detected no faces in the frame. Caller runs no-subject
+        /// mode (silhouettes sharp, nothing to blur).
+        case noFaces       = "no-faces"
+        /// Vision detected faces BUT the client has no enrolled
+        /// embeddings, so subject identification can't be performed.
+        /// Caller should treat this as no-subject mode defensively;
+        /// upstream gating (`SafeModeService.subjectEmbedding`) should
+        /// have blocked the capture, so this branch is mostly diagnostic.
+        case noReferences  = "no-references"
+        case soloFloor     = "solo-floor"
+        case multiRelative = "multi-relative"
+    }
+
+    /// Result of `pickSubject(faces:slots:threshold:)`. `subjectIndex` is
+    /// non-nil iff `subjectIdentified == true`; when nil the caller should
+    /// run in no-subject mode (sharp silhouettes, only detected non-subject
+    /// faces blurred — matches the v2 photo no-subject branch).
+    struct SubjectPick {
+        public let subjectIndex: Int?
+        public let subjectIdentified: Bool
+        public let bestSim: Double
+        public let branch: PickBranch
+        public let matches: [FaceMatch]
+    }
+
+    /// Pick the subject face from a set of pre-extracted per-face
+    /// embeddings using the hybrid pick-highest rule:
+    ///
+    /// - **0 faces**  → no-subject mode (`branch = .noFaces`,
+    ///                  `subjectIdentified = false`).
+    /// - **1 face**   → solo branch. Trust practitioner intent UNLESS
+    ///                  the single face's cosSim is below the solo-floor
+    ///                  (`threshold`). Catches the bystander-alone-no-client
+    ///                  edge case without rejecting legitimate solo
+    ///                  selfies at sideways angles (Carl's worst was 0.25;
+    ///                  random bystander faces typically cluster
+    ///                  0.15–0.40; production default solo-floor 0.10).
+    /// - **2+ faces** → relative pick. The face with the highest cosSim
+    ///                  IS the subject; no absolute gate. Even if both
+    ///                  faces score low, one of them is closer to the
+    ///                  enrolled reference and that one wins.
+    ///
+    /// Per-face cosSim is the MAX across every entry in `slots` — the
+    /// multi-reference rule. Caller is responsible for ensuring every
+    /// element of `faceEmbeddings` is `embeddingByteLength` bytes (the
+    /// embed() pipeline guarantees this); mismatched element sizes
+    /// produce `Double.nan` cosSim values via `cosineSimilarity`.
+    ///
+    /// `slots` MUST contain at least one reference. With zero references
+    /// the function returns no-subject mode unconditionally — the caller
+    /// should have rejected the capture upstream (the `SafeModeService`
+    /// subjectEmbedding ValueListenable gate).
+    static func pickSubject(
+        faceEmbeddings: [Data],
+        slots: [Data],
+        soloFloor: Double
+    ) -> SubjectPick {
+        // Per-face cosSim = max over reference slots. Records assemble
+        // in the same order as `faceEmbeddings` so callers can index back
+        // into their own bbox / contour arrays.
+        var matches: [FaceMatch] = []
+        matches.reserveCapacity(faceEmbeddings.count)
+        for (i, faceEmbed) in faceEmbeddings.enumerated() {
+            var bestRefSim: Double = -2.0
+            for ref in slots {
+                let s = cosineSimilarity(faceEmbed, ref)
+                if s > bestRefSim { bestRefSim = s }
+            }
+            matches.append(FaceMatch(index: i, cosSim: bestRefSim))
+        }
+
+        // Pick the face with the highest cosSim across all references.
+        var bestIdx: Int? = nil
+        var bestSim: Double = -2.0
+        for m in matches {
+            if m.cosSim > bestSim {
+                bestSim = m.cosSim
+                bestIdx = m.index
+            }
+        }
+
+        let subjectIdentified: Bool
+        let branch: PickBranch
+        if matches.isEmpty {
+            subjectIdentified = false
+            branch = .noFaces
+        } else if slots.isEmpty {
+            // Faces detected but caller passed no enrolled references.
+            // Disambiguated from .noFaces — see PickBranch docs.
+            subjectIdentified = false
+            branch = .noReferences
+        } else if matches.count == 1 {
+            // Solo branch — trust practitioner intent unless cosSim is
+            // suspiciously low. The single-face threshold IS the solo
+            // floor here.
+            subjectIdentified = (bestSim >= soloFloor)
+            branch = .soloFloor
+        } else {
+            // 2+ faces — relative pick, no absolute gate.
+            subjectIdentified = true
+            branch = .multiRelative
+        }
+
+        return SubjectPick(
+            subjectIndex: subjectIdentified ? bestIdx : nil,
+            subjectIdentified: subjectIdentified,
+            bestSim: bestSim,
+            branch: branch,
+            matches: matches
+        )
+    }
+
+    /// Variant of `pickSubject` for callers that have already computed
+    /// the per-face MAX cosine similarity (i.e. they ran their own
+    /// embed + cosSim loop inline). Skips MobileFaceNet entirely —
+    /// applies only the hybrid pick-highest decision over the supplied
+    /// matches.
+    ///
+    /// Used by:
+    ///   - v2 photo path (`applySafeModeV2ToPhoto`) — keeps the embed
+    ///     loop in place so the per-face crops + contour polygons live
+    ///     on the existing `DetectedFace` struct.
+    ///   - v2 video path (`SafeModeV2VideoProcessor`) — same reasoning;
+    ///     the per-frame embed loop runs during seeding /
+    ///     re-confirmation, then the pre-computed cosSim values are
+    ///     handed to this picker.
+    static func pickSubjectFromPrecomputed(
+        matches: [FaceMatch],
+        soloFloor: Double
+    ) -> SubjectPick {
+        var bestIdx: Int? = nil
+        var bestSim: Double = -2.0
+        for m in matches {
+            if m.cosSim > bestSim {
+                bestSim = m.cosSim
+                bestIdx = m.index
+            }
+        }
+
+        let subjectIdentified: Bool
+        let branch: PickBranch
+        if matches.isEmpty {
+            subjectIdentified = false
+            branch = .noFaces
+        } else if matches.count == 1 {
+            subjectIdentified = (bestSim >= soloFloor)
+            branch = .soloFloor
+        } else {
+            subjectIdentified = true
+            branch = .multiRelative
+        }
+
+        return SubjectPick(
+            subjectIndex: subjectIdentified ? bestIdx : nil,
+            subjectIdentified: subjectIdentified,
+            bestSim: bestSim,
+            branch: branch,
+            matches: matches
+        )
+    }
+
     // MARK: - Loading
 
     private func loadIfNeeded() throws {
