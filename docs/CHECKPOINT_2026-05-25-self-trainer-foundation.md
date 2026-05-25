@@ -92,21 +92,86 @@ Two sub-agents spawned in parallel; results captured below.
 
 **No code-level deviations.** All four spec changes landed as specified: chip rename, capsule order swap, first-launch default, stub New Session FAB with SnackBar.
 
+---
+
+### Wave-2 PRs (spawned 2026-05-25 PM after PR #486 merged to staging)
+
+After PR #486 (schema) merged to staging at `1e81c4e`, three more sub-agents were spawned in parallel for independent briefs.
+
+### PR #3 — `feat/self-face-embedding` → staging
+
+**Status:** OPEN, most CI green, **one important deviation needs Carl's call**
+**URL:** https://github.com/carlheinmostert/TrainMe/pull/494
+**Files touched:** `app/ios/Runner/HomefitFaceEmbeddingChannel.swift` (new), `app/ios/Runner/AppDelegate.swift`, `app/ios/Runner.xcodeproj/project.pbxproj`, `app/lib/services/face_embedding_service.dart` (extended; already existed for Safe Mode v2 client enrolment), `app/lib/services/api_client.dart`, `supabase/migrations/20260525114912_register_self_face_rpc.sql` (new), `docs/test-scripts/2026-05-25-self-face-embedding.md` (new)
+
+**CI status:**
+- ✅ Flutter app (analyze + test)
+- ✅ Web portal, Web player, Web-player drift guard, Custom rules, Data access seams, Branch naming
+- ✅ Vercel previews (web-player + portal)
+- ⏳ Flutter build iOS (debug, no codesign): queued (Mac runner slow). Local sim build PASSED in 1092s.
+- ❌ Apply all migrations against Postgres 17: **pre-existing inherited from PR #486** — Postgres 17 container lacks pgvector extension. Supabase Preview (real env, authoritative) is the gating check.
+- ⏳ Supabase Preview / Populate vault.secrets: cancel / pending
+
+**Important deviation — needs your call:**
+- **The bundled `MobileFaceNet.mlmodel` emits 512-d embeddings, not 192-d.** The agent's migration `ALTER`s `practitioners.face_embedding` from `vector(192)` → `vector(512)` to match. Safe right now — column is NULL on every row (PR #486 only just added it; nothing reads or writes it yet). But this is a spec change you should consciously bless before merge rather than rubber-stamping.
+
+**Other (minor) deviations:**
+- `face_embedding_service.dart` already existed for Safe Mode v2 client-enrolment; agent added the new `computeForImage` method onto the existing singleton instead of creating a conflicting file. Good call.
+- Personal practice resolved as first-owned (with non-owner fallback) — ADR-0020 doesn't pin a column for this. Worth a quick eyeball.
+
+**No blockers.** The Postgres-17 migration-check failure predates this PR.
+
+### PR #7 — `feat/plan-artifacts-write` → staging
+
+**Status:** OPEN, CI mostly green, column-preservation work rigorous
+**URL:** https://github.com/carlheinmostert/TrainMe/pull/493
+**Files touched:** new migration `supabase/migrations/20260525094931_plan_artifacts_on_publish.sql`, `web-player/api.js`, `web-player/sw.js` (cache name bump + dated entry per `feedback_always_bump_sw_on_player_change`), `app/lib/services/api_client.dart`, models touched, `app/assets/web-player/{api,app}.js` mirror synced via `cp` after the auto-backgrounded `dart run` sync, `docs/test-scripts/2026-05-25-plan-artifacts-write.md` (new)
+
+**CI status:**
+- ✅ Supabase Preview (the authoritative migration validator — runs against a real env that has pgvector)
+- ✅ web-player-drift-guard, Branch naming, Custom rules, Data access seams (Python), Web player (node --check), Web portal build, Vercel previews, ios-impact labeller
+- ⏳ Flutter app (analyze + test), web portal build (second run), vault.secrets populate
+- ❌ Apply all migrations against Postgres 17: **pre-existing inherited from PR #486's `CREATE EXTENSION vector;` (line 52). Out of scope for this PR.** Same as PR #3.
+
+**Column-preservation rigour** (this is the headline — `feedback_schema_migration_column_preservation` lives here):
+- `consume_credit(uuid, uuid, integer)` — live signature fetched via `pg_get_functiondef` on staging. **Preserved all 5 input-validation branches, the prepaid-unlock fast path, the insufficient-credits early return, the normal debit path, and all 3 distinct jsonb return shapes.** Only addition: two upsert blocks (one per success branch) writing to `plan_artifacts`.
+- `get_plan_full(uuid)` — live signature fetched the same way. **Preserved every key in plan jsonb (`to_jsonb(plan_row)` + `brand_color` + `public_logo_url` + `practice_name`) and every per-exercise key (`line_drawing_url`, `grayscale_url`, `original_url`, `grayscale_segmented_url`, `original_segmented_url`, `mask_url`, `sets`, `rest_seconds`, `thumbnail_url_*`, plus all `to_jsonb(e)` columns).** Preserved the `first_opened_at` UPDATE side-effect and the `vault.decrypted_secrets` lookup. Only addition: top-level `artifacts` key from a `jsonb_agg` subquery.
+
+**No deviations** beyond a minor note: SW comment-trail entry added per the brief's hard rule even though the 2026-05-25 SW rewrite retires the manual-bump ritual (`__BUILD_SHA__` rewrite handles eviction). Defensive — fine.
+
+**No blockers.**
+
+### PR #11 — `feat/self-trainer-privacy-docs` → staging
+
+**Status:** OPEN, CI green, **legal review required before merge**
+**URL:** https://github.com/carlheinmostert/TrainMe/pull/492
+**Files touched:** `web-portal/src/app/privacy/page.tsx` (+92 lines as 5(d) sub-section under "What information we collect"), `app/ios/Runner/PrivacyInfo.xcprivacy` (one `NSPrivacyCollectedDataType` entry added), `docs/app-store-connect-privacy.md` (line item added)
+
+**CI status:** Early signals all green — web-player drift guard, Branch naming, Custom rules, Data access seams, Web player node check, web-portal Vercel preview. Web portal build + Flutter pending but local builds were green.
+
+**Manifest enum chosen:** `NSPrivacyCollectedDataTypeSensitiveInfo`. Apple's manifest taxonomy has no dedicated biometric enum — Sensitive Info is the canonical bucket per Apple's "Describing data use in privacy manifests" docs which explicitly list biometric data under it. Rationale captured as an XML comment in `PrivacyInfo.xcprivacy` and in the rationale column of `docs/app-store-connect-privacy.md` row 9.
+
+**No code-level deviations.** Three minor adds beyond strict brief: chosen-enum rationale comment for future agents, three "8 rows" → "9 rows" consistency updates in the ASC checklist, `[lawyer-review:]` prefix exactly as suggested for greppability.
+
+**Action needed from Carl + ZA lawyer:** the three `[lawyer-review:]` bracketed placeholders in the new privacy section. PR body has an explicit "Legal review required before merge" callout.
+
+---
+
 ## What's queued (held briefs)
 
 Files under `docs/sub-agent-briefs/`. One per held PR. Each carries: target branch, target merge (staging), repo-relative paths, RPC-only DB access rule, R-10 parity flag, test script requirement.
 
-| Brief | PR | Held because |
+| Brief | PR | Status |
 |---|---|---|
-| `03-self-face-embedding.md` | iOS native MobileFaceNet embedding + RPC wire-up | Native iOS code; needs device testing |
-| `04-self-trainer-consent.md` | Public profile consent UI + lazy backfill | POPIA-sensitive copy needs review |
-| `05-self-verification-capture.md` | Capture-time verification + self_verified stamping | Touches `conversion_service.dart` (sensitive zone) |
-| `06-publish-cost-preview.md` | Publish cost preview + consume_credit conditional | `consume_credit` is a sensitive client RPC |
-| `07-plan-artifacts-write.md` | plan_artifacts row on publish + get_plan_full extension | `get_plan_full` is the anon-callable surface |
-| `08-safe-mode-subscription-gate.md` | Subscription gate at capture entry + paywall sheet | Billing-sensitive |
-| `09-my-workouts-body.md` | My Workouts body wiring + FAB behaviour + cards | Depends on #4 + #5 + #6 |
-| `10-self-trainer-migration-banner.md` | Migration in-app banner | Copy needs Carl review |
-| `11-self-trainer-privacy-docs.md` | Privacy policy delta + PrivacyInfo.xcprivacy update | Legal — ZA lawyer red-pen needed |
+| `03-self-face-embedding.md` | iOS native MobileFaceNet embedding + RPC wire-up | **SPAWNED → PR #494 OPEN** (see Wave-2 PRs above) |
+| `04-self-trainer-consent.md` | Public profile consent UI + lazy backfill | Held — POPIA-sensitive copy needs review |
+| `05-self-verification-capture.md` | Capture-time verification + self_verified stamping | Held — touches `conversion_service.dart` (sensitive zone) |
+| `06-publish-cost-preview.md` | Publish cost preview + consume_credit conditional | Held — `consume_credit` is a sensitive client RPC |
+| `07-plan-artifacts-write.md` | plan_artifacts row on publish + get_plan_full extension | **SPAWNED → PR #493 OPEN** (see Wave-2 PRs above) |
+| `08-safe-mode-subscription-gate.md` | Subscription gate at capture entry + paywall sheet | Held — billing-sensitive |
+| `09-my-workouts-body.md` | My Workouts body wiring + FAB behaviour + cards | Held — depends on #4 + #5 + #6 |
+| `10-self-trainer-migration-banner.md` | Migration in-app banner | Held — copy needs Carl review |
+| `11-self-trainer-privacy-docs.md` | Privacy policy delta + PrivacyInfo.xcprivacy update | **SPAWNED → PR #492 OPEN** (see Wave-2 PRs above) — ZA lawyer red-pen still required for merge |
 
 Recommended spawn order is in `docs/sub-agent-briefs/README.md`.
 
