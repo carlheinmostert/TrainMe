@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import 'auth_service.dart';
+import 'conversion_service.dart';
 
 /// A single item in the in-memory exercise clipboard (2026-05-25).
 ///
@@ -31,6 +33,18 @@ class ClipboardItem {
   /// session may have been renamed or deleted. The deep-copy machinery
   /// reads from the *current* exercise row, not from this snapshot.
   final String sourceSessionId;
+
+  /// The practice the source row belonged to at copy time. Stamped from
+  /// the source session's `practiceId` (or, if the session row has none
+  /// — the local SQLite mirror drops it per
+  /// `gotcha_session_practice_id_local_only` — from
+  /// `AuthService.currentPracticeId` as a fallback). Drives the D1
+  /// single-practice-scope guard: only items whose `practiceId` matches
+  /// the active practice are visible in the chip / paste sheet.
+  /// Null is treated as "no scope" and always visible — defensive for
+  /// edge cases where neither the session nor the auth layer can
+  /// supply a practice id (signed-out test fixtures, etc.).
+  final String? practiceId;
 
   /// Practitioner-facing label captured at copy time. Render-only — if
   /// the source row's name changes after copy, the chip + sheet keep
@@ -67,6 +81,7 @@ class ClipboardItem {
     required this.sourceSessionId,
     required this.copiedAt,
     required this.displayMediaType,
+    this.practiceId,
     this.displayName,
     this.displayThumbPath,
     this.displayHeroCropOffset,
@@ -83,48 +98,122 @@ class ClipboardItem {
 /// Riverpod). Owned for the entire app lifetime; never disposed. Clears
 /// on cold-start by virtue of being in-memory only (D3).
 ///
-/// Scope at v1: single-practice only (D1). The service does not encode
-/// the practice id — callers in the Studio surface are responsible for
-/// not exposing copy / paste across practice boundaries. Today (single-
-/// iPhone, single-practice common case) this is enforced implicitly by
-/// the Studio chrome only showing one practice at a time.
+/// Scope at v1: single-practice only (D1). Each [ClipboardItem] stamps
+/// the `practiceId` it was copied under (preferring the source session's
+/// id, falling back to [AuthService.currentPracticeId]). The public
+/// [items] / [count] views filter to the ACTIVE practice — items copied
+/// in practice A become invisible (but stay in memory) when the
+/// practitioner switches to practice B, then reappear when they switch
+/// back. Switching practices is NOT a clipboard clear; the spec is
+/// explicit that the clipboard is transient by lifecycle (D3) but not by
+/// practice-switch.
+///
+/// The service subscribes to [AuthService.currentPracticeId] in its
+/// constructor so a practice switch fires [notifyListeners] / the
+/// [countStream] without needing every consumer to listen to two
+/// notifiers.
 ///
 /// See `docs/specs/2026-05-25-exercise-clipboard.md` for the full
 /// design + locked decisions.
 class ClipboardService extends ChangeNotifier {
-  ClipboardService._();
+  ClipboardService._() {
+    // Bridge practice switches into the chip / sheet's rebuild path so
+    // the visible-count flips immediately when the practitioner picks a
+    // different practice in the switcher.
+    AuthService.instance.currentPracticeId.addListener(_onPracticeChanged);
+  }
 
   static final ClipboardService _instance = ClipboardService._();
 
   /// The singleton instance. Lives for the entire app lifetime.
   static ClipboardService get instance => _instance;
 
+  /// Internal raw store — holds items from EVERY practice the
+  /// practitioner has touched in this session. Public views filter to
+  /// the active practice; switching practices doesn't drop rows here.
   final List<ClipboardItem> _items = <ClipboardItem>[];
   final _countController = StreamController<int>.broadcast();
 
-  /// Snapshot of the current clipboard contents, oldest-first (FIFO).
-  /// Returns an unmodifiable view so listeners can iterate safely.
-  List<ClipboardItem> get items => List<ClipboardItem>.unmodifiable(_items);
+  /// Stream subscription on [ConversionService.onExerciseRemoved], owned
+  /// by [bindToConversionService] so a re-bind is idempotent (we cancel
+  /// the prior subscription before re-subscribing).
+  StreamSubscription<ExerciseRemoval>? _conversionRemovalSub;
 
-  /// Number of items in the clipboard. Chip visibility flips at the
-  /// 0 → 1 transition.
-  int get count => _items.length;
+  /// Snapshot of the clipboard contents, oldest-first (FIFO), filtered
+  /// to the active practice per D1. Returns an unmodifiable view so
+  /// listeners can iterate safely.
+  List<ClipboardItem> get items =>
+      List<ClipboardItem>.unmodifiable(_visibleItems());
 
-  /// Whether the clipboard currently holds any items. Equivalent to
-  /// `count > 0` — surfaced so chip-visibility callsites read naturally.
-  bool get isNotEmpty => _items.isNotEmpty;
+  /// Number of items in the clipboard visible to the active practice.
+  /// Chip visibility flips at the 0 → 1 transition of this filtered count.
+  int get count => _visibleItems().length;
 
-  /// Broadcast stream of the item count. Emits the latest count on every
-  /// mutation. Used by `ClipboardChip` to drive a fade-in / fade-out
+  /// Whether the clipboard currently holds any items visible to the
+  /// active practice. Equivalent to `count > 0` — surfaced so chip-
+  /// visibility callsites read naturally.
+  bool get isNotEmpty => count > 0;
+
+  /// Broadcast stream of the visible item count. Emits the latest
+  /// active-practice-filtered count on every mutation OR practice
+  /// switch. Used by `ClipboardChip` to drive a fade-in / fade-out
   /// transition without forcing every consumer to subscribe as a
   /// listener.
   Stream<int> get countStream => _countController.stream;
+
+  /// Apply the D1 practice filter to the raw store. Items whose
+  /// [ClipboardItem.practiceId] is null are treated as scope-less and
+  /// always visible — defensive for fixtures and pre-stamp legacy rows
+  /// that won't exist in production but might in tests.
+  List<ClipboardItem> _visibleItems() {
+    final activePracticeId = AuthService.instance.currentPracticeId.value;
+    if (activePracticeId == null) {
+      // Signed-out / unbootstrapped — show everything; there's no
+      // practice boundary to enforce yet.
+      return _items;
+    }
+    return _items.where((item) {
+      // Null practiceId on the item = scope-less, always visible.
+      // Match on string equality otherwise.
+      return item.practiceId == null || item.practiceId == activePracticeId;
+    }).toList(growable: false);
+  }
+
+  /// React to the practitioner picking a different practice in the
+  /// switcher. Doesn't mutate `_items`; just re-emits so the chip /
+  /// sheet rebuild against the new visible slice.
+  void _onPracticeChanged() {
+    _emit();
+  }
+
+  /// Subscribe to [ConversionService.onExerciseRemoved] so Safe Mode
+  /// rejections (and any other future removal events) prune the
+  /// clipboard immediately, even when no Studio screen is mounted to
+  /// dispatch [notifySourceDeleted] itself.
+  ///
+  /// Idempotent — calling twice cancels the prior subscription before
+  /// re-subscribing, so accidental double-binding from a hot-reload or
+  /// a defensively-called bootstrap path won't double-fire the prune.
+  /// Wired once at app startup from `main.dart` after
+  /// [ConversionService] is initialized.
+  void bindToConversionService(ConversionService conversionService) {
+    _conversionRemovalSub?.cancel();
+    _conversionRemovalSub =
+        conversionService.onExerciseRemoved.listen((removal) {
+      notifySourceDeleted(removal.exerciseId);
+    });
+  }
 
   /// Add an exercise to the clipboard. De-duplicates by
   /// `sourceExerciseId` — re-copying the same source is a no-op (the
   /// chip still pulses on the caller side so the gesture is
   /// acknowledged, but the count doesn't bump). Rest periods are
   /// ignored — copy doesn't apply to session-structural rows.
+  ///
+  /// Stamps the item's [ClipboardItem.practiceId] from the source
+  /// session, falling back to [AuthService.currentPracticeId] when the
+  /// session row's `practiceId` is null (the local SQLite mirror drops
+  /// it per `gotcha_session_practice_id_local_only`).
   ///
   /// Returns the newly-added [ClipboardItem], or `null` when the call
   /// was a no-op (duplicate / rest period).
@@ -142,6 +231,8 @@ class ClipboardService extends ChangeNotifier {
       id: const Uuid().v4(),
       sourceExerciseId: source.id,
       sourceSessionId: sourceSession.id,
+      practiceId: sourceSession.practiceId ??
+          AuthService.instance.currentPracticeId.value,
       copiedAt: DateTime.now(),
       displayMediaType: source.mediaType,
       displayName: source.name,
@@ -168,10 +259,12 @@ class ClipboardService extends ChangeNotifier {
   /// React to an exercise deletion event by removing every clipboard
   /// item that pointed at the now-gone row (E1 — reactive pruning).
   ///
-  /// Called by the `ClipboardService.bindToConversionService` wiring on
-  /// app start. Idempotent — passing an id with no matching items is a
-  /// no-op, so it's safe to call from multiple sources (the Safe Mode
-  /// rejection path + the Studio delete path both feed in).
+  /// Driven by [bindToConversionService] which subscribes to
+  /// [ConversionService.onExerciseRemoved] once at app startup so the
+  /// pruning fires globally, not just when Studio is mounted.
+  /// Idempotent — passing an id with no matching items is a no-op, so
+  /// it's safe to call from multiple sources (the Safe Mode rejection
+  /// path + the Studio delete path both feed in).
   void notifySourceDeleted(String sourceExerciseId) {
     final before = _items.length;
     _items.removeWhere(
@@ -199,15 +292,31 @@ class ClipboardService extends ChangeNotifier {
     }
   }
 
-  /// Clear every item. Wired to the chip's `×` button and the paste
-  /// sheet's `× Clear all` header control.
+  /// Clear every item visible to the active practice. Wired to the
+  /// chip's `×` button and the paste sheet's `× Clear all` header
+  /// control. Items copied under OTHER practices stay intact — clearing
+  /// the chip in practice A doesn't dump practice B's clipboard.
   void clearAll() {
-    if (_items.isEmpty) return;
-    _items.clear();
-    _emit();
+    final activePracticeId = AuthService.instance.currentPracticeId.value;
+    final before = _items.length;
+    if (activePracticeId == null) {
+      // No active practice — clear everything (signed-out edge / tests).
+      if (_items.isEmpty) return;
+      _items.clear();
+    } else {
+      _items.removeWhere((item) =>
+          item.practiceId == null || item.practiceId == activePracticeId);
+    }
+    if (_items.length != before) {
+      _emit();
+    }
   }
 
-  /// Lookup helper — null when the id doesn't match.
+  /// Lookup helper — null when the id doesn't match. Searches the raw
+  /// store, not the filtered view, so callers holding an id from a
+  /// prior practice still resolve it. The visible-items filter is a
+  /// UI affordance; the deep-copy machinery on paste is allowed to see
+  /// any item whose id was previously surfaced.
   ClipboardItem? itemById(String itemId) {
     for (final item in _items) {
       if (item.id == itemId) return item;
@@ -217,7 +326,7 @@ class ClipboardService extends ChangeNotifier {
 
   void _emit() {
     if (!_countController.isClosed) {
-      _countController.add(_items.length);
+      _countController.add(count);
     }
     notifyListeners();
   }
@@ -226,6 +335,8 @@ class ClipboardService extends ChangeNotifier {
   void dispose() {
     // Defensive — singleton lives for the app's lifetime, but keep the
     // contract honest in case tests construct + tear down siblings.
+    AuthService.instance.currentPracticeId.removeListener(_onPracticeChanged);
+    _conversionRemovalSub?.cancel();
     _countController.close();
     super.dispose();
   }

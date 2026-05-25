@@ -50,6 +50,16 @@ import 'path_resolver.dart';
 ///   * `lineDrawingUrl` / `grayscaleUrl` / `originalUrl` — null (runtime-
 ///     only fields populated by `get_plan_full` at publish-fetch time).
 ///
+/// **`archivedAt` / `rawArchiveUploadedAt` asymmetry (N-7):**
+/// `archivedAt` carries from the source because it describes the
+/// captured footage — when the local 720p archive was written. The
+/// underlying mp4 bytes are the same, just under a new path keyed on
+/// the new exercise id. `rawArchiveUploadedAt` resets to null because
+/// it describes THIS row's cloud-upload state, keyed on its own UUID;
+/// the new id hasn't been uploaded to `raw-archive` yet and the
+/// publish flow needs to see a null here to know it must run the
+/// upload.
+///
 /// **Stripped:**
 ///   * `circuitId` → null. Circuit membership is session-structural and
 ///     does not survive cross-session paste. A future "Copy circuit"

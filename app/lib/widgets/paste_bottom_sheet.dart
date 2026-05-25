@@ -314,41 +314,121 @@ class _LockedCta extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton.icon(
-      onPressed: onPressed,
-      icon: const Icon(Icons.lock_outline, size: 16),
-      label: Text(
-        count == 1
-            ? 'Unlock to paste 1 item · 1 credit'
-            : 'Unlock to paste $count items · 1 credit',
-        style: const TextStyle(
-          fontFamily: 'Montserrat',
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
-          letterSpacing: 0.3,
-        ),
+    // Per the mockup's "locked" CTA — surface-raised background, coral
+    // foreground, DASHED coral border (S-6). Flutter's ElevatedButton
+    // can't render dashed sides natively so we wrap a borderless
+    // ElevatedButton in a [CustomPaint] that strokes the dashed RRect
+    // perimeter ourselves.
+    const radius = 14.0;
+    final borderColor = onPressed == null
+        ? AppColors.primary.withValues(alpha: 0.18)
+        : AppColors.primary.withValues(alpha: 0.55);
+    return CustomPaint(
+      foregroundPainter: _DashedBorderPainter(
+        color: borderColor,
+        radius: radius,
+        strokeWidth: 1.2,
+        dashLength: 5,
+        gapLength: 4,
       ),
-      style: ElevatedButton.styleFrom(
-        // Per the mockup's "locked" CTA — surface-raised background +
-        // coral foreground + dashed coral border. ElevatedButton doesn't
-        // natively render dashed borders so we fall back to a solid 1px
-        // coral border at 30% alpha (the mockup token is
-        // brand-tint-border).
-        backgroundColor: AppColors.surfaceRaised,
-        foregroundColor: AppColors.primary,
-        disabledBackgroundColor: AppColors.surfaceRaised,
-        disabledForegroundColor: AppColors.primary.withValues(alpha: 0.45),
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: AppColors.primary.withValues(alpha: 0.30),
-            width: 1,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.lock_outline, size: 16),
+        label: Text(
+          count == 1
+              ? 'Unlock to paste 1 item · 1 credit'
+              : 'Unlock to paste $count items · 1 credit',
+          style: const TextStyle(
+            fontFamily: 'Montserrat',
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            letterSpacing: 0.3,
           ),
         ),
-        elevation: 0,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.surfaceRaised,
+          foregroundColor: AppColors.primary,
+          disabledBackgroundColor: AppColors.surfaceRaised,
+          disabledForegroundColor: AppColors.primary.withValues(alpha: 0.45),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          // No native side here — the dashed border is painted on top
+          // by [_DashedBorderPainter]. A 0-width side keeps the button's
+          // hit area the same as the painted outline.
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(radius),
+            side: BorderSide.none,
+          ),
+          elevation: 0,
+        ),
       ),
     );
+  }
+}
+
+/// Paints a dashed stroke around a rounded-rectangle perimeter.
+///
+/// Used by [_LockedCta] (S-6) to satisfy the mockup's dashed coral
+/// border without pulling in a third-party `dotted_border` dependency.
+/// The math walks the perimeter via [PathMetric.extractPath] so the
+/// dash pattern hugs the rounded corners cleanly. Stroke width and the
+/// dash / gap geometry are tuned to match the mockup's visual density
+/// (4-5 px dash, 4 px gap at the default radius).
+class _DashedBorderPainter extends CustomPainter {
+  final Color color;
+  final double radius;
+  final double strokeWidth;
+  final double dashLength;
+  final double gapLength;
+
+  _DashedBorderPainter({
+    required this.color,
+    required this.radius,
+    required this.strokeWidth,
+    required this.dashLength,
+    required this.gapLength,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Inset by half the stroke width so the outer edge of the dash
+    // aligns with the button's rounded-rect bounds (Flutter strokes
+    // centre-aligned by default).
+    final inset = strokeWidth / 2;
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        inset,
+        inset,
+        size.width - 2 * inset,
+        size.height - 2 * inset,
+      ),
+      Radius.circular(radius - inset),
+    );
+    final perimeter = Path()..addRRect(rrect);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.butt;
+
+    for (final metric in perimeter.computeMetrics()) {
+      double distance = 0;
+      while (distance < metric.length) {
+        final next = (distance + dashLength).clamp(0.0, metric.length);
+        final dash = metric.extractPath(distance, next);
+        canvas.drawPath(dash, paint);
+        distance = next + gapLength;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedBorderPainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.radius != radius ||
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.dashLength != dashLength ||
+        oldDelegate.gapLength != gapLength;
   }
 }
 

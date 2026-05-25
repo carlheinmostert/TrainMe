@@ -1380,6 +1380,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// Wired to the chip's body. Opens the paste bottom sheet (D7) and
   /// runs the integrated unlock-then-paste flow on confirmation (E2)
   /// when the current session is past its 14-day structural-edit grace.
+  ///
+  /// S-4: the unlock branch reads the explicit `Future<bool>` return
+  /// from [_openUnlockSheet] rather than re-reading [_isPlanLocked] on
+  /// the next frame. The previous shape silently bailed when the lock
+  /// flag hadn't flipped in time — a no-feedback failure that violates
+  /// [feedback_no_silent_fallbacks]. Now an unlock failure surfaces a
+  /// SnackBar that tells the practitioner the clipboard is preserved
+  /// for retry.
   Future<void> _openPasteSheet() async {
     if (ClipboardService.instance.count == 0) return;
     final result = await showPasteBottomSheet(
@@ -1389,13 +1397,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (!mounted || result.isCancelled) return;
 
     if (result.wantsUnlock) {
-      // Locked-target branch — run the existing unlock sheet first.
-      await _openUnlockSheet();
+      // Locked-target branch — run the existing unlock sheet first and
+      // branch on its explicit success / failure signal.
+      final unlocked = await _openUnlockSheet();
       if (!mounted) return;
-      // If the unlock didn't land (insufficient credits, cancel), the
-      // plan is still locked. Bail without pasting; the practitioner
-      // can re-open the chip later.
-      if (_isPlanLocked) return;
+      if (!unlocked) {
+        // Unlock didn't land (cancelled, insufficient credits, RPC
+        // error). The clipboard items already persist by D7 contract;
+        // tell the practitioner why we stopped so they can retry once
+        // the underlying issue is resolved.
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Unlock didn't complete — clipboard items kept for retry.",
+              ),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        return;
+      }
     }
     await _pasteFromClipboard(result.selectedItemIds);
   }
@@ -1881,9 +1903,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                     // Wave 30 — tapping Publish on a still-mid-grace plan
                     // routes to the unlock sheet (two-tap UX so the
                     // practitioner sees the unlocked state before the
-                    // republish).
-                    onPublishLockedTap: _openUnlockSheet,
-                    onUnlockTap: _openUnlockSheet,
+                    // republish). Toolbar callbacks are VoidCallback so
+                    // we wrap the `Future<bool>` return from
+                    // [_openUnlockSheet] in an unawaited shim; the
+                    // bool branch is only consumed by the S-4 paste-
+                    // then-unlock flow.
+                    onPublishLockedTap: () => unawaited(_openUnlockSheet()),
+                    onUnlockTap: () => unawaited(_openUnlockSheet()),
                     onShowPublishError: () {
                       final err = _publishError;
                       if (err != null) {
@@ -1979,20 +2005,24 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               ),
             ),
       actions: [
+        // S-5 — settings cog comes FIRST so the Exercise Clipboard chip
+        // sits at the trailing edge of the AppBar per the
+        // `docs/design/mockups/2026-05-25-exercise-clipboard.html`
+        // layout (chip is the last `actions:` entry).
+        _StudioAppBarSettingsButton(
+          onTap: _openPlanSettings,
+          showDot: settingsDeviateFromDefaults(_session),
+        ),
         // Exercise Clipboard chip — visible only when count >= 1
-        // (D5 in `docs/specs/2026-05-25-exercise-clipboard.md`).
-        // Lives BEFORE the settings cog so the chip sits closest to
-        // the AppBar's centre (matches the mockup layout). Tap the
-        // chip body to open the paste sheet; tap `×` to clear all.
+        // (D5 in `docs/specs/2026-05-25-exercise-clipboard.md`). Lives
+        // LAST in `actions:` so it pins to the trailing edge per the
+        // mockup. Tap the chip body to open the paste sheet; tap `×`
+        // to clear all.
         ClipboardChip(
           key: _clipboardChipKey,
           pulseTrigger: _clipboardPulseCounter,
           onTap: _openPasteSheet,
           onClearAll: _clearClipboard,
-        ),
-        _StudioAppBarSettingsButton(
-          onTap: _openPlanSettings,
-          showDot: settingsDeviateFromDefaults(_session),
         ),
       ],
     );
@@ -3288,7 +3318,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// `unlock_plan_for_edit`; on success the next publish is free
   /// (server-side `consume_credit` reads + clears the flag). Insufficient
   /// credits surfaces the same publish-error snackbar path.
-  Future<void> _openUnlockSheet() async {
+  ///
+  /// Returns `true` when the unlock landed end-to-end (sheet confirmed
+  /// AND the RPC returned `ok: true`); `false` when the practitioner
+  /// backed out, dismissed the sheet, the RPC threw, or the server
+  /// reported insufficient credits / another failure reason. Callers
+  /// (S-4 paste-then-unlock flow) branch on the return; legacy
+  /// VoidCallback callsites discard the boolean.
+  Future<bool> _openUnlockSheet() async {
     HapticFeedback.selectionClick();
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
@@ -3376,7 +3413,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         ),
       ),
     );
-    if (!mounted || confirmed != true) return;
+    if (!mounted || confirmed != true) return false;
 
     Map<String, dynamic> response;
     try {
@@ -3384,12 +3421,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         planId: _session.id,
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       _showPublishErrorSnackBar('Unlock failed: $e');
-      return;
+      return false;
     }
 
-    if (!mounted) return;
+    if (!mounted) return false;
     if (response['ok'] == true) {
       // Stamp local mirror so `_isPlanLocked` flips immediately; the
       // cloud row will re-confirm on the next session reload via
@@ -3410,6 +3447,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           duration: Duration(seconds: 3),
         ),
       );
+      return true;
     } else if (response['reason'] == 'insufficient_credits') {
       final balance = response['balance'];
       // Apple Reader-App compliance (Guideline 3.1.1): the previous
@@ -3420,10 +3458,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       _showPublishErrorSnackBar(
         'Not enough credits to unlock. Balance: ${balance ?? 0}.',
       );
+      return false;
     } else {
       _showPublishErrorSnackBar(
         'Unlock failed: ${response['reason'] ?? 'unknown'}',
       );
+      return false;
     }
   }
 
