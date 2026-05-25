@@ -6155,7 +6155,7 @@ enum SafeModeV2VideoProcessor {
                 subjectBboxPixelTopLeft = nil
                 return StateMachineDecision(subjectFaceIdx: nil)
             }
-            let trackResult = trackReq.results?.first
+            let trackResult = trackReq.results?.first as? VNDetectedObjectObservation
             if let r = trackResult, r.confidence >= trackerConfidenceFloor {
                 trackObservation = r
                 subjectBboxNormalized = r.boundingBox
