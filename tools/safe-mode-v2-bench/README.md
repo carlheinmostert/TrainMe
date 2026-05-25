@@ -1,14 +1,21 @@
 # safe-mode-v2-bench
 
 A standalone macOS command-line tool that mirrors the Safe Mode v2
-photo pipeline from `app/ios/Runner/VideoConverterChannel.swift` byte-
-for-byte. Built to debug the all-frame-blur bug that lands on device
-when the cosine-similarity test silently rejects every face — NSLog
-output is invisible via `idevicesyslog` on this wave, so iterating on
-device is painfully slow. This tool runs the same pipeline on Carl's
-dev machine, prints every internal decision (per-face cosSim, subject
-choice, mask coverage, blur fraction), and writes the safe-variant JPG
-where you can eyeball it.
+pipelines from `app/ios/Runner/VideoConverterChannel.swift` byte-for-
+byte. Two modes:
+
+- **Photo** (`--photo <path.jpg>`) — mirrors `applySafeModeV2ToPhoto`.
+  Originally built to debug the all-frame-blur bug when the cosine-
+  similarity test silently rejected every face. Prints every internal
+  decision (per-face cosSim, subject choice, mask coverage, blur
+  fraction) and writes the safe-variant JPG.
+- **Video** (`--video <path.mp4>`) — mirrors `SafeModeV2VideoProcessor`.
+  Runs the hybrid state machine (first-frame identify + Vision tracker
+  + sparse re-confirm via face-rec every 2s) frame-for-frame and emits
+  per-clip stats (subject identification rate, re-confirm / re-seed /
+  tracker-loss event counts, avg cosSim, miss rate, wall clock, realtime
+  ratio). Use `generate_video_report.py` for the side-by-side HTML
+  report Carl reads before approving device QA.
 
 ## Table of Contents
 
@@ -172,20 +179,66 @@ back to GPU and you might see slightly different mask edges — Apple
 documents this but we haven't observed it materially affecting the
 flood-fill or composite outputs.
 
+## Run a video bench (with HTML report)
+
+The video bench is wired to the side-by-side report Carl reads before
+approving any Safe Mode device QA (per `feedback_safe_mode_bench_report`).
+
+```bash
+# 1. Drop 3-5 short test clips (5-15s each) into samples/
+#    covering the scenarios from docs/specs/2026-05-25-safe-mode-v2-video.md §7:
+#      solo subject / bystander pass / crossover / first-frame fail / occlusion
+ls samples/
+# selfie_solo.mp4
+# bystander_pass.mp4
+# crossover.mp4
+# back_then_front.mp4
+# occlusion.mp4
+
+# 2. Pull the practitioner's embedding (same as photo bench, --help fetch_embedding.sh)
+./fetch_embedding.sh <client-uuid> > samples/embedding.bin
+
+# 3. Render the report
+python3 generate_video_report.py \
+  --bench . \
+  --embedding samples/embedding.bin \
+  --output "/Users/chm/Desktop/Safe Mode Bench Report.html"
+
+# 4. Carl opens the HTML, eyeballs each pair, signs off on device QA.
+open "/Users/chm/Desktop/Safe Mode Bench Report.html"
+```
+
+The report writes safe variants to `/tmp/safe_mode_v2_video_bench/`
+by default. Re-running with `--skip-bench` skips the (slow) bench run
+and re-renders the HTML against the cached outputs.
+
+Single-clip mode for ad-hoc tuning (no HTML report, just stdout stats):
+
+```bash
+swift run SafeModeBench \
+  --video samples/selfie_solo.mp4 \
+  --embedding samples/embedding.bin \
+  --threshold 0.55 \
+  --reconfirm-interval-sec 2.0 \
+  --output /tmp/selfie_solo_safe.mp4
+```
+
 ## Files
 
 ```
-Package.swift                                  # SwiftPM manifest (Swift 6 / macOS 15)
-Sources/SafeModeBench/main.swift               # CLI entry + arg parser
-Sources/SafeModeBench/SafeModeV2Pipeline.swift # Extracted pipeline + EXIF + JPG encode
-Sources/SafeModeBench/MobileFaceNetEmbedder.swift # macOS-compatible embedder
-Sources/SafeModeBench/PersonSegmenter.swift    # Vision segmenter + hand-pose dilator
-Sources/SafeModeBench/MobileFaceNet.mlmodel    # Copy of the iOS .mlmodel (4.7MB)
-samples/                                        # gitignored — drop test inputs here
-samples/README.md                              # how to populate samples/
-sweep.sh                                        # threshold sweep + HTML grid
-fetch_embedding.sh                             # pull face_embedding from staging DB
-README.md                                       # you are here
+Package.swift                                       # SwiftPM manifest (Swift 6 / macOS 15)
+Sources/SafeModeBench/main.swift                    # CLI entry + arg parser (photo + video)
+Sources/SafeModeBench/SafeModeV2Pipeline.swift      # Photo pipeline + EXIF + JPG encode
+Sources/SafeModeBench/SafeModeV2VideoPipeline.swift # Video pipeline + state machine
+Sources/SafeModeBench/MobileFaceNetEmbedder.swift   # macOS-compatible embedder
+Sources/SafeModeBench/PersonSegmenter.swift         # Vision segmenter + hand-pose dilator
+Sources/SafeModeBench/MobileFaceNet.mlmodel         # Copy of the iOS .mlmodel (4.7MB)
+samples/                                             # gitignored — drop test inputs here
+samples/README.md                                   # how to populate samples/
+sweep.sh                                             # photo threshold sweep + HTML grid
+generate_video_report.py                            # video bench HTML report generator
+fetch_embedding.sh                                   # pull face_embedding from staging DB
+README.md                                            # you are here
 ```
 
 ## Out of scope
@@ -193,7 +246,5 @@ README.md                                       # you are here
 - Any iOS app changes — this is purely a developer-side debug tool.
 - Tuning the live pipeline behavior (that's a separate PR on the
   iOS code once the bench identifies what to tune).
-- The video Safe Mode pipeline (`SafeModeProcessor`) — v1 only; v2
-  blocks video capture inside a Safe Mode polygon.
 - Web portal / Flutter — unrelated.
 - CI — manual `swift build` only. No GitHub Actions job.
