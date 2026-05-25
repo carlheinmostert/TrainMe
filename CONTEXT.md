@@ -138,6 +138,10 @@ _Avoid_: printout, snapshot, lobby PNG (the PNG-modal path was superseded by PDF
 **Lobby export**:
 Internal/technical name for the on-device PDF generation pipeline (`web-player/lobby.js` jsPDF rasterisation + multi-page assembly) and the iOS shell bridge (`unified_preview_screen.dart` `share_file` MessageChannel). Surfaced to practitioners as **PDF handout**.
 
+**Clipboard**:
+An in-memory, transient, single-practice-scoped holding area for copied exercises. Items are pointers to source exercise rows (not snapshots); the deep copy of media files + row materialisation happens at paste time. Items clear on app cold-start, crash, or process termination — there is no SQLite table and no individual-item management surface. Surfaced as a coral chip at the top-right of the Studio AppBar when count ≥ 1; tapping opens a bottom sheet where items are selected-by-default for batch paste at the end of the current session. Long right-swipe on a Studio card is the dominant copy gesture (partial swipe reveals `[Copy] [Duplicate]`); the per-exercise editor sheet also exposes a Copy button in its reachability-inverted bottom AppBar. Not to be confused with the iOS pasteboard — the homefit Clipboard never touches the OS clipboard. See ADR-0023 for why transient was chosen over persistent.
+_Avoid_: stash, tray, pasteboard, exercise bank (when speaking of the in-app feature)
+
 ### Billing & credits
 
 **Credit**:
