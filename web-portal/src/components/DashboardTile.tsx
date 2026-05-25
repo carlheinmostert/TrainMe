@@ -212,10 +212,15 @@ export function DashboardTile({
       {footerBand && (
         <Link
           href={footerBand.href}
-          className="group/band flex items-center justify-between border-t border-[rgba(255,107,53,0.25)] bg-[rgba(255,107,53,0.08)] px-5 py-2.5 text-xs font-medium text-brand-light transition hover:bg-[rgba(255,107,53,0.10)] focus:outline-none focus-visible:bg-[rgba(255,107,53,0.10)]"
+          className="group/band flex items-center justify-between gap-3 border-t border-[rgba(255,107,53,0.25)] bg-[rgba(255,107,53,0.08)] px-5 py-2.5 text-xs font-medium text-brand-light transition hover:bg-[rgba(255,107,53,0.10)] focus:outline-none focus-visible:bg-[rgba(255,107,53,0.10)]"
         >
-          <span>{footerBand.copy}</span>
-          <span className="font-semibold text-brand transition group-hover/band:translate-x-0.5">
+          {/* iPhone-portrait fix (2026-05-25): allow the copy span to
+              shrink + wrap so "Earn free credits from your network"
+              isn't truncated to "Earn n..." when the tile is the full
+              ~342px iPhone-portrait width. The CTA on the right is
+              short + no-wrap so it always reads as a single unit. */}
+          <span className="min-w-0 flex-1">{footerBand.copy}</span>
+          <span className="whitespace-nowrap font-semibold text-brand transition group-hover/band:translate-x-0.5">
             Earn more &rarr;
           </span>
         </Link>
