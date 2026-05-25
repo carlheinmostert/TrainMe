@@ -735,7 +735,35 @@ class UploadService {
       0,
       (sum, e) => sum + e.estimatedDurationSeconds,
     );
-    final creditsToCharge = creditCostForDuration(totalDurationSeconds);
+    // Mobile-computed duration cost (1 or 2). Authoritative when the
+    // plan is NOT a self-trainer all-verified publish.
+    final mobileDurationCost = creditCostForDuration(totalDurationSeconds);
+
+    // PR #6 (self-trainer wave, 2026-05-25): ask the server for the
+    // authoritative cost. Self-trainer all-verified publishes return 0
+    // (server-enforced via `consume_credit` — see migration); duration
+    // tier defaults to the mobile value. RPC failure: fall back to the
+    // mobile cost so a transient blip doesn't block publish (the
+    // server-side `consume_credit` extension re-applies the free path
+    // independently).
+    int creditsToCharge = mobileDurationCost;
+    try {
+      final previewed = await _api.previewPublishCost(session.id);
+      if (previewed == 0) {
+        creditsToCharge = 0;
+      } else if (previewed == 1 || previewed == 2) {
+        // The server-side duration estimate uses a 3-second-per-rep
+        // fallback (no videoDurationMs in cloud). Trust the mobile
+        // value when both agree on the tier; otherwise prefer the
+        // mobile value (it has the actual video durations).
+        creditsToCharge = mobileDurationCost;
+      }
+    } catch (e) {
+      dev.log(
+        'preview_publish_cost failed: $e — falling back to mobile-computed cost ($mobileDurationCost)',
+        name: 'UploadService.uploadPlan',
+      );
+    }
 
     // Resolve the LIVE client name. `session.clientName` is a legacy
     // mirror of `clients.name` — it was frozen at session creation and
