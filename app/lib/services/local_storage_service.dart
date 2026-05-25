@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 47;
+  static const _dbVersion = 48;
 
   Database? _db;
 
@@ -239,6 +239,12 @@ class LocalStorageService {
         -- the generator (1 = MobileFaceNet v1, only version today).
         face_embedding BLOB,
         face_embedding_model_version INTEGER,
+        -- Self-trainer wave PR #9 (2026-05-25): mirrors `clients.user_id`
+        -- so the Home screen can identify the Self-client row locally.
+        -- Non-NULL only for the lazily-created Self-client in the user's
+        -- personal practice. See migration v48 and
+        -- `20260525145747_list_practice_clients_user_id.sql`.
+        user_id TEXT,
         synced_at INTEGER,
         dirty INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
@@ -1411,6 +1417,28 @@ class LocalStorageService {
         'INTEGER',
       );
     }
+
+    if (oldVersion < 48) {
+      // 2026-05-25 — self-trainer wave PR #9: My Workouts body.
+      //
+      // Mirror `clients.user_id` locally so the Home screen can
+      // identify the Self-client (the row where
+      // `clients.user_id = auth.uid()`) without a cloud round-trip.
+      // Used by My Workouts to filter sessions whose `client_id`
+      // matches the cached self-client id. The companion Supabase
+      // migration is
+      // `20260525145747_list_practice_clients_user_id.sql` which
+      // extends `list_practice_clients` + `get_client_by_id` to
+      // surface the column.
+      //
+      // NULL on every existing row (legacy clients, before the
+      // self-trainer wave) — only the lazily-created Self-client
+      // row in the user's personal practice carries a non-NULL
+      // value, enforced by the partial unique index
+      // `(practice_id, user_id) WHERE user_id IS NOT NULL AND
+      // deleted_at IS NULL`.
+      await _addColumnIfMissing(db, 'cached_clients', 'user_id', 'TEXT');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2136,6 +2164,28 @@ class LocalStorageService {
       orderBy: 'LOWER(name) ASC',
     );
     return rows.map((r) => CachedClient.fromMap(r)).toList(growable: false);
+  }
+
+  /// Look up the Self-client for [userId] across every cached practice
+  /// the user is a member of. Returns null when no Self-client row
+  /// exists yet (e.g. before `register_self_face` has run).
+  ///
+  /// Used by the My Workouts screen on Home (PR #9 of the self-trainer
+  /// wave) to identify which cached row is the practitioner's own
+  /// Self-client. Cloud-side enforced by the partial unique index
+  /// `(practice_id, user_id) WHERE user_id IS NOT NULL AND deleted_at IS NULL`,
+  /// so at most one row can match. We scan every practice locally so
+  /// the lookup keeps working even when the user happens to be on a
+  /// non-personal practice in the switcher.
+  Future<CachedClient?> getCachedSelfClient(String userId) async {
+    final rows = await db.query(
+      'cached_clients',
+      where: 'user_id = ? AND deleted = 0',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return CachedClient.fromMap(rows.first);
   }
 
   /// Every cached client name for a practice, INCLUDING soft-deleted
