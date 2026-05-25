@@ -226,10 +226,16 @@ class _HomeScreenState extends State<HomeScreen> {
       if (practiceId != null && practiceId.isNotEmpty) {
         // Read clients from the local cache. This is the offline-first
         // path — the list renders instantly regardless of connectivity.
+        // Filter out Self-clients (rows where user_id IS NOT NULL) —
+        // they belong on My Workouts, not the regular Clients tab. The
+        // filter happens at the READ site (not the sync site) because
+        // Safe Mode face-embedding sync needs the Self-client to stay
+        // in cache for `_pullClientFaceEmbeddings`.
         final cached = await widget.storage.getCachedClientsForPractice(
           practiceId,
         );
         clients = cached
+            .where((c) => c.userId == null)
             .map((c) => c.toPracticeClient())
             .toList(growable: false);
       }
@@ -283,7 +289,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final outcome = await SyncService.instance.pullAll(practiceId);
     if (!mounted) return;
     final cached = await widget.storage.getCachedClientsForPractice(practiceId);
+    // Mirror the _load() read-site filter — Self-clients are hidden
+    // from the Clients tab. See _load() for rationale.
     final clients = cached
+        .where((c) => c.userId == null)
         .map((c) => c.toPracticeClient())
         .toList(growable: false);
     final userId = AuthService.instance.currentUserId;
@@ -564,14 +573,46 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // Step 4 — mint the session bound to the Self-client.
+    //
+    // JIT-heal (hotfix 2026-05-25 / fix/self-client-hide-and-jit-create):
+    // before reading the local cache, call `ensure_self_client` which
+    // idempotently returns the live Self-client uuid (creating or
+    // undeleting as needed). This closes the "Try again in a moment"
+    // wedge when the Self-client is missing OR soft-deleted — both
+    // states the previous code path couldn't recover from. The RPC
+    // round-trip costs ~150ms on the FAB tap; cheap insurance against
+    // a dead-end UX. We then pull the practice so the cache mirrors
+    // the freshly-healed row before `getCachedSelfClient` runs.
+    final practiceForJit = await _resolveOwnerOrCurrentPracticeId();
+    if (practiceForJit != null) {
+      try {
+        await ApiClient.instance.ensureSelfClient(practiceId: practiceForJit);
+        await SyncService.instance.pullAll(practiceForJit);
+      } catch (e) {
+        if (!mounted) return;
+        // Auth / membership / network failure. Surface verbatim per
+        // `feedback_no_silent_fallbacks` — don't pretend the cache will
+        // have the row when we already know the heal didn't run.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Couldn't prepare your self profile: $e"),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+    }
+
     final selfClient = await widget.storage.getCachedSelfClient(userId);
     if (!mounted) return;
     if (selfClient == null) {
-      // Cache miss after registration. Could happen if the personal
-      // practice isn't in cached_practices yet, or the post-register
-      // pull failed silently. Surface the state and bail rather than
-      // minting against a guessed id (no exception-driven control flow,
-      // no silent fallback per `feedback_no_silent_fallbacks`).
+      // Cache miss even after JIT-heal + pull. Could happen if the
+      // user has zero cached practices (so practiceForJit was null and
+      // the JIT branch was skipped). Surface the state and bail
+      // rather than minting against a guessed id (no exception-driven
+      // control flow, no silent fallback per
+      // `feedback_no_silent_fallbacks`).
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(

@@ -66,12 +66,21 @@ export default async function ClientsPage({
   // per-client stats (count + last-shared + practitioner), and the
   // membership list for the header right-cluster (Wave 40 P3 practice
   // switcher). All three are practice-scoped at the RPC layer.
-  const [clients, sessions, practices] = await Promise.all([
+  const [allClients, sessions, practices] = await Promise.all([
     api.listPracticeClients(practiceId),
     api.listPracticeSessions(practiceId),
     api.listMyPractices(),
   ]);
 
+  // Self-trainer wave hotfix (2026-05-25 / fix/self-client-hide-and-jit-create):
+  // hide Self-client rows (`clients.user_id IS NOT NULL`) from the
+  // regular Clients grid. They belong on the practitioner's own
+  // "My Workouts" surface (mobile-only today; portal twin TBD). The
+  // RPC `list_practice_clients` still returns them — face-embedding
+  // sync and other practice-wide flows need the full set — so we
+  // filter client-side at the page level rather than mutating the
+  // RPC signature.
+  const clients = allClients.filter((c) => c.userId === null);
   const heading = isOwner ? 'Practice clients' : 'Clients';
   const count = clients.length;
   const subtitle =

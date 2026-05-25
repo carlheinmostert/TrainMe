@@ -1588,6 +1588,47 @@ class ApiClient {
     );
   }
 
+  /// Self-trainer wave hotfix (2026-05-25) —
+  /// `ensure_self_client(p_practice_id uuid)` SECURITY DEFINER RPC.
+  ///
+  /// Idempotent JIT-heal helper for the Self-client row. Returns the
+  /// live Self-client uuid in the target practice, creating or
+  /// undeleting as needed:
+  ///
+  ///   * Live Self-client exists → return its id (no-op).
+  ///   * Soft-deleted Self-client exists → undelete in place (preserves
+  ///     the original uuid + name + video_consent + face_embedding) and
+  ///     return its id.
+  ///   * No Self-client at all → mint a fresh 'Me' row.
+  ///
+  /// Called from the My Workouts FAB on home before minting a session,
+  /// so the practitioner never gets wedged at "Couldn't load your self
+  /// profile" when the Self-client is missing or soft-deleted (the
+  /// previous failure mode, since `register_self_face` is the only
+  /// other code path that creates Self-clients and the FAB doesn't
+  /// have an embedding to pass).
+  ///
+  /// Throws on RPC error (auth, membership, network). The caller is
+  /// expected to surface the error verbatim per
+  /// `feedback_no_silent_fallbacks`.
+  ///
+  /// Migration: `supabase/migrations/20260525191847_ensure_self_client_rpc.sql`.
+  Future<String> ensureSelfClient({required String practiceId}) async {
+    final dynamic result = await _guardAuth(
+      () => raw.rpc(
+        'ensure_self_client',
+        params: <String, dynamic>{'p_practice_id': practiceId},
+      ),
+    );
+    if (result is String && result.isNotEmpty) {
+      return result;
+    }
+    throw StateError(
+      'ensure_self_client returned unexpected shape: ${result.runtimeType} '
+      '($result)',
+    );
+  }
+
   /// Self-trainer wave PR #5 (2026-05-25) —
   /// `get_my_self_face_embedding()` SECURITY DEFINER RPC. Returns the
   /// caller's own `practitioners.face_embedding` as a `List<double>`
