@@ -1471,6 +1471,59 @@ class ApiClient {
     );
   }
 
+  /// Self-trainer wave PR #4 (2026-05-25) —
+  /// `revoke_self_face()` SECURITY DEFINER RPC. POPIA Q14.3 decoupled
+  /// deletion of the self-verification embedding.
+  ///
+  /// Clears `practitioners.face_embedding` + `face_embedding_consented_at`
+  /// + `face_embedding_computed_at` back to NULL, and soft-deletes the
+  /// Self-client row (`clients.user_id = auth.uid()`). Selfie + name on
+  /// the practitioners row remain so the Safe Mode transparency surface
+  /// keeps working — only the self-verification purpose is revoked.
+  ///
+  /// Idempotent — re-calling on an already-revoked practitioner is a
+  /// no-op. Returns a [RevokeSelfFaceResult] indicating what changed so
+  /// the caller can tailor the SnackBar copy and decide whether to
+  /// expose an Undo affordance.
+  ///
+  /// Throws on any RPC error. The caller (Settings → Public profile
+  /// flow) surfaces the error verbatim per `feedback_no_silent_fallbacks`.
+  ///
+  /// Migration: `supabase/migrations/20260525144005_revoke_self_face_rpc.sql`.
+  Future<RevokeSelfFaceResult> revokeSelfFace() async {
+    final dynamic result = await _guardAuth(() => raw.rpc('revoke_self_face'));
+
+    // The RPC returns SETOF (embedding_cleared boolean, self_client_deleted uuid)
+    // — PostgREST serialises that as a List<Map> with a single row.
+    if (result is List && result.isNotEmpty) {
+      final first = result.first;
+      if (first is Map) {
+        final cleared = first['embedding_cleared'];
+        final clientId = first['self_client_deleted'];
+        return RevokeSelfFaceResult(
+          embeddingCleared: cleared is bool ? cleared : false,
+          selfClientDeleted: clientId is String ? clientId : null,
+        );
+      }
+    }
+    if (result is Map) {
+      // Fallback for the single-row Map shape some Supabase clients
+      // synthesise when the RETURNS TABLE has a single row.
+      final cleared = result['embedding_cleared'];
+      final clientId = result['self_client_deleted'];
+      return RevokeSelfFaceResult(
+        embeddingCleared: cleared is bool ? cleared : false,
+        selfClientDeleted: clientId is String ? clientId : null,
+      );
+    }
+    // Empty result list = no row revoked (defensive; the RPC always
+    // RETURNs NEXT). Treat as "nothing changed".
+    return const RevokeSelfFaceResult(
+      embeddingCleared: false,
+      selfClientDeleted: null,
+    );
+  }
+
   /// `set_client_avatar(p_client_id, p_avatar_path)` — Wave 30. Commits
   /// the cloud-side pointer to the body-focus avatar PNG. Caller is
   /// expected to have already uploaded the file to the `raw-archive`
@@ -1988,16 +2041,29 @@ class ApiClient {
       final dynamic result = await _guardAuth(
         () => raw
             .from('practitioners')
-            .select('user_id, first_name, last_name, avatar_url')
+            .select(
+              'user_id, first_name, last_name, avatar_url, '
+              'face_embedding_consented_at',
+            )
             .eq('user_id', user.id)
             .maybeSingle(),
       );
       if (result is! Map) return null;
+      final consentedAtRaw = result['face_embedding_consented_at'];
+      DateTime? consentedAt;
+      if (consentedAtRaw is String && consentedAtRaw.isNotEmpty) {
+        try {
+          consentedAt = DateTime.parse(consentedAtRaw).toLocal();
+        } catch (_) {
+          consentedAt = null;
+        }
+      }
       return PractitionerProfile(
         userId: (result['user_id'] as String?) ?? user.id,
         firstName: result['first_name'] as String?,
         lastName: result['last_name'] as String?,
         avatarUrl: result['avatar_url'] as String?,
+        faceEmbeddingConsentedAt: consentedAt,
       );
     } catch (e) {
       debugPrint('ApiClient.getMyPractitionerProfile failed: $e');
@@ -2261,11 +2327,20 @@ class PractitionerProfile {
   final String? lastName;
   final String? avatarUrl;
 
+  /// When the practitioner consented to having their selfie used for
+  /// self-verification (POPIA Q14.1). NULL until the user taps Yes on
+  /// the [SelfFaceConsentSheet]. Drives the Settings → Public profile
+  /// "Face verification: ON / OFF" row + the lazy-backfill skip
+  /// condition. Populated by the `register_self_face` RPC, cleared by
+  /// the `revoke_self_face` RPC.
+  final DateTime? faceEmbeddingConsentedAt;
+
   const PractitionerProfile({
     required this.userId,
     this.firstName,
     this.lastName,
     this.avatarUrl,
+    this.faceEmbeddingConsentedAt,
   });
 
   /// True iff first + last + avatar are all set. Used to skip the
@@ -2274,6 +2349,34 @@ class PractitionerProfile {
       (firstName?.trim().isNotEmpty ?? false) &&
       (lastName?.trim().isNotEmpty ?? false) &&
       (avatarUrl?.trim().isNotEmpty ?? false);
+
+  /// True iff the practitioner has opted into self-verification —
+  /// drives the Settings → Public profile "Face verification: ON" copy.
+  bool get hasFaceVerification => faceEmbeddingConsentedAt != null;
+}
+
+/// Outcome of [ApiClient.revokeSelfFace]. Carries enough state for the
+/// Settings → Public profile flow to render an accurate SnackBar
+/// ("Face verification removed" vs "Already off") and to decide whether
+/// to offer Undo (only when something was actually revoked).
+@immutable
+class RevokeSelfFaceResult {
+  /// True iff the practitioner row had a non-NULL `face_embedding`
+  /// before this call cleared it.
+  final bool embeddingCleared;
+
+  /// The id of the soft-deleted Self-client row, or NULL if no
+  /// self-client existed (revocation without prior registration).
+  final String? selfClientDeleted;
+
+  const RevokeSelfFaceResult({
+    required this.embeddingCleared,
+    required this.selfClientDeleted,
+  });
+
+  /// True iff anything was actually revoked. The Settings flow uses
+  /// this to decide whether to surface an Undo SnackBar (R-01).
+  bool get changedAnything => embeddingCleared || selfClientDeleted != null;
 }
 
 /// Outcome of a [ApiClient.findPremisesAt] call. Returned when the
