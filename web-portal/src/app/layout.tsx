@@ -56,13 +56,19 @@ export default function RootLayout({
             doesn't surface a horizontal scrollbar. Every legitimate
             layout uses `max-w-*` + `mx-auto`, so this is purely a
             safety net.
-          - `pb-12` (48px) reserves space at the bottom of every page so
-            the fixed build-marker chip (bottom-2 right-3, ~22px tall)
-            never paints over the bottom-most card on narrow viewports.
-            min-h-screen still applies — content can grow past the
-            viewport and the chip stays anchored to the visual bottom.
+
+        iPhone-portrait follow-up (2026-05-25):
+          - The previous `pb-12` body padding is removed. It was meant to
+            reserve space below the fixed build chip, but a fixed-layer
+            chip floats over whatever paints at its pixel coordinates
+            regardless of body padding (extending the flow only changes
+            where the body ENDS, not where the chip sits). BuildInfo is
+            now rendered as a normal in-flow block at narrow widths and
+            only switches to `position: fixed` at `md+`, so the chip can
+            never visually paint over the bottom-most card on iPhone
+            portrait and the desktop chrome stays uncluttered.
       */}
-      <body className="min-h-screen overflow-x-hidden bg-surface-bg pb-12 text-ink">
+      <body className="min-h-screen overflow-x-hidden bg-surface-bg text-ink">
         <TopProgressBar />
         {children}
         {/* Discreet build-marker chip — git SHA + branch at 35% opacity
