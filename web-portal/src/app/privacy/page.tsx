@@ -240,6 +240,98 @@ export default function PrivacyPolicyPage() {
               other media on the practitioner&rsquo;s device beyond what
               they explicitly capture inside the homefit.studio app.
             </P>
+
+            <h3 className="mt-6 font-heading text-base font-semibold text-ink">
+              (d) Biometric data &mdash; face recognition
+            </h3>
+            <P>
+              If you opt in to self-verification, we collect and process{' '}
+              <strong>face recognition data</strong> derived from the
+              selfie you upload to your Public profile. POPIA section 26
+              treats biometric information as &ldquo;special personal
+              information&rdquo; and we process it only with your express
+              consent.
+            </P>
+            <ul className="mt-3 list-disc space-y-2 pl-6 text-ink">
+              <li>
+                <strong>Type.</strong> A numerical face embedding (a
+                vector produced on your device by an open-source
+                MobileFaceNet model), plus the selfie image itself.
+              </li>
+              <li>
+                <strong>Purpose.</strong> To verify that you are the
+                person in your own captures so we can offer those
+                captures free of charge (&ldquo;self-verification&rdquo;).
+                The selfie is separately used, where you have opted in,
+                for transparency display on premises live pages so
+                clients can confirm who their practitioner is.
+              </li>
+              <li>
+                <strong>Storage.</strong> The embedding is stored both
+                on your device (a local cache, used for offline
+                verification) and in your homefit.studio account
+                database (Supabase, AWS-hosted,{' '}
+                <em>
+                  [lawyer-review: region to be confirmed and named here]
+                </em>
+                ). The selfie image is stored in your account database
+                only.
+              </li>
+              <li>
+                <strong>Retention.</strong> Until you ask us to delete
+                it. You can stop using face verification at any time
+                via{' '}
+                <em>
+                  Settings &rarr; Public profile &rarr; Stop using face
+                  verification
+                </em>
+                . That removes the embedding from your device and from
+                our database. Account closure deletes all face data.
+              </li>
+              <li>
+                <strong>Sharing.</strong> We do not share your face
+                data with third parties. Our database operator
+                (Supabase) acts only as a sub-processor under contract
+                and has no independent right to use it.
+              </li>
+              <li>
+                <strong>Tracking.</strong> We do not use your face data
+                for tracking, advertising, or profiling. The embedding
+                is compared only against your own captures inside the
+                homefit.studio app.
+              </li>
+            </ul>
+            <P className="mt-4 text-ink-muted">
+              <em>
+                [lawyer-review: cross-border transfer clause to be
+                confirmed alongside the section 10 wording &mdash; if
+                the AWS region housing Supabase storage is outside the
+                Republic of South Africa, the same s.72 ground we rely
+                on for other EU/US-hosted sub-processors applies, but
+                because biometric data is special personal information
+                under POPIA s.26 a separate consent-based ground may
+                be preferable. Lawyer to advise on the form of words.]
+              </em>
+            </P>
+            <P className="mt-2 text-ink-muted">
+              <em>
+                [lawyer-review: lawful-basis statement &mdash; consent
+                under POPIA s.27(1)(a) is the primary ground for
+                processing this special personal information; lawyer
+                to confirm whether s.27(2) authorisation also needs
+                to be cited explicitly.]
+              </em>
+            </P>
+            <P className="mt-2 text-ink-muted">
+              <em>
+                [lawyer-review: data subject rights phrasing for
+                special personal information &mdash; section 13 above
+                lists the general s.23&ndash;25 rights; lawyer to
+                confirm whether biometric data warrants a separate
+                rights paragraph here referencing the s.26/s.27
+                interaction and the in-app deletion control.]
+              </em>
+            </P>
           </Section>
 
           {/* 6. How we collect it */}
