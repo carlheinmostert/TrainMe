@@ -29,6 +29,27 @@
 (function () {
   'use strict';
 
+  // ==========================================================================
+  // Service worker self-heal — auto-reload on new SW take-over
+  // ==========================================================================
+  //
+  // The live page (/v/{practice}/{premises}/now) does NOT register a SW —
+  // live.html only loads config.js + api.js + live.js. But a SW registered
+  // by a prior visit to /p/{planId} on this origin has scope `/` and would
+  // otherwise control this tab's fetches. The companion SW change (see
+  // web-player/sw.js) already short-circuits the fetch handler for `/v/*`
+  // so the controller is invisible for live-page subresources; this
+  // listener is the second half — when a new SW takes over (the user had
+  // a stale controller from a prior /p visit and a deploy just landed),
+  // reload so the new bundle is in memory immediately. No workout-guard
+  // needed; the live page has no client-facing in-progress state to
+  // protect.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    });
+  }
+
   const POLL_INTERVAL_MS = 12000;
 
   const elLoading = document.getElementById('live-loading');

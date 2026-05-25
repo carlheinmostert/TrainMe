@@ -1,152 +1,92 @@
 /**
- * TrainMe Web Player — Service Worker
+ * homefit.studio web-player — Service Worker
  *
- * Caches the app shell and plan assets on first visit so the plan
- * works offline at the gym without mobile signal.
+ * Purpose (2026-05-25 rewrite):
+ *   The SW exists for ONE reason — clients doing workouts in gyms with
+ *   bad signal need the lobby (`/p/{planId}`) and player to keep working
+ *   when the network drops. Everything else in this file is structured
+ *   to make the SW invisible by default so it can never serve a stale
+ *   bundle on any other surface.
+ *
+ * Behavioural contract (2026-05-25):
+ *
+ *   1. The live transparency page (`/v/{practice}/{premises}/now`) is
+ *      bypassed entirely. The fetch handler returns immediately for any
+ *      request whose pathname starts with `/v/`, letting the browser
+ *      hit the network. Live page polls every 12s, depends on Esri
+ *      tiles + Supabase + Leaflet from unpkg — the literal opposite of
+ *      an offline use case. live.html / live.js do not register a SW
+ *      either, but a SW registered by a prior `/p/{id}` visit on the
+ *      same origin has scope `/` and would otherwise intercept these
+ *      requests. The bypass keeps that pre-existing SW out of the way.
+ *
+ *   2. HTML and JS / CSS / shell assets are network-first across the
+ *      board. The SW tries `fetch(request)` first and only falls back
+ *      to the cache on actual network failure. The cache is still
+ *      populated on every successful response so the offline gym use
+ *      case keeps working. Mutable thumbnails get a `cache: 'reload'`
+ *      bypass so the browser HTTP cache doesn't pin a stale Hero frame
+ *      for the hour Supabase Storage's max-age allows.
+ *
+ *   3. Media files (mp4 / jpg / png from `/storage/v1/object/public/`)
+ *      are cache-first — those URLs are content-addressable + immutable
+ *      so cache-first saves a network round-trip with no staleness
+ *      risk.
+ *
+ *   4. A new SW takes control IMMEDIATELY:
+ *        - install handler calls `self.skipWaiting()` so a newly
+ *          installed SW does not sit behind the old controller.
+ *        - activate handler calls `self.clients.claim()` so the new
+ *          SW takes over already-open tabs on the very next event.
+ *      Each web-player surface (app.js / lobby.js / live.js) listens
+ *      for `navigator.serviceWorker.controller` change events and
+ *      reloads the tab so the user sees the new bundle without a
+ *      manual refresh. app.js guards the reload while a workout is
+ *      mid-rep — see registerServiceWorker() there.
+ *
+ * What this rewrite makes obsolete:
+ *
+ *   Before today this comment block was the bandaid for Safari's lazy
+ *   SW update poll — every PR touching `web-player/` had to append a
+ *   "manual bump" entry to force Safari to re-fetch sw.js on next
+ *   page interaction (memory rule `feedback_always_bump_sw_on_player_change.md`).
+ *   With network-first + bypass + auto-claim + auto-reload, that rule
+ *   is now redundant. The `__BUILD_SHA__` cache-name rewrite in
+ *   `web-player/build.sh` still guarantees each deploy gets a unique
+ *   cache — that mechanism is load-bearing and untouched.
+ *
+ * Historical bump trail (kept for archaeology, NOT for new entries —
+ * the rule above retires the manual-bump ritual):
+ *
+ *   2026-05-24 — feat(live): "View practice profile" link in
+ *                practitioner popover on live page.
+ *   2026-05-24 — fix(live): fit-to-polygon button CSS specificity.
+ *   2026-05-23 — live-view UX bundle (viewer "You" pill, fit-to-polygon
+ *                control, fitBounds padding tuning).
+ *   2026-05-23 — per-capture audit + 24h roster on live page.
+ *   2026-05-23 — live-view zoom + avatar-only pass.
+ *   2026-05-23 — eager SW update check on register + visibilitychange.
+ *   2026-05-23 — Mapbox snapshot replaced by Leaflet + Esri rewire.
+ *   2026-05-15 — PNG-modal dead code removal.
+ *   2026-05-15 — circuit animation attempts 7 / 9 / 10 (nested boxes).
+ *   2026-05-15 — lobby PDF aspect ratio fix.
+ *   2026-05-15 — gear popover landscape fix.
+ *   2026-05-15 — lobby hero thumbnail legacy soft-fallback.
+ *
+ * From 2026-05-25 onwards, deploys do not append entries to this list;
+ * the `__BUILD_SHA__` rewrite + auto-claim + auto-reload flush stale
+ * bundles automatically.
  */
 
 // CACHE_NAME is auto-rewritten on every Vercel build by web-player/build.sh.
-// The placeholder suffix on the next line is replaced with the 7-char git
-// SHA of the deploy (e.g. 'homefit-player-a4bdc1c'). Bumping the cache name
-// on every deploy is what forces the SW to re-fetch the app shell — without
-// it, browsers happily serve stale HTML / headers / CSP from the cache
-// long after a fix has shipped (two real outages on 2026-05-12 traced back
-// here). See build.sh for the rewrite step.
-//
-// 2026-05-24 — feat(live): "View practice profile" link added to the
-// practitioner popover on /v/{practice}/{premises}/now. The popover now
-// renders an <a href="/v/{practice-slug}"> between the meta row and the
-// Report button when the practice is publicly listed (fetchPracticeContact
-// returned non-null). Styled as a lighter text-link with a trailing
-// right-chevron — distinct from the Report button. JS + HTML change;
-// bumping this comment so Safari's lazy SW update check flushes the
-// stale live.js/live.html bundle from returning bystanders.
-//
-// 2026-05-24 — fix(live): fit-to-polygon button CSS specificity parity
-// with default Leaflet zoom +/- buttons. Added `.live-map ` prefix to
-// the five `.live-fit-*` selectors so they hit specificity (0,2,1) and
-// beat Leaflet's default `.leaflet-bar a` (0,1,1) white-on-dark style.
-// Pure CSS — bumping this comment so Safari's lazy SW update check
-// flushes the stale live.html bundle from returning bystanders before
-// they see the inverted button.
-//
-// Manual bump 2026-05-23 (live-view UX bundle, items 26/28/29 of
-// the 2026-05-23 stack): live.js + live.html.
-//   - Item 26: viewer's sage dot now carries a permanent "You" pill
-//     label to its right (Google/Apple Maps convention) so a fresh
-//     bystander reads it as self-location without context.
-//   - Item 28: new Leaflet custom control below the +/- zoom group —
-//     30×30 dark-glass button with a square-with-inward-arrows glyph.
-//     Tap → re-runs the same fitMapToPolygon() shared helper the
-//     first-paint auto-fit uses. Disabled state when no polygon
-//     loaded yet.
-//   - Item 29: tightened first-paint fitBounds padding 20→10 and
-//     raised maxZoom 19→20 so small residential polygons fill the
-//     screen instead of taking ~25% of the visible area. Display
-//     cap MAP_MAX_ZOOM=21 unchanged; users still manually lean in
-//     to z21 via wheel/pinch. Bumped so the stale full-card
-//     bundle flushes from returning bystanders' caches.
-//
-// Manual bump 2026-05-23 (per-capture audit + 24h roster, PR A —
-// item 27 of the stack): live.js + live.html add the left-edge
-// collapsed pill, backdrop-blurred expanded drawer, and per-
-// practitioner timeline popover for "who has captured here in the
-// last 24h". New anon RPC `get_premises_active_roster` shipped as
-// migration 20260523145446_capture_audit_events.sql. Grace-period
-// fade holds the map avatar for 60s after `currentlyActive` flips
-// false → drawer-only. PR B (separate) ships the mobile Dart write
-// path for `record_capture_event`; until it merges, the roster
-// renders empty + the drawer simply doesn't appear, which is the
-// intended graceful empty state.
-//
-// Manual bump 2026-05-23 (live-view zoom + avatar-only pass): items 24
-// + 25 of the 2026-05-23 stack file. live.js + live.html. MAP_MAX_ZOOM
-// 19→21 with ESRI_MAX_NATIVE 18→19 (Esri has z19 native imagery in
-// most SA urban areas; z20-21 upscaled). drawSessions() now renders
-// 40×40 avatar pins (coral pulsing border) instead of full DOM cards;
-// tap opens an auto-flipping popover with the same name/duration/venue/
-// Report content. Single popover open at a time; reprojected on
-// Leaflet move/zoom. Bump invalidates the stale full-card live.js
-// bundle on returning bystanders.
-//
-// Manual bump 2026-05-23 (eager SW update check): PR adds reg.update()
-// on registration + on visibilitychange in app.js so Safari stops
-// serving stale bundles for hours. Pair with this comment bump.
-//
-// Manual bump 2026-05-23 (post-Leaflet rewire): PR #449 swapped Mapbox
-// snapshot for Leaflet + Esri, but Carl's iPhone Safari kept serving
-// the pre-Leaflet inline-SVG live.js for over an hour after deploy.
-// Touching this file changes the SW byte content → forces a fresh
-// install on next page interaction → cache-name swap → stale bundle
-// evicted. Convention going forward: always bump this comment when a
-// player-page change ships (per Carl's 2026-05-23 instruction).
-//
-// 2026-05-15 — bumped for PNG-modal dead-code removal (lobby.js / index.html /
-// styles.css / app.js). PNG export was superseded by the PDF pipeline on
-// 2026-05-14; stale CSS / HTML for the old modal needs to flush from cached
-// clients. See chore/web-player-remove-png-modal.
-//
-// 2026-05-15 (later) — bumped again for the SEVENTH-attempt circuit-animation
-// fix: hero <img> loading="lazy" → "eager" + drop await chain in
-// renderCircuitLanesFor + add MutationObserver. PR #337 (6th attempt) was
-// inert because lazy images outside viewport never fired `load`, hanging
-// the await forever. See fix/circuit-geometry-attempt-7.
-//
-// 2026-05-15 (even later) — bumped for the SECOND-attempt lobby PDF aspect-
-// ratio fix. PR #344 (first attempt) was based on a wrong-physics diagnosis
-// and changed nothing observable. Real issue: export inner content box was
-// 738px (794px outer - 56px padding) vs live lobby content box of 688px
-// (720px max-width - 32px padding) → same content filled 1.073x more
-// horizontal space, reading as horizontal stretch. Fix sets
-// .lobby-export-page-inner max-width: 688px + margin: 0 auto so the export
-// content lays out identically to the live lobby. See
-// fix/pdf-aspect-content-width-match.
-//
-// 2026-05-15 (lobby gear popover landscape fix) — bumped for the cascade
-// fix: dropped the shared `settings-popover` class from the lobby
-// popover element + switched JS positioning to setProperty('important').
-// PR #343 was inert in landscape because the deck's landscape media
-// query (styles.css line 2401) re-asserted `position:absolute;
-// top:134px; right:8px` whenever JS cleared inline styles on close,
-// putting the popover below the gear and offscreen.
-// See fix/gear-popover-drop-shared-class.
-//
-// 2026-05-15 (lobby hero thumbnails legacy soft-fallback) — bumped for
-// pickPosterSrc soft-fallback in exercise_hero.js. PR #348's default-
-// treatment swap (NULL → B&W) made legacy plans (pre-PR-#319 photo
-// variant pipeline) render empty grey thumbnails: the iOS scheme bridge
-// unconditionally emits `thumbnail_url_color`, but `_thumb_color.jpg`
-// doesn't exist on disk for those plans → WKWebView gets
-// fileDoesNotExist. Defence-in-depth: fall back to canonical
-// `thumbnail_url` when the specific variant is missing; CSS .is-grayscale
-// filter still applies. See fix/lobby-thumbnails-legacy-soft-fallback.
-//
-// 2026-05-15 (NINTH-attempt circuit fix) — bumped for the MutationObserver
-// feedback-loop fix. PR #353 (eighth attempt) wired an observer on the
-// circuit frame that watched childList+subtree changes to catch genuine
-// row swaps. The observer also fired on our own SVG mutations inside
-// paintLanesAndTracer (clear children, append paths) → queued another
-// rAF → re-painted → fired observer → infinite loop. Main thread pegged
-// → preview goes black on circuit plans, share button non-responsive,
-// lobby thumbnails starved. Fix disconnects the observer at the top of
-// paintLanesAndTracer and reconnects in a finally so genuine row
-// changes still get caught afterwards.
-// See fix/circuit-attempt-9-observer-disconnect-during-paint.
-//
-// 2026-05-15 (TENTH-attempt — nested CSS boxes) — bumped for the wholesale
-// architecture replacement. The SVG-tracer + ResizeObserver +
-// MutationObserver + getTotalLength architecture is gone; circuit chrome
-// is now N visually-nested <div> rings emitted by lobby.js's
-// circuitGroupHTML(), animated by a single CSS keyframe (`lobby-circuit-
-// pulse`) staggered via `--box-index` custom property. No JS animation,
-// no measurement, no observers, no rAF chain. This class of bugs cannot
-// regress without explicitly removing the CSS. Bumps the cache so
-// Safari clients flush the obsolete SVG-tracer code paths.
-// See fix/circuit-animation-attempt-10-nested-boxes and
-// docs/design/mockups/circuit-nested-boxes.html (variant 1).
+// The sentinel `__BUILD_SHA__` on the next line is replaced with the 7-char
+// git SHA of the deploy (e.g. 'homefit-player-a4bdc1c'). Each deploy gets a
+// unique cache name so the SW activate step naturally evicts the previous
+// bundle. See build.sh for the rewrite mechanism — do not edit the literal.
 const CACHE_NAME = 'homefit-player-__BUILD_SHA__';
 
-// App shell files — always cached
+// App shell files — always cached on first install so the player works
+// offline at the gym even on a cold visit.
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -160,19 +100,23 @@ const APP_SHELL = [
 ];
 
 // ============================================================
-// Install: pre-cache app shell
+// Install: pre-cache app shell, take over immediately
 // ============================================================
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => cache.addAll(APP_SHELL))
+      // skipWaiting promotes this SW from "installed" to "active" as
+      // soon as the old SW finishes its current event loop tick — no
+      // waiting on every tab to close. Paired with clients.claim()
+      // below so already-open tabs see the new controller too.
       .then(() => self.skipWaiting())
   );
 });
 
 // ============================================================
-// Activate: clean up old caches
+// Activate: claim open tabs, drop old caches
 // ============================================================
 
 self.addEventListener('activate', (event) => {
@@ -183,41 +127,41 @@ self.addEventListener('activate', (event) => {
           .filter((key) => key !== CACHE_NAME)
           .map((key) => caches.delete(key))
       ))
+      // clients.claim() makes this SW the controller of every page in
+      // its scope that's already open. Combined with skipWaiting() in
+      // install, a new deploy reaches every open tab on the next
+      // event tick without a manual reload. The page-side
+      // `controllerchange` listener (app.js / lobby.js / live.js) then
+      // triggers the actual reload so the new bundle is in memory.
       .then(() => self.clients.claim())
   );
 });
 
 // ============================================================
-// Fetch: network-first for app shell + API; cache-first for media
+// Fetch: live page bypass, network-first HTML, cache-first media
 // ============================================================
-//
-// 2026-05-16 — switched app shell (HTML / JS / CSS / config) from
-// cache-first to network-first. Previous behaviour meant new deploys
-// did not propagate to clients with an active SW until they fully
-// closed every tab and started fresh — even Safari Private Browsing
-// inherited the cached bytes. Production-broken: a fix shipped to
-// staging stayed invisible to Carl's iPhone for the session's
-// lifetime regardless of reload count.
-//
-// New shape:
-//   * Supabase API → network-first (unchanged).
-//   * Media files (mp4 / jpg / png from /storage/v1/object/public/media/)
-//     → cache-first (unchanged — content-addressable URLs, immutable).
-//   * Everything else (app shell + lobby.js + any future asset) →
-//     network-first with cache fallback for offline.
-//
-// Cost: ~50-200ms added to first-paint per asset on cold reload when
-// online (the network roundtrip previously skipped). Acceptable vs.
-// the alternative of clients stuck on stale code indefinitely.
-// Offline still works because the network-first strategy caches on
-// success and falls back to cache on network failure.
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
+  // Skip non-GET requests — POSTs / PATCHes etc. are never cacheable.
   if (request.method !== 'GET') return;
+
+  // ----------------------------------------------------------------
+  // LIVE PAGE BYPASS — the transparency page must never go through
+  // the SW. It depends on real-time polling + third-party tiles and
+  // has no offline use case. By returning here without calling
+  // event.respondWith(), the browser does its default fetch and the
+  // SW is invisible for any URL under `/v/*` even though our scope
+  // is `/`. This includes the live.html document itself, live.js,
+  // Leaflet from unpkg (different origin so it'd be passthrough
+  // anyway), and any Supabase poll. See feedback in this file's
+  // header about why this design ships.
+  // ----------------------------------------------------------------
+  if (url.pathname.startsWith('/v/')) {
+    return;
+  }
 
   // Supabase API — network-first, cache only public media on success.
   if (url.hostname.includes('supabase.co')) {
@@ -247,8 +191,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App shell + everything else — NETWORK-FIRST so new deploys
-  // propagate on next reload instead of after a full tab-close cycle.
+  // App shell + HTML + everything else — NETWORK-FIRST so new
+  // deploys propagate on the next reload instead of after a full
+  // tab-close cycle. Falls back to the cache on a real network
+  // failure so the offline gym case keeps working.
   event.respondWith(networkFirstAppShellStrategy(request));
 });
 
@@ -290,9 +236,9 @@ async function networkFirstAppShellStrategy(request) {
     const response = await fetch(request);
     if (response.ok) {
       // Cache successful responses so the app still works offline.
-      // Both the old SW (cacheFirst) and this one cache app shell on
-      // success — the difference is the read order: we now check the
-      // network first, only falling back to cache on a network failure.
+      // Network-first read order means a deploy reaches the client on
+      // the next reload — the cache is the offline fallback, not the
+      // first stop.
       cache.put(request, response.clone());
     }
     return response;
