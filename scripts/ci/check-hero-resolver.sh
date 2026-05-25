@@ -64,6 +64,13 @@ HEROCROP_ALLOWED_EXACT=(
   "app/lib/services/sync_service.dart"
   "app/lib/services/unified_preview_scheme_bridge.dart"
   "app/lib/services/conversion_service.dart"
+  # Exercise Clipboard (PR #505) — both are pure passthrough.
+  # clone-into copies the offset from source row to new row; the
+  # ClipboardService snapshots the offset onto the item so the chip
+  # thumb can later render via heroCropAlignment(). Neither makes
+  # rendering decisions on its own.
+  "app/lib/services/exercise_clone.dart"
+  "app/lib/services/clipboard_service.dart"
 )
 
 is_herocrop_allowed() {
