@@ -83,6 +83,13 @@ class StudioBottomBar extends StatelessWidget {
   /// flow (failure state). No-op when null.
   final VoidCallback? onPublishingChipTap;
 
+  /// PR #6 (self-trainer wave, 2026-05-25) — server-previewed credit
+  /// cost for the next publish. 0 = FREE (self-trainer all-verified),
+  /// 1 = 1 CR (≤75 min), 2 = 2 CR (>75 min). Null = preview not
+  /// available (RPC pending or failed). When non-null, the PUBLISH
+  /// cell renders the cost in a small caption below the label.
+  final int? publishCostPreview;
+
   const StudioBottomBar({
     super.key,
     required this.session,
@@ -102,6 +109,7 @@ class StudioBottomBar extends StatelessWidget {
     this.publishingChipTone = PublishingChipTone.inFlight,
     this.publishingChipProgress,
     this.onPublishingChipTap,
+    this.publishCostPreview,
   });
 
   @override
@@ -190,6 +198,7 @@ class StudioBottomBar extends StatelessWidget {
               ? (hasPublishError ? onShowPublishError : onPublish)
               : null,
           onLockedTap: onPublishLockedTap,
+          costPreview: publishCostPreview,
         ),
       _CapsCell(
         // Material's `Icons.share` is the three-dot network glyph
@@ -631,6 +640,7 @@ class _PublishCapsCell extends StatelessWidget {
   final bool hasError;
   final VoidCallback? onTap;
   final VoidCallback onLockedTap;
+  final int? costPreview;
 
   const _PublishCapsCell({
     required this.session,
@@ -639,6 +649,7 @@ class _PublishCapsCell extends StatelessWidget {
     required this.hasError,
     required this.onTap,
     required this.onLockedTap,
+    this.costPreview,
   });
 
   @override
@@ -751,10 +762,72 @@ class _PublishCapsCell extends StatelessWidget {
                       overflow: TextOverflow.clip,
                     ),
                   ),
+                  // PR #6 (self-trainer wave, 2026-05-25) — server-
+                  // previewed credit cost line. Sage when free (cost=0),
+                  // muted secondary tone otherwise. Hidden when the
+                  // preview RPC hasn't resolved yet, or when the cell
+                  // is in an error state (the error glyph already
+                  // carries enough signal).
+                  if (costPreview != null && !hasError) ...[
+                    const SizedBox(height: 1),
+                    _PublishCostLabel(
+                      cost: costPreview!,
+                      muted: !cellActive,
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// PR #6 (self-trainer wave, 2026-05-25) — tiny cost caption rendered
+/// below the PUBLISH label inside `_PublishCapsCell`. Three states:
+///   * 0 → "FREE" in sage (visually distinct from coral).
+///   * 1 → "1 CR" in the secondary on-dark tone.
+///   * 2 → "2 CR" in the secondary on-dark tone.
+///
+/// [muted] dims everything by ~40% when the cell itself is inactive
+/// (mirrors the cell's existing readiness opacity contract). The
+/// widget never decides whether to show — that's the host's call via
+/// the optional `costPreview` int.
+class _PublishCostLabel extends StatelessWidget {
+  final int cost;
+  final bool muted;
+
+  const _PublishCostLabel({
+    required this.cost,
+    required this.muted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isFree = cost == 0;
+    final base = isFree ? AppColors.rest : AppColors.textSecondaryOnDark;
+    final color = muted ? base.withValues(alpha: 0.55) : base;
+    final label = switch (cost) {
+      0 => 'FREE',
+      1 => '1 CR',
+      2 => '2 CR',
+      _ => '$cost CR',
+    };
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        maxLines: 1,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 7,
+          fontWeight: isFree ? FontWeight.w800 : FontWeight.w700,
+          letterSpacing: 0.4,
+          color: color,
+          height: 1.0,
         ),
       ),
     );

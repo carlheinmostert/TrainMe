@@ -169,6 +169,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   bool _publishJustSucceeded = false;
   Timer? _publishJustSucceededTimer;
 
+  /// PR #6 (self-trainer wave, 2026-05-25) — server-previewed credit
+  /// cost for the next publish. 0 = self-trainer all-verified (free),
+  /// 1 = duration tier 1 (default / paid), 2 = duration tier 2 (>75
+  /// min). Null = preview not yet resolved (first frame after
+  /// initState, or RPC in flight). Refreshed via [_refreshPublishCost]
+  /// on initState, after every [_pushSession], and after a successful
+  /// publish (cost may now be free if the user just self-verified).
+  /// Server-authoritative — UI label only. The publish path applies
+  /// the same logic server-side inside `consume_credit`.
+  int? _publishCostPreview;
+  String? _publishCostSessionId;
+
   /// Wave 44 — Studio AppBar inline-rename of the session title.
   /// Mirrors the SessionCard rename pattern so the Studio header reads
   /// as the same family of affordance: dashed underline → tap →
@@ -261,6 +273,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _scrollController.addListener(_onReachabilityScroll);
     // Wave 17 — fetch plan analytics for published plans.
     unawaited(_fetchPlanAnalytics());
+    // PR #6 (self-trainer wave, 2026-05-25) — server-previewed publish
+    // cost so the workflow pill renders "FREE / 1 CR / 2 CR" right
+    // from first paint. Fire-and-forget; on failure the cost label
+    // simply hides until the next refresh.
+    unawaited(_refreshPublishCost());
     // Lazy line-drawing prefetch — pulls public media-bucket files for
     // any exercise on this session that's cloud-only (fresh sandbox /
     // app reinstall). Fire-and-forget; per-card spinner overlays
@@ -496,6 +513,45 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   void _pushSession(Session next) {
     _session = next;
     widget.onSessionChanged(next);
+    // PR #6 — publish cost may flip when the exercise list changes
+    // (count, self_verified). Schedule a non-blocking refresh.
+    unawaited(_refreshPublishCost());
+  }
+
+  /// PR #6 (2026-05-25) — fetch the server-side publish cost preview
+  /// for the current session and stash it in [_publishCostPreview]. The
+  /// CAPS pill's PUBLISH cell reads this to render its cost label
+  /// ("FREE" / "1 CR" / "2 CR"). Server-authoritative: the publish
+  /// path re-applies the same logic inside `consume_credit`, so a stale
+  /// preview can never cause a wrong charge — only a wrong label.
+  ///
+  /// Errors are swallowed at the UI surface (the cost label simply
+  /// hides) so a transient RPC blip never blocks the workflow pill.
+  /// Per `feedback_no_exception_control_flow` we don't branch on the
+  /// exception — we just clear the preview state.
+  Future<void> _refreshPublishCost() async {
+    final sessionId = _session.id;
+    _publishCostSessionId = sessionId;
+    try {
+      final cost = await ApiClient.instance.previewPublishCost(sessionId);
+      if (!mounted) return;
+      // Drop the result if the session changed mid-flight (e.g. user
+      // switched to a different session before the RPC returned).
+      if (_publishCostSessionId != sessionId) return;
+      setState(() {
+        _publishCostPreview = cost;
+      });
+    } catch (e) {
+      debugPrint(
+        'StudioModeScreen._refreshPublishCost: preview_publish_cost RPC '
+        'failed for session $sessionId: $e',
+      );
+      if (!mounted) return;
+      if (_publishCostSessionId != sessionId) return;
+      setState(() {
+        _publishCostPreview = null;
+      });
+    }
   }
 
   /// Wave 35 — drop the Preview-handoff focus marker on the next user
@@ -1710,6 +1766,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                     publishingChipTone: _resolveChipTone(),
                     publishingChipProgress: _resolveChipProgress(),
                     onPublishingChipTap: _resolveChipTap(),
+                    // PR #6 (self-trainer wave, 2026-05-25) — server-
+                    // previewed credit cost (0 / 1 / 2). Null until
+                    // the first RPC resolves; the cell hides the cost
+                    // line in that frame.
+                    publishCostPreview: _publishCostPreview,
                   ),
                 ],
               ),
@@ -2901,6 +2962,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         if (!mounted) return;
         setState(() => _publishJustSucceeded = false);
       });
+      // PR #6 (2026-05-25) — refresh the publish-cost preview after a
+      // successful publish. Exercises rows may now exist server-side
+      // (first publish flips the count from 0 to N, which affects the
+      // self-trainer all-verified eligibility check).
+      unawaited(_refreshPublishCost());
       // Per-set PLAN wave \u2014 surface a follow-up SnackBar when the
       // server fell back to default sets for one or more exercises
       // (publish payload missing / empty `sets[]`). The practitioner

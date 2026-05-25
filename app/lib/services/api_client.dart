@@ -568,6 +568,43 @@ class ApiClient {
         : const <String, dynamic>{};
   }
 
+  /// `preview_publish_cost(p_session_id)` — self-trainer wave PR #6
+  /// (2026-05-25). Side-effect-free RPC the Studio workflow pill uses to
+  /// surface the credit-cost label ("Publish · Free / 1 credit / 2
+  /// credits") without actually consuming anything. The same conditional
+  /// logic is applied authoritatively inside `consume_credit` at publish
+  /// time — this preview is purely a UI helper.
+  ///
+  /// Returns 0 / 1 / 2:
+  ///   * 0 when the plan's linked client is the practitioner themselves
+  ///     (Self-client per PR #1) AND every cloud `exercises` row has
+  ///     `self_verified = true`.
+  ///   * 2 when the server-side per-set duration estimate exceeds 75
+  ///     minutes (4500s).
+  ///   * 1 otherwise (including a first-publish plan where the cloud
+  ///     has no exercises rows yet — the mobile client's own
+  ///     `creditCostForDuration` is still the wire-side source of truth).
+  ///
+  /// Raises on auth / membership / network failures — no exception
+  /// swallowing (per `feedback_no_exception_control_flow`).
+  Future<int> previewPublishCost(String sessionId) async {
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'preview_publish_cost',
+        params: {'p_session_id': sessionId},
+      ),
+    );
+    if (result is int) return result;
+    if (result is num) return result.toInt();
+    if (result is String) {
+      final parsed = int.tryParse(result);
+      if (parsed != null) return parsed;
+    }
+    throw StateError(
+      'preview_publish_cost returned non-integer payload: $result',
+    );
+  }
+
   /// `validate_plan_treatment_consent(p_plan_id)` — returns the list of
   /// exercises whose `preferred_treatment` is denied by the linked
   /// client's `video_consent`. Empty list = safe to publish.
