@@ -1493,7 +1493,14 @@
       empty.textContent = 'No captures in the last 24 hours.';
       list.appendChild(empty);
     } else {
-      events.forEach((ev) => list.appendChild(buildEventRow(ev)));
+      // 2026-05-25 — buildEventRow returns null for non-capture audit
+      // kinds (e.g. safe_mode_accepted_empty telemetry rows) which
+      // count toward the per-trainer aggregate but don't render a
+      // visual dot. Skip nulls to avoid `appendChild(null)`.
+      events.forEach((ev) => {
+        const row = buildEventRow(ev);
+        if (row) list.appendChild(row);
+      });
     }
     elTimeline.appendChild(list);
 
@@ -1528,7 +1535,22 @@
     const row = document.createElement('div');
     row.className = 'live-roster-event';
     const dot = document.createElement('div');
+    // 2026-05-25 — only photo/video events render as visual dots in
+    // the drawer. The get_premises_active_roster RPC also returns
+    // `safe_mode_accepted_empty` audit rows (added via the new
+    // record_safe_mode_capture_event RPC); those are practitioner-
+    // facing telemetry, not bystander-transparency events, so they
+    // get rolled into the per-trainer event count without a visual
+    // dot. We default to the photo class for anything unknown so a
+    // future kind doesn't crash the drawer.
     const isVideo = ev.kind === 'video';
+    const isCapture = ev.kind === 'photo' || ev.kind === 'video';
+    if (!isCapture) {
+      // Skip the row entirely — the trainer's event_count_24h already
+      // includes it in the aggregate; we just don't render a dot for
+      // non-capture audit kinds.
+      return null;
+    }
     dot.className = 'live-roster-event-dot ' + (isVideo ? 'is-video' : 'is-photo');
     row.appendChild(dot);
 

@@ -80,6 +80,38 @@ jobs:
         env:
           PGPASSWORD: postgres
 
+      - name: Install pgvector into running postgres service
+        # pgvector became a runtime requirement at PR #486 (the self-trainer
+        # wave introduced `practitioners.face_embedding vector(N)` plus
+        # `CREATE EXTENSION IF NOT EXISTS vector;`). The postgis/postgis:17-3.5
+        # image doesn't bundle pgvector, but the package is available as
+        # `postgresql-17-pgvector` in the PG APT repo which the postgis image
+        # inherits from its postgres base.
+        #
+        # Unlike pgjwt (community-only, not in apt — stubbed in the pre-seed
+        # step below) and pgcrypto/uuid-ossp/citext (bundled in the image),
+        # pgvector ships in apt and is best installed for real. The vector
+        # type is parameterized (`vector(N)`) and stubbing it would require
+        # a C-level typmod_in/typmod_out shim that we'd carry indefinitely.
+        #
+        # Service containers run in the workflow runner's Docker daemon, so
+        # we can docker-exec into the postgres container and apt-install
+        # pgvector before any migration applies.
+        run: |
+          set -euo pipefail
+          CONTAINER=$(docker ps --filter "ancestor=postgis/postgis:17-3.5" --format "{{.ID}}" | head -1)
+          if [ -z "$CONTAINER" ]; then
+            echo "Could not find postgres service container."
+            docker ps -a
+            exit 1
+          fi
+          echo "Installing pgvector into container ${CONTAINER}..."
+          docker exec -u root "$CONTAINER" bash -c "
+            apt-get update -qq &&
+            apt-get install -y --no-install-recommends postgresql-17-pgvector
+          "
+          echo "pgvector installed."
+
       - name: Pre-seed required extensions and roles
         # Supabase migrations assume the `auth`, `storage`, and `vault`
         # schemas plus the `authenticated` / `anon` / `service_role` /
