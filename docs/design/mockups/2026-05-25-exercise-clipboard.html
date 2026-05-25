@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — Exercise Clipboard · key elements</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-strong: rgba(255, 107, 53, 0.85);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --rest: #86efac;
+      --danger: #ef4444;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0 0 4px;
+    }
+    .subtitle {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin-bottom: 32px;
+      max-width: 720px;
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 32px;
+      max-width: 1400px;
+    }
+    .panel { display: flex; flex-direction: column; }
+    .panel-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 10px;
+    }
+    .panel-note {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      margin-top: 10px;
+      line-height: 1.45;
+    }
+    /* phone frame */
+    .phone {
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 32px;
+      overflow: hidden;
+      width: 360px;
+      height: 640px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    /* generic appbar (top) */
+    .appbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--surface-border);
+      background: var(--surface-base);
+      position: relative;
+    }
+    .appbar-title {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-primary);
+    }
+    .appbar-back {
+      color: var(--ink-secondary);
+      font-size: 18px;
+    }
+    /* clipboard chip — coral capsule top-right */
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--brand-default);
+      color: white;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 13px;
+      padding: 6px 10px 6px 10px;
+      border-radius: 14px;
+      box-shadow: 0 4px 10px rgba(255, 107, 53, 0.35);
+      cursor: pointer;
+    }
+    .chip-icon { font-size: 14px; line-height: 1; }
+    .chip-count {
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.5px;
+    }
+    .chip-x {
+      opacity: 0.85;
+      font-size: 13px;
+      padding-left: 4px;
+      border-left: 1px solid rgba(255,255,255,0.3);
+      margin-left: 2px;
+    }
+    .chip-dormant {
+      display: none;
+    }
+    /* exercise list area */
+    .list {
+      flex: 1;
+      padding: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+    }
+    .card-thumb {
+      width: 56px;
+      height: 56px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2a2d3a 0%, #1f222d 100%);
+      flex-shrink: 0;
+      position: relative;
+    }
+    .card-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .card-title {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-primary);
+      margin: 0 0 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .card-meta {
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+    .card-count-glyph {
+      position: absolute;
+      top: -6px;
+      left: -6px;
+      width: 22px;
+      height: 22px;
+      background: var(--brand-default);
+      color: white;
+      border-radius: 50%;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+    /* swipe-revealed card (multi-action) — card is translated right; buttons live to the left */
+    .swipe-wrap {
+      position: relative;
+      height: 76px;
+    }
+    .swipe-reveal {
+      position: absolute;
+      top: 0; bottom: 0; left: 0;
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+    }
+    .swipe-btn {
+      width: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: white;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.3px;
+    }
+    .swipe-btn-copy {
+      background: var(--brand-default);
+      border-radius: 14px 0 0 14px;
+    }
+    .swipe-btn-dupe {
+      background: rgba(255, 107, 53, 0.55);
+      border-radius: 0 14px 14px 0;
+    }
+    .swipe-btn .glyph { font-size: 18px; line-height: 1; }
+    .swipe-card-translated {
+      position: absolute;
+      top: 0;
+      left: 160px;
+      right: -160px;
+      height: 76px;
+    }
+    /* studio toolbar */
+    .toolbar {
+      background: var(--surface-base);
+      border-top: 1px solid var(--surface-border);
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      display: flex;
+      justify-content: center;
+    }
+    .workflow-pill {
+      display: flex;
+      gap: 4px;
+      background: var(--surface-raised);
+      padding: 4px;
+      border-radius: 18px;
+    }
+    .workflow-cell {
+      width: 44px;
+      height: 36px;
+      border-radius: 14px;
+      background: var(--surface-base);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink-secondary);
+      font-size: 16px;
+    }
+    .workflow-cell.active {
+      background: var(--brand-tint-strong);
+      color: white;
+    }
+    /* editor sheet — overlay 88% from top */
+    .sheet-overlay {
+      position: absolute;
+      top: 8%;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 24px 24px 0 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .sheet-drag {
+      width: 36px;
+      height: 4px;
+      background: var(--surface-border);
+      border-radius: 2px;
+      margin: 9px auto 8px;
+    }
+    .sheet-body {
+      flex: 1;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .demo-frame {
+      flex: 1;
+      background: linear-gradient(135deg, #2a2d3a 0%, #1f222d 100%);
+      border-radius: 14px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink-muted);
+      font-size: 12px;
+      font-style: italic;
+    }
+    .sheet-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface-raised);
+      padding: 3px;
+      border-radius: 12px;
+      align-self: center;
+    }
+    .sheet-tab {
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      border-radius: 9px;
+    }
+    .sheet-tab.active {
+      background: var(--surface-base);
+      color: var(--ink-primary);
+    }
+    /* sheet bottom appbar (reachability-inverted nav) */
+    .sheet-bottom-appbar {
+      display: grid;
+      grid-template-columns: 36px 1fr 64px 36px;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--surface-border);
+      background: var(--surface-base);
+    }
+    .nav-arrow {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      background: var(--surface-raised);
+      color: var(--brand-default);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .ex-name {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-primary);
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .copy-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 11px;
+      padding: 7px 10px;
+      border-radius: 12px;
+      letter-spacing: 0.3px;
+    }
+    /* paste bottom sheet */
+    .paste-sheet {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-top-width: 1px;
+      border-radius: 22px 22px 0 0;
+      max-height: 70%;
+      display: flex;
+      flex-direction: column;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .paste-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 16px 10px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .paste-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .paste-clear {
+      color: var(--ink-secondary);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 8px;
+    }
+    .paste-list {
+      flex: 1;
+      padding: 8px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .paste-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      background: var(--surface-raised);
+      border-radius: 12px;
+    }
+    .paste-row.unselected { opacity: 0.45; }
+    .paste-check {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      color: white;
+      font-weight: 700;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .paste-row.unselected .paste-check {
+      background: transparent;
+      border: 1.5px solid var(--surface-border);
+      color: transparent;
+    }
+    .paste-thumb {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2a2d3a 0%, #1f222d 100%);
+      flex-shrink: 0;
+    }
+    .paste-meta {
+      flex: 1;
+      min-width: 0;
+    }
+    .paste-ex-name {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-primary);
+      margin: 0 0 1px;
+    }
+    .paste-ex-source {
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+    .paste-cta-row {
+      padding: 12px 16px;
+      border-top: 1px solid var(--surface-border);
+    }
+    .paste-cta {
+      width: 100%;
+      background: var(--brand-default);
+      color: white;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      padding: 14px;
+      border-radius: 14px;
+      text-align: center;
+      letter-spacing: 0.3px;
+    }
+    .paste-cta.locked {
+      background: var(--surface-raised);
+      color: var(--brand-default);
+      border: 1px dashed var(--brand-tint-border);
+    }
+    /* copy-flight animation indicator (static arc with arrowhead) */
+    .flight-arrow {
+      position: absolute;
+      top: 50px;
+      left: 140px;
+      width: 180px;
+      height: 100px;
+      pointer-events: none;
+    }
+    .flight-arrow svg { width: 100%; height: 100%; }
+    /* dim-backdrop when sheet is on top */
+    .backdrop-dim::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      pointer-events: none;
+    }
+    .legend {
+      margin-top: 32px;
+      padding: 16px;
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      background: var(--surface-base);
+      max-width: 720px;
+    }
+    .legend h3 {
+      font-family: var(--font-display);
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin: 0 0 10px;
+    }
+    .legend ul {
+      margin: 0;
+      padding-left: 20px;
+      font-size: 13px;
+      color: var(--ink-secondary);
+      line-height: 1.6;
+    }
+    .legend code {
+      font-family: var(--font-display);
+      color: var(--brand-default);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Exercise Clipboard — key visual elements</h1>
+  <div class="subtitle">
+    Static mocks of the five surfaces the clipboard touches: the swipe-reveal gesture on a Studio card, the chip at top-right (empty + populated), the copy animation arc, the editor-sheet bottom AppBar copy button, and the paste bottom sheet (normal + locked-target variants).
+  </div>
+
+  <div class="grid">
+
+    <!-- 1. Studio with empty clipboard -->
+    <div class="panel">
+      <div class="panel-label">1 · Studio, clipboard empty</div>
+      <div class="phone">
+        <div class="appbar">
+          <span class="appbar-back">‹</span>
+          <span class="appbar-title">23 May 2026 · 14:32</span>
+          <span class="chip-dormant"></span>
+        </div>
+        <div class="list">
+          <div class="card">
+            <div class="card-thumb"><div class="card-count-glyph">1</div></div>
+            <div class="card-body">
+              <p class="card-title">Squat with band</p>
+              <div class="card-meta">3 sets · 8 reps</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-thumb"><div class="card-count-glyph">2</div></div>
+            <div class="card-body">
+              <p class="card-title">Deadlift hinge</p>
+              <div class="card-meta">3 sets · 6 reps</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-thumb"><div class="card-count-glyph">3</div></div>
+            <div class="card-body">
+              <p class="card-title">Bird dog</p>
+              <div class="card-meta">2 sets · 10 reps</div>
+            </div>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="workflow-pill">
+            <div class="workflow-cell">📷</div>
+            <div class="workflow-cell active">▶</div>
+            <div class="workflow-cell">↑</div>
+            <div class="workflow-cell">↗</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">No chip when count = 0. Chrome-minimal.</p>
+    </div>
+
+    <!-- 2. Partial right-swipe reveals [Copy] [Duplicate] -->
+    <div class="panel">
+      <div class="panel-label">2 · Partial right-swipe reveal</div>
+      <div class="phone">
+        <div class="appbar">
+          <span class="appbar-back">‹</span>
+          <span class="appbar-title">23 May 2026 · 14:32</span>
+        </div>
+        <div class="list">
+          <div class="swipe-wrap">
+            <div class="swipe-reveal">
+              <div class="swipe-btn swipe-btn-copy"><span class="glyph">📋</span>Copy</div>
+              <div class="swipe-btn swipe-btn-dupe"><span class="glyph">⧉</span>Duplicate</div>
+            </div>
+            <div class="card swipe-card-translated">
+              <div class="card-thumb"><div class="card-count-glyph">1</div></div>
+              <div class="card-body">
+                <p class="card-title">Squat with band</p>
+                <div class="card-meta">3 sets · 8 reps</div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 4px;">
+            <div class="card-thumb"><div class="card-count-glyph">2</div></div>
+            <div class="card-body">
+              <p class="card-title">Deadlift hinge</p>
+              <div class="card-meta">3 sets · 6 reps</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-thumb"><div class="card-count-glyph">3</div></div>
+            <div class="card-body">
+              <p class="card-title">Bird dog</p>
+              <div class="card-meta">2 sets · 10 reps</div>
+            </div>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="workflow-pill">
+            <div class="workflow-cell">📷</div>
+            <div class="workflow-cell active">▶</div>
+            <div class="workflow-cell">↑</div>
+            <div class="workflow-cell">↗</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">Partial swipe = tap-to-choose. <strong>Long right-swipe</strong> auto-commits <strong>Copy</strong> (the dominant action). Left-swipe still = Delete.</p>
+    </div>
+
+    <!-- 3. Copy animation arc + populated chip -->
+    <div class="panel">
+      <div class="panel-label">3 · Copy animation + chip lands top-right</div>
+      <div class="phone">
+        <div class="appbar">
+          <span class="appbar-back">‹</span>
+          <span class="appbar-title">23 May 2026 · 14:32</span>
+          <span class="chip">
+            <span class="chip-icon">📋</span>
+            <span class="chip-count">3</span>
+            <span class="chip-x">×</span>
+          </span>
+        </div>
+        <div class="flight-arrow">
+          <svg viewBox="0 0 180 100" xmlns="http://www.w3.org/2000/svg">
+            <path d="M 0 80 Q 90 0 175 5" stroke="#ff6b35" stroke-width="2" fill="none" stroke-dasharray="4 4" />
+            <polygon points="172,0 180,5 172,10" fill="#ff6b35" />
+            <circle cx="0" cy="80" r="6" fill="#ff6b35" opacity="0.6"/>
+          </svg>
+        </div>
+        <div class="list" style="opacity: 0.55;">
+          <div class="card">
+            <div class="card-thumb"><div class="card-count-glyph">1</div></div>
+            <div class="card-body">
+              <p class="card-title">Squat with band</p>
+              <div class="card-meta">3 sets · 8 reps</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-thumb"><div class="card-count-glyph">2</div></div>
+            <div class="card-body">
+              <p class="card-title">Deadlift hinge</p>
+              <div class="card-meta">3 sets · 6 reps</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-thumb"><div class="card-count-glyph">3</div></div>
+            <div class="card-body">
+              <p class="card-title">Bird dog</p>
+              <div class="card-meta">2 sets · 10 reps</div>
+            </div>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="workflow-pill">
+            <div class="workflow-cell">📷</div>
+            <div class="workflow-cell active">▶</div>
+            <div class="workflow-cell">↑</div>
+            <div class="workflow-cell">↗</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">Particle flies diagonally to chip; chip pulses + count increments; light haptic. Source card unchanged.</p>
+    </div>
+
+    <!-- 4. Editor sheet with copy button in bottom appbar -->
+    <div class="panel">
+      <div class="panel-label">4 · Editor sheet · bottom AppBar Copy</div>
+      <div class="phone">
+        <div class="appbar">
+          <span class="appbar-back">‹</span>
+          <span class="appbar-title">23 May 2026 · 14:32</span>
+          <span class="chip">
+            <span class="chip-icon">📋</span>
+            <span class="chip-count">3</span>
+            <span class="chip-x">×</span>
+          </span>
+        </div>
+        <div class="list" style="opacity: 0.35;">
+          <div class="card">
+            <div class="card-thumb"></div>
+            <div class="card-body"><p class="card-title">Squat with band</p></div>
+          </div>
+          <div class="card">
+            <div class="card-thumb"></div>
+            <div class="card-body"><p class="card-title">Deadlift hinge</p></div>
+          </div>
+        </div>
+        <div class="sheet-overlay">
+          <div class="sheet-drag"></div>
+          <div class="sheet-tabs">
+            <div class="sheet-tab active">Demo</div>
+            <div class="sheet-tab">Plan</div>
+            <div class="sheet-tab">Preview</div>
+          </div>
+          <div class="sheet-body">
+            <div class="demo-frame">demo preview frame</div>
+          </div>
+          <div class="sheet-bottom-appbar">
+            <div class="nav-arrow">‹</div>
+            <div class="ex-name">Squat with band</div>
+            <div class="copy-btn"><span style="font-size:13px;">📋</span> Copy</div>
+            <div class="nav-arrow">›</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">Sheet sits at ~88%; chip remains visible above. Bottom AppBar (reachability per ADR-0019): <code>[‹] [Squat with band] [📋 Copy] [›]</code>.</p>
+    </div>
+
+    <!-- 5. Paste bottom sheet -->
+    <div class="panel">
+      <div class="panel-label">5 · Paste bottom sheet (all selected)</div>
+      <div class="phone backdrop-dim">
+        <div class="appbar">
+          <span class="appbar-back">‹</span>
+          <span class="appbar-title">23 May 2026 · 14:32</span>
+          <span class="chip">
+            <span class="chip-icon">📋</span>
+            <span class="chip-count">3</span>
+            <span class="chip-x">×</span>
+          </span>
+        </div>
+        <div class="list" style="opacity: 0.25;">
+          <div class="card"><div class="card-thumb"></div><div class="card-body"><p class="card-title">Squat with band</p></div></div>
+          <div class="card"><div class="card-thumb"></div><div class="card-body"><p class="card-title">Deadlift hinge</p></div></div>
+        </div>
+        <div class="paste-sheet">
+          <div class="paste-header">
+            <div class="paste-title">Paste from clipboard</div>
+            <div class="paste-clear">× Clear all</div>
+          </div>
+          <div class="paste-list">
+            <div class="paste-row">
+              <div class="paste-check">✓</div>
+              <div class="paste-thumb"></div>
+              <div class="paste-meta">
+                <p class="paste-ex-name">Glute bridge hold</p>
+                <div class="paste-ex-source">From: Me · 22 May</div>
+              </div>
+            </div>
+            <div class="paste-row unselected">
+              <div class="paste-check">✓</div>
+              <div class="paste-thumb"></div>
+              <div class="paste-meta">
+                <p class="paste-ex-name">Single-leg deadlift</p>
+                <div class="paste-ex-source">From: Melissa · 20 May</div>
+              </div>
+            </div>
+            <div class="paste-row">
+              <div class="paste-check">✓</div>
+              <div class="paste-thumb"></div>
+              <div class="paste-meta">
+                <p class="paste-ex-name">Banded clamshell</p>
+                <div class="paste-ex-source">From: Me · 22 May</div>
+              </div>
+            </div>
+          </div>
+          <div class="paste-cta-row">
+            <div class="paste-cta">Paste 2 items</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">All items selected by default. Tap a row to toggle (middle row shown deselected). CTA count updates live. Sheet auto-dismisses on paste; items stay in clipboard for re-paste.</p>
+    </div>
+
+    <!-- 6. Locked-target variant -->
+    <div class="panel">
+      <div class="panel-label">6 · Paste sheet · locked target</div>
+      <div class="phone backdrop-dim">
+        <div class="appbar">
+          <span class="appbar-back">‹</span>
+          <span class="appbar-title">23 May 2026 · 14:32 🔒</span>
+          <span class="chip">
+            <span class="chip-icon">📋</span>
+            <span class="chip-count">3</span>
+            <span class="chip-x">×</span>
+          </span>
+        </div>
+        <div class="list" style="opacity: 0.25;">
+          <div class="card"><div class="card-thumb"></div><div class="card-body"><p class="card-title">Squat with band</p></div></div>
+        </div>
+        <div class="paste-sheet">
+          <div class="paste-header">
+            <div class="paste-title">Paste from clipboard</div>
+            <div class="paste-clear">× Clear all</div>
+          </div>
+          <div class="paste-list">
+            <div class="paste-row">
+              <div class="paste-check">✓</div>
+              <div class="paste-thumb"></div>
+              <div class="paste-meta">
+                <p class="paste-ex-name">Glute bridge hold</p>
+                <div class="paste-ex-source">From: Me · 22 May</div>
+              </div>
+            </div>
+            <div class="paste-row">
+              <div class="paste-check">✓</div>
+              <div class="paste-thumb"></div>
+              <div class="paste-meta">
+                <p class="paste-ex-name">Single-leg deadlift</p>
+                <div class="paste-ex-source">From: Melissa · 20 May</div>
+              </div>
+            </div>
+            <div class="paste-row">
+              <div class="paste-check">✓</div>
+              <div class="paste-thumb"></div>
+              <div class="paste-meta">
+                <p class="paste-ex-name">Banded clamshell</p>
+                <div class="paste-ex-source">From: Me · 22 May</div>
+              </div>
+            </div>
+          </div>
+          <div class="paste-cta-row">
+            <div class="paste-cta locked">🔒 Unlock to paste · 1 credit</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">Past 14-day structural-edit grace. Single CTA absorbs the unlock-then-paste flow.</p>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <h3>Locked decisions reflected</h3>
+    <ul>
+      <li><strong>D1</strong> Single-practice scope at v1</li>
+      <li><strong>D2</strong> Pointer-at-copy, deep-copy-at-paste</li>
+      <li><strong>D3</strong> In-memory only (transient; clears on cold-start)</li>
+      <li><strong>D4</strong> Apple Mail multi-action swipe — partial reveals <code>[Copy] [Duplicate]</code>; long-right = Copy</li>
+      <li><strong>D5</strong> Chip top-right of AppBar, visible when count ≥ 1, layout <code>[📋 N ×]</code></li>
+      <li><strong>D6</strong> Copy from editor sheet via Copy button in reachability-inverted bottom AppBar (between exercise name and next-arrow)</li>
+      <li><strong>D7</strong> Bottom sheet, all items selected by default, batch-paste CTA, items stay after paste</li>
+      <li><strong>D8</strong> Carry capture/identity fields (incl. Safe Mode audit, self_verified); reset structural fields; strip circuit membership; no rest-period copy</li>
+      <li><strong>E1</strong> Stale source = reactive pruning</li>
+      <li><strong>E2</strong> Locked target = <code>Unlock to paste</code> integrated flow</li>
+      <li><strong>Q10</strong> Term: <strong>Clipboard</strong> (with iOS-pasteboard disambiguation in CONTEXT.md)</li>
+    </ul>
+  </div>
+</body>
+</html>
