@@ -1,8 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/safe_mode_service.dart';
+import '../services/safe_mode_subscription_service.dart';
+import '../services/portal_links.dart';
 import 'safe_mode_icon.dart';
 
 /// Top-of-app persistent Safe Mode banner.
@@ -43,10 +47,7 @@ import 'safe_mode_icon.dart';
 /// bottom: false)` so the banner sits below the iOS status bar but
 /// the rest of the app's bottom inset behaviour stays untouched.
 class PersistentSafeModeBanner extends StatefulWidget {
-  const PersistentSafeModeBanner({
-    super.key,
-    this.onTap,
-  });
+  const PersistentSafeModeBanner({super.key, this.onTap});
 
   /// Invoked when the banner is tapped. Typically opens the Studio
   /// settings sheet (Safe Mode row), letting the practitioner review
@@ -80,16 +81,40 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
       duration: const Duration(milliseconds: 2500),
     )..repeat(reverse: true);
     SafeModeService.instance.addListener(_handleServiceChange);
+    // Self-trainer wave PR #8 — subscribe to the subscription cache
+    // so the chip re-renders when the gate flips. Triggers a refresh
+    // now in case the cache is cold; cheap no-op when already fresh.
+    try {
+      SafeModeSubscriptionService.instance.addListener(
+        _handleSubscriptionChange,
+      );
+      SafeModeSubscriptionService.instance.refreshIfStale();
+    } catch (_) {
+      // Service not initialised (unit tests / hot reload edge) —
+      // chip just renders the unknown state.
+    }
     _syncTrailingTick();
   }
 
   @override
   void dispose() {
     SafeModeService.instance.removeListener(_handleServiceChange);
+    try {
+      SafeModeSubscriptionService.instance.removeListener(
+        _handleSubscriptionChange,
+      );
+    } catch (_) {
+      // Service not initialised.
+    }
     _trailingTick?.cancel();
     _trailingTick = null;
     _pulseController.dispose();
     super.dispose();
+  }
+
+  void _handleSubscriptionChange() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   /// React to a service state change by starting / stopping the
@@ -188,9 +213,7 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFFF6B35).withValues(
-                        alpha: 0.40,
-                      ),
+                      color: const Color(0xFFFF6B35).withValues(alpha: 0.40),
                       offset: const Offset(0, 6),
                       blurRadius: 18,
                     ),
@@ -242,6 +265,7 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
                         ],
                       ),
                     ),
+                    _buildSubStatusChip(),
                   ],
                 ),
               ),
@@ -252,13 +276,101 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
     );
   }
 
+  /// Self-trainer wave PR #8 — render the subscription-status chip
+  /// at the right edge of the banner. Reads the local cache from
+  /// [SafeModeSubscriptionService]; null (cache unknown) hides the
+  /// chip entirely so we don't flash a misleading state on cold
+  /// launch. The `no sub` chip is tappable — deep-links to the portal
+  /// `/safe-mode` page (Reader-App compliant: copy says where to
+  /// subscribe, doesn't show a price or in-app button).
+  Widget _buildSubStatusChip() {
+    bool? hasAccess;
+    try {
+      hasAccess = SafeModeSubscriptionService.instance.hasAccess;
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+    if (hasAccess == null) {
+      return const SizedBox.shrink();
+    }
+
+    final isSubscribed = hasAccess;
+    final label = isSubscribed ? 'sub included' : 'subscribe to capture here';
+
+    final chipColor = isSubscribed
+        ? Colors.black.withValues(alpha: 0.10)
+        : const Color(0xFF0F1117);
+    final textColor = isSubscribed
+        ? const Color(0xFF0F1117)
+        : const Color(0xFFFFFFFF);
+
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: chipColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              color: textColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              height: 1.1,
+            ),
+          ),
+          if (!isSubscribed) ...[
+            const SizedBox(width: 4),
+            Text(
+              '→',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                color: textColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: isSubscribed
+          ? chip
+          : GestureDetector(
+              onTap: _onSubscribeChipTap,
+              behavior: HitTestBehavior.opaque,
+              child: chip,
+            ),
+    );
+  }
+
+  Future<void> _onSubscribeChipTap() async {
+    HapticFeedback.selectionClick();
+    try {
+      await launchUrl(
+        portalLink('/safe-mode/subscribe'),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      // Silent — the chip is best-effort. Capture-entry gate is the
+      // load-bearing path; this is a convenience nudge.
+    }
+  }
+
   /// Compute the sub-line copy. Trailing window takes precedence over
   /// the resting copy so the practitioner always sees the impending
   /// drop, even if they only glance at the banner briefly.
   String _buildSubLine(SafeModeService svc) {
     final trimmed = svc.premisesName.trim();
-    final hasName = trimmed.isNotEmpty
-        && trimmed.toLowerCase() != 'this venue';
+    final hasName = trimmed.isNotEmpty && trimmed.toLowerCase() != 'this venue';
 
     // Manual mode is mutually exclusive with the trailing state by
     // construction (manual mode bypasses hysteresis), so checking for
