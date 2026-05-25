@@ -634,10 +634,17 @@
     const tail = document.createElement('div');
     tail.className = 'live-popover-tail';
 
+    // Action row — Report leads (more important on a transparency
+    // page); "View practice profile" link follows. Wrap in a flex row
+    // so they sit side-by-side with consistent baseline alignment.
+    const actions = document.createElement('div');
+    actions.className = 'live-popover-actions';
+    actions.appendChild(report);
+    if (profileLink) actions.appendChild(profileLink);
+
     elPopover.appendChild(name);
     elPopover.appendChild(meta);
-    if (profileLink) elPopover.appendChild(profileLink);
-    elPopover.appendChild(report);
+    elPopover.appendChild(actions);
     elPopover.appendChild(tail);
 
     // Append into the map shell so the popover shares the map's
