@@ -23,6 +23,7 @@
 // the order the fields arrive. Same algorithm, same helper.
 
 import crypto from 'node:crypto';
+import { appUrl } from './env';
 
 export type PayFastField =
   | 'merchant_id'
@@ -168,10 +169,29 @@ export function getMerchantConfig(): {
   };
 }
 
+/**
+ * Resolve the portal's own origin (the "manage" host this deploy is
+ * serving). Used to build PayFast `return_url` + `cancel_url` so the
+ * browser bounces back to the SAME deploy ring that initiated checkout
+ * — staging → staging, prod → prod, localhost → localhost.
+ *
+ * Reads strictly from `NEXT_PUBLIC_APP_URL`, which is wired per-env on
+ * Vercel (preview/production overrides). The previous shape read
+ * `APP_URL` first as an unprefixed server-only fallback — but `APP_URL`
+ * has been pinned to the prod host across every env in Vercel, so
+ * staging checkouts were returning to prod and forcing a re-login.
+ * Dropping that fallback means there is exactly ONE per-env source of
+ * truth for the portal origin.
+ *
+ * Strict-fail per `feedback_no_silent_fallbacks.md` — if
+ * `NEXT_PUBLIC_APP_URL` is not set the `appUrl()` helper throws with a
+ * clear "configure on Vercel" message. A misconfigured deploy fails
+ * loudly at the first checkout attempt rather than silently shipping a
+ * wrong-host return URL.
+ */
 export function getAppUrl(): string {
-  return (
-    process.env.APP_URL ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    'http://localhost:3000'
-  );
+  // Late import keeps this module loadable from non-Next contexts (the
+  // PayFast lib also runs from Edge Function CI scripts). The strict-
+  // fail helper is small and dep-free, so the cycle risk is nil.
+  return appUrl();
 }

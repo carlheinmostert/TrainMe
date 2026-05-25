@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import { HomefitLogo } from '@/components/HomefitLogo';
+import Image from 'next/image';
 import { APP_STORE_URL, APP_STORE_LABEL } from '@/lib/links';
 import { AppStoreBadge } from '@/components/AppStoreBadge';
 
@@ -51,14 +51,34 @@ export async function GetTheAppBanner() {
           Mobile (< 640px): stacks vertically — glyph + copy on row 1,
           badge + QR on row 2. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-        {/* Glyph + copy block — always grouped together so the headline
-            stays adjacent to the matrix mark. */}
+        {/* Icon + copy block — always grouped together so the headline
+            stays adjacent to the app icon.
+
+            Renders the actual iOS app icon (canonical 3x3 coral-pill +
+            sage-centre composition on dark `#0F1117` from
+            `tools/icon-render/render_app_icon.py`) rather than the
+            single-row matrix-logo glyph. The icon Carl sees on his
+            home screen is the load-bearing brand cue here — telling
+            the user "install THIS app". The matrix logo is a different
+            brand surface (used in the header lockup); using it for the
+            install-card glyph diluted the install-cue. Source PNG is
+            the 180x180 `60x60@3x` variant copied into
+            `web-portal/public/ios-app-icon.png`; iOS's rounded-square
+            mask is mirrored here with `rounded-[22%]` so the web card
+            matches what the user will see on iOS once installed. */}
         <div className="flex flex-1 items-center gap-4">
           <div
             aria-hidden="true"
-            className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-surface-border bg-surface-bg"
+            className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[22%] border border-surface-border bg-[#0F1117]"
           >
-            <HomefitLogo className="h-7 w-7" />
+            <Image
+              src="/ios-app-icon.png"
+              alt=""
+              fill
+              sizes="56px"
+              className="object-cover"
+              priority
+            />
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <p className="font-heading text-[17px] font-bold leading-tight tracking-tight text-ink">
