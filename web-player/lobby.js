@@ -83,6 +83,24 @@
   const DEFAULT_TITLE_RE = /^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{1,2}:\d{2}$/;
 
   // ==========================================================================
+  // Service worker self-heal — defensive duplicate of the listener in app.js
+  // ==========================================================================
+  //
+  // app.js owns the canonical `controllerchange` listener for `index.html`
+  // (sets `window.__homefitSwAppListenerAdded = true` once wired). If app.js
+  // succeeded, this lobby copy is a no-op so the workout-mid-rep reload
+  // guard in app.js is never bypassed. If app.js failed to load for any
+  // reason, the lobby is still on its own pre-workout surface where an
+  // unconditional reload is safe — so this listener takes over the
+  // self-heal duty. Two listeners are cheaper than a stale bundle.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (window.__homefitSwAppListenerAdded) return;
+      window.location.reload();
+    });
+  }
+
+  // ==========================================================================
   // Circuit breaker — diagnostic for the iOS WKWebView lobby freeze
   // ==========================================================================
   //
