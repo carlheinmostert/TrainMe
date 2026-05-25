@@ -702,6 +702,8 @@ function kindLabel(kind: string): string {
     // 2026-05-24 — unified audit feed adds every photo + video capture.
     'capture.photo': 'Photo captured',
     'capture.video': 'Video captured',
+    // 2026-05-25 — Safe Mode accept-zero-detection telemetry.
+    'capture.safe_mode_accepted_empty': 'Accepted (empty)',
   };
   if (map[kind]) return map[kind];
   return kind.replaceAll('.', ' ').replaceAll('_', ' ');
@@ -797,6 +799,29 @@ function buildDescription(row: AuditRow): string {
           : null;
       const base = row.kind === 'capture.photo' ? 'Photo captured' : 'Video captured';
       return appVersion ? `${base} · build ${appVersion}` : base;
+    }
+    case 'capture.safe_mode_accepted_empty': {
+      // 2026-05-25 — Safe Mode accept-zero-detection. Surface the
+      // media type + a hint of the scene fingerprint complexity so an
+      // owner skimming the feed can spot outliers (high complexity
+      // would suggest a non-empty frame Vision missed). The full
+      // numerics live in row.meta.scene_fingerprint for the drill-in
+      // modal.
+      const mediaType =
+        row.meta && typeof row.meta.media_type === 'string'
+          ? (row.meta.media_type as string)
+          : 'capture';
+      const fp = row.meta && typeof row.meta.scene_fingerprint === 'object'
+        ? (row.meta.scene_fingerprint as Record<string, unknown> | null)
+        : null;
+      const complexity =
+        fp && typeof fp.complexity_score === 'number'
+          ? Number(fp.complexity_score).toFixed(2)
+          : null;
+      const label = mediaType === 'video' ? 'video' : 'photo';
+      return complexity != null
+        ? `Accepted empty ${label} (complexity ${complexity})`
+        : `Accepted empty ${label}`;
     }
     default:
       return row.title ?? kindLabel(row.kind);

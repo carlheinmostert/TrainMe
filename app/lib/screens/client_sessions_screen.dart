@@ -98,6 +98,12 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   /// filmstrip stays empty (no `thumbnail_path` yet) until conversion
   /// resolves. This subscription bridges that window.
   StreamSubscription<ExerciseCapture>? _conversionSub;
+  // 2026-05-25 — orphan-after-rejection fix. ClientSessions cards
+  // surface a filmstrip / pending-count derived from the in-memory
+  // session list; without this subscription a Safe Mode rejection
+  // would leave a stale spinner-status entry in the count until the
+  // next foreground or unrelated conversion event landed.
+  StreamSubscription<ExerciseRemoval>? _removalSub;
 
   /// True when the inline edit-client-name input is active.
   bool _editingName = false;
@@ -131,6 +137,14 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       _handleConversionUpdate,
     );
 
+    // 2026-05-25 — Safe Mode rejection / orphan-after-rejection guard.
+    // The removal stream fires whenever a SafeModeRejection deletes a
+    // row from SQLite; refresh in the same way as a conversion event
+    // so the card-level filmstrip + pending count drop the orphan.
+    _removalSub = ConversionService.instance.onExerciseRemoved.listen(
+      _handleExerciseRemoval,
+    );
+
     // 2026-05-13 — auto-open the consent sheet the first time this
     // practitioner enters this client's detail view. The check is
     // strictly `_client.consentExplicitlySetAt == null` so it covers
@@ -148,6 +162,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   @override
   void dispose() {
     _conversionSub?.cancel();
+    _removalSub?.cancel();
     _nameController.dispose();
     _nameFocusNode.dispose();
     super.dispose();
@@ -158,6 +173,26 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   /// post-dispose event is a no-op.
   void _handleConversionUpdate(ExerciseCapture ex) {
     if (!mounted) return;
+    final sessionIds = _sessions.map((s) => s.id).toSet();
+    if (!sessionIds.contains(ex.sessionId)) return;
+    _loadSessions();
+  }
+
+  /// Removal-stream handler (2026-05-25 — orphan-after-rejection fix).
+  /// Fires when a Safe Mode rejection deletes a row from SQLite. The
+  /// payload carries the last-known [ExerciseCapture] so we can scope
+  /// the reload to sessions in our list (matches the cheap-guard
+  /// pattern used by [_handleConversionUpdate]). When the exercise
+  /// snapshot is unavailable (rare edge — row already gone) we fall
+  /// back to a blanket reload because the rejection still needs to
+  /// flush a stuck spinner somewhere in the list.
+  void _handleExerciseRemoval(ExerciseRemoval removal) {
+    if (!mounted) return;
+    final ex = removal.exercise;
+    if (ex == null) {
+      _loadSessions();
+      return;
+    }
     final sessionIds = _sessions.map((s) => s.id).toSet();
     if (!sessionIds.contains(ex.sessionId)) return;
     _loadSessions();

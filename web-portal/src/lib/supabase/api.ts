@@ -1757,6 +1757,12 @@ export const AUDIT_EVENT_KINDS = [
   // + app_version for the row renderer.
   'capture.photo',
   'capture.video',
+  // 2026-05-25 — Safe Mode accept-zero-detection telemetry. Written
+  // by `record_safe_mode_capture_event` whenever the 100%-miss branch
+  // fires (Vision found no humans, frame accepted as no-PII). Meta
+  // carries scene_fingerprint numerics (mean RGB, entropy,
+  // complexity) so outliers stand out without exposing image bytes.
+  'capture.safe_mode_accepted_empty',
 ] as const;
 
 export type AuditEventKind = (typeof AUDIT_EVENT_KINDS)[number];
@@ -1776,6 +1782,11 @@ export function auditChipTone(kind: string): AuditChipTone {
     // description column carries the privacy/premises signal separately.
     case 'capture.photo':
     case 'capture.video':
+    // 2026-05-25 — accept-zero-detection telemetry: same coral bucket
+    // because it's still practitioner-originated capture activity, just
+    // with a privacy carve-out (Vision found no humans, no safe variant
+    // needed). The chip label disambiguates from plain captures.
+    case 'capture.safe_mode_accepted_empty':
       return 'coral';
     // Wave 39 — sage for client-engagement reads (distinct from coral
     // practitioner-publish events).
