@@ -24,6 +24,9 @@ import Foundation
 
 struct ParsedArgs {
     var photo: String = ""
+    /// Source video path (mp4 / mov). When set, the bench runs the
+    /// video pipeline instead of the photo pipeline.
+    var video: String = ""
     /// Singular --embedding path. Kept for back-compat. When present
     /// it's wrapped in a one-element list before being handed to the
     /// pipeline.
@@ -42,6 +45,12 @@ struct ParsedArgs {
     /// and once with --embeddings <same file>,<same file> — and assert
     /// the output JPG byte-equality. Exits non-zero on mismatch.
     var smokeTest: Bool = false
+    // Video-pipeline cadence knobs. Surfaced so the bench can tune
+    // these without recompiling.
+    var seedingFramesN: Int = 3
+    var reConfirmIntervalSec: Double = 2.0
+    var trackerConfidenceFloor: Double = 0.5
+    var reSeedProximityRadiusFrac: Double = 0.2
 }
 
 func parseArgs(_ raw: [String]) -> (ParsedArgs, String?) {
@@ -57,6 +66,29 @@ func parseArgs(_ raw: [String]) -> (ParsedArgs, String?) {
         case "--photo":
             guard i + 1 < args.count else { return (a, "--photo requires a value") }
             a.photo = args[i + 1]; i += 2
+        case "--video":
+            guard i + 1 < args.count else { return (a, "--video requires a value") }
+            a.video = args[i + 1]; i += 2
+        case "--seeding-frames":
+            guard i + 1 < args.count, let v = Int(args[i + 1]) else {
+                return (a, "--seeding-frames requires an integer")
+            }
+            a.seedingFramesN = v; i += 2
+        case "--reconfirm-interval-sec":
+            guard i + 1 < args.count, let v = Double(args[i + 1]) else {
+                return (a, "--reconfirm-interval-sec requires a number")
+            }
+            a.reConfirmIntervalSec = v; i += 2
+        case "--tracker-confidence-floor":
+            guard i + 1 < args.count, let v = Double(args[i + 1]) else {
+                return (a, "--tracker-confidence-floor requires a number")
+            }
+            a.trackerConfidenceFloor = v; i += 2
+        case "--reseed-radius-frac":
+            guard i + 1 < args.count, let v = Double(args[i + 1]) else {
+                return (a, "--reseed-radius-frac requires a number")
+            }
+            a.reSeedProximityRadiusFrac = v; i += 2
         case "--embedding":
             guard i + 1 < args.count else { return (a, "--embedding requires a value") }
             a.embedding = args[i + 1]; i += 2
@@ -99,15 +131,15 @@ func parseArgs(_ raw: [String]) -> (ParsedArgs, String?) {
 }
 
 let usage = """
-SafeModeBench — macOS CLI bench for the Safe Mode v2 photo pipeline.
+SafeModeBench — macOS CLI bench for the Safe Mode v2 pipeline (photo + video).
 
-Mirrors the `applySafeModeV2ToPhoto` flow in
+Mirrors the iOS native pipelines (`applySafeModeV2ToPhoto` for stills,
+`SafeModeV2VideoProcessor.run` for clips) in
 app/ios/Runner/VideoConverterChannel.swift byte-for-byte and prints the
-internal decisions (per-face cosSim, subject choice, mask coverage,
-blur fraction) so we can debug the all-frame-blur bug without device
-cycles.
+internal decisions so we can iterate on thresholds + state-machine
+cadences without device cycles.
 
-USAGE:
+USAGE — photo:
   swift run SafeModeBench \\
     --photo <path.jpg> \\
     (--embedding <path.bin> | --embeddings <p1.bin,p2.bin,...,pN.bin>) \\
@@ -118,13 +150,24 @@ USAGE:
     [--max-work-dim 1920] \\
     --output <safe.jpg>
 
+USAGE — video:
+  swift run SafeModeBench \\
+    --video <path.mp4> \\
+    (--embedding <path.bin> | --embeddings <p1.bin,p2.bin,...,pN.bin>) \\
+    [--threshold 0.55] \\
+    [--seeding-frames 3] \\
+    [--reconfirm-interval-sec 2.0] \\
+    [--tracker-confidence-floor 0.5] \\
+    [--reseed-radius-frac 0.2] \\
+    --output <safe.mp4>
+
+USAGE — smoke-test:
   swift run SafeModeBench --smoke-test \\
     --photo <path.jpg> \\
     --embedding <path.bin> \\
     --output <safe-tmp.jpg>
 
-ARGS:
-  --photo          Source JPG (selfie / capture frame to debug).
+ARGS (shared):
   --embedding      Raw FP32 little-endian face embedding (2048 bytes).
                    Internally wrapped in a one-element list. Back-compat
                    path — new sweeps should prefer --embeddings.
@@ -133,16 +176,21 @@ ARGS:
                    (each 2048 bytes). Mirrors the iOS native
                    `subjectEmbeddings: [Data]` parameter shape. Per-face
                    cosSim is taken as the MAX across all references.
-  --output         Where to write the safe-variant JPG.
-  --threshold      Solo-face cosSim floor (default 0.5 for back-compat
-                   with prior sweep scripts; production iOS now defaults
-                   to 0.10 via kSafeModeV2SoloFloor). Only consulted in
+  --output         Where to write the safe variant (.jpg for --photo,
+                   .mp4 for --video).
+  --threshold      Solo-face cosSim floor. Photo default 0.5 (back-compat
+                   with prior sweep scripts; production iOS uses 0.10
+                   via kSafeModeV2SoloFloor). Video default 0.55 per
+                   2026-05-24 multi-reference spec. Only consulted in
                    the solo branch — multi-face frames use a relative
                    pick (highest cosSim wins; no absolute gate).
   --area-clamp     Max fraction of frame each head-expansion may cover
                    (default 0.35 matches iOS).
   --head-expand-w  Face bbox horizontal multiplier (default 2.0).
   --head-expand-h  Face bbox vertical multiplier   (default 1.5).
+
+ARGS (photo only):
+  --photo          Source JPG (selfie / capture frame to debug).
   --max-work-dim   Max working pixel dim (default 1920 matches iOS).
   --smoke-test     Regression guard for the multi-reference change.
                    Runs the pipeline TWICE — once with --embedding (a
@@ -152,7 +200,23 @@ ARGS:
                    to confirm the per-face max degenerates to single
                    cosSim when N=1.
 
-DIAGNOSTIC OUTPUT:
+ARGS (video only):
+  --video                      Source video file (mp4 / mov).
+  --seeding-frames             First N frames run full face-rec to seed
+                               the tracker. Default 3 (matches iOS native
+                               `SafeModeV2VideoProcessor.seedingFramesN`).
+  --reconfirm-interval-sec     Run face-rec every N seconds during
+                               tracking to verify subject lock. Default
+                               2.0 (matches iOS native).
+  --tracker-confidence-floor   Trigger immediate face-rec retry when
+                               VNTrackObjectRequest confidence drops
+                               below this floor. Default 0.5.
+  --reseed-radius-frac         Re-confirm hits within this fraction of
+                               frame height of the tracker's last bbox
+                               are treated as continued lock; outside
+                               triggers a re-seed. Default 0.2.
+
+DIAGNOSTIC OUTPUT — photo:
   Per detected face: bbox + cosSim + rank.
   DECISION: subjectIdentified + bestSim + soloFloor + subjectIdx + branch
             (branch ∈ {no-faces, solo-floor, multi-relative}).
@@ -160,6 +224,12 @@ DIAGNOSTIC OUTPUT:
   FLOOD-FILL: subjectComponent pixels (% of mask-positive).
   COMPOSITE: blurFraction (% of frame painted to blur).
   OUTPUT: written safe-variant path.
+
+DIAGNOSTIC OUTPUT — video:
+  frames, dimensions, duration, frame rate.
+  subjectIdentified: count / total (%).
+  reConfirmEvents, reSeedEvents, trackerLossEvents.
+  avgSubjectCosSim, safeMissRate, wallMs, realtimeRatio.
 """
 
 let (parsed, parseErr) = parseArgs(CommandLine.arguments)
@@ -175,8 +245,18 @@ if let err = parseErr {
     exit(2)
 }
 
-if parsed.photo.isEmpty || parsed.output.isEmpty {
-    FileHandle.standardError.write("error: --photo and --output are required.\n\n".data(using: .utf8)!)
+if parsed.photo.isEmpty && parsed.video.isEmpty {
+    FileHandle.standardError.write("error: one of --photo or --video is required.\n\n".data(using: .utf8)!)
+    print(usage)
+    exit(2)
+}
+if !parsed.photo.isEmpty && !parsed.video.isEmpty {
+    FileHandle.standardError.write("error: pass either --photo or --video, not both.\n\n".data(using: .utf8)!)
+    print(usage)
+    exit(2)
+}
+if parsed.output.isEmpty {
+    FileHandle.standardError.write("error: --output is required.\n\n".data(using: .utf8)!)
     print(usage)
     exit(2)
 }
@@ -326,6 +406,74 @@ if !parsed.embeddings.isEmpty {
     guard let data = loadEmbedding(parsed.embedding) else { exit(3) }
     subjectEmbeddings.append(data)
     embeddingLabels.append(parsed.embedding)
+}
+
+// MARK: - Video branch (runs the v2 video pipeline mirror)
+
+if !parsed.video.isEmpty {
+    var videoParams = SafeModeV2VideoPipelineParams()
+    videoParams.threshold = parsed.threshold
+    videoParams.headWidthFactor = CGFloat(parsed.headExpandW)
+    videoParams.headHeightFactor = CGFloat(parsed.headExpandH)
+    videoParams.maxAreaFraction = parsed.areaClamp
+    videoParams.seedingFramesN = parsed.seedingFramesN
+    videoParams.reConfirmIntervalSec = parsed.reConfirmIntervalSec
+    videoParams.trackerConfidenceFloor = Float(parsed.trackerConfidenceFloor)
+    videoParams.reSeedProximityRadiusFrac = parsed.reSeedProximityRadiusFrac
+
+    print("------------------------------------------------------------")
+    print("SafeModeBench v2 video (multi-reference)")
+    print("video:                  \(parsed.video)")
+    print("references:             \(subjectEmbeddings.count)")
+    for (i, label) in embeddingLabels.enumerated() {
+        let norm = l2Norm(subjectEmbeddings[i])
+        print("  [\(i)] \(label) (\(subjectEmbeddings[i].count) bytes, L2 norm=\(String(format: "%.4f", norm)))")
+    }
+    print("threshold:              \(String(format: "%.3f", parsed.threshold))")
+    print("areaClamp:              \(String(format: "%.3f", parsed.areaClamp))")
+    print("headExpand:             w=\(String(format: "%.2f", parsed.headExpandW)) h=\(String(format: "%.2f", parsed.headExpandH))")
+    print("seedingFramesN:         \(parsed.seedingFramesN)")
+    print("reConfirmIntervalSec:   \(String(format: "%.2f", parsed.reConfirmIntervalSec))")
+    print("trackerConfidenceFloor: \(String(format: "%.2f", parsed.trackerConfidenceFloor))")
+    print("reSeedRadiusFrac:       \(String(format: "%.2f", parsed.reSeedProximityRadiusFrac))")
+    print("------------------------------------------------------------")
+
+    do {
+        let report = try SafeModeV2VideoPipeline.run(
+            srcPath: parsed.video,
+            destPath: parsed.output,
+            subjectEmbeddingSlots: subjectEmbeddings,
+            params: videoParams
+        )
+        let identifiedPct: Double = report.framesProcessed == 0
+            ? 0.0
+            : (Double(report.subjectIdentifiedFrames) / Double(report.framesProcessed)) * 100.0
+        print("frames:                 \(report.framesProcessed) (avg face count \(String(format: "%.2f", report.avgFaceCount)))")
+        print("dimensions:             \(report.width)x\(report.height)")
+        print("duration:               \(String(format: "%.2f", report.durationSeconds))s @ \(String(format: "%.2f", report.frameRate))fps")
+        print(String(
+            format: "subjectIdentified:      %d / %d (%.1f%%)",
+            report.subjectIdentifiedFrames, report.framesProcessed, identifiedPct
+        ))
+        print("reConfirmEvents:        \(report.reConfirmEvents)")
+        print("reSeedEvents:           \(report.reSeedEvents)")
+        print("trackerLossEvents:      \(report.trackerLossEvents)")
+        print(String(format: "avgSubjectCosSim:       %.4f", report.avgSubjectCosSim))
+        print(String(format: "safeMissRate:           %.4f", report.safeMissRate))
+        print("OUTPUT:                 \(report.destPath)")
+        print("wallMs:                 \(report.durationMs)")
+        // Realtime ratio: wall clock / source duration. < 1.0 means
+        // faster-than-real-time on this hardware. iOS spec target on
+        // iPhone 13 is <= 2.0 (2x real-time ceiling).
+        let realtimeRatio: Double = report.durationSeconds <= 0
+            ? 0.0
+            : (Double(report.durationMs) / 1000.0) / report.durationSeconds
+        print(String(format: "realtimeRatio:          %.2fx", realtimeRatio))
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("video pipeline error: \(error)\n".data(using: .utf8)!)
+        exit(4)
+    }
 }
 
 // MARK: - Run pipeline
