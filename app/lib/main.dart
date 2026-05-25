@@ -7,6 +7,7 @@ import 'config.dart';
 import 'theme.dart';
 import 'theme/flags.dart';
 import 'services/api_client.dart';
+import 'services/clipboard_service.dart';
 import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
@@ -67,6 +68,13 @@ void main() async {
     // items from a previous session (crash recovery)
     final conversion = ConversionService.initialize(storage);
     await conversion.restoreQueue();
+
+    // S-2 — wire the exercise clipboard to the conversion service's
+    // removal stream so Safe Mode rejections (and any future removal
+    // sources) prune clipboard pointers globally, not just when
+    // Studio is mounted. Idempotent: bind-twice cancels the prior
+    // subscription before re-subscribing.
+    ClipboardService.instance.bindToConversionService(conversion);
 
     // Offline-first sync layer. Reads come from the SQLite cache;
     // writes land locally first, then the pending-op queue flushes to

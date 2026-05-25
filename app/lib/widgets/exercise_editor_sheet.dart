@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
@@ -6,7 +7,9 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../services/clipboard_service.dart';
 import '../services/conversion_service.dart';
+import '../services/homefit_haptics.dart';
 import '../services/safe_mode.dart';
 import '../theme.dart';
 import 'debug/safe_mode_v2_tuning_sheet.dart';
@@ -236,6 +239,12 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   bool _pageControllerInitialized = false;
   late int _exerciseIndex;
   late ExerciseCapture _exercise;
+
+  /// Counter bumped on every successful Copy-to-clipboard tap so the
+  /// inline `_EditorSheetCopyButton` can run a brief coral pulse.
+  /// The Studio AppBar's `ClipboardChip` pulses independently via
+  /// the `ClipboardService` listener.
+  int _copyPulseCounter = 0;
   // Local mirror of `widget.session.exercises`. The widget reference is
   // captured at sheet-open time and never updates, so reading from it
   // when navigating between exercises returns stale snapshots — any
@@ -803,6 +812,20 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
               ),
             ),
             const SizedBox(width: 4),
+            // Exercise Clipboard (D6) — Copy button between the
+            // exercise name block and the next-arrow, per the
+            // reachability-inverted bottom AppBar in
+            // `docs/specs/2026-05-25-exercise-clipboard.md`. Hidden
+            // on rest rows (rest is non-copyable per D8). Adds the
+            // currently-displayed exercise to the in-memory clipboard;
+            // brief coral pulse + light haptic + chip animates in
+            // (or its count increments) via the service's listener.
+            if (!_exercise.isRest)
+              _EditorSheetCopyButton(
+                onTap: _copyToClipboard,
+                pulseTrigger: _copyPulseCounter,
+              ),
+            if (!_exercise.isRest) const SizedBox(width: 4),
             _BottomRailChevron(
               icon: Icons.chevron_right,
               enabled: canNext,
@@ -812,6 +835,20 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         ),
       ),
     );
+  }
+
+  /// Add the currently-displayed exercise to the in-memory
+  /// `ClipboardService`. No-op for rest rows (the button isn't
+  /// rendered there). Light haptic + a transient local pulse on the
+  /// button itself; the chip in the Studio AppBar (which sits above
+  /// this sheet at the 88% detent) auto-pulses via its own listener.
+  Future<void> _copyToClipboard() async {
+    if (_exercise.isRest) return;
+    unawaited(HomefitHaptics.light());
+    ClipboardService.instance.addItem(_exercise, widget.session);
+    if (mounted) {
+      setState(() => _copyPulseCounter++);
+    }
   }
 
   String _metaLine() {
@@ -1387,6 +1424,115 @@ class _BottomRailChevron extends StatelessWidget {
           height: 48,
           child: Center(
             child: Icon(icon, size: 30, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Inline `[📋 Copy]` button living inside the editor sheet's
+/// reachability-inverted bottom AppBar
+/// (`docs/specs/2026-05-25-exercise-clipboard.md`, D6).
+///
+/// Coral-tinted pill that emits a brief scale pulse on tap so the
+/// gesture feedback isn't entirely reliant on the chip 88% up the
+/// screen at the top of Studio.
+class _EditorSheetCopyButton extends StatefulWidget {
+  final VoidCallback onTap;
+  final int pulseTrigger;
+
+  const _EditorSheetCopyButton({
+    required this.onTap,
+    required this.pulseTrigger,
+  });
+
+  @override
+  State<_EditorSheetCopyButton> createState() =>
+      _EditorSheetCopyButtonState();
+}
+
+class _EditorSheetCopyButtonState extends State<_EditorSheetCopyButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+    _scale = TweenSequence<double>(<TweenSequenceItem<double>>[
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 1.16)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 1,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.16, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 1,
+      ),
+    ]).animate(_pulse);
+  }
+
+  @override
+  void didUpdateWidget(covariant _EditorSheetCopyButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.pulseTrigger != oldWidget.pulseTrigger) {
+      _pulse.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scale,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.30),
+                width: 1,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.content_paste,
+                  size: 13,
+                  color: AppColors.primary,
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'Copy',
+                  style: TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    letterSpacing: 0.3,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
