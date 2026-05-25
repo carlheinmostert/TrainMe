@@ -172,18 +172,18 @@ COMMENT ON TABLE public.plan_artifacts IS
 
 -- Backfill existing plans with one plan_url artifact each. Skips deleted
 -- plans. Uses ON CONFLICT to make the migration idempotent if re-applied.
+-- Note: spec referenced last_published_at + updated_at; the actual plans
+-- table has neither. Substituted sent_at + created_at as the temporal
+-- fallback chain (both exist per baseline DDL).
 INSERT INTO public.plan_artifacts (plan_id, kind, status, generated_at)
 SELECT
   id,
   'plan_url',
   'ready',
-  COALESCE(last_published_at, sent_at, created_at, now())
+  COALESCE(sent_at, created_at, now())
 FROM public.plans
 WHERE deleted_at IS NULL
 ON CONFLICT (plan_id, kind) DO NOTHING;
--- Note: spec referenced last_published_at + updated_at; this baseline of
--- plans has neither column. Substituted sent_at + created_at (both exist
--- per baseline DDL) as the temporal fallback chain.
 
 -- ---------------------------------------------------------------------------
 -- 4. credit_ledger Safe Mode subscription lookup index
