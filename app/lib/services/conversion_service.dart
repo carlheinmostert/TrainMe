@@ -320,6 +320,21 @@ class ConversionService extends ChangeNotifier {
   /// Fires each time an exercise's conversion status changes.
   Stream<ExerciseCapture> get onConversionUpdate => _updateController.stream;
 
+  /// Self-trainer wave PR #5 (2026-05-25) — in-memory cache of the
+  /// caller's own face embedding (from `practitioners.face_embedding`).
+  ///
+  /// `null` after fetch = the user has not registered a self-face (no
+  /// reference to compare against → skip verification, leave
+  /// `self_verified` at NULL). A non-null populated list is reused
+  /// across captures within a session to avoid re-fetching the RPC for
+  /// every exercise.
+  ///
+  /// Reset by [resetSelfFaceEmbeddingCache] so the next capture
+  /// re-fetches — called by the Settings → Public profile flow when
+  /// the user (re-)registers their face.
+  List<double>? _cachedSelfFaceEmbedding;
+  bool _selfFaceEmbeddingFetched = false;
+
   /// Stream controller for Safe Mode rejections (Safe Mode completion
   /// wave, 2026-05-21). Captures whose Vision miss-rate exceeded
   /// [kSafeModeMaxMissRate] emit here AFTER the row has been deleted
@@ -912,6 +927,17 @@ class ConversionService extends ChangeNotifier {
         // line-drawing filters against the original footage later. A failure
         // here must not disturb the main conversion flow.
         unawaited(_archiveRawVideo(done));
+
+        // Self-trainer wave PR #5 (2026-05-25) — fire-and-forget
+        // capture-time self-verification. Reads the practitioner's
+        // registered face embedding (NULL when they haven't opted in →
+        // leaves `self_verified` at NULL) and compares against the
+        // converted media. Result is stamped onto the local SQLite
+        // `exercises.self_verified` column; the next publish round-trips
+        // it through `replace_plan_exercises`. Verification failure
+        // NEVER blocks capture or conversion — the flag is purely
+        // informational and feeds the publish-cost preview in PR #6.
+        unawaited(_runSelfVerification(done));
       } on SafeModeRejection catch (rejection) {
         await handleSafeModeRejection(rejection);
       } catch (e, stack) {
@@ -2224,6 +2250,155 @@ class ConversionService extends ChangeNotifier {
         // sites in this file — the fallback log write is optional
         // forensic surface, and a filesystem failure here must not
         // recurse into loudSwallow's own logging path.
+      }
+    }
+  }
+
+  /// Reset the in-memory cache of the caller's self-face embedding so
+  /// the next [_runSelfVerification] re-fetches via the RPC. Call from
+  /// the Settings → Public profile flow after the user (re-)registers
+  /// their face — otherwise captures within the same app session keep
+  /// comparing against the stale pre-registration cache (which is null
+  /// → all captures stamp `self_verified = NULL`).
+  void resetSelfFaceEmbeddingCache() {
+    _cachedSelfFaceEmbedding = null;
+    _selfFaceEmbeddingFetched = false;
+  }
+
+  /// Self-trainer wave PR #5 (2026-05-25) — capture-time
+  /// self-verification.
+  ///
+  /// Fire-and-forget pipeline:
+  ///   1. Skip silently for rest periods (defensive — `_processQueue`
+  ///      only invokes this after a successful conversion of a
+  ///      photo/video, but a no-op here is cheaper than a stack trace).
+  ///   2. Lazy-fetch the practitioner's self-face embedding from the
+  ///      `get_my_self_face_embedding()` RPC. Cached for the rest of the
+  ///      app session via [_cachedSelfFaceEmbedding].
+  ///   3. NULL reference embedding (user hasn't opted in) → leave
+  ///      `self_verified` at NULL (skip pipeline). Per the brief: "if
+  ///      NULL, skip — leaves self_verified NULL".
+  ///   4. Pick the media path: Safe Mode safe variant when the capture
+  ///      was Safe-Mode-active (the original is never displayed per
+  ///      `feedback_no_original_display_safe_mode`), otherwise the
+  ///      converted file, falling back to raw if the converted path is
+  ///      somehow missing (shouldn't happen post-conversion).
+  ///   5. Invoke [FaceEmbeddingService.verifyAgainstReference] —
+  ///      samples 3 evenly-spaced frames for videos, 1 frame for
+  ///      photos. The native pipeline returns `{matched, distance}` or
+  ///      a `noFace` / `error` outcome.
+  ///   6. Stamp the result onto `exercises.self_verified`:
+  ///      - `matched` outcome → `true`
+  ///      - `noFace` / `error` outcome → `false` (conservative —
+  ///        unknown defaults to "not verified" so the publish path
+  ///        charges credits by default).
+  ///   7. Persist via `_storage.saveExercise` and emit on
+  ///      `_updateController` so live UI reflects the new flag.
+  ///
+  /// All steps are wrapped in a single try/catch — any exception is
+  /// logged and swallowed. Self-verification failure NEVER blocks
+  /// capture, conversion, or publish; the flag is purely informational.
+  Future<void> _runSelfVerification(ExerciseCapture done) async {
+    if (done.mediaType == MediaType.rest) return;
+
+    try {
+      // Step 2 — lazy fetch the reference embedding.
+      if (!_selfFaceEmbeddingFetched) {
+        _cachedSelfFaceEmbedding =
+            await ApiClient.instance.getMySelfFaceEmbedding();
+        _selfFaceEmbeddingFetched = true;
+        if (_cachedSelfFaceEmbedding == null) {
+          debugPrint(
+            '[ConversionService] self-verification: no '
+            'practitioners.face_embedding registered — skipping '
+            '(self_verified stays NULL)',
+          );
+        } else {
+          debugPrint(
+            '[ConversionService] self-verification: fetched reference '
+            'embedding (${_cachedSelfFaceEmbedding!.length} floats)',
+          );
+        }
+      }
+      final reference = _cachedSelfFaceEmbedding;
+      if (reference == null || reference.isEmpty) {
+        // Step 3 — NULL reference → skip per brief.
+        return;
+      }
+
+      // Step 4 — pick the media path. For Safe Mode captures, the safe
+      // variant is the only surface the practitioner ever shares OR
+      // sees post-conversion (per `feedback_no_original_display_safe_mode`)
+      // so it's also the only surface that should drive verification.
+      // For non-Safe-Mode captures, fall through to the converted file
+      // (line drawing for video / line jpg for photo), then raw as a
+      // last-resort.
+      String? mediaPath;
+      if (done.safeModeActive && done.absoluteSafeRawFilePath != null) {
+        mediaPath = done.absoluteSafeRawFilePath;
+      } else if (done.convertedFilePath != null) {
+        mediaPath = PathResolver.resolve(done.convertedFilePath!);
+      } else if (done.rawFilePath.isNotEmpty) {
+        mediaPath = done.absoluteRawFilePath;
+      }
+      if (mediaPath == null ||
+          mediaPath.isEmpty ||
+          !await File(mediaPath).exists()) {
+        debugPrint(
+          '[ConversionService] self-verification: no usable media path '
+          'for ${done.id} (mediaPath=$mediaPath) — skipping',
+        );
+        return;
+      }
+
+      // Step 5 — invoke the native verify pipeline.
+      final outcome =
+          await FaceEmbeddingService.instance.verifyAgainstReference(
+        mediaPath: mediaPath,
+        reference: reference,
+      );
+
+      // Step 6 — resolve the tri-state value.
+      //
+      // `matched` outcome → true. Every other outcome (`noFace`,
+      // `error`) → false (conservative, per the brief: "if reference
+      // embedding is NULL OR native compare throws OR no face detected
+      // → self_verified = false").
+      final bool verifiedValue = outcome.verifiedValue;
+
+      // Step 7 — persist + emit. Re-read from storage to avoid
+      // clobbering any intermediate update (e.g. raw-archive completion
+      // racing this pipeline on the same exercise id).
+      final base = (await _storage.getExerciseById(done.id)) ?? done;
+      final updated = base.copyWith(selfVerified: verifiedValue);
+      await _storage.saveExercise(updated);
+      if (!_updateController.isClosed) {
+        _updateController.add(updated);
+      }
+      debugPrint(
+        '[ConversionService] self-verification: stamped '
+        'self_verified=$verifiedValue for ${done.id} '
+        '(noFace=${outcome.isNoFace} error=${outcome.errorMessage})',
+      );
+    } catch (e, stack) {
+      // Sanctioned swallow — verification failure is non-fatal by
+      // contract. Log via the conversion-error log so the long-press
+      // diagnostic sheet on the "N failed" pill surfaces the cause if
+      // a pattern emerges.
+      debugPrint(
+        '[ConversionService] self-verification threw for ${done.id}: $e',
+      );
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [_runSelfVerification]\n'
+          'Exercise: ${done.id}\n'
+          'Error: $e\n$stack\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {
+        // Log-of-log swallow. Same rationale as elsewhere in this file.
       }
     }
   }

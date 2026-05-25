@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 46;
+  static const _dbVersion = 47;
 
   Database? _db;
 
@@ -141,6 +141,12 @@ class LocalStorageService {
         -- 2 = face-rec MobileFaceNet. Mirrors cloud
         -- exercises.safe_mode_algorithm_version.
         safe_mode_algorithm_version INTEGER,
+        -- Self-trainer wave PR #5 (2026-05-25): tri-state
+        -- self-verification result. NULL = not checked / no reference
+        -- embedding; 0 = mismatch or no face; 1 = matched. Mirrors cloud
+        -- exercises.self_verified (boolean NULL). Feeds the publish-cost
+        -- preview in PR #6.
+        self_verified INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -1381,6 +1387,29 @@ class LocalStorageService {
       //
       // Spec: docs/specs/2026-05-24-safe-mode-v2-multi-reference-enrolment.md.
       await _createClientFaceEmbeddingsTable(db);
+    }
+
+    if (oldVersion < 47) {
+      // 2026-05-25 — self-trainer wave PR #5: capture-time
+      // self-verification.
+      //
+      // Tri-state column. NULL is load-bearing — it means "not yet
+      // checked" (legacy rows + captures recorded before the
+      // practitioner opted into self-verification). The publish-cost
+      // preview in PR #6 treats NULL as false (conservative) so the
+      // credit math defaults to "charge"; explicit `0` means the
+      // MobileFaceNet check ran and decided it wasn't the registered
+      // self; explicit `1` means matched. See
+      // `app/lib/services/conversion_service.dart` for the population
+      // path and the sibling Supabase migration
+      // `20260525124222_self_verified_publish_plumbing.sql` for the
+      // cloud-side round-trip via `replace_plan_exercises`.
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'self_verified',
+        'INTEGER',
+      );
     }
   }
 
