@@ -1,6 +1,6 @@
-# Checkpoint — 2026-05-25 — Self-trainer wave shipped on staging
+# Checkpoint — 2026-05-25 — Self-trainer wave shipped + code-review hotfix wave
 
-**The self-trainer wave is now end-to-end on staging.** The morning [foundation wave](./CHECKPOINT_2026-05-25-self-trainer-foundation.md) landed schema + IA + face-embedding + plan_artifacts + privacy docs + CI fix (six PRs). The completion wave that followed landed the practitioner-facing surface and the billing/payment plumbing: public-profile consent UI with lazy Self-client backfill, in-app migration banner, Safe Mode subscription gate + paywall, capture-time self-verification stamping, publish cost preview with conditional free path, and the My Workouts body with FAB-driven capture entry. Twelve PRs total across the two waves; all twelve merged to staging the same UTC day. Every one of the 14 grilling-session decisions from ADR-0020/0021/0022 + the design doc is now code on `staging.session.homefit.studio` / `staging.manage.homefit.studio`.
+**The self-trainer wave is now end-to-end on staging AND a same-day code-review hotfix wave closed 41 findings across 4 PRs.** The morning [foundation wave](./CHECKPOINT_2026-05-25-self-trainer-foundation.md) landed schema + IA + face-embedding + plan_artifacts + privacy docs + CI fix (six PRs). The completion wave that followed landed the practitioner-facing surface and the billing/payment plumbing (six more PRs). Twelve wave PRs in total. After they landed Carl asked for a full code review; five specialist reviewers ran in parallel against staging tip `f47d7f7` and surfaced 10 Criticals + 17 Mediums + a long Low-priority tail — most importantly the `credit_ledger` CHECK constraint that meant every self-trainer free publish would have failed at runtime (empirically confirmed: zero `publish_free` rows existed). Three hot-fix PRs (DB + mobile/iOS + docs) plus one direct-to-main docs commit shipped during the same UTC day to close all 41 actionable findings. Staging tip ended at `50ff86f`, main at `34cfcbc`. iPhone QA install still pending Carl's explicit go.
 
 ## Table of Contents
 
@@ -8,6 +8,7 @@
 - [What "self-trainer shipped" actually means](#what-self-trainer-shipped-actually-means)
 - [The completion wave's six PRs](#the-completion-waves-six-prs)
 - [Sub-agent orchestration this session](#sub-agent-orchestration-this-session)
+- [Code review + hotfix wave](#code-review--hotfix-wave)
 - [Gotchas surfaced today](#gotchas-surfaced-today)
 - [Memory entries to capture](#memory-entries-to-capture)
 - [Open follow-ups](#open-follow-ups)
@@ -16,16 +17,20 @@
 
 ## Status at session end
 
-- **Staging tip:** `f47d7f7` — PR #508 (My Workouts body). Live on `staging.session.homefit.studio` + `staging.manage.homefit.studio`.
-- **Main tip:** `4bc7347` — docs-only ahead at session start (`docs(context): add Clipboard term entry`). All twelve self-trainer-wave PRs are staging-only pending the next staging → main promotion.
-- **Carl's iPhone CHM:** still on the pre-wave build per CLAUDE.md. **No device install happened today** — Carl's standing rule (`feedback_ask_before_mobile_deployment`) keeps deployment as an explicit per-session ask.
+- **Staging tip:** `50ff86f` — PR #511 (mobile + iOS hotfix). Live on `staging.session.homefit.studio` + `staging.manage.homefit.studio`.
+- **Main tip:** `34cfcbc` — Hotfix C main-side commit (BACKLOG placeholder enum + ASC checklist EU region pin). The twelve self-trainer-wave PRs + three hotfix-to-staging PRs are all staging-only pending the next staging → main promotion.
+- **Carl's iPhone CHM:** still on the pre-wave build. **No device install happened today** — Carl's standing rule (`feedback_ask_before_mobile_deployment`) keeps deployment as an explicit per-session ask. Recommended next install lands the foundation + completion + hotfix waves together.
 - **SQLite schema:** v47 → **v48** (PR #508 added `cached_clients.user_id` to mirror the cloud column that surfaces the Self-client).
 - **Supabase migrations applied today (in the wave):**
   - `20260525074056_self_trainer_wave.sql` (foundation #486)
   - `20260525094931_plan_artifacts_on_publish.sql` (foundation #493)
   - `20260525114912_register_self_face_rpc.sql` (foundation #494)
+  - `20260525124222_self_verified_publish_plumbing.sql` (#503 self-verification stamping)
   - `20260525140921_publish_cost_preview.sql` (#507 — `preview_publish_cost` + `consume_credit` conditional free path)
+  - `20260525144005_revoke_self_face_rpc.sql` (#502 — Self-client backfill)
+  - `20260525144158_safe_mode_sub_gate.sql` (#504 Safe Mode subscription gate)
   - `20260525145747_list_practice_clients_user_id.sql` (#508 — exposes `clients.user_id` on the practice listing RPC)
+  - `20260525160312_self_trainer_hotfix.sql` (#509 — hotfix A: credit_ledger CHECK widen, RLS REVOKEs, biometric SELECT lockdown, audit events, cost recompute, TOCTOU close — 15 findings)
 - **Wedged infra (unchanged):** Supabase Branching `MIGRATIONS_FAILED` on the staging environment — pre-existing from 2026-05-11. Migrations apply cleanly to per-PR DBs and on the staging Postgres directly; only the Branching reconciliation is wedged. Handoff: `docs/handoffs/2026-05-23-safe-mode-embedding-and-branching-reconciliation.md`.
 
 ## What "self-trainer shipped" actually means
@@ -80,6 +85,44 @@ Three brief corrections were applied to PR #508's spawn (each verified against t
 
 The agent solved the Self-client identification problem more cleanly than the brief suggested — instead of caching the Self-client id locally, it extended `list_practice_clients` to return `clients.user_id` so every surface uses the same lookup.
 
+## Code review + hotfix wave
+
+Carl asked for a full code review of the twelve wave PRs after they landed. Five specialist reviewers ran in parallel against staging tip `f47d7f7`:
+
+1. **Schema + RPC + RLS + audit integrity** (security-engineer) — covered #486, #493, #494, #503's write path, #507, #508's RPC extensions.
+2. **Mobile Flutter self-trainer flow** (code-reviewer) — covered #487, #501, #502, #503, #508.
+3. **Billing + credits + subscription** (security-engineer) — covered #504, #507.
+4. **Privacy + POPIA + consent surface** (code-reviewer) — covered #492, #501, #502.
+5. **Native iOS face-embedding integration** (code-reviewer) — covered #494.
+
+### Findings shape
+
+- **10 Critical** (block QA or block promotion to main).
+- **17 Medium** (foundational drift, missing audit, fragile invariants).
+- **14 Low / informational**.
+- Two findings (`credit_ledger.type` CHECK constraint missing `'publish_free'`, and the privacy-policy/ASC-checklist region drift) were surfaced by two independent reviewers — high signal.
+
+### The single highest-impact finding
+
+**`credit_ledger_type_check` constraint rejected `'publish_free'` at runtime — every self-trainer free publish would have hard-failed with SQLSTATE 23514.** The PR #507 migration's own header comment asserted "no CHECK constraint exists" — which was wrong. Both schema and billing reviewers reproduced it via live SQL. Empirical confirmation: zero `publish_free` rows in `credit_ledger` despite PR #507 being merged hours earlier. The self-trainer free-publish path had never successfully run end-to-end on staging.
+
+### Hotfix wave PRs
+
+In landing order:
+
+| PR / Commit | Layer | Findings closed | Merge SHA |
+|---|---|---|---|
+| Hotfix C (direct to main) | docs main-side | 4 (BACKLOG enum, ASC region pin, R5-M5 + R3-M3 BACKLOG entries) | [`34cfcbc`](https://github.com/carlheinmostert/TrainMe/commit/34cfcbc) |
+| [#509](https://github.com/carlheinmostert/TrainMe/pull/509) Hotfix A | DB | 15 (CA-1 CHECK widen, CA-4 column REVOKEs, CA-5 biometric SELECT lockdown, CB-6 PUBLIC REVOKE, CB-7 server-side cost recompute, CB-9 audit events, R1-M1 TOCTOU, R1-M3 prepaid p_credits, R1-M4 plan_artifacts metadata whitelist, R3-M1 owner-only, R3-M5 anon tighten, R4-M1 analytics default, R3-L1 refund_credit publish_free, R3-L2 prepaid comment, R4-L2 server-stamp consented_at) | `018b4d3` |
+| [#510](https://github.com/carlheinmostert/TrainMe/pull/510) Hotfix D | docs staging-side | 5 (CB-8 portal region pin, M-7 selfie retention clarification, M-9 expiry honesty, R4-L1 POPIA s.71 marker, R5-M6 on-device embedding clarification) | `c7a94ee` |
+| [#511](https://github.com/carlheinmostert/TrainMe/pull/511) Hotfix B | mobile + iOS | 17 (CA-2 banner placeholder strip, CA-3 face cache invalidation wiring, R2-M1 FAB practice resolution, R2-M2 bootstrap+FAB race, R2-M3 23505 retry, R2-M4 getMySelfFaceEmbedding tri-state, R2-M5 MyWorkouts ConversionService subscription, R4-M3 lazy backfill reminder, R5-M1 computeForImage dimension assert, R5-M2 verify-path shrink, R5-M3 raise min crop to 64px, R5-M4 threshold constant, R2-L2 unit test, R2-L3 FAB double-tap, R5-L1 unpackFloats precondition, R5-L2 vDSP_dotpr in verify, R5-L3 Dart dim-mismatch test) | `50ff86f` |
+
+41 findings closed across 4 PRs in the same UTC day as the wave landed.
+
+### Why the docs split into two PRs
+
+The original Hotfix C brief said "single commit direct to main" — but five of the targeted findings live in files that only exist on staging (the portal `privacy/page.tsx` extensions from PR #492, the `SafeModeSubscribeForm.tsx` from PR #504, and the new biometric row in `app-store-connect-privacy.md`). The Hotfix C agent correctly identified the impedance mismatch and split the work: the main-side edits landed at `34cfcbc`, and I (the parent session) authored the staging-side edits as a separate PR #510 after the agent's brief blocked the staging push. Lesson noted for future docs hotfixes against a not-yet-promoted wave.
+
 ## Gotchas surfaced today
 
 Three patterns that hit hard enough to be worth memorialising:
@@ -129,5 +172,6 @@ For the next session that loads cold and needs to pick up:
 - **Read this checkpoint first**, then skim [`docs/CHECKPOINT_2026-05-25-self-trainer-foundation.md`](./CHECKPOINT_2026-05-25-self-trainer-foundation.md) for the foundation half + [`docs/CHECKPOINT_2026-05-25.md`](./CHECKPOINT_2026-05-25.md) for the same-day Safe Mode v2 polish wave that rode beneath this one.
 - **Authoritative design + decision log:** [`docs/SELF_TRAINER_WAVE.md`](./SELF_TRAINER_WAVE.md) + the three ADRs at [`docs/adr/0020-self-trainer-as-practitioner-with-self-as-client.md`](./adr/0020-self-trainer-as-practitioner-with-self-as-client.md), [`docs/adr/0021-safe-mode-subscription-credit-denominated.md`](./adr/0021-safe-mode-subscription-credit-denominated.md), [`docs/adr/0022-plan-artifacts-abstraction-before-reel.md`](./adr/0022-plan-artifacts-abstraction-before-reel.md).
 - **Glossary updates:** see `CONTEXT.md` for the eight new/amended terms (Self-trainer, Self-client, Self-verification, Self-reference selfie, My Workouts, Publish, Plan artifact, Safe Mode subscription).
-- **Staging tip `f47d7f7`, main tip `4bc7347`** — main is docs-only ahead; the twelve self-trainer-wave PRs are staging-only pending promotion.
-- **iPhone CHM** has none of this. Next install lands the full wave + the prior AM Safe Mode v2 polish + whatever else lands between checkpoint time and install time.
+- **Staging tip `50ff86f`, main tip `34cfcbc`** — main is docs-only ahead (Hotfix C). The 12 wave PRs + the 3 hotfix PRs (#509 DB, #510 docs staging, #511 mobile + iOS) are staging-only pending promotion.
+- **iPhone CHM** has none of this. Next install lands the full wave + hotfix wave + the prior AM Safe Mode v2 polish + whatever else lands between checkpoint time and install time.
+- **All 41 code-review findings closed** in the same UTC day as the wave landed. Critical bypass paths (RLS, biometric SELECT, CHECK constraint) sealed; consent-state caches wired; on-device biometric clarifications in policy + ASC checklist; portal expiry-honesty fixes shipped. ZA lawyer + Carl voice-pass placeholders ([lawyer-review:] × 4, [carl-review:] × 15) are now enumerated in `docs/BACKLOG.md` under "Self-trainer wave — lawyer + voice red-pen pending merge to main" — grep should return zero before staging→main promotion.
