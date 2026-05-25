@@ -119,32 +119,51 @@ against the Supabase REST surface directly.
 
 ### Web portal — `web-portal/src/lib/supabase/api.ts`
 
-Two classes, parameterised over a shared `CompatSupabase` type (handles
-the generic-arity mismatch between `@supabase/ssr` 0.5.x and
+Six domain classes, all parameterised over a shared `CompatSupabase` type
+(handles the generic-arity mismatch between `@supabase/ssr` 0.5.x and
 `@supabase/supabase-js` 2.103.x):
 
-**`PortalApi`** — constructed via `createPortalApi(supabase)`:
-- `listMyPractices()` — returns `PracticeWithRole[]`.
-- `listPracticeMembers(practiceId)` — returns `MemberRow[]`.
-- `getCurrentUserRole(practiceId, userId)` — returns `'owner' | 'practitioner' | null`.
-- `isUserInPractice(practiceId, userId)` — boolean membership guard.
-- `getPracticeBalance(practiceId)` — wraps `practice_credit_balance` RPC.
-- `listRecentIssuances(practiceId, limit = 50)` — audit page feed.
+**`PortalApi`** — `createPortalApi(supabase)` — main practitioner surface:
+- `listMyPractices()` / `listPracticeMembers()` / `listPracticeMembersWithProfile()` — practice roster.
+- `listPracticeClients()` / `getClientById()` — client list + detail.
+- `setClientVideoConsent()` / `renameClient()` / `deleteClient()` / `restoreClient()` — client CRUD.
+- `listSessionsForClient()` / `getPlanAnalyticsSummary()` — session feed + analytics.
+- `getPracticeBalance()` — wraps `practice_credit_balance` RPC.
+- `renamePractice()` — wraps `rename_practice` (owner-only).
 
-**`AdminApi`** — constructed via `await createAdminApi()`:
-- `insertPendingPayment(row)` — PayFast intent record.
-- `findPendingPayment(pid)` — lookup by `m_payment_id`.
-- `applyPendingPayment(pid, ledgerRow)` — sandbox-optimistic credit
-  apply (insert ledger row + flip intent to `complete`).
+**`PortalMembersApi`** — `createPortalMembersApi(supabase)` — Wave 5 invite/revoke flow:
+- `addMemberByEmail()` / `revokePendingInvite()` / `removeMember()` / `changeMemberRole()`.
+
+**`PortalAuditApi`** — `createPortalAuditApi(supabase)` — Wave 9 audit feed:
+- `listAuditEvents()` — paginated, filterable; wraps `list_practice_audit` RPC.
+
+**`PortalReferralApi`** — `createPortalReferralApi(supabase)` — referral loop:
+- `generateCode()` / `getReferralStats()` / `getRebateLedger()` / `listReferrals()`.
+
+**`PortalShareKitApi`** — `createPortalShareKitApi(supabase)` — share-kit / plan export:
+- `getPlanForExport()` / `logEvent()`.
+
+**`AdminApi`** — `createAdminApi()` — service-role operations (server-side only):
+- `insertPendingPayment()` / `findPendingPayment()` / `applyPendingPayment()`.
 
 `createAdminApi` pulls the service-role key from env and throws if
 it's missing — never silently falls back to anon. The callsites that
 need admin power live in `src/app/credits/purchase/route.ts` and
 `src/app/credits/return/page.tsx`.
 
+**Typed errors** — each class throws a typed error for known failure modes:
+`DeleteClientError` (delete), `RestoreClientError` (restore), `RenameClientError`
+(rename), `RenamePracticeError` (rename-practice), `MembersError` (invite/remove).
+Callers use `instanceof` checks to produce friendly copy.
+
+**Client component hook** — `web-portal/src/lib/hooks/useBrowserApi.ts` exports
+`useBrowserApi()` and sibling hooks (`useBrowserMembersApi`, `useBrowserAuditApi`,
+etc.) to create an API instance backed by the browser Supabase client. Use at
+the component top level instead of repeating the `getBrowserClient()` +
+`createPortalApi()` two-liner inside every event handler.
+
 Typed rows + RPC params flow from
-`src/lib/supabase/database.types.ts`, which is generated from the live
-schema.
+`src/lib/supabase/database.types.ts`, which is generated from the live schema.
 
 ## Typed contract generation
 
