@@ -297,8 +297,14 @@
       font-size: 11px; color: var(--c-ink-secondary); margin-top: 4px;
       letter-spacing: 0.02em;
     }
-    .live-popover-report {
+    /* Action row — Report leads (transparency-page priority);
+       profile link follows. Flex baseline keeps the link's text
+       baseline aligned with the button's label. */
+    .live-popover-actions {
+      display: flex; align-items: baseline; gap: 12px;
       margin-top: 10px;
+    }
+    .live-popover-report {
       background: transparent;
       border: 1px solid var(--c-surface-border);
       color: var(--c-ink-primary);
@@ -310,10 +316,10 @@
       border-color: var(--c-brand); color: var(--c-brand);
     }
     /* "View practice profile" — plain text-link, lighter than the
-       Report button. Sits between the meta row and the Report button. */
+       Report button. Sits to the right of Report inside the
+       .live-popover-actions row. */
     .live-popover-profile {
       display: inline-block;
-      margin-top: 10px;
       font-family: 'Inter', sans-serif;
       font-size: 11px; font-weight: 500; line-height: 1.3;
       color: var(--c-ink-secondary);
@@ -412,11 +418,17 @@
     .live-footer-logo svg { width: 100%; height: auto; display: block; }
 
     /* Report modal — reuse the v.js modal pattern (dark backdrop +
-       centered card with textarea + buttons). */
+       centered card with textarea + buttons). The host element
+       `#live-report-modal` lives at the document root (sibling of
+       `.live-shell`), so it is OUTSIDE the Leaflet map's stacking
+       context — z-index here is compared against the full page, not
+       trapped inside `.leaflet-container`. Bumped to 9999 to outrank
+       Leaflet's own panes (popup=700, tooltip=650, control=1000) and
+       any future map UI we might add. */
     .live-report-backdrop {
       position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
       display: flex; align-items: center; justify-content: center;
-      padding: 24px; z-index: 100;
+      padding: 24px; z-index: 9999;
     }
     .live-report-card {
       background: var(--c-surface-base); border-radius: 16px;
