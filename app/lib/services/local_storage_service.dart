@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 48;
+  static const _dbVersion = 49;
 
   Database? _db;
 
@@ -245,6 +245,12 @@ class LocalStorageService {
         -- personal practice. See migration v48 and
         -- `20260525145747_list_practice_clients_user_id.sql`.
         user_id TEXT,
+        -- Artifact-system Wave 5 (2026-05-26, v49): mirrors clients.email +
+        -- clients.email_verified_at. The share sheet pre-fills from these;
+        -- email_verified_at non-null means the value came back via a magic-
+        -- link claim (ADR 0024) and overrides any future typed write.
+        email TEXT,
+        email_verified_at TEXT,
         synced_at INTEGER,
         dirty INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
@@ -1438,6 +1444,29 @@ class LocalStorageService {
       // `(practice_id, user_id) WHERE user_id IS NOT NULL AND
       // deleted_at IS NULL`.
       await _addColumnIfMissing(db, 'cached_clients', 'user_id', 'TEXT');
+    }
+
+    if (oldVersion < 49) {
+      // Artifact-system Wave 5 (2026-05-26) — managed-email share path.
+      //
+      // Mirrors the new `clients.email` + `clients.email_verified_at`
+      // columns landed by `20260526192442_artifact_share_managed_email.sql`.
+      // The Studio share sheet's "Send by email" path pre-fills its email
+      // input from `cached_clients.email`; the verified-stamp lets the UI
+      // dim / lock the input ("Verified — your client claimed this") later
+      // even when offline.
+      //
+      // Both columns are nullable. SQLite stores TIMESTAMPTZ as ISO-8601
+      // strings (we don't bother decoding into DateTime locally — the
+      // share sheet only branches on presence). Pull path lands in
+      // `CachedClient.fromCloudJson`.
+      await _addColumnIfMissing(db, 'cached_clients', 'email', 'TEXT');
+      await _addColumnIfMissing(
+        db,
+        'cached_clients',
+        'email_verified_at',
+        'TEXT',
+      );
     }
   }
 

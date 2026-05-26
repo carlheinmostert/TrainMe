@@ -101,6 +101,22 @@ class CachedClient {
   /// `clients.face_embedding_model_version smallint`.
   final int? faceEmbeddingModelVersion;
 
+  /// Artifact-system Wave 5 (2026-05-26) — mirrors `clients.email`. The
+  /// practitioner-typed transient email (the address the practitioner
+  /// enters in the Studio share sheet's "Send by email" path). Cleared
+  /// when the practitioner sets an empty string via `set_client_email`.
+  /// May also hold a VERIFIED address that arrived via the magic-link
+  /// claim flow — disambiguate with [emailVerifiedAt]. NULL = no email
+  /// has been recorded for this client.
+  final String? email;
+
+  /// Artifact-system Wave 5 (2026-05-26) — mirrors `clients.email_verified_at`.
+  /// Non-NULL means the email column was confirmed via a magic-link claim
+  /// (ADR 0024 supersession path) and any future practitioner-typed
+  /// write is refused. NULL = the email is either absent or
+  /// practitioner-typed-unverified.
+  final DateTime? emailVerifiedAt;
+
   /// Supabase `auth.users.id` of the user this client represents.
   ///
   /// Non-NULL only for the Self-client row in the practitioner's
@@ -146,6 +162,8 @@ class CachedClient {
     this.faceEmbedding,
     this.faceEmbeddingModelVersion,
     this.userId,
+    this.email,
+    this.emailVerifiedAt,
     this.syncedAt,
     this.dirty = false,
     this.deleted = false,
@@ -183,6 +201,14 @@ class CachedClient {
     final userIdRaw = json['user_id'];
     final String? userId =
         (userIdRaw is String && userIdRaw.isNotEmpty) ? userIdRaw : null;
+    final emailRaw = json['email'];
+    final String? email =
+        (emailRaw is String && emailRaw.trim().isNotEmpty) ? emailRaw : null;
+    final verifiedRaw = json['email_verified_at'];
+    DateTime? emailVerifiedAt;
+    if (verifiedRaw is String && verifiedRaw.isNotEmpty) {
+      emailVerifiedAt = DateTime.tryParse(verifiedRaw);
+    }
     final embedding = _decodeFaceEmbedding(json['face_embedding']);
     final modelVersionRaw = json['face_embedding_model_version'];
     int? modelVersion;
@@ -209,6 +235,8 @@ class CachedClient {
       faceEmbedding: embedding,
       faceEmbeddingModelVersion: embedding == null ? null : modelVersion,
       userId: userId,
+      email: email,
+      emailVerifiedAt: emailVerifiedAt,
       syncedAt: nowMs,
       dirty: false,
       deleted: false,
@@ -326,6 +354,12 @@ class CachedClient {
       );
     }
     final userIdRaw = row['user_id'];
+    final emailRaw = row['email'];
+    final verifiedRaw = row['email_verified_at'];
+    DateTime? emailVerifiedAt;
+    if (verifiedRaw is String && verifiedRaw.isNotEmpty) {
+      emailVerifiedAt = DateTime.tryParse(verifiedRaw);
+    }
     return CachedClient(
       id: row['id'] as String,
       practiceId: row['practice_id'] as String,
@@ -344,6 +378,10 @@ class CachedClient {
       faceEmbeddingModelVersion:
           embedding == null ? null : row['face_embedding_model_version'] as int?,
       userId: (userIdRaw is String && userIdRaw.isNotEmpty) ? userIdRaw : null,
+      email: (emailRaw is String && emailRaw.trim().isNotEmpty)
+          ? emailRaw
+          : null,
+      emailVerifiedAt: emailVerifiedAt,
       syncedAt: row['synced_at'] as int?,
       dirty: (row['dirty'] as int? ?? 0) == 1,
       deleted: (row['deleted'] as int? ?? 0) == 1,
@@ -371,6 +409,8 @@ class CachedClient {
       'face_embedding': faceEmbedding,
       'face_embedding_model_version': faceEmbeddingModelVersion,
       'user_id': userId,
+      'email': email,
+      'email_verified_at': emailVerifiedAt?.toUtc().toIso8601String(),
       'synced_at': syncedAt,
       'dirty': dirty ? 1 : 0,
       'deleted': deleted ? 1 : 0,
@@ -412,6 +452,10 @@ class CachedClient {
     int? faceEmbeddingModelVersion,
     String? userId,
     bool clearUserId = false,
+    String? email,
+    bool clearEmail = false,
+    DateTime? emailVerifiedAt,
+    bool clearEmailVerifiedAt = false,
     int? syncedAt,
     bool? dirty,
     bool? deleted,
@@ -438,6 +482,10 @@ class CachedClient {
           ? null
           : (faceEmbeddingModelVersion ?? this.faceEmbeddingModelVersion),
       userId: clearUserId ? null : (userId ?? this.userId),
+      email: clearEmail ? null : (email ?? this.email),
+      emailVerifiedAt: clearEmailVerifiedAt
+          ? null
+          : (emailVerifiedAt ?? this.emailVerifiedAt),
       syncedAt: syncedAt ?? this.syncedAt,
       dirty: dirty ?? this.dirty,
       deleted: deleted ?? this.deleted,

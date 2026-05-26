@@ -45,6 +45,7 @@ import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
 import '../widgets/paste_bottom_sheet.dart';
 import '../widgets/preset_chip_row.dart';
+import '../widgets/artifact_share_sheet.dart';
 import '../widgets/artifact_status_row.dart';
 import '../widgets/publish_gate_sheet.dart';
 import '../widgets/publish_progress_sheet.dart';
@@ -4073,28 +4074,70 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return path.isEmpty || !File(path).existsSync();
   }
 
-  // Wave 38.1 hotfix — Import + Share restored to the bottom toolbar
-  // alongside Preview + Publish; Carl's mockup spec was missing these
-  // two slots in the W38 first cut. Share fires the iOS share sheet
-  // with the published plan URL.
+  // Artifact-system Wave 5 (2026-05-26) — Share button now opens a two-
+  // path bottom sheet (managed email vs. OS share) per the share-sheet
+  // mockup at docs/design/mockups/2026-05-26-share-sheet.html. The
+  // managed-email path invokes the `send-artifact-email` Supabase Edge
+  // Function which dispatches a branded Resend email containing a link to
+  // the workout handout at `session.homefit.studio/h/{planId}` and
+  // stamps `clients.email` for future sends (refusing to overwrite once
+  // the recipient claims the plan, per ADR 0024).
+  //
+  // Falls back to the legacy single-path OS share when the session has
+  // no client_id (legacy / orphan sessions can't address the managed-
+  // email path).
   Future<void> _shareFromToolbar() async {
     final url = _session.planUrl;
     if (url == null) return;
-    try {
-      final box = context.findRenderObject() as RenderBox?;
-      await Share.share(
-        url,
-        sharePositionOrigin: box != null
-            ? box.localToGlobal(Offset.zero) & box.size
-            : const Rect.fromLTWH(0, 0, 100, 100),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Share failed: $e')));
+
+    final clientId = _session.clientId;
+    if (clientId == null || clientId.isEmpty) {
+      // Legacy sessions without a clients.id linkage skip the share
+      // sheet — managed email needs a client to membership-check
+      // against. Fall through to the OS share for parity with the
+      // pre-Wave-5 behaviour.
+      try {
+        final box = context.findRenderObject() as RenderBox?;
+        await Share.share(
+          url,
+          sharePositionOrigin: box != null
+              ? box.localToGlobal(Offset.zero) & box.size
+              : const Rect.fromLTWH(0, 0, 100, 100),
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Share failed: $e')));
+        }
       }
+      return;
     }
+
+    // Pre-fill the email field from the cached client when present.
+    // Reads through SyncService — same path as the rest of Studio.
+    String? prefillEmail;
+    try {
+      final cached = await SyncService.instance.storage.getCachedClientById(
+        clientId,
+      );
+      prefillEmail = cached?.email;
+    } catch (_) {
+      // Best-effort prefill; if the local cache is unavailable the
+      // sheet opens with a blank email field.
+    }
+
+    if (!mounted) return;
+
+    await showArtifactShareSheet(
+      context,
+      planId: _session.id,
+      clientId: clientId,
+      planUrl: url,
+      planTitle: _resolveAppBarTitle(),
+      planVersion: _session.version,
+      prefillEmail: prefillEmail,
+    );
   }
 
   /// Wave 41 — download all raw captures (videos + photos) in the
