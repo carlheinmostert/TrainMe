@@ -135,8 +135,8 @@ Full runbook (Management API + dashboard fallback) at `docs/handoffs/2026-05-26-
 
 ## Wave 4 — Brand-skin subscription
 
-**Branch:** `feat/artifact-brand-skin-subscription` (planned)
-**Status:** Queued
+**Branch:** `feat/artifact-brand-skin-subscription` (deleted after merge)
+**PR:** #539 — **MERGED to staging** as squash commit `b543130`
 
 ### Locked decisions Carl approved before stepping away
 
@@ -150,7 +150,29 @@ Full runbook (Management API + dashboard fallback) at `docs/handoffs/2026-05-26-
 
 ### Decisions made without Carl
 
-(populated when the wave runs)
+- **Salvaged mid-flight after the sub-agent died with a truncated message.** The Wave 4 backend-architect agent (`a1f645c5e16812d3a`) sent a completion notification with the final summary cut off at "Now wire the banner into BrandHeader:" — clearly mid-instruction. Verified the worktree state per `feedback_dead_agent_salvage.md`: the agent had landed the migration (32 KB, well-architected), the `handout.css` `.skin-active` override block, the `handout.js` `applySkin()` color-derivation pipeline, the `BrandSkinLapseBanner.tsx` component, and the four `PortalApi` methods — but had NOT yet (a) mounted the lapse banner into `BrandHeader`'s JSX (only added the import), (b) authored the `/brand-skin` + `/brand-skin/subscribe` portal routes, (c) added the mobile `ApiClient` brand-skin methods + `BrandSkinState` class, or (d) built the Flutter Studio lapse banner widget. Parent session authored those four missing pieces by hand against the agent's existing pattern (BrandSkinLapseBanner mirror, SafeModeSubscribeForm mirror, ApiClient pattern mirror). All deliverables present at PR open.
+- **`.skin-active` (not `.skin-{name}`)** for the CSS class. The locked-decisions block named `.skin-{name}` but the implementation reality is that the practitioner's brand identity is passed inline via CSS custom properties (`--practice-brand-*`); the class is just a binary toggle for "skin on / skin off." Class name divergence documented inline in `handout.css`.
+- **Added `credit_ledger.metadata jsonb` column** (the migration introduces this — pre-existing schema didn't have it). The spec named `metadata->>'practice_id'` as the scope key, so we added the column rather than scoping by the existing `credit_ledger.practice_id` (which would have worked here, but wouldn't generalise — Safe Mode is user-scoped, not practice-scoped, so a future cross-cutting predicate needs the metadata path). Documented inline.
+- **`practice_brand_skin_state` soft-fails on non-member** (returns inactive snapshot) rather than raising. Rationale: portal practice-switcher routes can carry a stale `?practice=` link; a hard raise would crash the page, whereas the inactive snapshot just hides the lapse banner. Mirrors a pattern Safe Mode does NOT use (Safe Mode raises) — divergence is deliberate because the brand-skin banner is informational, not gating capture.
+- **Partial index** `credit_ledger_brand_skin_lookup` on `((metadata ->> 'practice_id'), type, created_at DESC) WHERE type IN ('brand_skin_month', 'brand_skin_month_trial')` so the predicate hot path stays small.
+- **Trial-then-paid fall-through** on the portal subscribe form: if `start_brand_skin_trial` returns `trial_already_used`, the form switches to the paid CTA inline (no page reload). Smoother UX than redirecting to a different form.
+- **Studio banner is informational only.** No CTA, no tap target, no price string — Reader-App compliant per `feedback_ios_reader_app.md`. Practitioner reads the cycle-end warning and must visit `manage.homefit.studio` from a browser to renew.
+- **`get_plan_full` extension preserves every existing key.** Sourced the previous body from `20260526150953_artifact_system_foundation.sql` (Wave 1) and added only the `brand_skin_active` field. Per `feedback_schema_migration_column_preservation.md`.
+- **Rebased onto the post-Wave-1-2-3 staging tip mid-flight** when CI surfaced a base mismatch. While the Wave 4 agent ran, two additional commits landed on staging (`8a4c735` M40 ARKit, `9815b70` safe-mode self-recognition fix). Clean conflict-free rebase since face-enrolment iOS files don't overlap Wave 4 scope.
+
+### Files touched
+
+16 files, +2,366 / -10:
+
+- **New:** `supabase/migrations/20260526184005_brand_skin_subscription.sql`, `web-portal/src/app/brand-skin/page.tsx`, `web-portal/src/app/brand-skin/subscribe/page.tsx`, `web-portal/src/app/brand-skin/subscribe/BrandSkinSubscribeForm.tsx`, `web-portal/src/components/BrandSkinLapseBanner.tsx`, `app/lib/widgets/brand_skin_lapse_banner.dart`.
+- **Modified:** `web-player/handout.{html,css,js}` + mirror at `app/assets/web-player/handout.{html,css,js}`, `web-portal/src/components/BrandHeader.tsx`, `web-portal/src/lib/supabase/api.ts`, `app/lib/services/api_client.dart` (+ `BrandSkinState` class), `app/lib/screens/studio_mode_screen.dart`.
+
+### Verification
+
+- ✅ `dart_analyze` clean on the touched paths.
+- ✅ Seal-token grep on `handout.css` confirms `--seal-coral` / `--seal-coral-light` / `--seal-tint-border` declared only at `:root` + the `.handout-seal` rule — never inside `.skin-active`.
+- ✅ Web-player mirror sync verified.
+- ✅ CI all 23 checks green (Flutter analyze + test, Web portal lint + typecheck + build, Web player node --check, Apply all migrations against Postgres 17, Supabase Preview, etc.).
 
 ---
 
