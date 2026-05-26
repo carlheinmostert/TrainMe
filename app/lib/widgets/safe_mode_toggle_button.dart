@@ -7,39 +7,39 @@ import 'safe_mode_icon.dart';
 
 /// First-class Safe Mode toggle for the Home screen header.
 ///
-/// Three-state visual + behaviour, all driven from the singleton
+/// **Brand call (M24 — 2026-05-26 mobile stack round 4): Safe Mode is
+/// ALWAYS green, full stop.** The action icon always renders as the
+/// green-filled circular badge (`#3DDC97` background, `#22C57E` border,
+/// soft sage glow) — irrespective of whether Safe Mode is currently
+/// off, manually engaged, or auto-engaged inside an enforcing premises.
+/// Colour does NOT differentiate state. The token "green = Safe Mode"
+/// must read at distance regardless of whether the practitioner is
+/// inside a premises right now.
+///
+/// State differentiation lives in BEHAVIOUR (and, where needed, in
+/// non-colour affordances inside the green badge — e.g. an inner dot,
+/// shield knockout, etc.), not in colour-shifting away from green.
+///
+/// Three-state behaviour, all driven from the singleton
 /// [SafeModeService]:
 ///
-/// 1. **Off** (`!svc.isActive`): icon rendered in default muted /
-///    monochrome white, no border. Tap → [SafeModeService.forceActive]
+/// 1. **Off** (`!svc.isActive`): tap → [SafeModeService.forceActive]
 ///    so the practitioner opts into manual Safe Mode (and the
 ///    persistent banner appears).
 ///
-/// 2. **Manual active** (`svc.isActive && svc.isManual`): icon shown
-///    coral-filled with a subtle coral border so the toggle reads as
-///    "on, my choice". Tap → [SafeModeService.reset] followed by
-///    [SafeModeService.checkLocation] so the auto-evaluation gets a
-///    fresh look (it may immediately flip back to Auto if the device
-///    is inside a polygon, or land on Off).
+/// 2. **Manual active** (`svc.isActive && svc.isManual`): tap →
+///    [SafeModeService.reset] followed by [SafeModeService.checkLocation]
+///    so the auto-evaluation gets a fresh look (it may immediately flip
+///    back to Auto if the device is inside a polygon, or land on Off).
 ///
 /// 3. **Auto active and locked** (`svc.isActive && !svc.isManual`):
-///    **green-filled circular badge** (`#3DDC97` background, `#22C57E`
-///    border, soft sage glow) — matches the [PersistentSafeModeBanner]
-///    sage treatment so the chrome reads as ONE state ("you are inside
-///    an enforcing premises"). The polygon enforcement means the
-///    practitioner cannot override — tapping shows a brief inline
-///    snackbar "Enforced by your current premises" instead of mutating
-///    state. The privacy promise is held tight.
-///
-///    The green badge appears IRRESPECTIVE of subscription state (per
-///    M21 — 2026-05-26 mobile stack round 3); the colour communicates
-///    "safe", which is true regardless of whether the practitioner has
-///    paid for a subscription. The subscription state lives in the
-///    banner's right-edge affordance, not in the action icon.
+///    polygon enforcement means the practitioner cannot override —
+///    tapping shows a brief inline snackbar "Enforced by your current
+///    premises" instead of mutating state.
 ///
 /// Listens to [SafeModeService.instance] via [ListenableBuilder] so the
-/// visual updates in real time as polygon evaluations / manual flips /
-/// trailing-window deactivations happen.
+/// behaviour updates in real time as polygon evaluations / manual flips
+/// / trailing-window deactivations happen.
 ///
 /// Used by the Home screen header next to the network-share
 /// (`group_add_outlined`) icon. Sized to roughly match the adjacent
@@ -69,7 +69,8 @@ class SafeModeToggleButton extends StatelessWidget {
         final isActive = svc.isActive;
         final isManual = svc.isManual;
         // "Auto + locked" = polygon-enforced (active but not manual).
-        // This is the state that gets the green badge treatment.
+        // Drives BEHAVIOUR (tap → enforcement snackbar) but no longer
+        // drives colour — every state is green per M24.
         final isAutoLocked = isActive && !isManual;
 
         return Tooltip(
@@ -88,7 +89,7 @@ class SafeModeToggleButton extends StatelessWidget {
                   alignment: Alignment.center,
                   child: _buildIcon(
                     isActive: isActive,
-                    isAutoLocked: isAutoLocked,
+                    isManual: isManual,
                   ),
                 ),
               ),
@@ -99,71 +100,64 @@ class SafeModeToggleButton extends StatelessWidget {
     );
   }
 
-  Widget _buildIcon({required bool isActive, required bool isAutoLocked}) {
-    // Auto-locked → green-filled circular badge with a dark shield
-    // knockout. Mirrors [PersistentSafeModeBanner._buildShieldBadge]
-    // so the action icon + the banner read as one cohesive "inside
-    // an enforcing premises" state.
-    if (isAutoLocked) {
-      return Container(
-        width: iconSize + 8,
-        height: iconSize + 8,
-        decoration: BoxDecoration(
-          color: _kSageFill,
-          shape: BoxShape.circle,
-          border: Border.all(color: _kSageBorder, width: 1),
-          boxShadow: const [
-            BoxShadow(
-              color: _kSageGlow,
-              offset: Offset(0, 0),
-              blurRadius: 10,
-            ),
-          ],
-        ),
-        alignment: Alignment.center,
-        child: SafeModeIcon(
-          size: iconSize - 2,
-          fillColor: _kInk,
-          // Knockout matches the sage so the two figures punch out
-          // of the ink, reading as dark shield with sage cutouts.
-          knockoutColor: _kSageFill,
-        ),
-      );
-    }
+  /// Always renders the green-filled circular badge — M24 brand call:
+  /// Safe Mode is ALWAYS green, full stop. No colour state-shift.
+  ///
+  /// State differentiation lives in non-colour affordances inside the
+  /// badge:
+  ///   * Active states (auto-locked OR manual) → solid dark shield
+  ///     knockout reads "engaged".
+  ///   * Off state → same green badge with an inset ring (`bystanderOpacity`
+  ///     dialled down so the badge reads slightly emptier) so the
+  ///     practitioner can still distinguish "armed and waiting" from
+  ///     "actively obscuring bystanders right now" without colour.
+  Widget _buildIcon({required bool isActive, required bool isManual}) {
+    // Off-state: still green badge, but the shield interior reads
+    // "armed, not currently obscuring". Lower bystanderOpacity so the
+    // second figure ghosts in, signalling the state difference without
+    // colour-shifting.
+    //
+    // `isManual` intentionally unused in the icon visuals — colour AND
+    // shield treatment stay constant across off / manual / auto. The
+    // flag still flows into `_onTap` to drive the enforcement snackbar
+    // path.
+    // ignore: unused_local_variable
+    final manualUnused = isManual;
+    final shieldKnockout = isActive
+        // Active (auto OR manual) → both figures punch out of the dark
+        // shield reading as the canonical engaged shield.
+        ? SafeModeIcon(
+            size: iconSize - 2,
+            fillColor: _kInk,
+            knockoutColor: _kSageFill,
+          )
+        // Off → bystander figure ghosted (0.45) so the badge has a
+        // visible "not yet engaged" signal that doesn't depend on
+        // colour.
+        : SafeModeIcon(
+            size: iconSize - 2,
+            fillColor: _kInk,
+            knockoutColor: _kSageFill,
+            bystanderOpacity: 0.45,
+          );
 
-    // Off-state: shield rendered as a flat white outline-equivalent —
-    // we reuse SafeModeIcon but with white as the fill so the silhouette
-    // still reads, and a knockout that matches the surface so the
-    // figures inside disappear (we just see a white shield outline).
-    if (!isActive) {
-      return SafeModeIcon(
-        size: iconSize,
-        fillColor: AppColors.textOnDark.withValues(alpha: 0.62),
-        // Knockout matches the surface so the two figures vanish — the
-        // OFF state should read as a neutral "Safe Mode is available
-        // but currently off". Bystander opacity 1.0 means the right
-        // figure is also fully knocked out for consistency.
-        knockoutColor: AppColors.surfaceBg,
-        bystanderOpacity: 1.0,
-      );
-    }
-
-    // Manual active: coral-filled shield + figures, coral border pill.
-    // We keep coral here (rather than sage) because manual mode is the
-    // practitioner OPTING IN outside any geofence — there is no
-    // enforcing premises promise to make green. Coral reads as
-    // "active, your choice".
     return Container(
-      padding: const EdgeInsets.all(3),
+      width: iconSize + 8,
+      height: iconSize + 8,
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.primary.withValues(alpha: 0.55),
-          width: 1,
-        ),
+        color: _kSageFill,
+        shape: BoxShape.circle,
+        border: Border.all(color: _kSageBorder, width: 1),
+        boxShadow: const [
+          BoxShadow(
+            color: _kSageGlow,
+            offset: Offset(0, 0),
+            blurRadius: 10,
+          ),
+        ],
       ),
-      child: SafeModeIcon(size: iconSize),
+      alignment: Alignment.center,
+      child: shieldKnockout,
     );
   }
 
