@@ -30,7 +30,7 @@ enum HomeScope { clients, classes, workouts }
 ///
 ///   [ My Workouts ]    [ Clients · Classes ]
 ///   Workouts capsule       Practice capsule
-///      (flex 100)             (flex 165)
+///      (flex 130)             (flex 165)
 ///
 /// The Workouts and Practice capsules sit side-by-side with a 6px
 /// gap. Visually distinct primitives tell the truth that My Workouts
@@ -41,8 +41,15 @@ enum HomeScope { clients, classes, workouts }
 /// `docs/SELF_TRAINER_WAVE.md` § IA changes (2026-05-25), the layout
 /// is reversed (My Workouts capsule on the LEFT) and the label is
 /// restored to "My Workouts". Order, not width, carries the
-/// prominence signal (Q5.2 of the design doc). Width ratios (flex
-/// 100:165) are unchanged.
+/// prominence signal (Q5.2 of the design doc).
+///
+/// Width ratio bumped 2026-05-26 (mobile cosmetic polish): Workouts
+/// capsule flex 100 → 130. The 11-char "My Workouts" label was
+/// crowding the coral fill edges relative to "Clients"/"Classes"
+/// (7 chars each) in the Practice capsule — comparing flex-per-char
+/// to match the Practice cells' breathing room (~12 flex/char) gives
+/// ~130 flex for an 11-char label. The active coral pill now reads
+/// with the same horizontal breathing room as its outlined siblings.
 class HomeScopeSegmented extends StatelessWidget {
   final HomeScope selected;
   final ValueChanged<HomeScope> onChanged;
@@ -65,7 +72,7 @@ class HomeScopeSegmented extends StatelessWidget {
           // underlying `HomeScope.workouts` enum name is unchanged — only
           // the user-facing label flipped back to "My Workouts".
           Expanded(
-            flex: 100,
+            flex: 130,
             child: _Capsule(
               children: [
                 _Segment(

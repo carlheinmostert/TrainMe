@@ -1120,14 +1120,24 @@ class _HomeScreenState extends State<HomeScreen> {
               // M1 (2026-05-25 mobile stack) — header icons.
               //
               // Vertical alignment: the four icons (left: person-add `+`
-              // and shield; right: help `?` and settings gear) used to
-              // sit at `top: 4` which floated them above the brand-
-              // lockup centerline. Dropped to `top: 28` so the icons
-              // vertically centre on the matrix glyph + wordmark axis of
-              // `HomefitLogoLockup(size: 180)` — the lockup body sits at
-              // ~ 16 (padding) + ~30 (matrix half-height) = 46 pt from
-              // the SafeArea top, so a 48 pt icon button anchored at top:
-              // 28 puts its visual centre on that axis.
+              // and shield; right: help `?` and settings gear) sit on
+              // the `homefit.studio` WORDMARK centerline. The earlier
+              // `top: 28` value targeted the matrix-glyph axis below
+              // the wordmark, which read as "icons below the title"
+              // during device QA (2026-05-26).
+              //
+              // Math: `HomefitLogoLockup(size: 180)` renders into a
+              // 60 pt tall box (180 × 16/48). The lockup sits below
+              // an 8 pt top padding (`EdgeInsets.fromLTRB(24, 8, 24,
+              // 12)`). Inside the lockup the wordmark baseline is at
+              // source y=6.6 → 6.6 × (60/16) = 24.75 pt from the
+              // widget top → ~33 pt from the SafeArea top. With font
+              // size ≈ 24 px the visual x-height centre is ~6 pt
+              // above the baseline, putting the wordmark centerline
+              // at ~27 pt from the SafeArea top. Each IconButton is
+              // a 48 pt square, so anchoring at `top: 3` puts the
+              // icon-glyph centre at 3 + 24 = 27 pt — on the
+              // wordmark centerline.
               //
               // Tab-sensitive visibility removed: the left cluster
               // (network share + Safe Mode toggle) previously hid on the
@@ -1138,15 +1148,8 @@ class _HomeScreenState extends State<HomeScreen> {
               // sheets; tapping Share from the Workouts scope falls
               // through to the same NetworkShareSheet which auto-targets
               // the practitioner's primary practice.
-              //
-              // Excess chrome: the icon Positioned `top:` value is the
-              // sole vertical-padding handle on this Stack overlay; the
-              // brand-lockup padding was already balanced for the
-              // capsule strip below. Tighter padding north/south of the
-              // lockup will land in a follow-up if the new icon
-              // alignment doesn't already read tighter.
               Positioned(
-                top: 28,
+                top: 3,
                 right: 52,
                 child: IconButton(
                   onPressed: _openHelp,
@@ -1163,7 +1166,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               Positioned(
-                top: 28,
+                top: 3,
                 right: 4,
                 child: IconButton(
                   onPressed: _openSettings,
@@ -1178,7 +1181,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // Network share + Safe Mode toggle (left cluster). Always
               // visible regardless of scope per M1.
               Positioned(
-                top: 28,
+                top: 3,
                 left: 4,
                 child: IconButton(
                   onPressed: _openNetworkShare,
@@ -1191,7 +1194,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const Positioned(
-                top: 28,
+                top: 3,
                 left: 52,
                 child: SafeModeToggleButton(iconSize: 28),
               ),
