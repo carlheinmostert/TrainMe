@@ -336,16 +336,16 @@ Exact types finalised in the migration PR.
 
 ---
 
-## ADRs to ratify
+## ADRs
 
-Hard-to-reverse, surprising-without-context decisions warranting their own ADRs (authored with the first implementation PR):
+All six ADRs flagged at the close of the visual phase landed in this branch on 2026-05-26 — alphabetically by number:
 
-- **Anonymous link survives; identity is opt-in via claim** (no mandatory login, no silent tokens). — #11, #13.
-- **The free artifact is a live interactive page, not a PDF/PNG** (reverses the shipped on-device handout). — #8, reversals.
-- **Practice-grain consent, practitioner-proxy → client-controlled on claim, inherit-on-claim, spanning identity.** — #16, #17 — extends the consent model.
-- **Per-artifact pricing with a free floor** — #4 — extends ADR 0007.
-- **Plan-level, paid-only edit-lock** — extends ADR 0016.
-- **Monetize enhancement, not entry: brand-skin is a live credit-subscription behind a permanent homefit seal** (no white-label; skin reverts on lapse) — #22–#25.
+- [`docs/adr/0024-anonymous-link-survives-claim-is-opt-in.md`](./adr/0024-anonymous-link-survives-claim-is-opt-in.md) — Anonymous link on shared artifacts survives; claim is opt-in (rejected: mandatory login, silent identity token). Locks decisions #11–#15.
+- [`docs/adr/0025-workout-handout-is-a-live-page-not-a-pdf.md`](./adr/0025-workout-handout-is-a-live-page-not-a-pdf.md) — Workout handout is a live interactive page at `/h/`, not a PDF. Deprecates the shipped on-device PDF handout pipeline. Locks decisions #8–#10.
+- [`docs/adr/0026-practice-grain-consent-client-controlled-on-claim.md`](./adr/0026-practice-grain-consent-client-controlled-on-claim.md) — Consent is practice-grain; practitioner-proxy pre-claim, client-controlled post-claim with transparency-not-override. Locks decisions #16–#17.
+- [`docs/adr/0027-per-artifact-pricing-with-free-floor.md`](./adr/0027-per-artifact-pricing-with-free-floor.md) — Pricing is per artifact kind; the floor is free. Extends ADR 0007. Locks decision #4.
+- [`docs/adr/0028-edit-lock-is-paid-only-at-plan-level.md`](./adr/0028-edit-lock-is-paid-only-at-plan-level.md) — Edit-lock is plan-level, paid-only; free-only plans never lock. Extends ADR 0016.
+- [`docs/adr/0029-brand-skin-subscription-monetize-enhancement-not-entry.md`](./adr/0029-brand-skin-subscription-monetize-enhancement-not-entry.md) — Brand-skin is a credit-denominated subscription on top of a permanent homefit seal. Locks decisions #22–#25 + #28–#29.
 
 ---
 
