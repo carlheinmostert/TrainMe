@@ -138,10 +138,14 @@ class _SafeModeSubscribeChipState extends State<SafeModeSubscribeChip> {
               onTap: _onTap,
               borderRadius: BorderRadius.circular(999),
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
+                // Asymmetric horizontal padding (10 left for the icon, 12
+                // right for the arrow) keeps the chip compact while the
+                // larger icon (M16: bumped 14 → 28 px) gets enough breath
+                // not to crowd the text. Vertical padding stays at 6 px
+                // — the icon is square so it drives total chip height to
+                // ~40 px (was ~26 px). Still well under the legacy 95 px
+                // banner and reads at typical iPhone viewing distance.
+                padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFF6B35),
                   borderRadius: BorderRadius.circular(999),
@@ -158,12 +162,21 @@ class _SafeModeSubscribeChipState extends State<SafeModeSubscribeChip> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     SafeModeIcon(
-                      size: 14,
+                      // M16 (2026-05-25 mobile stack): bumped from 14 to
+                      // 28 px because the 14-px shield was illegible at
+                      // typical iPhone viewing distance — the entire
+                      // chip's first read was just "coral pill with
+                      // text"; the safety affordance only resolved on
+                      // close inspection. 28 px is ~2x bigger and
+                      // approximately matches the body text x-height
+                      // visually weighted, so the icon now carries its
+                      // intended "shield + figures" signal.
+                      size: 28,
                       // Dark knockout on coral matches the persistent-banner
                       // icon treatment for visual continuity.
                       knockoutColor: Color(0xFF0F1117),
                     ),
-                    SizedBox(width: 6),
+                    SizedBox(width: 8),
                     Text(
                       'Subscribe to capture here',
                       style: TextStyle(
