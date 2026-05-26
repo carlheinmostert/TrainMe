@@ -616,6 +616,148 @@ class VideoConverterChannel {
                 }
             }
 
+        case "safeModeMatchDiagnostic":
+            // Wave M41 (2026-05-26) — non-destructive Safe Mode v2 match
+            // probe. Runs the SAME face-detect + embed + cosSim pipeline
+            // as `applySafeModeV2ToPhoto` against `srcPath` and the
+            // supplied `subjectEmbeddings` list, but does NOT paint a
+            // coral mask and does NOT write a destination image.
+            // Returns per-face cosSim values + the chosen subject index
+            // + which branch (no-faces / solo-floor / multi-relative) the
+            // hybrid pick-highest rule landed in.
+            //
+            // Purpose: lets the Diagnostics screen + log-toggle code path
+            // ask the matcher "what would you do with this photo?" so a
+            // self-recognition regression can be triaged WITHOUT having
+            // to take a real Safe Mode capture inside a premises polygon.
+            // Numbers returned here are bit-for-bit identical to what
+            // `applySafeModeV2ToPhoto` would compute on the same inputs
+            // — same Vision face-detect, same MobileFaceNetEmbedder,
+            // same `cosineSimilarity` helper. If this probe disagrees
+            // with what Safe Mode produced in the field, the pipeline
+            // itself is non-deterministic and we have a different bug.
+            //
+            // Per feedback_no_silent_fallbacks the input validation is
+            // strict (matches `applySafeModeV2ToPhoto`). Empty arrays,
+            // oversize arrays, and wrong-byte-length elements are
+            // rejected with structured FlutterErrors.
+            guard let args = call.arguments as? [String: Any],
+                  let srcPath = args["srcPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing srcPath for safeModeMatchDiagnostic",
+                    details: nil
+                ))
+                return
+            }
+            let rawDiagEmbeddings: Any? = args["subjectEmbeddings"]
+            var diagSubjectEmbeddings: [Data] = []
+            if let list = rawDiagEmbeddings as? [Any] {
+                for element in list {
+                    if let typed = element as? FlutterStandardTypedData {
+                        diagSubjectEmbeddings.append(typed.data)
+                    } else if let raw = element as? Data {
+                        diagSubjectEmbeddings.append(raw)
+                    } else {
+                        result(FlutterError(
+                            code: "INVALID_ARGS",
+                            message: "subjectEmbeddings list contains a non-bytes element (\(type(of: element)))",
+                            details: nil
+                        ))
+                        return
+                    }
+                }
+            } else if rawDiagEmbeddings == nil {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing subjectEmbeddings for safeModeMatchDiagnostic",
+                    details: nil
+                ))
+                return
+            } else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddings must be a list of bytes; got \(type(of: rawDiagEmbeddings!))",
+                    details: nil
+                ))
+                return
+            }
+            if diagSubjectEmbeddings.isEmpty {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddings must contain at least one embedding (got 0)",
+                    details: nil
+                ))
+                return
+            }
+            if diagSubjectEmbeddings.count > 8 {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "subjectEmbeddings must contain at most 8 embeddings (got \(diagSubjectEmbeddings.count))",
+                    details: nil
+                ))
+                return
+            }
+            let expectedDiagByteLen = MobileFaceNetEmbedder.embeddingByteLength
+            for (idx, emb) in diagSubjectEmbeddings.enumerated() {
+                if emb.count != expectedDiagByteLen {
+                    result(FlutterError(
+                        code: "INVALID_ARGS",
+                        message: "subjectEmbeddings[\(idx)] wrong size — got \(emb.count) bytes, expected \(expectedDiagByteLen)",
+                        details: nil
+                    ))
+                    return
+                }
+            }
+            let diagThreshold = (args["threshold"] as? Double) ?? 0.10
+            processingQueue.async {
+                if #available(iOS 15.0, *) {
+                    let outcome = Self.safeModeMatchDiagnostic(
+                        srcPath: srcPath,
+                        subjectEmbeddings: diagSubjectEmbeddings,
+                        threshold: diagThreshold
+                    )
+                    DispatchQueue.main.async {
+                        switch outcome {
+                        case .success(let faces, let subjectIdx, let bestSim, let branch, let refCount):
+                            result([
+                                "faces": faces.map { face in
+                                    return [
+                                        "cosSim": face.cosSim,
+                                        "boundsX": Double(face.normalizedRect.origin.x),
+                                        "boundsY": Double(face.normalizedRect.origin.y),
+                                        "boundsWidth": Double(face.normalizedRect.width),
+                                        "boundsHeight": Double(face.normalizedRect.height),
+                                        "cropX": Int(face.pixelRectTopLeft.origin.x),
+                                        "cropY": Int(face.pixelRectTopLeft.origin.y),
+                                        "cropWidth": Int(face.pixelRectTopLeft.width),
+                                        "cropHeight": Int(face.pixelRectTopLeft.height),
+                                    ]
+                                },
+                                "subjectIndex": subjectIdx as Any,
+                                "bestSim": bestSim,
+                                "branch": branch,
+                                "referenceCount": refCount,
+                            ])
+                        case .failure(let err):
+                            result(FlutterError(
+                                code: "SAFE_MODE_DIAG_FAILED",
+                                message: err,
+                                details: nil
+                            ))
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UNSUPPORTED_OS",
+                            message: "Safe Mode v2 requires iOS 15+",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
         case "applySafeModeV2ToVideo":
             // Safe Mode v2 VIDEO (2026-05-25) — per-client face-recognition
             // discriminator extended from photos to videos. Hybrid state
@@ -3947,6 +4089,211 @@ class VideoConverterChannel {
             processed: 1,
             missRate: missRate,
             lowConfidence: lowConfidence
+        )
+    }
+
+    // MARK: - Safe Mode v2 — non-destructive match probe (Wave M41)
+
+    /// Per-face record returned by `safeModeMatchDiagnostic`.
+    struct SafeModeDiagFace {
+        let normalizedRect: CGRect      // Vision normalized, bottom-left origin
+        let pixelRectTopLeft: CGRect    // Top-left origin, in upright pixel coords
+        let cosSim: Double              // MAX cosSim across all subject embeddings
+    }
+
+    /// Outcome of `safeModeMatchDiagnostic`. `success(faces, subjectIndex,
+    /// bestSim, branch, referenceCount)`:
+    ///   - `faces` — one record per Vision-detected face in `srcPath`.
+    ///   - `subjectIndex` — index into `faces` of the picked subject, or
+    ///     nil when the hybrid pick-highest rule landed in no-subject
+    ///     mode (zero faces or solo-floor rejection).
+    ///   - `bestSim` — highest cosSim observed across all detected faces.
+    ///   - `branch` — which decision branch the picker fell into
+    ///     (matches `MobileFaceNetEmbedder.PickBranch.rawValue`).
+    ///   - `referenceCount` — number of enrolled embeddings the probe
+    ///     was scored against (passthrough of input length, for logs).
+    ///
+    /// Failure carries a string so the channel layer can route it as
+    /// a FlutterError.
+    enum SafeModeDiagOutcome {
+        case success(
+            faces: [SafeModeDiagFace],
+            subjectIndex: Int?,
+            bestSim: Double,
+            branch: String,
+            referenceCount: Int
+        )
+        case failure(String)
+    }
+
+    /// Wave M41 (2026-05-26) — non-destructive Safe Mode v2 match probe.
+    ///
+    /// Runs the same face-detect + embed + cosSim pipeline as
+    /// `applySafeModeV2ToPhoto` but does NOT paint coral, segment, or
+    /// write an output file. Used by the Diagnostics screen "Test self-
+    /// recognition" action and by the match-logging post-pass so a
+    /// practitioner can verify their enrolled embeddings actually
+    /// recognise their own face without producing a real Safe Mode
+    /// capture.
+    ///
+    /// Numbers returned here are bit-for-bit identical to what
+    /// `applySafeModeV2ToPhoto` would compute on the same inputs — same
+    /// EXIF-respecting upright pre-render, same `VNDetectFaceLandmarksRequest`,
+    /// same MobileFaceNetEmbedder, same `cosineSimilarity` helper,
+    /// same `pickSubjectFromPrecomputed` decision rule. If this probe
+    /// disagrees with what `applySafeModeV2ToPhoto` did in the field on
+    /// the same `srcPath`, the pipeline is non-deterministic and we
+    /// have a different bug.
+    ///
+    /// Per `feedback_no_silent_fallbacks` the failure modes are loud:
+    /// empty / wrong-byte-length embeddings are pre-validated at the
+    /// channel layer; Vision face-detect throws → `.failure(...)`.
+    /// Faces-but-no-subject is a legitimate outcome (the practitioner
+    /// is not in frame) and surfaces as `.success(faces: [...],
+    /// subjectIndex: nil, ...)` not as failure.
+    @available(iOS 15.0, *)
+    static func safeModeMatchDiagnostic(
+        srcPath: String,
+        subjectEmbeddings: [Data],
+        threshold: Double
+    ) -> SafeModeDiagOutcome {
+        guard FileManager.default.fileExists(atPath: srcPath) else {
+            return .failure("Source photo not found: \(srcPath)")
+        }
+        guard let uiImage = UIImage(contentsOfFile: srcPath),
+              let cgImage = uiImage.cgImage else {
+            return .failure("Could not decode source photo: \(srcPath)")
+        }
+        guard !subjectEmbeddings.isEmpty else {
+            return .failure("subjectEmbeddings must contain at least one embedding")
+        }
+        for (idx, emb) in subjectEmbeddings.enumerated() {
+            if emb.count != MobileFaceNetEmbedder.embeddingByteLength {
+                return .failure(
+                    "subjectEmbeddings[\(idx)] wrong size — got \(emb.count) bytes, " +
+                    "expected \(MobileFaceNetEmbedder.embeddingByteLength)"
+                )
+            }
+        }
+
+        // --- Upright pre-render at <=1920px max-dim (same as v2 photo) ---
+        let nativeCgW = cgImage.width
+        let nativeCgH = cgImage.height
+        guard nativeCgW > 0, nativeCgH > 0 else {
+            return .failure("Source photo has zero dimensions")
+        }
+        let displayW: Int
+        let displayH: Int
+        switch uiImage.imageOrientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            displayW = nativeCgH
+            displayH = nativeCgW
+        default:
+            displayW = nativeCgW
+            displayH = nativeCgH
+        }
+        let maxWorkDim = 1920
+        let displayMax = max(displayW, displayH)
+        let workScale = min(1.0, Double(maxWorkDim) / Double(displayMax))
+        let width = max(1, Int((Double(displayW) * workScale).rounded()))
+        let height = max(1, Int((Double(displayH) * workScale).rounded()))
+
+        let renderFormat = UIGraphicsImageRendererFormat.default()
+        renderFormat.scale = 1.0
+        renderFormat.opaque = true
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: renderFormat
+        )
+        let uprightUIImage = renderer.image { _ in
+            uiImage.draw(in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        guard let uprightCG = uprightUIImage.cgImage else {
+            return .failure("UIGraphicsImageRenderer produced no cgImage")
+        }
+
+        // --- Face detection (same Vision request as the v2 photo path) ---
+        let faceReq = VNDetectFaceLandmarksRequest()
+        let visionHandler = VNImageRequestHandler(
+            cgImage: uprightCG, orientation: .up, options: [:]
+        )
+        do {
+            try visionHandler.perform([faceReq])
+        } catch {
+            return .failure("Vision face detect failed: \(error.localizedDescription)")
+        }
+        let observations = faceReq.results ?? []
+
+        // --- Bounds helper — bit-identical to the v2 photo path's
+        // `toPixelTopLeft` so per-face crops here match what Safe Mode
+        // produces in the field. ---
+        func toPixelTopLeft(_ r: CGRect, pad: CGFloat = 0.20) -> CGRect {
+            let padW = r.width * pad
+            let padH = r.height * pad
+            let nx0 = max(0, r.origin.x - padW)
+            let ny0Bot = max(0, r.origin.y - padH)
+            let nw = min(1.0, r.width + 2 * padW)
+            let nh = min(1.0, r.height + 2 * padH)
+            let px0 = nx0 * CGFloat(width)
+            let py0Top = CGFloat(height) - (ny0Bot + nh) * CGFloat(height)
+            let pw = nw * CGFloat(width)
+            let ph = nh * CGFloat(height)
+            return CGRect(
+                x: max(0, px0).rounded(.down),
+                y: max(0, py0Top).rounded(.down),
+                width: pw.rounded(.up),
+                height: ph.rounded(.up)
+            )
+        }
+
+        // --- Embed each face + compute MAX cosSim across references ---
+        var faces: [SafeModeDiagFace] = []
+        for obs in observations {
+            let r = obs.boundingBox
+            let pixelRect = toPixelTopLeft(r, pad: 0.20)
+            if pixelRect.width < 8 || pixelRect.height < 8 { continue }
+            guard let crop = uprightCG.cropping(to: pixelRect) else { continue }
+            var sim: Double = -2.0
+            do {
+                let embed = try MobileFaceNetEmbedder.shared.embed(face: crop)
+                for ref in subjectEmbeddings {
+                    let s = MobileFaceNetEmbedder.cosineSimilarity(embed, ref)
+                    if s > sim { sim = s }
+                }
+            } catch {
+                // One face's embed failed — record cosSim=-1 (sentinel
+                // for "could not score") and continue. Matches the
+                // production matcher's behaviour on per-face embed
+                // failure (single face shouldn't kill the probe).
+                NSLog("[SafeMode diag] face embed failed for one bbox: \(error.localizedDescription)")
+                sim = -1.0
+            }
+            faces.append(SafeModeDiagFace(
+                normalizedRect: r,
+                pixelRectTopLeft: pixelRect,
+                cosSim: sim
+            ))
+        }
+
+        // --- Apply the SHARED hybrid pick-highest rule ---
+        // Same decision helper the production matcher uses — by sharing
+        // `pickSubjectFromPrecomputed` the diagnostic guarantees that
+        // any "would-this-be-blurred?" answer it gives matches what
+        // applySafeModeV2ToPhoto would produce in the field.
+        let preMatches: [MobileFaceNetEmbedder.FaceMatch] = faces.enumerated().map {
+            MobileFaceNetEmbedder.FaceMatch(index: $0.offset, cosSim: $0.element.cosSim)
+        }
+        let pick = MobileFaceNetEmbedder.pickSubjectFromPrecomputed(
+            matches: preMatches,
+            soloFloor: threshold
+        )
+
+        return .success(
+            faces: faces,
+            subjectIndex: pick.subjectIndex,
+            bestSim: pick.bestSim,
+            branch: pick.branch.rawValue,
+            referenceCount: subjectEmbeddings.count
         )
     }
 
