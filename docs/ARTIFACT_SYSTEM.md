@@ -39,9 +39,9 @@
 
 ## North star
 
-A published plan is not synonymous with "the Plan URL." A plan is a **single source of truth** — its exercises, sets, consent, versioning — that can be **rendered into many artifacts**: format-specific, independently-priced, independently-shared, *live* outputs. The free static overview page and the paid interactive player are the first two; a poster, a stitched reel, a calendar export, and an AI style-transfer reel are siblings.
+A published plan is not synonymous with "the Plan URL." A plan is a **single source of truth** — its exercises, sets, consent, versioning — that can be **rendered into many artifacts**: format-specific, independently-priced, independently-shared, *live* outputs. The free **workout handout** and the paid **workout player** are the first two; a poster, a stitched reel, a calendar export, and an AI style-transfer reel are siblings.
 
-The strategic shape: a practitioner delivers real value for **free** (the overview page is a deliberate loss-leader / funnel), and the product monetizes when they reach for the richer formats — the interactive player and, later, premium reels. The free artifact gateways into the paid one.
+The strategic shape: a practitioner delivers real value for **free** (the workout handout is a deliberate loss-leader / funnel), and the product monetizes when they reach for the richer formats — the workout player and, later, premium reels. The free artifact gateways into the paid one.
 
 ---
 
@@ -59,15 +59,15 @@ Resolved across the grilling session. Detailed below; captured in the [Decision 
 1. One plan = one source of truth; artifacts are live renderings, never content copies.
 2. `plan_artifacts` is thin, singleton per `(plan_id, kind)` — publish state, price, share/claim handles, render metadata only.
 3. Every supported type is always offered (render-on-demand); the type registry is global.
-4. Pricing is per-type with an intentional free floor (overview page free; player paid; reels premium).
+4. Pricing is per-type with an intentional free floor (workout handout free; workout player paid; reels premium).
 5. Publish is a multi-select gate (nothing pre-checked); Preview is a single-artifact lens; Share is per-artifact.
 6. Publish is one-time enablement; thereafter the artifact is live and tracks the plan — no re-publish to push edits.
 7. Freshness lives client-side; recipients freeze a copy only via Download/Print.
 
 **The free artifact**
-8. The free artifact is a **live, interactive web page** (`/o/{planId}`), not a PDF. PDF/print is a *button on the page*, not the artifact.
+8. The free artifact is a **live, interactive web page** (`/h/{planId}`), not a PDF. PDF/print is a *button on the page*, not the artifact.
 9. It carries: a claim CTA, a QR back to the live artifact, consent-gated treatment, and a version stamp on print.
-10. Full consent uniformly — the overview honors line/B&W/original exactly like the player (no "higher bar for print").
+10. Full consent uniformly — the handout honors line/B&W/original exactly like the player (no "higher bar for print").
 
 **Identity & sharing**
 11. The anonymous public link **survives** — not overturned. Account is opt-in via **claim** (magic-link only for now).
@@ -98,8 +98,8 @@ Resolved across the grilling session. Detailed below; captured in the [Decision 
 
 The product already had this idea, in [`FREE_LOBBY_EXPORT.md`](./FREE_LOBBY_EXPORT.md): *"The free product is the amputated paid product, not a separate thing — one source of truth, two render targets (interactive vs static)."* That sentence is the artifact model. This design generalizes "two render targets" into N.
 
-- **Paid — the interactive player** (`/p/{planId}`, kind `plan_url`): the full workout-along experience — timers, prep, treatment switching, audio, pill matrix, analytics. Priced (duration-based 1–2 credits).
-- **Free — the overview page** (`/o/{planId}`, kind `overview`): a static "menu" view — exercises with hero frames, reps/sets/hold/notes, circuit grouping. **But live and interactive**: it carries a claim CTA, a QR back to the live artifact, consent-gated stills, and a Print/Save-PDF button. Free (0 credits). Its job is the **no-phone / low-tech / printable fallback** *and* the top of the funnel.
+- **Paid — the workout player** (`/p/{planId}`, kind `plan_url`): the full workout-along experience — timers, prep, treatment switching, audio, pill matrix, analytics. Priced (duration-based 1–2 credits).
+- **Free — the workout handout** (`/h/{planId}`, kind `handout`): a page-format view of the plan — exercises with hero frames, reps/sets/hold/notes, circuit grouping. **But live and interactive**: it carries a claim CTA, a QR back to the live artifact, consent-gated stills, and a Print/Save-PDF button. Free (0 credits). Its job is the **no-phone / low-tech / printable fallback** *and* the top of the funnel. The name borrows directly from clinical vocabulary — a handout is what a practitioner hands a client, paper or digital.
 
 **Why a page and not a PDF.** A PDF is dead — no claim, no live updates, no QR action, no analytics. The artifact must be interactive, so it's a page; print-to-PDF is a browser feature *of* that page (a print stylesheet, not a generator). This also returns to the lobby spec's original anti-goal ("No PDF, ever") — the shipped PDF was an implementation detour.
 
@@ -113,8 +113,8 @@ The product already had this idea, in [`FREE_LOBBY_EXPORT.md`](./FREE_LOBBY_EXPO
 
 Recording these consciously — they remove working code, not just edit a doc:
 
-1. **Free artifact: PDF → live page.** The shipped on-device "PDF handout" (lobby export, PDF pipeline live since 2026-05-15) is deprecated in favor of the `/o/{planId}` page with a print/PDF button. The `LobbyExportCard` Flutter generator and its `lobby.css` R-10 parity tax are retired.
-2. **Generation: on-device/offline/pre-publish → published web artifact.** The on-device path existed only to dodge the credit-charging publish flow (so the freebie could be free). Now that publish is per-artifact and the overview is a 0-credit artifact, that scaffolding is obsolete: you publish the overview for free through the normal flow. The pre-publish-vs-post-publish duality dissolves into "publish the free artifact, it costs nothing." **Accepted loss:** no-signal offline handoff — narrow, and consistent with publish having always been online-only (offline-first covers capture→edit→preview, not sharing).
+1. **Free artifact: PDF → live page.** The shipped on-device "PDF handout" (the `LobbyExportCard` lobby export, PDF pipeline live since 2026-05-15) is deprecated in favor of the new **workout handout** at `/h/{planId}` — a live, interactive web page with a print/PDF button. The retired feature kept the practitioner-facing word "handout"; the live successor inherits it. The Flutter generator and its `lobby.css` R-10 parity tax are retired.
+2. **Generation: on-device/offline/pre-publish → published web artifact.** The on-device path existed only to dodge the credit-charging publish flow (so the freebie could be free). Now that publish is per-artifact and the handout is a 0-credit artifact, that scaffolding is obsolete: you publish the handout for free through the normal flow. The pre-publish-vs-post-publish duality dissolves into "publish the free artifact, it costs nothing." **Accepted loss:** no-signal offline sharing — narrow, and consistent with publish having always been online-only (offline-first covers capture→edit→preview, not sharing).
 
 ---
 
@@ -122,7 +122,7 @@ Recording these consciously — they remove working code, not just edit a doc:
 
 Two separate axes:
 
-- **Enablement** is one-time, per-artifact. Publishing the player mints its URL and charges its price once; publishing the overview mints its page once (free). After that, the artifact exists.
+- **Enablement** is one-time, per-artifact. Publishing the player mints its URL and charges its price once; publishing the handout mints its page once (free). After that, the artifact exists.
 - **Freshness** is continuous and shared. Every *enabled* artifact is a live rendering of the latest plan. Edits flow to all enabled artifacts with no re-publish and no re-charge.
 
 You never re-publish to push an edit. The only frozen copy is in the *recipient's* hands, via Download/Print.
@@ -132,7 +132,7 @@ You never re-publish to push an edit. The only frozen copy is in the *recipient'
 ## Pipeline: Preview / Publish / Share
 
 - **Preview — single-artifact lens.** Pick an artifact type and preview that rendering; all types always listed (render-on-demand previews live).
-- **Publish — multi-select gate.** Lists every type with its per-kind price; **nothing pre-checked**; shows a live credit total; confirm charges the sum and mints/updates `plan_artifacts` rows in one transaction (alongside `plan_issuances`). Already-enabled kinds shown as such; re-ticking is a no-op, never a re-charge. The free overview is a 0-credit row in this gate.
+- **Publish — multi-select gate.** Lists every type with its per-kind price; **nothing pre-checked**; shows a live credit total; confirm charges the sum and mints/updates `plan_artifacts` rows in one transaction (alongside `plan_issuances`). Already-enabled kinds shown as such; re-ticking is a no-op, never a re-charge. The free workout handout is a 0-credit row in this gate.
 - **Share — per-artifact**, two paths (see [Sharing](#sharing--the-engagement-rail)).
 
 ---
@@ -187,7 +187,7 @@ Per-artifact (D10), and transformed by claiming:
 - **Claim upgrades anonymous guesses to known-person truth.** Wave-17 analytics are session-level ("someone opened this 4×"); a claimed client's engagement is attributable to a *person* ("Margaret completed 3/5, last Tuesday") — the adherence thesis made real.
 - **Back-attribution: claim-forward only.** Pre-claim anonymous sessions are *not* retroactively tied to a claiming client (they engaged believing it was anonymous). Named adherence starts at the claim.
 - **Consent ownership** follows the [consent model](#consent--popia) — client-controlled post-claim, transparent to the practitioner.
-- **Per-artifact event vocabularies (proposed, confirm).** Artifacts don't speak the same language: the player has the rich workout funnel (the 13 Wave-17 events); the overview page can only emit page-level events (opened, treatment_changed, claim_tapped, qr_scanned, printed). Proposal: per-artifact event sets rather than one sparse universal schema, so each format honestly reports what it can.
+- **Per-artifact event vocabularies (proposed, confirm).** Artifacts don't speak the same language: the player has the rich workout funnel (the 13 Wave-17 events); the handout can only emit page-level events (opened, treatment_changed, claim_tapped, qr_scanned, printed). Proposal: per-artifact event sets rather than one sparse universal schema, so each format honestly reports what it can.
 - **Actionability (proposed, confirm).** Display-first; the real payoff (fast-follow) is wiring adherence into the engagement rail — "Margaret hasn't opened her plan in 5 days → nudge."
 
 ---
@@ -195,7 +195,7 @@ Per-artifact (D10), and transformed by claiming:
 ## Billing
 
 Per-type price is a policy function:
-- `overview` → **free** (0 credits). Funnel; absorbs render/storage cost as cost-of-funnel.
+- `handout` → **free** (0 credits). Funnel; absorbs render/storage cost as cost-of-funnel.
 - `plan_url` (player) → existing duration-based price: 1 credit ≤ 75 min, 2 credits > 75 min (ADR 0007 unchanged).
 - `reel`, `ai_reel` → premium, **price TBD**.
 - `poster`, `calendar` → free/TBD.
@@ -238,12 +238,12 @@ The artifact system changes UI across all three surfaces. **Locked visual decisi
 - Preview → artifact-type picker + single-artifact lens.
 - Publish → multi-select gate (checklist, per-kind price, running total, nothing pre-checked).
 - Share → managed-email vs share-sheet split ("WhatsApp or email?").
-- Plan/session state → per-plan artifact status ("overview live · player published · reel not yet").
+- Plan/session state → per-plan artifact status ("handout live · player published · reel not yet").
 - Edit-lock chip → appears only once a paid artifact exists.
 - **My Workouts** → mixes authored sessions (mine, editable) and received/claimed artifacts (read-only); one badged list, thumbnail-led cards with kind glyph; provenance badge distinguishes mine vs shared-with-me.
 
 **Web (player + new client account)**
-- The free overview page (`/o/{planId}`) — interactive: claim CTA, QR, consent-gated stills, Print/Save-PDF, version stamp; generated OG preview image.
+- The free workout handout (`/h/{planId}`) — interactive: claim CTA, QR, consent-gated stills, Print/Save-PDF, version stamp; generated OG preview image.
 - Client web account + web My Workouts on `session.homefit.studio`.
 - "Save to My Workouts" claim chip (escalating, never modal).
 - Consumer-side "my practitioners / my data" consent panel — one panel per linked practice (layout TBD via mockups; the consent *grain* is fixed, the UI isn't).
@@ -257,8 +257,8 @@ The artifact system changes UI across all three surfaces. **Locked visual decisi
 
 | `kind` | Format | Render locus | Price | Status |
 |---|---|---|---|---|
-| `plan_url` | Interactive player (`/p/`) | Computed page (live) | Paid (1–2 cr) | **Shipped** |
-| `overview` | Live overview page (`/o/`) + print/PDF | Computed page (live) | Free | Designed here (supersedes the on-device PDF handout) |
+| `plan_url` | Workout player (`/p/`) | Computed page (live) | Paid (1–2 cr) | **Shipped** |
+| `handout` | Workout handout (`/h/`) — page + print/PDF | Computed page (live) | Free | Designed here (supersedes the on-device PDF handout) |
 | `poster` | Single shareable image (WhatsApp/social) | Materialised image (`@vercel/og`) | Free/TBD | Roadmap (the demoted PNG) |
 | `reel` | Stitched vertical video | Materialised MP4 in a bucket | Premium TBD | Roadmap (ADR 0022 anticipated) |
 | `ai_reel` | AI style-transfer reel | Materialised MP4 (cloud render) | Premium TBD | Roadmap (parked premium) |
@@ -271,7 +271,7 @@ The artifact system changes UI across all three surfaces. **Locked visual decisi
 Exact types finalised in the migration PR.
 
 **`plan_artifacts`** (existing: `id, plan_id, kind, status, output_url, generated_at, error_message, metadata, UNIQUE(plan_id, kind)`):
-- Widen the `kind` CHECK to `('plan_url','overview','poster','reel','ai_reel','calendar')`.
+- Widen the `kind` CHECK to `('plan_url','handout','poster','reel','ai_reel','calendar')`.
 - `published_at timestamptz` (NULL = offered, not minted), `credits_charged numeric(10,4) default 0`, `first_opened_at timestamptz` (per-artifact).
 - `status` lifecycle: `offered → rendering → ready → failed` (materialised) / straight to `ready` (computed).
 - Stays RPC-write-only.
@@ -292,7 +292,7 @@ Exact types finalised in the migration PR.
 ## RPC surface (proposed)
 
 - **Publish RPC** becomes artifact-set-aware: accepts the kinds to publish, validates lock state, sums paid-kind prices, calls `consume_credit` once, upserts `plan_artifacts` rows, writes `plan_issuances` — one transaction. Compensating refund on materialised-render failure.
-- **`get_plan_full`** already returns an `artifacts` array (ADR 0022); extend with publish state + consent-gated per-treatment URLs so every renderer (player, overview page) reads from the one anon surface. Add an `/o/`-friendly variant if needed.
+- **`get_plan_full`** already returns an `artifacts` array (ADR 0022); extend with publish state + consent-gated per-treatment URLs so every renderer (player, handout) reads from the one anon surface. Add an `/h/`-friendly variant if needed.
 - **Claim RPC**: magic-link signup → attach current `plan_id` → back-link to the practitioner's client record by matched plan.
 - **Lock RPCs** (`unlock_plan_for_edit`) unchanged — plan-level.
 
@@ -306,11 +306,10 @@ Exact types finalised in the migration PR.
 4. **Practitioner view of contact** — show "claimed · linked" *status* only, or expose the consumer's verified email address?
 5. **Premium pricing** — `reel` / `ai_reel` (and whether `poster` / `calendar` are free or token-priced).
 6. **Render infra for materialised kinds** — reel transcode + bucket + cache + signed-URL lifetime (ADR 0022 flagged).
-7. **Kind naming** — `overview` vs `handout` vs `lobby_page` (the retired practitioner-facing name was "PDF handout").
-8. **Consumer consent UI** — the "my practitioners / my data" panel layout (mockup).
-9. **Collaboration** — the whole anchored-comms feature (parked).
-10. **Brand-skin positioning** — where each public-profile piece (logo / accent / name / contact) lands in each artifact type, and how the permanent homefit seal sits beside it (mockup); confirm the exact public-profile field names against `staging` when implementing.
-11. **Brand-skin price** — ~2 credits/month is the working number; confirm.
+7. **Consumer consent UI** — the "my practitioners / my data" panel layout (mockup).
+8. **Collaboration** — the whole anchored-comms feature (parked).
+9. **Brand-skin positioning** — where each public-profile piece (logo / accent / name / contact) lands in each artifact type, and how the permanent homefit seal sits beside it (mockup); confirm the exact public-profile field names against `staging` when implementing.
+10. **Brand-skin price** — ~2 credits/month is the working number; confirm.
 
 ---
 
@@ -350,7 +349,7 @@ Hard-to-reverse, surprising-without-context decisions warranting their own ADRs 
 | 1 | One plan = source of truth; artifacts are live renderings | Artifacts hold content copies | Avoids snapshot machinery |
 | 2 | `plan_artifacts` thin, singleton per `(plan_id, kind)` | Many rows / content on row | One format = one output |
 | 3 | All types always offered (render-on-demand) | Per-plan opt-in enablement | New kinds light up everywhere |
-| 4 | Per-type pricing, free floor | Flat per-plan price | Free overview is the funnel |
+| 4 | Per-type pricing, free floor | Flat per-plan price | Free workout handout is the funnel |
 | 5 | Publish = multi-select gate, nothing pre-checked | Pre-check all / one-at-a-time | Never charge by surprise |
 | 6 | Publish = one-time enablement; then live | Re-publish to push edits | Edits flow live, no re-charge |
 | 7 | Freshness client-side (Download/Print) | Server-side snapshots | No snapshot storage |
@@ -372,3 +371,4 @@ Hard-to-reverse, surprising-without-context decisions warranting their own ADRs 
 | 23 | homefit seal permanent (no white-label); QR carries referral code as attribution | White-label removal tier | Permanent funnel + tri-party credibility; referral reward keeps practitioners happy |
 | 24 | Brand content from the existing portal public profile | New brand-capture UI | Data already captured (on staging); only positioning remains |
 | 25 | Skin is a live property; lapse reverts all artifacts | Preserve skin per publish-date | Renewal pressure intended; avoids retention complexity |
+| 26 | User-facing names: **workout handout** (free) + **workout player** (paid); DB kind `handout`, URL `/h/`, pairs with existing `plan_url` + `/p/` | "overview page" / "printout" / "page" | Practitioner vocabulary ("handout" is what a physio hands a patient); pairs cleanly with "player"; inherits lineage from the retired "PDF handout"; resolves open question #7 |
