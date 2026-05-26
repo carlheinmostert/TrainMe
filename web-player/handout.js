@@ -131,10 +131,20 @@
     const colorRaw = (plan.brand_color || '').trim();
     const practiceName = (plan.practice_name || '').trim();
     const logoUrl = (plan.public_logo_url || '').trim();
-    if (!active || !colorRaw || !practiceName) return;
+    if (!active || !colorRaw || !practiceName) {
+      // Review-followup 2026-05-26 (sev2): defensively clear any residue
+      // from a previous render. Matters for SW updates / hot reload during
+      // dev when the same DOM gets re-rendered with a different plan; also
+      // a no-op on first render. Mirrors the additive setters below.
+      clearSkin();
+      return;
+    }
     // Validate hex — DB CHECK already enforces /^#[0-9A-Fa-f]{6}$/, but
     // belt-and-braces so a bad value can't corrupt the inline style.
-    if (!/^#[0-9A-Fa-f]{6}$/.test(colorRaw)) return;
+    if (!/^#[0-9A-Fa-f]{6}$/.test(colorRaw)) {
+      clearSkin();
+      return;
+    }
 
     const rgb = hexToRgb(colorRaw);
     if (!rgb) return;
@@ -213,6 +223,30 @@
       $tag.textContent = tagline;
       $tag.style.display = tagline ? '' : 'none';
     }
+  }
+
+  /**
+   * clearSkin — defensive reset (review-followup 2026-05-26, sev2).
+   *
+   * The non-skin code-path needs to actively undo any state a previous
+   * render may have left on document.body — under SW updates or hot
+   * reload during dev the same DOM gets reused but with a different
+   * plan. The setters in applySkin are additive (.classList.add, inline
+   * style.setProperty); without this counter-helper they'd persist.
+   *
+   * Idempotent — no-op when nothing's been applied yet.
+   */
+  function clearSkin() {
+    const body = document.body;
+    if (!body) return;
+    body.classList.remove('skin-active');
+    body.removeAttribute('data-skin-practice');
+    body.style.removeProperty('--practice-brand-color');
+    body.style.removeProperty('--practice-brand-color-dark');
+    body.style.removeProperty('--practice-brand-color-light');
+    body.style.removeProperty('--practice-brand-tint-bg');
+    body.style.removeProperty('--practice-brand-tint-border');
+    body.style.removeProperty('--practice-brand-glyph-bg');
   }
 
   function hexToRgb(hex) {
