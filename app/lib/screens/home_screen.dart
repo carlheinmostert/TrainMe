@@ -111,14 +111,15 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _lastPracticeId;
 
   /// Top-level scope on Home — My Workouts (Self-trainer), Clients, or
-  /// Classes (locked teaser until that feature ships). Persisted to
-  /// SharedPreferences so the practitioner's last choice survives an
-  /// app restart; defaults to My Workouts on cold install per
-  /// `docs/SELF_TRAINER_WAVE.md` § IA changes (Self-trainer is the
-  /// universal entry point). Returning users with a persisted
-  /// `home_scope_v1` keep their last selection — [_loadScope]
-  /// overrides this initializer when present. See [HomeScopeSegmented]
-  /// for the IA rationale.
+  /// Classes (locked teaser until that feature ships). Always defaults
+  /// to My Workouts on every app launch per `docs/SELF_TRAINER_WAVE.md`
+  /// § IA changes (Self-trainer is the universal entry point) — Carl's
+  /// M12 ask 2026-05-26: the app must ALWAYS land on My Workouts when
+  /// opened, regardless of which tab was last selected. Tab selection
+  /// during an active session still persists in SharedPreferences via
+  /// [_setScope] (kept for parity with the previous shape + possible
+  /// future re-enablement) but the persisted value is no longer read
+  /// on launch.
   HomeScope _scope = HomeScope.workouts;
 
   /// Bumped every time the My Workouts body should re-read from
@@ -142,7 +143,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _lastPracticeId = AuthService.instance.currentPracticeId.value;
     AuthService.instance.currentPracticeId.addListener(_onPracticeChanged);
     _load();
-    _loadScope();
+    // M12 (2026-05-26 mobile stack round 2) — do NOT call _loadScope()
+    // on launch. The app must ALWAYS open on My Workouts regardless of
+    // which tab was last selected. _setScope still writes to prefs for
+    // possible future re-enablement / mid-session restore on
+    // configuration changes, but the persisted value never overrides
+    // the cold-start default any more.
 
     // Self-trainer wave PR #4 — lazy backfill for existing
     // Public-profile-selfie users who haven't yet opted into
@@ -174,21 +180,11 @@ class _HomeScreenState extends State<HomeScreen> {
   // Scope (Clients / Classes / Workouts)
   // ---------------------------------------------------------------------------
 
-  Future<void> _loadScope() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_scopePrefsKey);
-      if (raw == null) return;
-      final next = HomeScope.values.firstWhere(
-        (s) => s.name == raw,
-        orElse: () => HomeScope.workouts,
-      );
-      if (!mounted || next == _scope) return;
-      setState(() => _scope = next);
-    } catch (_) {
-      // Best-effort. Default My Workouts scope remains.
-    }
-  }
+  // M12 (2026-05-26 mobile stack round 2) — _loadScope removed. Carl
+  // wants the app to ALWAYS land on My Workouts on launch. _scope's
+  // default initializer (HomeScope.workouts) is the only seed now;
+  // _setScope still writes the per-tap selection through for parity,
+  // but no read site references it on launch.
 
   Future<void> _setScope(HomeScope next) async {
     if (next == _scope) return;

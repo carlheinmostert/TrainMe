@@ -8,7 +8,7 @@ import '../services/auth_service.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../theme.dart';
-import '../widgets/self_capture_card.dart';
+import '../widgets/session_card.dart';
 
 // `ExerciseCapture` and `ExerciseRemoval` flow through ConversionService
 // streams — the model import is load-bearing for the typed handler.
@@ -190,12 +190,51 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
         itemCount: _sessions.length,
         itemBuilder: (context, i) {
           final session = _sessions[i];
-          return SelfCaptureCard(
+          return SessionCard(
             key: ValueKey('self-capture-${session.id}'),
             session: session,
-            onTap: () => widget.onTapSession(session),
+            isPublishing: false,
+            onOpen: () => widget.onTapSession(session),
+            onDelete: () => _deleteSession(session),
+            onRenamed: (renamed) {
+              if (!mounted) return;
+              setState(() {
+                _sessions = _sessions
+                    .map((s) => s.id == renamed.id ? renamed : s)
+                    .toList(growable: false);
+              });
+            },
           );
         },
+      ),
+    );
+  }
+
+  /// M13 (2026-05-26 mobile stack round 2) — soft-delete via the same
+  /// pattern as `ClientSessionsScreen._deleteSession`. R-01: fires
+  /// immediately, Undo SnackBar lets the practitioner recover.
+  Future<void> _deleteSession(Session session) async {
+    final title = session.title?.trim().isNotEmpty == true
+        ? session.title!.trim()
+        : session.displayTitle;
+    await widget.storage.softDeleteSession(session.id);
+    if (!mounted) return;
+    setState(() {
+      _sessions = _sessions
+          .where((s) => s.id != session.id)
+          .toList(growable: false);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$title deleted'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            await widget.storage.restoreSession(session.id);
+            await _load();
+          },
+        ),
       ),
     );
   }

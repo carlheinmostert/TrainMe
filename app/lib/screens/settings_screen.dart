@@ -84,9 +84,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// Safe Mode HUD on the camera viewfinder. The HUD is a diagnostic
   /// overlay that ALWAYS rendered until 2026-05-25; default OFF now,
   /// flipped on per-device when someone needs the GPS / match data in
-  /// the field. Lives behind the 7-tap version-row easter egg (same
-  /// `_diagnosticsVisible` gate as the rest of the Debug section) so
-  /// it stays out of the practitioner's way.
+  /// the field. M14 (2026-05-26 round 2) promoted the toggle out of
+  /// the 7-tap version-row easter egg into a clearly-labelled Debug
+  /// section so it is reachable without the hidden gesture.
   bool? _safeModeDebugHudEnabled;
 
   /// R4-M3 — true when the user has dismissed the lazy-backfill prompt
@@ -570,35 +570,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               AuthService.instance.currentPracticeId.value,
                           buildSha: AppConfig.buildSha,
                         ),
-                        _Divider(),
-                        // M3 (2026-05-25 mobile stack) — Safe Mode debug
-                        // HUD toggle. Sits inside the 7-tap easter-egg
-                        // panel so the practitioner-facing Settings
-                        // screen stays uncluttered. Default OFF; the
-                        // capture screen re-reads the pref on resume,
-                        // so flipping this and re-entering Camera mode
-                        // surfaces the HUD without an app restart.
-                        _ActionRow(
-                          icon: Icons.bug_report_outlined,
-                          label: 'Show Safe Mode hint overlay',
-                          subtitle:
-                              'Diagnostic HUD on the camera viewfinder. '
-                              'Shows GPS + polygon-match data so a Safe '
-                              'Mode regression can be triaged in-app.',
-                          onTap: _safeModeDebugHudEnabled == null
-                              ? null
-                              : () => _toggleSafeModeDebugHud(
-                                    !(_safeModeDebugHudEnabled ?? false),
-                                  ),
-                          trailing: Switch.adaptive(
-                            value: _safeModeDebugHudEnabled ?? false,
-                            onChanged: _safeModeDebugHudEnabled == null
-                                ? null
-                                : _toggleSafeModeDebugHud,
-                            activeThumbColor: AppColors.primary,
-                          ),
-                        ),
                       ],
+                    ],
+                  ),
+                  // M14 (2026-05-26 mobile stack round 2) — Safe Mode
+                  // debug HUD toggle promoted out of the 7-tap easter
+                  // egg. PR #514 defaulted the overlay to OFF; the
+                  // matching Settings toggle was only reachable via the
+                  // hidden tap-the-version-row gesture, so Carl could
+                  // not flip it back on for QA. Surfaced here as a
+                  // clearly-labelled Debug section so the toggle is
+                  // discoverable without the easter egg. The capture
+                  // screen re-reads the pref on resume, so flipping
+                  // this and re-entering Camera mode surfaces the HUD
+                  // without an app restart.
+                  const SizedBox(height: 24),
+                  _SectionHeader(label: 'Debug'),
+                  _SettingsGroup(
+                    children: [
+                      _ActionRow(
+                        icon: Icons.bug_report_outlined,
+                        label: 'Show Safe Mode hint overlay',
+                        subtitle:
+                            'Diagnostic HUD on the camera viewfinder. '
+                            'Shows GPS + polygon-match data so a Safe '
+                            'Mode regression can be triaged in-app.',
+                        onTap: _safeModeDebugHudEnabled == null
+                            ? null
+                            : () => _toggleSafeModeDebugHud(
+                                  !(_safeModeDebugHudEnabled ?? false),
+                                ),
+                        trailing: Switch.adaptive(
+                          value: _safeModeDebugHudEnabled ?? false,
+                          onChanged: _safeModeDebugHudEnabled == null
+                              ? null
+                              : _toggleSafeModeDebugHud,
+                          activeThumbColor: AppColors.primary,
+                        ),
+                      ),
                     ],
                   ),
                   // Faint build-SHA marker. Relocated from the Home
