@@ -76,6 +76,13 @@
     // via clients.video_consent.)
     state.consent = deriveConsent(state.exercises);
 
+    // Brand-skin (Wave 4, ADR-0029). Apply the practitioner's brand colour
+    // to the page chrome (--brand-*) WITHOUT touching the seal tokens
+    // (--seal-*). Activates only when the practice's subscription is in
+    // its active or grace window AND a brand_color is set on the public
+    // profile. No skin == default coral chrome renders unchanged.
+    applySkin(state.plan);
+
     // Best-effort: stamp the per-artifact open. The RPC is a no-op if no
     // handout row exists yet (Wave 1 — the row gets minted by Wave 3's
     // multi-select publish gate; the page still renders for plans that
@@ -95,6 +102,152 @@
       if (ex && ex.original_url) consent.original = true;
     }
     return consent;
+  }
+
+  // ===========================  Brand-skin  ==============================
+
+  /**
+   * applySkin — Wave 4 / ADR-0029.
+   *
+   * When the publishing practice has an active brand-skin subscription
+   * (paid OR trial, within 37 days = 30-day month + 7-day grace) AND a
+   * brand_color set on its public profile, paint the page chrome in that
+   * colour. The .skin-active class on <body> tells the CSS to swap the
+   * homefit lockup for the practitioner's lockup; inline --practice-brand-*
+   * custom properties supply the actual colour values.
+   *
+   * Seal tokens (--seal-coral, --seal-coral-light, --seal-tint-border)
+   * are NEVER touched here. The footer "powered by homefit.studio" mark
+   * stays coral regardless of the skin.
+   *
+   * Falsy brand_color, missing subscription, or missing practice_name =
+   * no-op; the default coral chrome renders unchanged. Renderer is
+   * defensive: it tolerates plans with no practice attached (legacy /
+   * orphaned rows) and silently falls back to default.
+   */
+  function applySkin(plan) {
+    if (!plan) return;
+    const active = plan.brand_skin_active === true;
+    const colorRaw = (plan.brand_color || '').trim();
+    const practiceName = (plan.practice_name || '').trim();
+    const logoUrl = (plan.public_logo_url || '').trim();
+    if (!active || !colorRaw || !practiceName) return;
+    // Validate hex — DB CHECK already enforces /^#[0-9A-Fa-f]{6}$/, but
+    // belt-and-braces so a bad value can't corrupt the inline style.
+    if (!/^#[0-9A-Fa-f]{6}$/.test(colorRaw)) return;
+
+    const rgb = hexToRgb(colorRaw);
+    if (!rgb) return;
+    const dark = mixWithBlack(rgb, 0.18);
+    const light = mixWithWhite(rgb, 0.18);
+
+    const body = document.body;
+    if (!body) return;
+    body.classList.add('skin-active');
+    body.setAttribute('data-skin-practice', (plan.practice_id || '').toString());
+
+    // Apply via inline custom properties so the CSS .skin-active block
+    // re-points the --brand-* tokens to them.
+    body.style.setProperty('--practice-brand-color', colorRaw);
+    body.style.setProperty('--practice-brand-color-dark', rgbToHex(dark));
+    body.style.setProperty('--practice-brand-color-light', rgbToHex(light));
+    body.style.setProperty(
+      '--practice-brand-tint-bg',
+      'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.12)',
+    );
+    body.style.setProperty(
+      '--practice-brand-tint-border',
+      'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.30)',
+    );
+    body.style.setProperty(
+      '--practice-brand-glyph-bg',
+      'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.18)',
+    );
+
+    // Populate the brand-skin lockup. Inline glyph defaults to the
+    // hero-frame stick-figure used in the mockup; a future wave (open
+    // question #9) can swap in a per-practice logo when the public
+    // profile carries a real <svg> or PNG.
+    const $skin = document.getElementById('handout-brand-skin');
+    if (!$skin) return;
+    $skin.removeAttribute('aria-hidden');
+    const $glyph = $skin.querySelector('.handout-brand-skin-glyph');
+    const $name  = $skin.querySelector('.handout-brand-skin-name');
+    const $tag   = $skin.querySelector('.handout-brand-skin-tag');
+    if ($glyph) {
+      if (logoUrl) {
+        // Practice supplied a logo URL on their public profile. The
+        // brand-skin slot becomes the lockup; render the logo as an
+        // <img> instead of the stick-figure placeholder.
+        $glyph.innerHTML = '';
+        const $img = document.createElement('img');
+        $img.src = logoUrl;
+        $img.alt = '';
+        $img.width = 22;
+        $img.height = 22;
+        $img.style.borderRadius = '4px';
+        $img.style.objectFit = 'contain';
+        $glyph.appendChild($img);
+      } else {
+        // Default hero-frame stick figure (head + spine + arms + legs)
+        // — the homefit hero convention re-used here as a temporary
+        // glyph until per-practice logos are captured.
+        $glyph.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+          'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+          '<circle cx="12" cy="5.5" r="2.2"/>' +
+          '<path d="M12 7.7 L 12 14.5"/>' +
+          '<path d="M12 10.5 L 6.5 8"/>' +
+          '<path d="M12 10.5 L 17.5 8"/>' +
+          '<path d="M12 14.5 L 8.5 19.5"/>' +
+          '<path d="M12 14.5 L 15.5 19.5"/>' +
+          '</svg>';
+      }
+    }
+    if ($name) $name.textContent = practiceName;
+    if ($tag) {
+      // Optional tagline beside the name. The mockup shows a small all-caps
+      // "movement studio" tag, sourced from public_profile.tagline. If the
+      // practice has no tagline, omit it.
+      const tagline = (plan.tagline || '').trim();
+      $tag.textContent = tagline;
+      $tag.style.display = tagline ? '' : 'none';
+    }
+  }
+
+  function hexToRgb(hex) {
+    // Expect /^#[0-9A-Fa-f]{6}$/ — caller validates.
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
+    return { r: r, g: g, b: b };
+  }
+
+  function rgbToHex(rgb) {
+    const toHex = (n) => {
+      const clamped = Math.max(0, Math.min(255, Math.round(n)));
+      const s = clamped.toString(16);
+      return s.length === 1 ? '0' + s : s;
+    };
+    return '#' + toHex(rgb.r) + toHex(rgb.g) + toHex(rgb.b);
+  }
+
+  function mixWithBlack(rgb, t) {
+    // Approximate "darker" by linear blend toward #000 by t in [0,1].
+    return {
+      r: rgb.r * (1 - t),
+      g: rgb.g * (1 - t),
+      b: rgb.b * (1 - t),
+    };
+  }
+
+  function mixWithWhite(rgb, t) {
+    return {
+      r: rgb.r + (255 - rgb.r) * t,
+      g: rgb.g + (255 - rgb.g) * t,
+      b: rgb.b + (255 - rgb.b) * t,
+    };
   }
 
   // ===========================  Render pass  =============================

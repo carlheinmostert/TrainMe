@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { HomefitLogoLockup } from './HomefitLogo';
 import { HeaderIdentityStack } from './HeaderIdentityStack';
 import { HeaderBackLink } from './HeaderBackLink';
+import { BrandSkinLapseBanner } from './BrandSkinLapseBanner';
 import type { PracticeWithRole } from '@/lib/supabase/api';
 
 type Props = {
@@ -100,6 +101,14 @@ export function BrandHeader({
 }: Props) {
   return (
     <header className="border-b border-surface-border bg-surface-base/80 pt-[env(safe-area-inset-top)] backdrop-blur">
+      {/* Brand-skin lapse banner — Wave 4 / ADR-0029. Surfaces only when
+          the practice's brand-skin subscription is in its 7-day grace
+          window (past day 30, before day 37). Renders above the brand
+          row so it's the first thing the practitioner sees on every
+          authenticated page. Mounts only when a practiceId is available
+          — sign-in / sign-up surfaces don't have one yet. */}
+      {practiceId ? <BrandSkinLapseBanner practiceId={practiceId} /> : null}
+
       {/* Brand row — preserves the original desktop layout exactly:
           relative container with absolute left back-link slot, centred
           lockup, and absolute right identity slot. The only narrow-

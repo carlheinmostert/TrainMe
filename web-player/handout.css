@@ -22,7 +22,7 @@
  * ============================================================================= */
 
 :root {
-  /* Default brand tokens. Wave 4 .skin-{name} overrides these. */
+  /* Default brand tokens. Wave 4 .skin-active overrides these. */
   --brand-default: #ff6b35;
   --brand-dark: #e85a24;
   --brand-light: #ff8f5e;
@@ -31,7 +31,7 @@
   --brand-glyph-bg: rgba(255, 107, 53, 0.18);
 
   /* Seal tokens — these NEVER change colour, even under brand-skin.
-     ADR 0029 / locked decision #23. The .skin-{name} class added in
+     ADR 0029 / locked decision #23. The .skin-active class added in
      Wave 4 must not re-point these — only the brand-* family. */
   --seal-coral: #ff6b35;
   --seal-coral-light: #ff8f5e;
@@ -50,6 +50,77 @@
 
   --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+/* =====================  Brand-skin override (Wave 4 — ADR-0029)  ============
+   When handout.js detects an active subscription via
+   payload.plan.brand_skin_active === true AND a brand_color is set on
+   the practice's public profile, it sets:
+     * body.handout-body.skin-active           — re-points the --brand-*
+                                                  tokens to inline-set
+                                                  --practice-brand-* values
+                                                  (declared in JS as inline
+                                                  style on <body>).
+     * data-skin="<practice-id>"               — purely informational; lets
+                                                  the QA inspect which skin
+                                                  is active.
+
+   Forbidden from this block: any rule that re-points
+   --seal-coral / --seal-coral-light / --seal-tint-border. The footer mark
+   uses --seal-* exclusively (locked decision #23).
+
+   The inline custom properties land via JS:
+     body.style.setProperty('--practice-brand-color',        color);
+     body.style.setProperty('--practice-brand-color-light',  lightened);
+     body.style.setProperty('--practice-brand-tint-bg',      tintedBg);
+     body.style.setProperty('--practice-brand-tint-border',  tintedBorder);
+     body.style.setProperty('--practice-brand-glyph-bg',     tintedGlyphBg);
+   See applySkin() in handout.js. */
+body.handout-body.skin-active {
+  --brand-default:      var(--practice-brand-color, #ff6b35);
+  --brand-dark:         var(--practice-brand-color-dark, #e85a24);
+  --brand-light:        var(--practice-brand-color-light, #ff8f5e);
+  --brand-tint-bg:      var(--practice-brand-tint-bg, rgba(255, 107, 53, 0.12));
+  --brand-tint-border:  var(--practice-brand-tint-border, rgba(255, 107, 53, 0.30));
+  --brand-glyph-bg:     var(--practice-brand-glyph-bg, rgba(255, 107, 53, 0.18));
+}
+
+/* When the skin is active AND a practice-supplied lockup is rendered,
+   hide the default homefit lockup and show the .handout-brand-skin
+   block. The seal footer keeps the homefit lockup unconditionally. */
+body.handout-body.skin-active .brand-default { display: none; }
+body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
+
+/* Practitioner brand-skin header lockup. The glyph is currently a single
+   homefit-shaped wordmark placeholder until a per-practice logo capture
+   surface ships (open question #9 in the design doc — out of scope for
+   this wave). For now the lockup shows the practice name in coloured ink
+   alongside an optional tagline. Geometry lifted from the workout-handout
+   mockup. */
+.handout-brand-skin {
+  display: flex; align-items: center; gap: 7px;
+}
+.handout-brand-skin-glyph {
+  color: var(--brand-default);
+  display: flex; align-items: center; justify-content: center;
+}
+.handout-brand-skin-glyph svg { width: 22px; height: 22px; }
+.handout-brand-skin-name {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 17px;
+  color: var(--ink-primary);
+  letter-spacing: -0.4px;
+}
+.handout-brand-skin-tag {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 9.5px;
+  color: var(--ink-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  align-self: flex-end;
+  padding-bottom: 3px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
