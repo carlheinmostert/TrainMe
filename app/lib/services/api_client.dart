@@ -2325,6 +2325,62 @@ class ApiClient {
   }
 
   // ==========================================================================
+  // Brand-skin subscription (Artifact-system Wave 4, 2026-05-26)
+  // ADR-0029. Read-only from mobile — per Reader-App compliance the
+  // mobile app NEVER triggers the trial or paid subscription RPC.
+  // The portal at manage.homefit.studio is the only entry point for
+  // those writes; mobile's role is the lapse banner copy.
+  // ==========================================================================
+
+  /// `practice_has_active_brand_skin(p_practice_id)` — STABLE SECURITY
+  /// DEFINER + anon-callable. True if the practice has an active
+  /// brand_skin_month or brand_skin_month_trial ledger row in the
+  /// trailing 37 days (30-day cycle + 7-day grace).
+  ///
+  /// Failure modes return false (silent). Studio reads this to decide
+  /// whether to even paint the lapse banner.
+  Future<bool> practiceHasActiveBrandSkin({required String practiceId}) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'practice_has_active_brand_skin',
+          params: {'p_practice_id': practiceId},
+        ),
+      );
+      return result is bool ? result : false;
+    } catch (e) {
+      debugPrint('ApiClient.practiceHasActiveBrandSkin failed: $e');
+      return false;
+    }
+  }
+
+  /// `practice_brand_skin_state(p_practice_id)` — STABLE SECURITY
+  /// DEFINER + membership-checked. Returns a jsonb snapshot:
+  /// {active, in_grace, trial, days_until_lapse, next_renewal_at}.
+  ///
+  /// Failure modes return a [BrandSkinState.inactive] snapshot so the
+  /// Studio banner stays hidden rather than painting a misleading state.
+  Future<BrandSkinState> getBrandSkinState({
+    required String practiceId,
+  }) async {
+    try {
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'practice_brand_skin_state',
+          params: {'p_practice_id': practiceId},
+        ),
+      );
+      if (result is Map) {
+        return BrandSkinState.fromJson(Map<String, dynamic>.from(result));
+      }
+      return BrandSkinState.inactive;
+    } catch (e) {
+      debugPrint('ApiClient.getBrandSkinState failed: $e');
+      return BrandSkinState.inactive;
+    }
+  }
+
+  // ==========================================================================
   // Safe Mode Transparency — Phase A (2026-05-22)
   // ==========================================================================
 
@@ -2657,6 +2713,67 @@ class ApiClient {
 ///   Practice-controlled:
 ///     'public_slug', 'public_blurb', 'public_profile_listed'
 @immutable
+/// Snapshot of a practice's brand-skin subscription state, returned by
+/// `practice_brand_skin_state`. Used by the Studio lapse banner to
+/// decide whether to render and what copy to show.
+///
+/// Wave 4 / ADR-0029. Mobile is read-only — the trial / paid debits
+/// happen only on the web portal per Reader-App compliance.
+class BrandSkinState {
+  /// True any time the chrome is still rendering (paid or trial row in
+  /// the trailing 37 days).
+  final bool active;
+
+  /// True if past day 30 but still inside day 37 — the 7-day grace
+  /// window. This is the only window where the Studio banner renders.
+  final bool inGrace;
+
+  /// True if the latest active row is the trial (delta=0).
+  final bool trial;
+
+  /// Days until full revert (day 37 from latest row's created_at).
+  /// Null when no active subscription exists.
+  final int? daysUntilLapse;
+
+  /// Day-30 mark of the latest row. Null when no row exists.
+  final DateTime? nextRenewalAt;
+
+  const BrandSkinState({
+    required this.active,
+    required this.inGrace,
+    required this.trial,
+    required this.daysUntilLapse,
+    required this.nextRenewalAt,
+  });
+
+  /// Fallback used on every error path so the banner stays hidden
+  /// rather than painting a misleading "you're about to lapse" warning
+  /// from a network blip.
+  static const BrandSkinState inactive = BrandSkinState(
+    active: false,
+    inGrace: false,
+    trial: false,
+    daysUntilLapse: null,
+    nextRenewalAt: null,
+  );
+
+  factory BrandSkinState.fromJson(Map<String, dynamic> json) {
+    final raw = json['next_renewal_at'];
+    DateTime? renew;
+    if (raw is String && raw.isNotEmpty) {
+      renew = DateTime.tryParse(raw);
+    }
+    final days = json['days_until_lapse'];
+    return BrandSkinState(
+      active: json['active'] == true,
+      inGrace: json['in_grace'] == true,
+      trial: json['trial'] == true,
+      daysUntilLapse: days is int ? days : null,
+      nextRenewalAt: renew,
+    );
+  }
+}
+
 class SafeModeGateResult {
   final bool ok;
   final List<String> missing;

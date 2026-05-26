@@ -290,6 +290,74 @@ export class SafeModeSubscriptionError extends Error {
 }
 
 /**
+ * Result shape from `PortalApi.getBrandSkinState`. The `practice_brand_skin_state`
+ * RPC returns a 5-field jsonb snapshot: active flag, grace flag, trial
+ * flag, days_until_lapse (null when not active), next_renewal_at (null
+ * when no ledger row exists). Wave 4 / ADR-0029.
+ */
+export type BrandSkinState = {
+  active: boolean;
+  inGrace: boolean;
+  trial: boolean;
+  daysUntilLapse: number | null;
+  nextRenewalAt: string | null;
+};
+
+/** Empty state used as a fallback when the RPC errors or no practice is in scope. */
+export const EMPTY_BRAND_SKIN_STATE: BrandSkinState = {
+  active: false,
+  inGrace: false,
+  trial: false,
+  daysUntilLapse: null,
+  nextRenewalAt: null,
+};
+
+/**
+ * Result shape from `PortalApi.startBrandSkinTrial`. Idempotent: returns
+ * `{ ok: true, ledgerId }` on first call or `{ ok: false, reason }` on
+ * repeat (one trial per practice).
+ */
+export type BrandSkinTrialResult =
+  | {
+      ok: true;
+      ledgerId: string | null;
+    }
+  | {
+      ok: false;
+      reason: string;
+    };
+
+/**
+ * Result shape from `PortalApi.startBrandSkinSubscription`. Mirrors
+ * `SafeModeSubscriptionResult` — `ok:true` carries the new balance,
+ * `ok:false` carries the reason + current balance for the "top up first"
+ * UX branch.
+ */
+export type BrandSkinSubscriptionResult =
+  | {
+      ok: true;
+      newBalance: number;
+      ledgerId: string | null;
+    }
+  | {
+      ok: false;
+      reason: string;
+      balance: number;
+    };
+
+/**
+ * Auth / membership / network failures from the brand-skin RPCs.
+ * Insufficient-credits + trial-already-used surface as typed `ok:false`
+ * results — only the unexpected errors throw.
+ */
+export class BrandSkinSubscriptionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BrandSkinSubscriptionError';
+  }
+}
+
+/**
  * PortalApi wraps a `SupabaseClient<Database>` with the enumerated
  * operations the portal surface is permitted to perform. Construct via
  * the helpers at the bottom of this module; never `new PortalApi(...)`
@@ -573,6 +641,129 @@ export class PortalApi {
     }
     if (!data || typeof data !== 'object') {
       throw new SafeModeSubscriptionError('Empty RPC response');
+    }
+    const obj = data as Record<string, unknown>;
+    if (obj.ok === true) {
+      return {
+        ok: true,
+        newBalance: typeof obj.new_balance === 'number' ? obj.new_balance : 0,
+        ledgerId: typeof obj.ledger_id === 'string' ? obj.ledger_id : null,
+      };
+    }
+    return {
+      ok: false,
+      reason: typeof obj.reason === 'string' ? obj.reason : 'unknown',
+      balance: typeof obj.balance === 'number' ? obj.balance : 0,
+    };
+  }
+
+  // ==========================================================================
+  // Brand-skin subscription (Artifact-system Wave 4, 2026-05-26)
+  // ADR-0029. Mirrors the Safe Mode subscription pattern above.
+  // ==========================================================================
+
+  /**
+   * Read-only predicate — true if the practice has an active brand-skin
+   * subscription (paid OR trial) within the trailing 30-day month + 7-day
+   * grace = 37 days. Used by the portal landing page + the Studio lapse
+   * banner. Returns false on any error.
+   */
+  async practiceHasActiveBrandSkin(practiceId: string): Promise<boolean> {
+    if (!practiceId) return false;
+    const { data, error } = await (
+      this.supabase.rpc as unknown as (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>
+    )('practice_has_active_brand_skin', { p_practice_id: practiceId });
+    if (error) return false;
+    return data === true;
+  }
+
+  /**
+   * Full state JSON for the practice's brand-skin subscription. Returns
+   * `{ active, in_grace, trial, days_until_lapse, next_renewal_at }`. Used
+   * by the portal landing page (state-aware CTA) + the Studio lapse banner
+   * (when in_grace=true the banner copy reads "your brand chrome reverts
+   * in N days"). Returns a falsy snapshot on any error.
+   */
+  async getBrandSkinState(practiceId: string): Promise<BrandSkinState> {
+    if (!practiceId) return EMPTY_BRAND_SKIN_STATE;
+    const { data, error } = await (
+      this.supabase.rpc as unknown as (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>
+    )('practice_brand_skin_state', { p_practice_id: practiceId });
+    if (error || !data || typeof data !== 'object') return EMPTY_BRAND_SKIN_STATE;
+    const obj = data as Record<string, unknown>;
+    return {
+      active: obj.active === true,
+      inGrace: obj.in_grace === true,
+      trial: obj.trial === true,
+      daysUntilLapse:
+        typeof obj.days_until_lapse === 'number' ? obj.days_until_lapse : null,
+      nextRenewalAt:
+        typeof obj.next_renewal_at === 'string' ? obj.next_renewal_at : null,
+    };
+  }
+
+  /**
+   * Start the 30-day brand-skin free trial for the practice. Idempotent
+   * — returns `{ ok: false, reason: 'trial_already_used' }` if a trial
+   * row already exists for this practice. One trial per practice.
+   *
+   * Throws on auth / membership errors.
+   */
+  async startBrandSkinTrial(
+    practiceId: string,
+  ): Promise<BrandSkinTrialResult> {
+    const { data, error } = await (
+      this.supabase.rpc as unknown as (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>
+    )('start_brand_skin_trial', { p_practice_id: practiceId });
+    if (error) {
+      throw new BrandSkinSubscriptionError(error.message);
+    }
+    if (!data || typeof data !== 'object') {
+      throw new BrandSkinSubscriptionError('Empty RPC response');
+    }
+    const obj = data as Record<string, unknown>;
+    if (obj.ok === true) {
+      return {
+        ok: true,
+        ledgerId: typeof obj.ledger_id === 'string' ? obj.ledger_id : null,
+      };
+    }
+    return {
+      ok: false,
+      reason: typeof obj.reason === 'string' ? obj.reason : 'unknown',
+    };
+  }
+
+  /**
+   * Atomic 4-credit debit for a 30-day brand-skin subscription. Mirrors
+   * `startSafeModeSubscription`. Returns either `{ ok:true, newBalance,
+   * ledgerId }` or `{ ok:false, reason:'insufficient_credits', balance }`.
+   *
+   * Throws on auth / membership errors.
+   */
+  async startBrandSkinSubscription(
+    practiceId: string,
+  ): Promise<BrandSkinSubscriptionResult> {
+    const { data, error } = await (
+      this.supabase.rpc as unknown as (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>
+    )('start_brand_skin_subscription', { p_practice_id: practiceId });
+    if (error) {
+      throw new BrandSkinSubscriptionError(error.message);
+    }
+    if (!data || typeof data !== 'object') {
+      throw new BrandSkinSubscriptionError('Empty RPC response');
     }
     const obj = data as Record<string, unknown>;
     if (obj.ok === true) {

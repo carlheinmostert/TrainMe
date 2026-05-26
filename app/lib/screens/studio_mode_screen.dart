@@ -32,6 +32,7 @@ import '../services/api_client.dart';
 import '../services/sync_service.dart';
 import '../utils/session_title.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
+import '../widgets/brand_skin_lapse_banner.dart';
 import '../widgets/circuit_control_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/clipboard_chip.dart';
@@ -2169,6 +2170,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                   SessionExpiredBanner(
                     onSignIn: () => AuthService.instance.signOut(),
                   ),
+                  // Wave 4 — brand-skin lapse banner (ADR-0029). Read-only
+                  // informational chrome that surfaces only in the 7-day
+                  // grace window before the practitioner's brand-skin
+                  // subscription reverts the handout chrome. SizedBox.shrink
+                  // outside that window. Reader-App safe — no CTA, no price.
+                  BrandSkinLapseBanner(practiceId: _session.practiceId),
                   Expanded(child: _buildBody()),
                   StudioBottomBar(
                     session: _session,

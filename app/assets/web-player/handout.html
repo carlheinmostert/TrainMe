@@ -53,18 +53,31 @@
   <main id="handout-page" class="handout-page" hidden>
 
     <!-- Header — practitioner brand + plan title + practitioner byline + print button.
-         The .skin-{name} class is NOT applied in Wave 1; brand-skin overrides ship
-         in Wave 4. The default homefit lockup renders unconditionally. -->
+         Wave 1 ships the default homefit lockup. Wave 4 (ADR-0029) adds the
+         brand-skin override: when payload.plan.brand_skin_active is true AND
+         the practice has set a brand_color, handout.js adds `.skin-active` on
+         <body> + populates `.handout-brand-skin` with the practitioner lockup;
+         CSS swaps which one is visible. The footer seal stays coral. -->
     <header class="handout-header">
       <div class="handout-brand">
         <!-- Default homefit.studio lockup. The `.studio` part is COLOURED CORAL
              per locked decision #28 in the artifact-system design doc — both
              the dot AND the word. Memory ref: feedback_homefit_studio_wordmark.md.
-             The seal at the footer also renders coral on this same convention. -->
+             The seal at the footer also renders coral on this same convention.
+             Hidden when .skin-active is present on <body>. -->
         <div class="brand-default" aria-label="homefit.studio">
           <span class="brand-name">homefit</span><!--
           --><span class="brand-dot dotsuf">.</span><!--
           --><span class="brand-studio dotsuf">studio</span>
+        </div>
+        <!-- Brand-skin lockup. Populated by handout.js from
+             payload.plan.practice_name + .public_logo_url when
+             payload.plan.brand_skin_active === true. Hidden via CSS when
+             .skin-active is NOT present on <body>. ADR-0029. -->
+        <div class="handout-brand-skin" id="handout-brand-skin" aria-hidden="true">
+          <span class="handout-brand-skin-glyph" aria-hidden="true"></span>
+          <span class="handout-brand-skin-name"></span>
+          <span class="handout-brand-skin-tag"></span>
         </div>
         <h1 class="handout-title" id="handout-title">Loading…</h1>
         <p class="handout-byline" id="handout-byline"></p>
