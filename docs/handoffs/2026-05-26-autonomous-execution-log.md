@@ -178,18 +178,37 @@ Full runbook (Management API + dashboard fallback) at `docs/handoffs/2026-05-26-
 
 ## Wave 5 — Share sheet + managed email
 
-**Branch:** `feat/artifact-share-managed-email` (planned)
-**Status:** Queued
+**Branch:** `feat/artifact-share-managed-email` (deleted after merge)
+**PR:** #541 — **MERGED to staging** as squash commit `93313c4`
 
-### Scope
+### Scope (delivered)
 
-- Share sheet two-path UI in Flutter (mockup at `2026-05-26-share-sheet.html`) — if not already in Wave 3.
-- Edge function for Resend-backed "managed email" send with the branded artifact link.
-- `clients.email` write path (the practitioner-typed transient email, deleted when a verified claim email supersedes per ADR 0024).
+- Share sheet two-path UI in Flutter (mockup at `2026-05-26-share-sheet.html`) — managed email + OS share. Pre-fills from cached `clients.email`.
+- Edge function `send-artifact-email` for Resend-backed branded artifact link delivery. JWT-authed + practice-membership-scoped.
+- `clients.email` + `clients.email_verified_at` columns. Practitioner-typed value lives in `clients.email`; supersedes to a verified value when the recipient claims the plan with a confirmed `auth.users.email` (per ADR-0024). The `send-artifact-email` function refuses to overwrite a verified email.
+- `set_client_email(uuid, text)` RPC + `claim_plan` extension for the supersession.
 
 ### Decisions made without Carl
 
-(populated when the wave runs)
+- **Salvaged after the agent died with a truncated message.** Like Wave 4, the agent (`ae0c37e71c3206c2d`) ended with "The output is empty (1 line). Test must be still building/running. Let me wait via the monitor." — clearly mid-monitoring. All eight deliverables were present in the worktree (migration, edge function, share-sheet widget, test script, 4 modified Dart files) but uncommitted and no PR opened. Parent session committed the agent's work as-is, opened the PR, then surfaced + fixed a test failure (see below).
+- **`idempotent_migration_test` follow-up commit** (test-only). The agent bumped `_dbVersion` 48 → 49 in `local_storage_service.dart` to land the two new `cached_clients` columns (`email` + `email_verified_at`), but didn't update the two `expect(version.first['user_version'], 48)` assertions in `app/test/idempotent_migration_test.dart`. CI surfaced the failure; parent session bumped both assertions to 49 and pushed as a follow-up commit (`971e72b`) before merge. Same wave, same PR.
+- **`cached_clients.email` was added to the local-cache table beyond the brief.** The brief specified mobile-side `ApiClient` wiring + `ArtifactShareSheet` widget but didn't explicitly ask for SQLite columns. The agent extended scope to plumb both columns through the local cache so the share-sheet pre-fill works offline. Consistent with the offline-first architecture; left in.
+- **Two-path share sheet falls through to OS share when `client_id` is null** (legacy sessions without a clients linkage). The agent built this as an explicit branch — `_shareFromToolbar` checks for `clientId` and routes to `Share.share()` directly. Pre-Wave-5 single-path behaviour preserved for orphan rows.
+- **Resend integration via HTTP API (not SMTP).** The agent calls `https://api.resend.com/emails` with the same Resend account that powers SMTP auth-email delivery. Carl needs to (a) generate an API key from the Resend dashboard, (b) set `RESEND_API_KEY` as a Supabase edge-function secret, (c) deploy the function. Documented in the PR body — until done, the share sheet's email CTA returns 500 and falls back gracefully; the "Share link" path works unchanged.
+
+### Files touched
+
+10 files, +2,032 / -17:
+
+- **New:** `supabase/migrations/20260526192442_artifact_share_managed_email.sql`, `supabase/functions/send-artifact-email/{deno.json,index.ts}`, `app/lib/widgets/artifact_share_sheet.dart`, `docs/test-scripts/2026-05-27-artifact-system-wave5.md`.
+- **Modified:** `app/lib/services/api_client.dart` (+103 lines: `setClientEmail`, `sendArtifactEmail`), `app/lib/models/cached_client.dart` (+48: email + emailVerifiedAt fields + decode), `app/lib/services/local_storage_service.dart` (+31: v49 migration), `app/lib/screens/studio_mode_screen.dart` (+75: share-sheet wire-in), `app/test/idempotent_migration_test.dart` (+2/-2: assertion bump).
+
+### Verification
+
+- ✅ `dart_analyze` clean on touched paths.
+- ✅ Flutter test: 168 tests passed, 0 failed (after the assertion fix; initial CI surfaced 2 failures).
+- ✅ CI all checks green (Apply migrations against Postgres 17, Flutter app analyze + test, Web portal lint + typecheck + build, Web player node --check, Supabase Preview, etc.).
+- ⏳ Edge function not yet deployed — needs `RESEND_API_KEY` secret + `supabase functions deploy send-artifact-email`. Carl-side action.
 
 ---
 
