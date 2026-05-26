@@ -656,6 +656,15 @@ class UploadService {
   Future<PublishResult> uploadPlan(
     Session session, {
     PublishProgressSink? onProgress,
+    /// Wave 3 (artifact-system, 2026-05-26) — kinds the practitioner
+    /// selected on the Publish gate. Routed through the multi-kind
+    /// `publish_plan_artifacts` RPC. Defaults to `['plan_url']` so
+    /// legacy callers (any path that hasn't been updated to gather
+    /// the gate's selection) keep their old "publish the workout
+    /// player" semantics. The gate populates this with the full
+    /// checked-kinds set so a single publish atomically mints every
+    /// selected artifact in one transaction.
+    List<String> kinds = const ['plan_url'],
   }) async {
     // Local emit helper so we can drop the callback into every phase
     // boundary without sprinkling null-checks. Safe to invoke regardless
@@ -1059,39 +1068,34 @@ class UploadService {
         'crossfade_fade_ms': session.crossfadeFadeMs,
       });
 
-      // Step 3b: atomic credit consumption. Source of truth for whether
-      // the publish can proceed. If this returns `{ok: false}` the plan
-      // row we just ensured above stays as-is (no version bump, no
-      // `sent_at` update) — the plan is still at its previous published
-      // state. If the RPC raises, same deal.
-      final consumeMap = await _api.consumeCredit(
+      // Step 3b: atomic multi-kind publish. Wave 3 (artifact-system,
+      // 2026-05-26) — replaces the legacy direct `consume_credit` call.
+      // `publish_plan_artifacts` sums the per-kind prices, calls
+      // `consume_credit` once for the paid total (which still applies
+      // the prepaid-unlock fast-path + self-trainer free path
+      // server-side), and upserts one `plan_artifacts` row + matching
+      // `plan_issuances` audit row per published kind — all in the
+      // same transaction. Source of truth for whether the publish can
+      // proceed: any rejection ({ok: false}) leaves the plan row at
+      // its previous version (no bump, no sent_at update). On RPC
+      // raise, same deal.
+      //
+      // Legacy callers pass `kinds: ['plan_url']` which is functionally
+      // identical to the old single-kind consume_credit path the RPC
+      // is replacing — the consume_credit call inside publish_plan_artifacts
+      // burns exactly the same `paid_sum_int` credits.
+      final publishMap = await _api.publishPlanArtifacts(
         practiceId: practiceId,
         planId: session.id,
-        credits: creditsToCharge,
+        kinds: kinds,
       );
-      final ok = consumeMap['ok'] == true;
-      // Wave 29 — server-side prepaid-unlock fast path. consume_credit
-      // returns `prepaid_unlock_at` when a prior `unlock_plan_for_edit`
-      // already paid for this republish; the ledger was not debited
-      // and the flag was cleared in the same transaction.
-      final prepaidUnlockAt = consumeMap['prepaid_unlock_at'];
-      if (ok && prepaidUnlockAt != null) {
-        dev.log(
-          'consume_credit skipped: republish covered by prior unlock at '
-          '$prepaidUnlockAt (plan=${session.id}, practice=$practiceId)',
-          name: 'UploadService.uploadPlan',
-        );
-      }
+      final ok = publishMap.ok;
       if (!ok) {
-        final reportedBalance = consumeMap['balance'];
-        final int resolvedBalance = reportedBalance is int
-            ? reportedBalance
-            : (reportedBalance is num
-                ? reportedBalance.toInt()
-                : (balance ?? 0));
+        final int resolvedBalance = publishMap.balance ?? (balance ?? 0);
         await _recordFailure(
           session,
-          'consume_credit refused: have $resolvedBalance, need $creditsToCharge',
+          'publish_plan_artifacts refused: have $resolvedBalance, '
+          'need $creditsToCharge (kinds=${kinds.join(',')})',
         );
         return PublishResult.insufficientCredits(
           balance: resolvedBalance,
@@ -1100,6 +1104,13 @@ class UploadService {
         );
       }
       creditConsumed = true;
+      dev.log(
+        'publish_plan_artifacts ok: kinds=${kinds.join(',')} '
+        'published=${publishMap.published.join(',')} '
+        'paid_sum=${publishMap.paidSum} '
+        'plan=${session.id} practice=$practiceId',
+        name: 'UploadService.uploadPlan',
+      );
 
       // ----------------------------------------------------------------
       // Step 4: Now that credits are consumed, bump the plan version and
@@ -1761,6 +1772,17 @@ class UploadService {
       // /audit page can render the "Prepaid via unlock at {date}" subtitle
       // and reverse-link the matching `credit.consumption` unlock row.
       // NULL on regular publishes.
+      // Wave 3 — was the pre-publish local cache flagged as prepaid?
+      // `publish_plan_artifacts` doesn't propagate `prepaid_unlock_at`
+      // through its return shape (consume_credit applies the
+      // fast-path internally + clears the column), so we read the
+      // local pre-call snapshot here. If the publish was covered by a
+      // prior `unlock_plan_for_edit`, the audit row gets the same
+      // `prepaid_unlock_at` flag the legacy path wrote and the local
+      // session state mirrors the server-side first_opened_at /
+      // last_opened_at clear.
+      final localPrepaidUnlockAtIso =
+          session.unlockCreditPrepaidAt?.toUtc().toIso8601String();
       final issuanceRow = <String, dynamic>{
         'plan_id': session.id,
         'practice_id': practiceId,
@@ -1772,8 +1794,8 @@ class UploadService {
         // viewer's timezone; non-UTC writes drift by host TZ offset.
         'issued_at': DateTime.now().toUtc().toIso8601String(),
       };
-      if (prepaidUnlockAt is String && prepaidUnlockAt.isNotEmpty) {
-        issuanceRow['prepaid_unlock_at'] = prepaidUnlockAt;
+      if (localPrepaidUnlockAtIso != null && localPrepaidUnlockAtIso.isNotEmpty) {
+        issuanceRow['prepaid_unlock_at'] = localPrepaidUnlockAtIso;
       }
       await loudSwallow(
         () => _api.insertPlanIssuance(issuanceRow),
@@ -1803,7 +1825,13 @@ class UploadService {
       // opened" immediately, instead of waiting for the next reconcile
       // (and instead of misleadingly showing a residual lock between
       // the publish and the reconcile).
-      final unlockPaid = prepaidUnlockAt != null;
+      // Wave 3 — local-cache signal. The server side cleared the
+      // unlock flag in the same transaction as part of consume_credit's
+      // prepaid fast-path; mirror that locally by clearing
+      // first_opened_at / last_opened_at to restart the 14-day grace
+      // clock. Read from the pre-call snapshot since
+      // publish_plan_artifacts doesn't propagate the prepaid timestamp.
+      final unlockPaid = session.unlockCreditPrepaidAt != null;
       final updated = session.copyWith(
         sentAt: now,
         planUrl: planUrl,
