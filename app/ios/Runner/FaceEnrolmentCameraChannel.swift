@@ -769,8 +769,29 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
         connection: AVCaptureConnection,
         frameIdx: UInt64
     ) {
+        // M38 — emit a heartbeat event on every code path so the on-screen
+        // debug HUD can distinguish "videoDataOutput isn't firing" (events=0)
+        // from "Vision keeps returning no face" (events=N, nil=N). Without
+        // these heartbeats every silent-skip path looked identical to the
+        // Dart side and we lost a 30-minute debug round-trip chasing a
+        // phantom EventChannel issue. See feedback_no_silent_fallbacks —
+        // skipping the frame for ACCEPTANCE is correct; staying silent
+        // for OBSERVABILITY is not.
+        func emitHeartbeat() {
+            let payload: [String: Any] = [
+                "faceID": -1,
+                // yawDeg + pitchDeg deliberately omitted so the Dart
+                // _onPoseEvent nil-axis branch fires + bumps poseNilCount.
+                "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
+            ]
+            DispatchQueue.main.async { [weak poseStreamHandler] in
+                poseStreamHandler?.send(payload)
+            }
+        }
+
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             NSLog("[FaceEnrolment-vision] frame#\(frameIdx) NO_PIXEL_BUFFER")
+            emitHeartbeat()
             return
         }
 
@@ -797,12 +818,14 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
             NSLog(
                 "[FaceEnrolment-vision] frame#\(frameIdx) perform_threw=\(error.localizedDescription)"
             )
+            emitHeartbeat()
             return
         }
 
         let results = request.results ?? []
         guard let obs = results.first else {
             NSLog("[FaceEnrolment-vision] frame#\(frameIdx) face=NO")
+            emitHeartbeat()
             return
         }
 
@@ -817,6 +840,7 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
             NSLog(
                 "[FaceEnrolment-vision] frame#\(frameIdx) face=YES POSE_NIL yaw=\(yawStr) pitch=\(pitchStr) orient=\(orientation)"
             )
+            emitHeartbeat()
             return
         }
 
