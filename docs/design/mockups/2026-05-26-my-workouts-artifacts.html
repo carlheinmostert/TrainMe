@@ -83,6 +83,33 @@
       padding: 11px;
       position: relative;
     }
+    /* received-from-practitioner variant — full-width coral-tint banner on top */
+    .card.is-received { flex-direction: column; gap: 0; padding: 0; overflow: hidden; }
+    .card.is-received .card-row { display: flex; gap: 13px; align-items: stretch; padding: 11px; }
+
+    .shared-strip {
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 12px;
+      background: var(--brand-tint-bg);
+      border-top: 1px solid var(--brand-tint-border);
+      font-size: 11.5px; color: var(--ink-secondary);
+      white-space: nowrap; overflow: hidden;
+    }
+    .strip-avatar {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: rgba(255,107,53,0.18); border: 1.5px solid var(--brand-light);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display); font-weight: 700; font-size: 9.5px; color: var(--brand-light);
+      flex-shrink: 0;
+    }
+    .strip-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .strip-text b { color: var(--ink-primary); font-weight: 600; }
+    .strip-tag {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+      color: var(--brand-light); display: inline-flex; align-items: center; gap: 4px;
+      flex-shrink: 0;
+    }
+    .strip-tag svg { width: 10px; height: 10px; }
     .thumb {
       position: relative; flex-shrink: 0;
       width: 78px; height: 78px; border-radius: 11px; overflow: hidden;
@@ -110,20 +137,9 @@
     .kind svg { width: 13px; height: 13px; }
     .kind.roadmap { color: var(--ink-secondary); }
 
-    /* provenance avatar — bottom-right of thumb, only on received */
-    .pavatar {
-      position: absolute; bottom: -4px; right: -4px; z-index: 3;
-      width: 26px; height: 26px; border-radius: 50%;
-      background: var(--brand-tint-bg); border: 2px solid var(--surface-base);
-      display: flex; align-items: center; justify-content: center;
-      font-family: var(--font-display); font-weight: 700; font-size: 10px; color: var(--brand-light);
-    }
-
     .body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
     .row1 { display: flex; align-items: center; gap: 7px; }
     .title { font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--ink-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .from { font-size: 12.5px; color: var(--ink-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .from b { color: var(--ink-primary); font-weight: 600; }
     .meta { font-size: 11.5px; color: var(--ink-muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-disabled); }
 
@@ -131,8 +147,6 @@
     .tag { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; }
     .tag-pub { color: var(--success); background: rgba(34,197,94,0.13); }
     .tag-draft { color: var(--ink-muted); background: var(--surface-raised); }
-    .tag-view { color: var(--ink-secondary); background: var(--surface-raised); display: inline-flex; align-items: center; gap: 4px; }
-    .tag-view svg { width: 10px; height: 10px; }
 
     /* trailing affordance */
     .trail { display: flex; align-items: center; padding-left: 4px; color: var(--ink-muted); }
@@ -176,9 +190,10 @@
   <h1>My Workouts — sessions + claimed artifacts</h1>
   <p class="subtitle">
     My Workouts now mixes two different objects in <b>one recency-sorted list</b>: <b>authored sessions</b> (yours, editable)
-    and <b>received / claimed artifacts</b> (someone else's, view-only, in a specific format). The card language carries two
-    badges — a <b>kind glyph</b> (top-left of the thumbnail: which format) and <b>provenance</b> (received cards show the
-    practitioner's avatar + name; yours don't). No split sections, no tabs.
+    and <b>received / claimed artifacts</b> (someone else's, view-only, in a specific format). Received cards wear a
+    <b>full-width coral-tint banner strip</b> along the bottom — practitioner avatar, "From {Name} · {Practice}", and a
+    View-only tag — so provenance reads at a glance without competing with the workout title for top-of-card attention.
+    The thumbnail still carries a <b>kind glyph</b> (top-left: which format). No split sections, no tabs.
   </p>
 
   <div class="layout">
@@ -199,22 +214,25 @@
         <div class="list">
 
           <!-- RECEIVED · player -->
-          <div class="card">
-            <div class="thumb">
-              <span class="kind" title="Interactive player">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-              </span>
-              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 2M12 11l4 2M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
-              <span class="pavatar">MV</span>
-            </div>
-            <div class="body">
-              <div class="title">Rehab — right knee</div>
-              <div class="from">From <b>Margaret Vorster</b> · Cape Biokinetics</div>
-              <div class="meta">8 exercises <span class="dot"></span>
-                <span class="tag tag-view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+          <div class="card is-received">
+            <div class="card-row">
+              <div class="thumb">
+                <span class="kind" title="Interactive player">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                </span>
+                <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 2M12 11l4 2M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
               </div>
+              <div class="body">
+                <div class="title">Rehab — right knee</div>
+                <div class="meta">8 exercises <span class="dot"></span> ~12 min</div>
+              </div>
+              <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
             </div>
-            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+            <div class="shared-strip">
+              <span class="strip-avatar">MV</span>
+              <span class="strip-text">From <b>Margaret Vorster</b> · Cape Biokinetics</span>
+              <span class="strip-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+            </div>
           </div>
 
           <!-- MINE · authored, published -->
@@ -234,22 +252,25 @@
           </div>
 
           <!-- RECEIVED · overview (free page) -->
-          <div class="card">
-            <div class="thumb">
-              <span class="kind" title="Overview page">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
-              </span>
-              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 1M12 11l4 1M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
-              <span class="pavatar">JF</span>
-            </div>
-            <div class="body">
-              <div class="title">Morning mobility</div>
-              <div class="from">From <b>James</b> · Flex Studio</div>
-              <div class="meta">5 exercises <span class="dot"></span>
-                <span class="tag tag-view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+          <div class="card is-received">
+            <div class="card-row">
+              <div class="thumb">
+                <span class="kind" title="Overview page">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
+                </span>
+                <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 1M12 11l4 1M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
               </div>
+              <div class="body">
+                <div class="title">Morning mobility</div>
+                <div class="meta">5 exercises <span class="dot"></span> ~7 min</div>
+              </div>
+              <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
             </div>
-            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+            <div class="shared-strip">
+              <span class="strip-avatar">JF</span>
+              <span class="strip-text">From <b>James</b> · Flex Studio</span>
+              <span class="strip-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+            </div>
           </div>
 
           <!-- MINE · authored, draft -->
@@ -269,22 +290,25 @@
           </div>
 
           <!-- RECEIVED · reel (roadmap) -->
-          <div class="card">
-            <div class="thumb">
-              <span class="kind roadmap" title="Reel (roadmap)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16M15 4v16M4 9h5M15 9h5M4 15h5M15 15h5"/></svg>
-              </span>
-              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 1M12 11l4 1M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
-              <span class="pavatar">MV</span>
-            </div>
-            <div class="body">
-              <div class="title">Knee rehab — highlight reel</div>
-              <div class="from">From <b>Margaret Vorster</b> · Cape Biokinetics</div>
-              <div class="meta">0:42 <span class="dot"></span>
-                <span class="tag tag-view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+          <div class="card is-received">
+            <div class="card-row">
+              <div class="thumb">
+                <span class="kind roadmap" title="Reel (roadmap)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16M15 4v16M4 9h5M15 9h5M4 15h5M15 15h5"/></svg>
+                </span>
+                <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 1M12 11l4 1M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
               </div>
+              <div class="body">
+                <div class="title">Knee rehab — highlight reel</div>
+                <div class="meta">0:42 <span class="dot"></span> Vertical reel</div>
+              </div>
+              <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
             </div>
-            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+            <div class="shared-strip">
+              <span class="strip-avatar">MV</span>
+              <span class="strip-text">From <b>Margaret Vorster</b> · Cape Biokinetics</span>
+              <span class="strip-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+            </div>
           </div>
 
         </div>
@@ -319,12 +343,12 @@
       <div class="leg-card">
         <p class="leg-h">Provenance — who it belongs to</p>
         <div class="leg-row">
-          <span class="leg-swatch" style="background:var(--brand-tint-bg);border:2px solid var(--surface-base);font-family:var(--font-display);font-weight:700;font-size:11px;color:var(--brand-light);">MV</span>
-          <span class="leg-txt"><b>Shared with you</b> — a claimed artifact. Carries the practitioner's <b>avatar + name</b> ("From Margaret · Cape Biokinetics") and a <b>View-only</b> tag. The presence of someone else's identity is the signal it isn't yours.</span>
+          <span class="leg-swatch" style="background:var(--brand-tint-bg);border:1px solid var(--brand-tint-border);border-radius:6px;font-family:var(--font-display);font-weight:700;font-size:10px;color:var(--brand-light);letter-spacing:0.4px;">MV</span>
+          <span class="leg-txt"><b>Shared with you</b> — a claimed artifact wears a <b>full-width coral-tint banner strip</b> along the bottom of the card: practitioner avatar, <b>From {Name} · {Practice}</b>, and a <b>View-only</b> tag. The strip is unmissable at list-scan distance — the workout title leads at the top of the card; provenance settles underneath without stealing the title's focus. Trailing affordance: chevron (open / play).</span>
         </div>
         <div class="leg-row">
           <span class="leg-swatch" style="color:var(--ink-muted);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
-          <span class="leg-txt"><b>Yours</b> — authored, editable. <b>No</b> attribution avatar; leads with "You", shows a <b>Published / Draft</b> state, and a trailing edit affordance instead of a chevron.</span>
+          <span class="leg-txt"><b>Yours</b> — authored, editable. <b>No</b> banner strip; the body leads with "You", shows a <b>Published / Draft</b> state, and the trailing affordance is the edit pencil (not a chevron).</span>
         </div>
       </div>
 
