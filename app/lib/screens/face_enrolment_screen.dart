@@ -14,6 +14,7 @@ import '../models/client.dart';
 import '../services/api_client.dart';
 import '../services/face_embedding_service.dart';
 import '../services/face_enrolment_camera.dart';
+import '../services/face_enrolment_debug_hud_preference.dart';
 import '../services/face_enrolment_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -190,6 +191,12 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   /// pops with success.
   bool _simpleShotPersisting = false;
 
+  /// M38 — gates rendering of the on-screen pose debug HUD. Loaded
+  /// from [FaceEnrolmentDebugHudPreference] in [initState]. Default
+  /// false so the HUD only surfaces when a practitioner has explicitly
+  /// flipped it on via Settings → Diagnostics.
+  bool _debugHudEnabled = FaceEnrolmentDebugHudPreference.defaultValue;
+
   @override
   void initState() {
     super.initState();
@@ -203,6 +210,19 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       if (!mounted) return;
       _initCamera();
     }));
+    // M38 — load the debug HUD pref. Best-effort; HUD stays hidden if
+    // the pref read flakes.
+    unawaited(_loadDebugHudPref());
+  }
+
+  Future<void> _loadDebugHudPref() async {
+    try {
+      final enabled = await FaceEnrolmentDebugHudPreference.isEnabled();
+      if (!mounted) return;
+      setState(() => _debugHudEnabled = enabled);
+    } catch (_) {
+      // Default stays false.
+    }
   }
 
   @override
@@ -920,6 +940,8 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     // embedding render the same prompt-walk UI; service drives which
     // prompt + stall flags are surfaced).
     return _PoseGatedSweepView(
+      service: _service,
+      debugHudEnabled: _debugHudEnabled,
       cameraController: _cameraController,
       cameraReady: _cameraReady,
       filledBuckets: _service.filledBuckets,
@@ -1358,8 +1380,16 @@ class _PoseGatedSweepView extends StatelessWidget {
   final VoidCallback onCameraFlip;
   final VoidCallback onSkipPrompt;
   final String? toast;
+  /// M38 debug HUD reads pose counters + last-observed pose off the
+  /// service. Plumbing as a field rather than reaching for InheritedWidget
+  /// keeps the change minimal.
+  final FaceEnrolmentService service;
+  /// M38 — gated by [FaceEnrolmentDebugHudPreference]. False = HUD hidden.
+  final bool debugHudEnabled;
 
   const _PoseGatedSweepView({
+    required this.service,
+    required this.debugHudEnabled,
     required this.cameraController,
     required this.cameraReady,
     required this.filledBuckets,
@@ -1554,6 +1584,16 @@ class _PoseGatedSweepView extends StatelessWidget {
                   total: totalPrompts,
                   current: currentPromptIndex,
                 ),
+                if (debugHudEnabled) ...[
+                  const SizedBox(height: 10),
+                  // M38 DEBUG HUD — live pose telemetry. iOS profile-build
+                  // NSLog filtering hides device-side `[FaceEnrolment-*]`
+                  // lines from Console.app, so we surface the same data
+                  // directly on screen for in-the-field debugging.
+                  // Toggled via Settings → Diagnostics → "Show face-
+                  // enrolment pose HUD" (default OFF).
+                  _DebugPoseHud(service: service),
+                ],
               ],
             ),
           ),
@@ -1583,6 +1623,88 @@ class _PoseGatedSweepView extends StatelessWidget {
 }
 
 /// M30 — replaces the legacy _SlotCounterPill. Reads "Step 3 of 6".
+/// M38 — on-screen pose telemetry HUD. Renders below the prompt
+/// progress dots when the practitioner has enabled the toggle in
+/// Settings → Diagnostics. Surfaces:
+///   events=N nil=M       pose-event counters from the service
+///   yaw=…° pitch=…°      most-recent observed pose (user-perspective)
+///   target=…/…  Δ=…       current bucket centre + Manhattan distance
+///
+/// Rebuilds on every `notifyListeners()` from the service, which fires
+/// on every pose event.
+class _DebugPoseHud extends StatelessWidget {
+  final FaceEnrolmentService service;
+
+  const _DebugPoseHud({required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: service,
+      builder: (context, _) {
+        final last = service.lastObservedPose;
+        final yawStr = last == null ? '—' : last.yaw.toStringAsFixed(1);
+        final pitchStr = last == null ? '—' : last.pitch.toStringAsFixed(1);
+        final target = service.currentTargetBucket?.centerDeg;
+        final tYawStr =
+            target == null ? '—' : target.yaw.toStringAsFixed(0);
+        final tPitchStr =
+            target == null ? '—' : target.pitch.toStringAsFixed(0);
+        final delta = (last == null || target == null)
+            ? '—'
+            : poseDistance(last, target).toStringAsFixed(1);
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.55),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'events=${service.poseEventCount}  nil=${service.poseNilCount}',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                  height: 1.4,
+                ),
+              ),
+              Text(
+                'yaw=$yawStr°  pitch=$pitchStr°',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  height: 1.4,
+                ),
+              ),
+              Text(
+                'target=$tYawStr°/$tPitchStr°   Δ=$delta (tol 20)',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _StepCounterPill extends StatelessWidget {
   final int step;
   final int total;
