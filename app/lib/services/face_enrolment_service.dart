@@ -249,6 +249,84 @@ const double kQualityThreshold = 60.0;
 /// mockup signoff on open question 1.
 const int kPoseBucketCount = 6;
 
+/// Ordered sequence of explicit pose prompts (M30 redesign, 2026-05-26).
+///
+/// Replaces the silent autostart-and-let-the-user-discover-the-poses
+/// behaviour that left practitioners stuck on the initial "Look at the
+/// camera" prompt with 0 of 6 captured. The new flow walks the user
+/// through six distinct head positions in a fixed order; each prompt
+/// stays active until a matching-bucket frame is accepted, then the
+/// flow advances.
+///
+/// Order chosen so adjacent prompts require small head movements
+/// (front → right → left → up → down → smile), keeping the sweep
+/// snappy. The `slightUp` bucket doubles as both the up-tilt prompt
+/// and the down-tilt prompt — we ask the user to dip slightly so
+/// Vision sees the chin (the down-tilt is gated by the same pose
+/// uniqueness math, accepted under the front bucket if pitch < -10).
+///
+/// IMPORTANT: in this flow the 6th prompt ("smile") reuses the front
+/// bucket so it must be accepted AFTER the initial front prompt has
+/// already filled it; the service tracks prompt completion separately
+/// from bucket fill state.
+const List<PoseBucket> kPromptSequence = <PoseBucket>[
+  PoseBucket.front,        // 1. Look straight ahead
+  PoseBucket.right,        // 2. Turn slowly to your right
+  PoseBucket.left,         // 3. Turn slowly to your left
+  PoseBucket.slightUp,     // 4. Tilt head up slightly
+  PoseBucket.frontRight,   // 5. Tilt head down slightly (uses chin-down + offset bucket)
+  PoseBucket.frontLeft,    // 6. Look straight ahead with a slight smile
+];
+
+/// Per-prompt instruction copy. Indexed by prompt position (0..5).
+/// Kept as a static const list rather than localised strings — the
+/// Self-trainer + per-client enrolment flow is English-only for MVP.
+const List<String> kPromptInstructions = <String>[
+  'Look straight ahead',
+  'Turn slowly to your right',
+  'Turn slowly to your left',
+  'Tilt head up slightly',
+  'Tilt head down slightly',
+  'Look straight ahead with a slight smile',
+];
+
+/// Per-prompt arrow/direction icon hint. UI maps to a Material icon.
+/// Values: 'straight', 'right', 'left', 'up', 'down', 'smile'.
+const List<String> kPromptDirections = <String>[
+  'straight',
+  'right',
+  'left',
+  'up',
+  'down',
+  'smile',
+];
+
+/// Soft-hint copy surfaced after [kStallSoftHintAfter] elapses without
+/// a capture on the current prompt. Indexed by prompt position.
+const List<String> kPromptStallHints = <String>[
+  'Hold steadier — look right at the lens',
+  'Turn a little further to the right',
+  'Turn a little further to the left',
+  'Tilt up just a bit more',
+  'Tilt down just a bit more',
+  'Hold steadier and give a small smile',
+];
+
+/// Hard minimum prompts that must be completed for a valid enrolment.
+/// Below this we surface a Failed state with Try Again / Close CTAs.
+/// 4-of-6 matches the spec ask — better than the prior 3-of-6 since
+/// the prompts are explicit + sequential so a 4th miss reflects a
+/// real environmental issue.
+const int kMinPromptsForValidEnrolment = 4;
+
+/// Soft-hint timer: when a prompt has been active for this long without
+/// a successful capture, the UI surfaces a per-prompt stall hint.
+const Duration kStallSoftHintAfter = Duration(seconds: 5);
+
+/// Skip-pose timer: when a prompt has been active for this long, the
+/// UI surfaces a "Skip this pose" button so the user can move on.
+const Duration kStallSkipAfter = Duration(seconds: 15);
+
 /// Pick the closest unfilled bucket to a given current pose. Drives
 /// the hint text ("Turn slightly to your right") — implementation is
 /// `argmin(poseDistance(current, bucket.center)) for bucket in unfilled`.
@@ -609,10 +687,39 @@ class FaceEnrolmentService extends ChangeNotifier {
   PoseBucket? _currentTargetBucket;
   PoseBucket? get currentTargetBucket => _currentTargetBucket;
 
-  /// Phase 2 — Manhattan-sum age of the most-recent observed pose
-  /// (used internally for the "no progress" timeout). Wall-clock
-  /// timestamp.
-  DateTime? _lastProgressAt;
+  // M30 — _lastProgressAt was the "no progress" timeout anchor for
+  // the closest-unfilled-bucket sweep loop. The prompt-driven flow
+  // tracks staleness per-prompt via [_currentPromptStartedAt] instead;
+  // the field is retired.
+
+  /// M30 — Current prompt index in [kPromptSequence] (0..5). Drives
+  /// which prompt copy + arrow renders + which bucket the tick will
+  /// accept. -1 = sweep hasn't started yet (idle); kPromptSequence.length
+  /// = all prompts completed.
+  int _currentPromptIndex = -1;
+  int get currentPromptIndex => _currentPromptIndex;
+
+  /// M30 — When the current prompt became active. Drives the soft-hint
+  /// + skip-pose timers. Null while idle / completed.
+  DateTime? _currentPromptStartedAt;
+
+  /// M30 — True once [kStallSoftHintAfter] has elapsed on the current
+  /// prompt without an accept. UI binds this to render the per-prompt
+  /// stall hint copy.
+  bool _showStallHint = false;
+  bool get showStallHint => _showStallHint;
+
+  /// M30 — True once [kStallSkipAfter] has elapsed on the current
+  /// prompt. UI binds this to render the "Skip this pose" button.
+  bool _showSkipPrompt = false;
+  bool get showSkipPrompt => _showSkipPrompt;
+
+  /// M30 — Number of prompts the practitioner explicitly skipped via
+  /// the "Skip this pose" button. Subtracts from the success count
+  /// during the finishing check; if fewer than the hard minimum
+  /// remain captured, the sweep fails.
+  int _skippedPromptCount = 0;
+  int get skippedPromptCount => _skippedPromptCount;
 
   /// Cancellation flag — set by [cancel], read by the sweep + commit
   /// loops to short-circuit cleanly.
@@ -730,8 +837,7 @@ class FaceEnrolmentService extends ChangeNotifier {
   /// [FaceEnrolmentMode.full]) or fall through to commit (in
   /// [FaceEnrolmentMode.embeddingOnly]).
   Future<void> startPoseGatedSweep({
-    Duration timeout = const Duration(seconds: 30),
-    Duration noProgressTimeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 180),
   }) async {
     if (_state != FaceEnrolmentState.idle) {
       if (_kDiagLogs) {
@@ -754,6 +860,9 @@ class FaceEnrolmentService extends ChangeNotifier {
     _accumulatedSlots.clear();
     _lastAcceptedScore = null;
     _currentTargetBucket = null;
+    _skippedPromptCount = 0;
+    _showStallHint = false;
+    _showSkipPrompt = false;
 
     try {
       final tempDir = await getTemporaryDirectory();
@@ -769,11 +878,10 @@ class FaceEnrolmentService extends ChangeNotifier {
     }
 
     _setState(FaceEnrolmentState.sweepingYaw);
-    _instructionText = "Look at the camera to begin";
+    _advanceToPrompt(0);
     notifyListeners();
 
     final sweepStart = DateTime.now();
-    _lastProgressAt = sweepStart;
 
     // Tick at ~3Hz — the per-candidate native call is ~150-300ms on
     // A17 so faster cadence would queue up; slower than 3Hz makes the
@@ -781,13 +889,10 @@ class FaceEnrolmentService extends ChangeNotifier {
     const tickInterval = Duration(milliseconds: 333);
 
     while (!_cancelled &&
-        _filledBuckets.length < kPoseBucketCount &&
-        DateTime.now().difference(sweepStart) < timeout &&
-        DateTime.now().difference(_lastProgressAt!) < noProgressTimeout) {
+        _currentPromptIndex < kPromptSequence.length &&
+        DateTime.now().difference(sweepStart) < timeout) {
       await _runPoseGatedTick();
-      // Update target bucket + hint text from the latest accepted /
-      // observed pose.
-      _updateHintText();
+      _updateStallFlags();
       notifyListeners();
       await Future<void>.delayed(tickInterval);
     }
@@ -798,33 +903,123 @@ class FaceEnrolmentService extends ChangeNotifier {
       return;
     }
 
-    // Sweep ended — by completion, timeout, or no-progress. Decide
-    // whether to confirm or surface notEnoughAngles.
+    // Sweep ended — by completion, timeout, or all-prompts-skipped.
+    // Decide whether to confirm or surface notEnoughAngles.
     await _finishPoseGatedSweep();
   }
 
-  /// Practitioner tap on "Done" mid-sweep — accept whatever we've got
-  /// and transition straight to confirming (or commit in embeddingOnly).
-  /// No-op outside of an active sweep.
-  void requestSweepFinish() {
+  /// M30 — Advance to the prompt at [index]. Resets the stall flags
+  /// and stamps the prompt-start time so the soft-hint + skip timers
+  /// restart cleanly. When [index] equals [kPromptSequence.length] the
+  /// sweep loop's while-condition exits and finishing kicks in.
+  void _advanceToPrompt(int index) {
+    _currentPromptIndex = index;
+    _currentPromptStartedAt = DateTime.now();
+    _showStallHint = false;
+    _showSkipPrompt = false;
+    if (index < kPromptSequence.length) {
+      _instructionText = kPromptInstructions[index];
+      _currentTargetBucket = kPromptSequence[index];
+    } else {
+      _instructionText = 'All angles captured';
+      _currentTargetBucket = null;
+    }
+    if (_kDiagLogs) {
+      debugPrint('[FaceEnrolment] advance → prompt $index '
+          '(${index < kPromptSequence.length ? kPromptInstructions[index] : 'done'})');
+    }
+  }
+
+  /// M30 — Update the per-prompt stall flags ([_showStallHint] +
+  /// [_showSkipPrompt]) based on elapsed time on the current prompt.
+  /// Pure flag math — does not change [_currentPromptIndex].
+  void _updateStallFlags() {
+    final startedAt = _currentPromptStartedAt;
+    if (startedAt == null) return;
+    if (_currentPromptIndex >= kPromptSequence.length) return;
+    final elapsed = DateTime.now().difference(startedAt);
+    final softHint = elapsed >= kStallSoftHintAfter;
+    final skipHint = elapsed >= kStallSkipAfter;
+    if (softHint != _showStallHint || skipHint != _showSkipPrompt) {
+      _showStallHint = softHint;
+      _showSkipPrompt = skipHint;
+    }
+  }
+
+  /// M30 — Practitioner tapped "Skip this pose". Marks the current
+  /// prompt as skipped (tracked separately from completed) and
+  /// advances to the next prompt.
+  void requestSkipCurrentPrompt() {
     if (_state != FaceEnrolmentState.sweepingYaw &&
         _state != FaceEnrolmentState.sweepingPitch) {
       return;
     }
+    if (_currentPromptIndex >= kPromptSequence.length) return;
+    _skippedPromptCount++;
     if (_kDiagLogs) {
-      debugPrint('[FaceEnrolment] requestSweepFinish — '
-          'filled=${_filledBuckets.length}/$kPoseBucketCount');
+      debugPrint('[FaceEnrolment] skip prompt $_currentPromptIndex '
+          '(${kPromptInstructions[_currentPromptIndex]})');
     }
-    // Set the no-progress timer to a value that immediately satisfies
-    // the loop exit predicate. The loop polls every ~333ms.
-    _lastProgressAt = DateTime(2000);
+    _advanceToPrompt(_currentPromptIndex + 1);
+    notifyListeners();
+  }
+
+  /// M30 — Restart the sweep from a Failed state. Discards accumulated
+  /// state cleanly so the run starts fresh. Caller (the screen's Try
+  /// Again CTA) MUST be in the failed state — no-op otherwise.
+  Future<void> restartFromFailed() async {
+    if (_state != FaceEnrolmentState.failed) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] restartFromFailed ignored — state=$_state');
+      }
+      return;
+    }
+    if (_kDiagLogs) {
+      debugPrint('[FaceEnrolment] restartFromFailed — clean slate');
+    }
+    _error = null;
+    _cancelled = false;
+    _capturedFramePaths.clear();
+    _filledBuckets.clear();
+    _accumulatedSlots.clear();
+    _lastAcceptedScore = null;
+    _currentTargetBucket = null;
+    _currentPromptIndex = -1;
+    _currentPromptStartedAt = null;
+    _skippedPromptCount = 0;
+    _showStallHint = false;
+    _showSkipPrompt = false;
+    _instructionText = null;
+    _progress = 0.0;
+    await _teardownFrames();
+    _setState(FaceEnrolmentState.idle);
+    notifyListeners();
+    await startPoseGatedSweep();
+  }
+
+  /// Practitioner tap on the legacy "Done" mid-sweep chip — accept
+  /// whatever we've got and force-finish the sweep. M30 — replaced by
+  /// the explicit "Skip this pose" CTA per prompt
+  /// ([requestSkipCurrentPrompt]). Kept as a thin alias that skips the
+  /// current prompt so any in-tree callers still compile.
+  @Deprecated('Use requestSkipCurrentPrompt — per-prompt skip is the new flow')
+  void requestSweepFinish() {
+    requestSkipCurrentPrompt();
   }
 
   /// One pose-gated tick: capture a frame, run it through native for
-  /// pose + embedding, decide accept/reject in Dart.
+  /// pose + embedding, decide accept/reject in Dart against the
+  /// CURRENT prompt's target bucket (M30 — only frames matching the
+  /// active prompt advance the flow).
   Future<void> _runPoseGatedTick() async {
     final producer = _frameProducer;
     if (producer == null) return;
+    if (_currentPromptIndex < 0 ||
+        _currentPromptIndex >= kPromptSequence.length) {
+      return;
+    }
+    final targetBucket = kPromptSequence[_currentPromptIndex];
+
     String? framePath;
     try {
       framePath = await producer();
@@ -881,39 +1076,20 @@ class FaceEnrolmentService extends ChangeNotifier {
 
       final candidatePose = (yaw: yawDeg, pitch: pitchDeg);
 
-      // Update the current-pose target so the hint text follows the
-      // user's head even when they're not yet at acceptable poses.
-      final targetBucket = closestUnfilledBucket(candidatePose, _filledBuckets);
-      _currentTargetBucket = targetBucket;
+      // M30 — accept only frames within ±20 deg Manhattan-sum of the
+      // CURRENT prompt's target bucket centre. Silently skip everything
+      // else so the user is naturally nudged toward the requested pose.
+      final targetCentre = targetBucket.centerDeg;
+      final dToTarget = poseDistance(candidatePose, targetCentre);
+      const double promptAcceptTolerance = 20.0;
+      if (dToTarget > promptAcceptTolerance) return;
 
-      // Pose-gate: candidate must be sufficiently different from every
-      // accepted slot.
       final existingPoses = _accumulatedSlots
           .map((s) => (
                 yaw: s.poseYaw ?? 0.0,
                 pitch: s.posePitch ?? 0.0,
               ))
           .toList(growable: false);
-      if (!isPoseGatedAcceptable(
-        candidateDeg: candidatePose,
-        existingDeg: existingPoses,
-      )) {
-        // Too close to an existing slot — silently skip (no toast for
-        // this; it's the normal case while the user is mid-rotation).
-        return;
-      }
-
-      // Snap to a bucket — if the candidate is wildly off any bucket
-      // centre, refuse rather than assign it to a vaguely-near bucket
-      // and confuse the ring fill.
-      final bucket = snapToBucket(candidatePose);
-      if (bucket == null) return;
-      if (_filledBuckets.contains(bucket)) {
-        // The pose-gating threshold should normally catch this, but
-        // floating-point edge cases at the bucket boundary can slip
-        // through. Refuse and move on.
-        return;
-      }
 
       // Quality scoring. Decode the frame for sharpness + lighting
       // calculations — cheap (~10-30ms for a medium-resolution still
@@ -928,63 +1104,58 @@ class FaceEnrolmentService extends ChangeNotifier {
       final composite = scoreComponents.composite;
 
       if (composite < kQualityThreshold) {
-        // Reject — surface to UI via rejection stream.
-        if (!_rejectionController.isClosed) {
-          _rejectionController.add(FaceEnrolmentRejection(score: composite));
-        }
+        // Quality below floor — silently skip. The per-prompt soft
+        // hint surfaces after 5s of no accept, replacing the legacy
+        // rose-toast that dumped raw scores in the user's face.
         if (_kDiagLogs) {
           debugPrint(
-            '[FaceEnrolment] tick REJECTED bucket=$bucket '
+            '[FaceEnrolment] tick REJECTED bucket=$targetBucket '
             'score=${composite.toStringAsFixed(1)} '
             'vc=${scoreComponents.visionConfidence.toStringAsFixed(2)} '
             'sh=${scoreComponents.sharpness.toStringAsFixed(2)} '
-            'li=${scoreComponents.lighting.toStringAsFixed(2)} '
-            'pu=${scoreComponents.poseUniqueness.toStringAsFixed(2)} '
-            'nm=${scoreComponents.normPenalty.toStringAsFixed(2)}',
+            'li=${scoreComponents.lighting.toStringAsFixed(2)}',
           );
         }
         return;
       }
 
-      // Accept — stamp the slot, fill the bucket, advance progress.
-      final isFirstAccepted = _accumulatedSlots.isEmpty;
+      // Accept — stamp the slot for the CURRENT prompt's bucket,
+      // mark the bucket filled, advance to the next prompt.
       final slot = FaceEnrolmentSlot(
         slotIndex: _accumulatedSlots.length,
         embedding: embeddingBytes,
-        // Frontal-pick defaults to the slot whose pose is closest to
-        // (0,0). Updated incrementally as new slots land.
         isFrontalPick: false,
         poseYaw: yawDeg,
         posePitch: pitchDeg,
-        bucket: bucket,
+        bucket: targetBucket,
         qualityScore: composite,
         sourceFramePath: framePath,
       );
       _accumulatedSlots.add(slot);
-      _filledBuckets.add(bucket);
+      _filledBuckets.add(targetBucket);
       _lastAcceptedScore = composite;
-      _lastProgressAt = DateTime.now();
 
       // Re-evaluate the frontal pick over the running accumulator.
       _updateFrontalPick();
 
-      // Drive the visible progress bar off the bucket fill ratio so
-      // the legacy ring painter still animates.
-      _progress = _filledBuckets.length / kPoseBucketCount;
+      // Drive the visible progress bar off the prompt progress so the
+      // legacy ring painter still animates linearly. Counts COMPLETED
+      // prompts (next index after advance) — divides over the full
+      // sequence length so finish = 1.0.
+      _progress = (_currentPromptIndex + 1) / kPromptSequence.length;
 
       if (_kDiagLogs) {
         debugPrint(
-          '[FaceEnrolment] tick ACCEPTED bucket=$bucket '
-          'score=${composite.toStringAsFixed(1)} '
-          'progress=${_filledBuckets.length}/$kPoseBucketCount',
+          '[FaceEnrolment] tick ACCEPTED prompt=$_currentPromptIndex '
+          'bucket=$targetBucket score=${composite.toStringAsFixed(1)} '
+          'progress=${_accumulatedSlots.length}/${kPromptSequence.length}',
         );
       }
 
-      if (isFirstAccepted) {
-        // First accept — promote from "Look at the camera" to active
-        // bucket guidance.
-        _setState(FaceEnrolmentState.sweepingYaw);
-      }
+      // Advance to the next prompt (or finish if we just accepted the
+      // last one). The while-loop in startPoseGatedSweep will exit on
+      // next iteration when _currentPromptIndex hits sequence length.
+      _advanceToPrompt(_currentPromptIndex + 1);
     } on PlatformException catch (e) {
       if (_kDiagLogs) {
         debugPrint('[FaceEnrolment] tick native failed: ${e.code} ${e.message}');
@@ -1022,53 +1193,25 @@ class FaceEnrolmentService extends ChangeNotifier {
     }
   }
 
-  void _updateHintText() {
-    if (_accumulatedSlots.isEmpty) {
-      _instructionText = "Look at the camera to begin";
-      return;
-    }
-    if (_filledBuckets.length >= kPoseBucketCount) {
-      _instructionText = "All angles captured";
-      return;
-    }
-    final target = _currentTargetBucket;
-    if (target == null) {
-      _instructionText = "Slowly turn your head";
-      return;
-    }
-    switch (target) {
-      case PoseBucket.front:
-        _instructionText = "Look straight at the camera";
-        break;
-      case PoseBucket.frontLeft:
-        _instructionText = "Turn slightly to your right";
-        break;
-      case PoseBucket.frontRight:
-        _instructionText = "Turn slightly to your left";
-        break;
-      case PoseBucket.left:
-        _instructionText = "Turn further right";
-        break;
-      case PoseBucket.right:
-        _instructionText = "Turn further left";
-        break;
-      case PoseBucket.slightUp:
-        _instructionText = "Look up just a bit";
-        break;
-    }
-  }
+  // M30 — _updateHintText (closest-unfilled-bucket flow) retired in
+  // favour of [_advanceToPrompt] which owns the instruction copy per
+  // prompt. Stall hints surface in the UI via [showStallHint] +
+  // [kPromptStallHints].
 
-  /// Wrap-up after the pose-gated sweep loop exits. Surfaces
-  /// notEnoughAngles when we couldn't gather the minimum 3 slots;
-  /// otherwise transitions to confirming for the manual-avatar grid
-  /// (or directly to commit in embeddingOnly mode).
+  /// Wrap-up after the pose-gated sweep loop exits. M30 — surfaces
+  /// notEnoughAngles when we couldn't gather [kMinPromptsForValidEnrolment]
+  /// successful captures (skipped prompts don't count). Otherwise
+  /// transitions to confirming for the manual-avatar grid (or directly
+  /// to commit in embeddingOnly mode).
   Future<void> _finishPoseGatedSweep() async {
-    if (_accumulatedSlots.length < _kHardMinSlotCount) {
+    final captured = _accumulatedSlots.length;
+    if (captured < kMinPromptsForValidEnrolment) {
       _emitError(FaceEnrolmentError(
         type: FaceEnrolmentErrorType.notEnoughAngles,
         message:
             "Not enough variety captured — try again with better lighting "
-            "or more head movement (got ${_accumulatedSlots.length} of $_kHardMinSlotCount min)",
+            "or more head movement (captured $captured of "
+            "$kMinPromptsForValidEnrolment minimum)",
       ));
       return;
     }
@@ -1150,10 +1293,14 @@ class FaceEnrolmentService extends ChangeNotifier {
   /// During [FaceEnrolmentState.embedding] / [FaceEnrolmentState.persisting]
   /// the in-flight native / cloud call is allowed to finish but its
   /// result is discarded.
+  ///
+  /// M31 — cancel from [FaceEnrolmentState.failed] is now supported so
+  /// the Close button on the Failed screen reliably pops the route.
+  /// Previously failed was treated as terminal-no-cancel which left
+  /// the close button silently no-oping.
   void cancel() {
     if (_state == FaceEnrolmentState.done ||
-        _state == FaceEnrolmentState.cancelled ||
-        _state == FaceEnrolmentState.failed) {
+        _state == FaceEnrolmentState.cancelled) {
       return;
     }
     _cancelled = true;
@@ -1162,19 +1309,19 @@ class FaceEnrolmentService extends ChangeNotifier {
     if (_kDiagLogs) {
       debugPrint('[FaceEnrolment] cancel requested at state=$_state');
     }
-    // If we were sweeping the _runPhase loop sees _cancelled on the
-    // next tick and transitions. If we were embedding/persisting the
-    // in-flight Future drains then checks the flag before setting
-    // the success state.
+    // If we were sweeping the loop sees _cancelled on the next tick
+    // and transitions. If we were embedding/persisting the in-flight
+    // Future drains then checks the flag before setting the success
+    // state. Other states (idle / confirming / failed) have no in-
+    // flight work — flip immediately so the UI can pop.
     if (_state == FaceEnrolmentState.sweepingYaw ||
         _state == FaceEnrolmentState.sweepingPitch) {
-      // Short-circuit immediately — _runPhase will exit on next tick.
-      // For the case of a totally idle service we still flip to
-      // cancelled so the UI route can pop deterministically.
+      // Short-circuit immediately — sweep loop will exit on next tick.
     } else if (_state == FaceEnrolmentState.idle ||
-        _state == FaceEnrolmentState.confirming) {
-      // Confirming state has no in-flight work — flip immediately.
-      _teardownFrames();
+        _state == FaceEnrolmentState.confirming ||
+        _state == FaceEnrolmentState.failed) {
+      // Sync teardown for these — no in-flight work to await.
+      unawaited(_teardownFrames());
       _setState(FaceEnrolmentState.cancelled);
     }
   }

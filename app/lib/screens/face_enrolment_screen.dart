@@ -147,11 +147,10 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   String? _toast;
   Timer? _toastTimer;
 
-  /// Phase 2 — most-recent rejection event. Drives the rose-tinted
-  /// reject pill at the bottom of the viewfinder (mockup state 2).
-  /// Carl's mockup signoff: the toast shows the RAW SCORE so
-  /// practitioners learn what's failing.
-  FaceEnrolmentRejection? _rejection;
+  /// M30 — rejection events are retired in favour of per-prompt stall
+  /// hints. The timer field stays as a defensive cancel target should
+  /// the listener ever be re-enabled. Kept as `Timer?` so the dispose
+  /// path keeps compiling.
   Timer? _rejectionTimer;
 
   /// Phase 2 — practitioner's manually-chosen avatar slot index in the
@@ -608,16 +607,19 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       _popWithResult(false);
       return;
     }
-    if (state == FaceEnrolmentState.failed) {
-      // Toast lifecycle handled in _onServiceError; here we just
-      // schedule the auto-pop.
-      _scheduleAutoPopAfterToast();
-    }
+    // M31 — Failed no longer auto-pops. The new _FailedView renders
+    // explicit Try Again + Close CTAs; the user controls the
+    // transition.
     setState(() {});
   }
 
   void _onServiceError(FaceEnrolmentError err) {
     if (!mounted) return;
+    // M31 — error doesn't drive an inline coral toast on failure any
+    // more; the dedicated _FailedView in build() renders the err
+    // message. Keep the toast path live for transient camera errors
+    // that don't move state to failed (e.g. camera init issues).
+    if (_service.state == FaceEnrolmentState.failed) return;
     setState(() {
       _toast = err.message;
     });
@@ -629,25 +631,11 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   }
 
   void _onServiceRejection(FaceEnrolmentRejection rej) {
+    // M30 — the rose rejection toast is retired in favour of the
+    // per-prompt soft hints surfaced via FaceEnrolmentService.showStallHint.
+    // Listener stays bound for API compatibility but the UI no longer
+    // renders the score-bearing toast.
     if (!mounted) return;
-    setState(() {
-      _rejection = rej;
-    });
-    _rejectionTimer?.cancel();
-    _rejectionTimer = Timer(const Duration(milliseconds: 1400), () {
-      if (!mounted) return;
-      setState(() => _rejection = null);
-    });
-  }
-
-  void _scheduleAutoPopAfterToast() {
-    // Toast shows for 4s then we pop with failure. Reuses the same
-    // timer the toast itself runs on so we don't double-fire.
-    _toastTimer?.cancel();
-    _toastTimer = Timer(const Duration(seconds: 4), () {
-      if (!mounted) return;
-      _popWithResult(false);
-    });
   }
 
   void _popWithResult(bool success) {
@@ -655,14 +643,54 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     Navigator.of(context).maybePop<bool>(success);
   }
 
+  /// Close-button handler — works in EVERY state (M31 fix). Cancels
+  /// any in-flight service work then pops the route. For the Failed
+  /// state we bypass the cancel machinery since the service might
+  /// be in a transient state that the cancel guards refuse to flip;
+  /// we pop directly.
   void _onCancelTap() {
     HapticFeedback.selectionClick();
-    _service.cancel();
-    // _onServiceChanged handles the pop once state transitions.
-    // For avatarOnly mode the service stays idle — pop directly.
-    if (widget.mode == FaceEnrolmentMode.avatarOnly) {
+    final state = _service.state;
+    // For terminal-but-non-popped states (failed) pop directly.
+    if (state == FaceEnrolmentState.failed) {
       _popWithResult(false);
+      return;
     }
+    // For idle / avatarOnly there's no service-driven pop coming —
+    // pop ourselves.
+    if (widget.mode == FaceEnrolmentMode.avatarOnly ||
+        state == FaceEnrolmentState.idle) {
+      _service.cancel();
+      _popWithResult(false);
+      return;
+    }
+    // Sweeping / embedding / persisting / confirming — cancel and let
+    // _onServiceChanged pop when the state transitions to cancelled.
+    _service.cancel();
+    // Belt + braces: if the service somehow doesn't transition within
+    // a beat (e.g. it was already mid-await on a native call), pop
+    // anyway. Saves users from the "X button does nothing" trap.
+    Future<void>.delayed(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      if (_service.state != FaceEnrolmentState.done &&
+          _service.state != FaceEnrolmentState.persisting) {
+        _popWithResult(false);
+      }
+    });
+  }
+
+  /// M31 — Try Again handler from the Failed view. Asks the service
+  /// to clear its error state and restart the pose-gated sweep.
+  Future<void> _onTryAgainTap() async {
+    HapticFeedback.mediumImpact();
+    await _service.restartFromFailed();
+  }
+
+  /// M30 — Skip-this-pose handler. Bound to the bottom-of-screen
+  /// "Skip this pose" CTA which surfaces after 15s on the same prompt.
+  void _onSkipPromptTap() {
+    HapticFeedback.selectionClick();
+    _service.requestSkipCurrentPrompt();
   }
 
   Future<void> _onCommitTap() async {
@@ -683,7 +711,6 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     if (!mounted) return;
     setState(() {
       _chosenAvatarSlotIndex = null;
-      _rejection = null;
     });
     _service.removeListener(_onServiceChanged);
     _errorSub?.cancel();
@@ -698,15 +725,6 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       setState(() {});
     }
     unawaited(_service.startPoseGatedSweep());
-  }
-
-  /// Practitioner tapped "Done" on the in-sweep timer chip — accept
-  /// whatever slots we have and transition to confirming. The service
-  /// short-circuits to confirming if we have >= 3 slots, or surfaces
-  /// notEnoughAngles otherwise. Phase 2 only.
-  void _onSweepFinishTap() {
-    HapticFeedback.selectionClick();
-    _service.requestSweepFinish();
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -788,6 +806,18 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     }
 
     final state = _service.state;
+    // M31 — render Failed state EXPLICITLY with Try Again + Close
+    // CTAs. Previously this fell through to the sweep view which
+    // showed the initial prompt overlaid on the error toast.
+    if (state == FaceEnrolmentState.failed) {
+      return _FailedView(
+        message: _service.error?.message ??
+            "Couldn't capture enough variety. Try again with better lighting.",
+        capturedCount: _service.pendingSlots?.length ?? 0,
+        onTryAgain: _onTryAgainTap,
+        onClose: _onCancelTap,
+      );
+    }
     if (state == FaceEnrolmentState.confirming) {
       // embeddingOnly skips the grid entirely — commit immediately.
       // Schedule for after the build so we don't notify mid-build.
@@ -825,19 +855,23 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
         onCameraFlip: () {},
       );
     }
+    // Default: prompt-driven sweep (idle / sweepingYaw / sweepingPitch /
+    // embedding render the same prompt-walk UI; service drives which
+    // prompt + stall flags are surfaced).
     return _PoseGatedSweepView(
       cameraController: _cameraController,
       cameraReady: _cameraReady,
       filledBuckets: _service.filledBuckets,
       currentTargetBucket: _service.currentTargetBucket,
-      lastAcceptedScore: _service.lastAcceptedScore,
+      currentPromptIndex: _service.currentPromptIndex,
+      showStallHint: _service.showStallHint,
+      showSkipPrompt: _service.showSkipPrompt,
       hintText: _service.instructionText ?? 'Look at the camera to begin',
       useFrontCamera: _useFrontCamera,
       onCancel: _onCancelTap,
       onCameraFlip: _onCameraFlipTap,
-      onFinish: _onSweepFinishTap,
+      onSkipPrompt: _onSkipPromptTap,
       toast: _toast,
-      rejection: _rejection,
     );
   }
 }
@@ -1223,34 +1257,47 @@ class _PoseGatedSweepView extends StatelessWidget {
   final bool cameraReady;
   final Set<PoseBucket> filledBuckets;
   final PoseBucket? currentTargetBucket;
-  final double? lastAcceptedScore;
+  /// M30 — current prompt index (0..5) into [kPromptSequence]. -1
+  /// before the sweep has started; >=6 after the last prompt.
+  final int currentPromptIndex;
+  final bool showStallHint;
+  final bool showSkipPrompt;
   final String hintText;
   final bool useFrontCamera;
   final VoidCallback onCancel;
   final VoidCallback onCameraFlip;
-  final VoidCallback onFinish;
+  final VoidCallback onSkipPrompt;
   final String? toast;
-  final FaceEnrolmentRejection? rejection;
 
   const _PoseGatedSweepView({
     required this.cameraController,
     required this.cameraReady,
     required this.filledBuckets,
     required this.currentTargetBucket,
-    required this.lastAcceptedScore,
+    required this.currentPromptIndex,
+    required this.showStallHint,
+    required this.showSkipPrompt,
     required this.hintText,
     required this.useFrontCamera,
     required this.onCancel,
     required this.onCameraFlip,
-    required this.onFinish,
+    required this.onSkipPrompt,
     required this.toast,
-    required this.rejection,
   });
 
   @override
   Widget build(BuildContext context) {
-    final filledCount = filledBuckets.length;
-    final canFinishEarly = filledCount >= 3 && filledCount < kPoseBucketCount;
+    final int promptStep =
+        currentPromptIndex < 0 ? 0 : currentPromptIndex.clamp(0, kPromptSequence.length);
+    final int totalPrompts = kPromptSequence.length;
+    final bool hasActivePrompt =
+        currentPromptIndex >= 0 && currentPromptIndex < totalPrompts;
+    final String direction = hasActivePrompt
+        ? kPromptDirections[currentPromptIndex]
+        : 'straight';
+    final String stallHint = hasActivePrompt && showStallHint
+        ? kPromptStallHints[currentPromptIndex]
+        : '';
 
     return Stack(
       fit: StackFit.expand,
@@ -1332,13 +1379,13 @@ class _PoseGatedSweepView extends StatelessWidget {
           child: _CancelChip(onTap: onCancel),
         ),
 
-        // 5. Slot counter pill top-center-right. "N of 6 captured."
+        // 5. Step counter pill top-centre. "Step N of 6".
         Positioned(
           top: 18,
           right: 64,
-          child: _SlotCounterPill(
-            filledCount: filledCount,
-            total: kPoseBucketCount,
+          child: _StepCounterPill(
+            step: promptStep + (hasActivePrompt ? 1 : 0),
+            total: totalPrompts,
           ),
         ),
 
@@ -1352,16 +1399,20 @@ class _PoseGatedSweepView extends StatelessWidget {
           ),
         ),
 
-        // 7. Quality badge below the slot counter (only after at least
-        //    one accept). Colour-coded coral >=80, amber 60-79.
-        if (lastAcceptedScore != null)
+        // 7. Direction arrow above the ring centre, animated by prompt.
+        if (cameraReady && hasActivePrompt)
           Positioned(
-            top: 68,
-            right: 16,
-            child: _QualityBadge(score: lastAcceptedScore!),
+            left: 0,
+            right: 0,
+            top: MediaQuery.of(context).size.height * 0.10,
+            child: Center(
+              child: _PromptDirectionArrow(direction: direction),
+            ),
           ),
 
-        // 8. Hint text below the ring.
+        // 8. Prompt copy + stall hint + progress dots stack below the
+        //    ring. Single block so spacing stays consistent across
+        //    prompts.
         if (cameraReady)
           Positioned(
             left: 24,
@@ -1375,66 +1426,54 @@ class _PoseGatedSweepView extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'Montserrat',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
                     color: Colors.white,
-                    height: 1.35,
+                    height: 1.3,
                     shadows: [
                       Shadow(blurRadius: 8, color: Color(0xB3000000)),
                     ],
                   ),
                 ),
-                if (filledCount > 0)
+                if (stallHint.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      '$filledCount captured · ${kPoseBucketCount - filledCount} to go',
+                      stallHint,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 13,
-                        color: AppColors.textSecondaryOnDark,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.warning,
+                        height: 1.35,
                         shadows: [
                           Shadow(blurRadius: 8, color: Color(0xB3000000)),
                         ],
                       ),
                     ),
                   ),
+                const SizedBox(height: 12),
+                _PromptProgressDots(
+                  total: totalPrompts,
+                  current: currentPromptIndex,
+                ),
               ],
             ),
           ),
 
-        // 9. Reject toast — rose-tinted pill at the bottom. Shows the
-        //    raw score per Carl's mockup signoff.
-        if (rejection != null && rejection!.score != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: MediaQuery.of(context).size.height * 0.12,
-            child: Center(
-              child: _RejectionToast(rejection: rejection!),
-            ),
-          ),
-
-        // 10. "Done" chip bottom-center — only shown once we have at
-        //     least 3 slots (the hard min) but not yet all 6. Lets the
-        //     practitioner accept what we've got and skip to the grid
-        //     rather than wait for every bucket.
-        if (canFinishEarly)
+        // 9. Skip-this-pose CTA — only after 15s on the same prompt.
+        if (cameraReady && showSkipPrompt && hasActivePrompt)
           Positioned(
             left: 0,
             right: 0,
             bottom: 36,
             child: Center(
-              child: _DoneChip(
-                onTap: onFinish,
-                filled: filledCount,
-                total: kPoseBucketCount,
-              ),
+              child: _SkipPromptChip(onTap: onSkipPrompt),
             ),
           ),
 
-        // 11. Generic error toast top (notEnoughAngles + camera errors).
+        // 10. Generic error toast top (transient camera errors only).
         if (toast != null)
           Positioned(
             top: 110,
@@ -1443,6 +1482,311 @@ class _PoseGatedSweepView extends StatelessWidget {
             child: _ErrorToast(message: toast!),
           ),
       ],
+    );
+  }
+}
+
+/// M30 — replaces the legacy _SlotCounterPill. Reads "Step 3 of 6".
+class _StepCounterPill extends StatelessWidget {
+  final int step;
+  final int total;
+
+  const _StepCounterPill({required this.step, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.surfaceBorder, width: 1),
+      ),
+      child: Text(
+        'Step ${step.clamp(1, total)} of $total',
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+}
+
+/// M30 — direction arrow that hints which way to move. Six values:
+/// straight / right / left / up / down / smile.
+class _PromptDirectionArrow extends StatelessWidget {
+  final String direction;
+
+  const _PromptDirectionArrow({required this.direction});
+
+  @override
+  Widget build(BuildContext context) {
+    final IconData icon;
+    switch (direction) {
+      case 'right':
+        icon = Icons.arrow_forward_rounded;
+        break;
+      case 'left':
+        icon = Icons.arrow_back_rounded;
+        break;
+      case 'up':
+        icon = Icons.arrow_upward_rounded;
+        break;
+      case 'down':
+        icon = Icons.arrow_downward_rounded;
+        break;
+      case 'smile':
+        icon = Icons.sentiment_satisfied_rounded;
+        break;
+      case 'straight':
+      default:
+        icon = Icons.center_focus_strong_rounded;
+        break;
+    }
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.7),
+          width: 2,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, color: AppColors.primary, size: 32),
+    );
+  }
+}
+
+/// M30 — six small dots beneath the prompt copy. Filled = completed,
+/// outlined coral = current, faded = upcoming.
+class _PromptProgressDots extends StatelessWidget {
+  final int total;
+  final int current;
+
+  const _PromptProgressDots({required this.total, required this.current});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List<Widget>.generate(total, (i) {
+        Color colour;
+        double size;
+        bool filled;
+        if (i < current) {
+          colour = AppColors.primary;
+          size = 10;
+          filled = true;
+        } else if (i == current) {
+          colour = AppColors.primary;
+          size = 12;
+          filled = false;
+        } else {
+          colour = Colors.white.withValues(alpha: 0.35);
+          size = 8;
+          filled = false;
+        }
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: filled ? colour : Colors.transparent,
+              border: Border.all(color: colour, width: 1.8),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+/// M30 — Skip-this-pose CTA. Appears after 15s on the same prompt.
+class _SkipPromptChip extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _SkipPromptChip({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceRaised,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.skip_next_rounded,
+                  color: Colors.white, size: 18),
+              SizedBox(width: 6),
+              Text(
+                'Skip this pose',
+                style: TextStyle(
+                  fontFamily: 'Montserrat',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// M31 — dedicated Failed view replacing the previous toast-overlaid-
+/// on-the-sweep-screen rendering. Single render path; Try Again +
+/// Close CTAs are always tappable; no overlap with the initial-state
+/// prompt.
+class _FailedView extends StatelessWidget {
+  final String message;
+  final int capturedCount;
+  final Future<void> Function() onTryAgain;
+  final VoidCallback onClose;
+
+  const _FailedView({
+    required this.message,
+    required this.capturedCount,
+    required this.onTryAgain,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.surfaceBg,
+      child: SafeArea(
+        child: Stack(
+          children: [
+            // Close chip top-left — always tappable (M31).
+            Positioned(
+              top: 12,
+              left: 12,
+              child: _CancelChip(onTap: onClose),
+            ),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.error.withValues(alpha: 0.15),
+                        border: Border.all(
+                          color: AppColors.error.withValues(alpha: 0.55),
+                          width: 1.5,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.error_outline,
+                        color: AppColors.error,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      "Couldn't capture enough variety",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        color: AppColors.textSecondaryOnDark,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => onTryAgain(),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusMd),
+                          ),
+                        ),
+                        child: const Text(
+                          'Try again',
+                          style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: onClose,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: AppColors.surfaceRaised,
+                          side: const BorderSide(
+                              color: AppColors.surfaceBorder),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusMd),
+                          ),
+                        ),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1557,206 +1901,6 @@ class _GuidanceRingPainter extends CustomPainter {
   bool shouldRepaint(covariant _GuidanceRingPainter oldDelegate) {
     return !setEquals(oldDelegate.filledBuckets, filledBuckets) ||
         oldDelegate.targetBucket != targetBucket;
-  }
-}
-
-class _SlotCounterPill extends StatelessWidget {
-  final int filledCount;
-  final int total;
-
-  const _SlotCounterPill({required this.filledCount, required this.total});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.surfaceBorder, width: 1),
-      ),
-      child: Text(
-        '$filledCount of $total captured',
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
-  }
-}
-
-class _QualityBadge extends StatelessWidget {
-  final double score;
-
-  const _QualityBadge({required this.score});
-
-  @override
-  Widget build(BuildContext context) {
-    final Color colour;
-    if (score >= 80) {
-      colour = AppColors.primary;
-    } else if (score >= 60) {
-      colour = AppColors.warning;
-    } else {
-      colour = AppColors.error;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colour.withValues(alpha: 0.45), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: colour,
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            'Last slot: ${score.round()}',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: colour,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RejectionToast extends StatelessWidget {
-  final FaceEnrolmentRejection rejection;
-
-  const _RejectionToast({required this.rejection});
-
-  @override
-  Widget build(BuildContext context) {
-    final score = rejection.score;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.error.withValues(alpha: 0.45),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.error.withValues(alpha: 0.18),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(
-              color: AppColors.error,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            alignment: Alignment.center,
-            child: const Text(
-              'x',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                height: 1,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Text(
-            'Slot rejected — quality too low',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.error,
-              letterSpacing: 0.2,
-            ),
-          ),
-          if (score != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppColors.error.withValues(alpha: 0.22),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '${score.round()}',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.error,
-                  letterSpacing: 0.3,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _DoneChip extends StatelessWidget {
-  final VoidCallback onTap;
-  final int filled;
-  final int total;
-
-  const _DoneChip({
-    required this.onTap,
-    required this.filled,
-    required this.total,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.primary,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-          child: Text(
-            'Done · $filled of $total',
-            style: const TextStyle(
-              fontFamily: 'Montserrat',
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: -0.1,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 
