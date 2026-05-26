@@ -174,16 +174,11 @@
           </svg>
           <span>Start workout</span>
         </button>
-        <button id="lobby-share-btn" class="lobby-share-btn" type="button"
-                aria-label="Share lobby">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="18" cy="5" r="3"/>
-            <circle cx="6" cy="12" r="3"/>
-            <circle cx="18" cy="19" r="3"/>
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-          </svg>
-        </button>
+        <!-- Lobby-share button removed 2026-05-26 per ADR 0025 — the
+             share path moved off the player lobby to the workout-handout
+             artifact (a live page at /h/{planId}). Share-as-PDF is now
+             window.print() on the handout itself. -->
+
         <button id="lobby-gear-btn" class="lobby-gear-btn" type="button"
                 aria-label="Playback settings"
                 aria-haspopup="dialog"
@@ -555,16 +550,15 @@
   <!-- Hero crop resolver — MUST load before lobby.js. Owns the
        portrait/landscape source → 1:1 square data URL transformation.
        Replaces CSS object-fit/object-position on lobby-hero-media so
-       the PDF export rasteriser (html2canvas) honours the practitioner's
-       chosen crop offset. Memoised per (exerciseId, treatment, offset,
-       targetSize) so treatment switches and re-renders hit cache. -->
+       the lobby honours the practitioner's chosen crop offset.
+       Memoised per (exerciseId, treatment, offset, targetSize) so
+       treatment switches and re-renders hit cache. -->
   <script src="/hero_resolver.js"></script>
-  <!-- jsPDF UMD bundle — vendored at /jspdf.umd.min.js so the lobby
-       export pipeline can generate multi-page PDFs same-origin under
-       `script-src 'self'`. Loads BEFORE lobby.js so the global
-       `window.jspdf.jsPDF` constructor is ready when triggerLobbyShare
-       fires. v2.5.2; 358KB minified (gzip ~85KB). -->
-  <script src="/jspdf.umd.min.js"></script>
+  <!-- jsPDF UMD bundle removed 2026-05-26 per ADR 0025 — the free artifact
+       moved from an on-device PDF (triggerLobbyShare via html2canvas +
+       jsPDF) to a live web page at /h/{planId}. The PDF generator is
+       superseded by the browser-native window.print() against handout.css's
+       @media print block. -->
   <script src="/app.js"></script>
   <script src="/lobby.js"></script>
 </body>

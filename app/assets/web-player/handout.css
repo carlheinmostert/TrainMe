@@ -1,0 +1,568 @@
+/* =============================================================================
+ * handout.css — workout handout at /h/{planId}
+ * =============================================================================
+ *
+ * Default-variant CSS for the artifact-system Wave 1 workout handout (ADR 0025).
+ * Geometry + tokens lifted verbatim from the signed-off mockup at
+ * docs/design/mockups/2026-05-26-workout-handout-page.html so visual parity is
+ * load-bearing.
+ *
+ * Wave 1 ships the homefit-default look only — Wave 4 layers a .skin-{name}
+ * class on <body> that re-points the --brand-* tokens to the practitioner's
+ * brand colour. The seal-coral tokens (--seal-coral, --seal-coral-light,
+ * --seal-tint-border) are scoped to :root + the .handout-seal rules ONLY and
+ * are FORBIDDEN to be re-pointed by any skin override. That's locked decision
+ * #23 in the artifact-system design doc and #28 (the .studio wordmark in
+ * coral) in the same place — feedback_homefit_studio_wordmark.md.
+ *
+ * Print stylesheet (@media print) hides the claim chip + treatment toggle +
+ * print button and lays out the page as a clean A4-friendly handout.
+ * window.print() in handout.js drives the standard browser save-PDF dialog —
+ * no html2canvas / jsPDF (ADR 0025 deprecates that pipeline).
+ * ============================================================================= */
+
+:root {
+  /* Default brand tokens. Wave 4 .skin-{name} overrides these. */
+  --brand-default: #ff6b35;
+  --brand-dark: #e85a24;
+  --brand-light: #ff8f5e;
+  --brand-tint-bg: rgba(255, 107, 53, 0.12);
+  --brand-tint-border: rgba(255, 107, 53, 0.30);
+  --brand-glyph-bg: rgba(255, 107, 53, 0.18);
+
+  /* Seal tokens — these NEVER change colour, even under brand-skin.
+     ADR 0029 / locked decision #23. The .skin-{name} class added in
+     Wave 4 must not re-point these — only the brand-* family. */
+  --seal-coral: #ff6b35;
+  --seal-coral-light: #ff8f5e;
+  --seal-tint-border: rgba(255, 107, 53, 0.30);
+
+  /* Surface + ink — dark-first per homefit brand. */
+  --surface-bg: #0f1117;
+  --surface-base: #1a1d27;
+  --surface-raised: #242733;
+  --surface-border: #2e3140;
+  --ink-primary: #f0f0f5;
+  --ink-secondary: #9ca3af;
+  --ink-muted: #6b7280;
+  --ink-disabled: #4b5563;
+  --rest: #86efac;
+
+  --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+.handout-body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-bg);
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* =====================  Loading + error states  =========================== */
+
+.handout-loading {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; padding: 24px;
+  background: var(--surface-bg);
+  z-index: 100;
+}
+.handout-loading p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-secondary);
+  letter-spacing: 0.3px;
+}
+.handout-loading-dot {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--brand-default);
+  opacity: 0.85;
+  animation: handout-pulse 1.4s ease-in-out infinite;
+}
+@keyframes handout-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50%      { transform: scale(1.15); opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .handout-loading-dot { animation: none; }
+}
+
+.handout-error {
+  max-width: 480px;
+  margin: 80px auto;
+  padding: 32px 28px;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  text-align: center;
+}
+.handout-error-icon {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--brand-default);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 14px;
+}
+.handout-error h2 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+}
+.handout-error p {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* =====================  Page chrome  ====================================== */
+
+.handout-page {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 24px 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 640px) {
+  .handout-page { padding: 32px 24px 48px; gap: 18px; }
+}
+
+/* =====================  Header — brand + title + print  ================== */
+
+.handout-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--surface-border);
+}
+.handout-brand {
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0;
+}
+.brand-default {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -0.3px;
+  color: var(--ink-primary);
+  display: flex; align-items: baseline; gap: 0;
+}
+/* The .dotsuf rule — `.studio` (both the dot AND the word "studio") in
+   coral. This is the locked homefit lockup convention (decision #28). */
+.brand-default .dotsuf {
+  color: var(--brand-default);
+  font-weight: 600;
+}
+.brand-default .brand-studio {
+  /* Brand-studio also gets the dot's font-weight via .dotsuf. The default
+     font-weight on .brand-default is 800 (homefit); .studio drops to 600. */
+  font-weight: 600;
+}
+.handout-title {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: -0.3px;
+  color: var(--ink-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.handout-byline {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  line-height: 1.4;
+}
+.handout-byline b { color: var(--ink-primary); font-weight: 600; }
+
+.handout-print-btn {
+  flex-shrink: 0;
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--surface-border);
+  color: var(--ink-primary);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.handout-print-btn:hover { background: var(--surface-border); }
+.handout-print-btn:active { transform: scale(0.96); }
+.handout-print-btn svg { width: 18px; height: 18px; }
+
+/* =====================  Claim chip  ====================================== */
+
+.handout-claim {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px;
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  border-radius: 12px;
+  margin-top: 2px;
+  cursor: pointer;
+  /* Quiet pulse (per locked decision #12 — escalating but never modal).
+     Wave 1 leaves it static; Wave 2 turns the animation on for return
+     visits via a body.handout-claim--pulse class. */
+}
+.handout-claim:hover { background: rgba(255, 107, 53, 0.18); }
+.handout-claim-glyph {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: var(--brand-glyph-bg);
+  border: 1px solid var(--brand-tint-border);
+  color: var(--brand-light);
+  display: flex; align-items: center; justify-content: center;
+}
+.handout-claim-glyph svg { width: 14px; height: 14px; }
+.handout-claim-text { flex: 1; min-width: 0; }
+.handout-claim-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink-primary);
+  line-height: 1.25;
+}
+.handout-claim-sub {
+  font-size: 11px;
+  color: var(--ink-secondary);
+  margin-top: 1px;
+  line-height: 1.3;
+}
+.handout-claim-x {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.handout-claim-x:hover { color: var(--ink-primary); }
+.handout-claim-x svg { width: 12px; height: 12px; }
+
+/* =====================  Treatment toggle  ================================ */
+
+.handout-treatment {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 2px;
+}
+.handout-treatment-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+.handout-seg {
+  display: flex;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  padding: 3px;
+  flex: 1;
+}
+.handout-seg-item {
+  flex: 1; text-align: center;
+  padding: 7px 4px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  border-radius: 7px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.handout-seg-item:hover:not(.is-locked):not(.is-active) {
+  color: var(--ink-primary);
+}
+.handout-seg-item.is-active {
+  background: var(--brand-default);
+  color: white;
+}
+.handout-seg-item.is-locked {
+  color: var(--ink-disabled);
+  cursor: not-allowed;
+}
+.handout-seg-item .lock-glyph {
+  display: inline-flex;
+}
+.handout-seg-item .lock-glyph svg { width: 10px; height: 10px; }
+
+/* =====================  Exercise list  =================================== */
+
+.handout-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+.handout-circuit-h {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 4px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--brand-light);
+}
+.handout-circuit-h .line {
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--brand-tint-border) 0%, transparent 100%);
+}
+.handout-circuit-group {
+  border-left: 2px solid var(--brand-tint-border);
+  padding-left: 8px;
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 2px;
+}
+
+.handout-ex {
+  display: flex; gap: 12px; align-items: stretch;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  padding: 11px;
+}
+.handout-ex-thumb {
+  position: relative; flex-shrink: 0;
+  width: 64px; height: 64px;
+  border-radius: 9px; overflow: hidden;
+  background: linear-gradient(150deg, #2b2f3d 0%, #20232e 60%, #181b24 100%);
+}
+.handout-ex-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.handout-ex-thumb.is-bw img {
+  filter: grayscale(1) contrast(1.05);
+}
+.handout-ex-num {
+  position: absolute;
+  top: 4px; left: 4px;
+  width: 18px; height: 18px;
+  border-radius: 5px;
+  background: rgba(15, 17, 23, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 10.5px;
+  color: var(--ink-primary);
+  display: flex; align-items: center; justify-content: center;
+}
+.handout-ex-fig {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(240, 240, 245, 0.22);
+}
+.handout-ex-fig svg { width: 30px; height: 30px; }
+
+.handout-ex-body {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.handout-ex-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink-primary);
+  line-height: 1.2;
+}
+.handout-ex-stats {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--ink-secondary);
+}
+.handout-ex-stats .stat { display: flex; align-items: center; gap: 4px; }
+.handout-ex-stats .stat b { color: var(--ink-primary); font-weight: 600; }
+.handout-ex-note {
+  font-size: 11px;
+  color: var(--ink-muted);
+  line-height: 1.4;
+  font-style: italic;
+}
+
+/* Rest cards — sage chip + duration. */
+.handout-rest {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  background: rgba(134, 239, 172, 0.06);
+  border: 1px solid rgba(134, 239, 172, 0.18);
+  border-radius: 10px;
+}
+.handout-rest-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--rest);
+}
+.handout-rest-label {
+  font-size: 11.5px;
+  color: var(--rest);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.handout-rest-duration {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+}
+
+/* =====================  Footer seal  ====================================== */
+
+.handout-seal {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  display: flex; align-items: center; gap: 14px;
+}
+.handout-seal-mark {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.handout-seal-line {
+  display: flex; align-items: baseline; gap: 6px;
+  font-family: var(--font-display);
+}
+.handout-seal-powered {
+  font-weight: 500;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+}
+.handout-seal-brand {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink-primary);
+}
+/* Coral via the SEAL token, NOT --brand-*. Wave-4 skin override never
+   touches --seal-coral / --seal-coral-light. */
+.handout-seal-brand .dotsuf {
+  color: var(--seal-coral);
+  font-weight: 600;
+}
+.handout-seal-version {
+  font-size: 10px;
+  color: var(--ink-muted);
+  letter-spacing: 0.2px;
+}
+
+.handout-qr {
+  flex-shrink: 0;
+  width: 56px; height: 56px;
+  border-radius: 8px;
+  background: white;
+  padding: 4px;
+  position: relative;
+}
+.handout-qr-inner {
+  width: 100%; height: 100%;
+  position: relative;
+  overflow: hidden;
+  background-image:
+    repeating-conic-gradient(#0f1117 0% 25%, transparent 0% 50%);
+  background-size: 6px 6px;
+}
+.handout-qr-inner::before,
+.handout-qr-inner::after,
+.handout-qr-bl {
+  content: "";
+  position: absolute;
+  width: 13px; height: 13px;
+  border: 2.5px solid #0f1117;
+  background: white;
+}
+.handout-qr-inner::before { top: 0; left: 0; }
+.handout-qr-inner::after  { top: 0; right: 0; }
+.handout-qr-inner .handout-qr-bl { bottom: 0; left: 0; }
+
+/* =====================  Print stylesheet  ================================= */
+/* `window.print()` is the only export path — no html2canvas / jsPDF.
+   Hide the interactive controls (claim, treatment toggle, print button)
+   and lay out the page on a paper-friendly white background. The seal
+   stays visible (version stamp + QR are load-bearing on paper). */
+
+@media print {
+  :root {
+    --surface-bg: white;
+    --surface-base: white;
+    --surface-raised: #f7f7f7;
+    --surface-border: #e5e7eb;
+    --ink-primary: #111827;
+    --ink-secondary: #4b5563;
+    --ink-muted: #6b7280;
+    --ink-disabled: #9ca3af;
+    /* Seal coral stays bright on paper too — that's the "credibility seal"
+       per ADR 0029. We keep --seal-coral pointing at coral; the brand
+       tokens also stay coral on Wave 1 (default look). */
+  }
+
+  /* Hide all interactive controls and ephemeral UI. */
+  .handout-loading,
+  .handout-error,
+  .handout-claim,
+  .handout-treatment,
+  .handout-print-btn {
+    display: none !important;
+  }
+
+  body.handout-body { background: white; }
+  .handout-page {
+    max-width: 100%;
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .handout-header { border-bottom-color: #e5e7eb; }
+  .handout-ex {
+    background: white;
+    border-color: #e5e7eb;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .handout-circuit-group {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .handout-seal {
+    background: #fafafa;
+    border-color: #e5e7eb;
+    page-break-inside: avoid;
+    margin-top: 24px;
+  }
+  /* Strip dark-mode shadows on print. */
+  .handout-ex-num {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+    color: var(--ink-primary);
+  }
+}
