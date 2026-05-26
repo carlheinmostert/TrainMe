@@ -57,8 +57,64 @@ Agent verified:
 
 ## Wave 2 — Claim + consumer identity
 
-**Branch:** `feat/artifact-claim-consumer-identity`
-**Status:** Dispatched 2026-05-26 (running in parallel with Wave 3 — no file overlap; Wave 2 = web only, Wave 3 = Flutter only)
+**Branch:** `feat/artifact-claim-consumer-identity` (deleted after merge)
+**PR:** #535 — **MERGED to staging** as squash commit `337fff9`
+
+### Decisions made without Carl
+
+- **Skipped the `plan_invitations` extension.** Agent's pre-flight found the table doesn't exist on staging. The brief had said "extend with `claimed_by_user_id`"; without the table to extend, the claim flow writes only to `client_accounts` + `audit_events`. ADR 0024's "loop closed by matching the claimed plan, not the address" still holds — `client_accounts.practice_client_id` does the loop-closing.
+- **Used live consent key `safe_mode_face_recognition`** (not `face_recognition` as the design doc prose names it). The consumer-facing label stays "Face fingerprint" — only the DB key name diverges. Flag in case other waves reference the design-doc name.
+- **Consumer RPC named `list_my_plans()`** to avoid collision with the existing practitioner-side `list_my_workouts()` (self-trainer wave).
+- **Audit table is `audit_events`**, not `plan_issuances` as the brief suggested. New event kinds (`artifact.claimed`, `artifact.claim_reattempted`, `consumer.consent.update`) are unconstrained text so no CHECK to extend.
+
+### Files touched
+
+- New migration: `supabase/migrations/20260526173515_artifact_system_claim.sql` (745 lines — `client_accounts` table + 5 RPCs: `claim_plan`, `list_my_plans`, `list_my_practitioner_relationships`, `set_my_consent`, `get_effective_consent`).
+- New web routes: `web-player/me.{html,css,js}`, `web-player/me-data.{html,css,js}`.
+- Extended `web-player/api.js` (8 new HomefitApi methods).
+- Wired claim chip on `web-player/handout.js` → `/me?claim=<planId>`.
+- `web-player/vercel.json` rewrites for `/me` and `/me/data`.
+- Full mirror sync in `app/assets/web-player/`.
+- Test script: `docs/test-scripts/2026-05-26-artifact-system-wave2.md` (19 items).
+- Auth config handoff: `docs/handoffs/2026-05-26-wave2-auth-config-needed.md`.
+
+### Blocker for E2E testing — Carl-side action required
+
+Supabase Auth redirect allowlist needs **4 new entries** on both prod (`yrwcofhovrcydootivjx`) and staging (`vadjvkmldtoeyspyoqbx`) projects:
+- `https://session.homefit.studio/me/**`
+- `https://session.homefit.studio/me`
+- (staging equivalents)
+
+Full runbook (Management API + dashboard fallback) at `docs/handoffs/2026-05-26-wave2-auth-config-needed.md`. **Test items 1-3 work without this; items 4+ blocked until applied.** Per `feedback_use_apis_not_dashboards.md` we'd normally do this via Management API; left to Carl because it touches both prod and staging.
+
+---
+
+## Wave 3 — Practitioner publish surfaces
+
+**Branch:** `feat/artifact-publish-gate` (deleted after merge)
+**PR:** #536 — **MERGED to staging** as squash commit `6ebefb9`
+
+### Decisions made without Carl
+
+- **Paid-only lock predicate uses `credits_charged > 0`**, not "any plan_artifacts row exists." Agent's pre-flight found that `consume_credit` already upserts a `plan_artifacts` row on every paid + free-publish + prepaid-unlock branch — meaning the naive "row exists" predicate would have wrongly locked self-trainer free plans + prepaid-unlock republishes. The `credits_charged > 0` check uses the persisted charge stamp as provenance. Documented inline in the migration `20260526173554_plan_has_paid_artifact.sql`. **This is a load-bearing correction to ADR 0028's implementation; the ADR's rationale stays correct but the predicate sentence needs updating to "any artifact with credits_charged > 0" rather than "any paid artifact exists."**
+- **`prepaid_unlock_at` handling** kept in `upload_service.dart` (not propagated through `publish_plan_artifacts` return shape). Read from local pre-call snapshot. Functionally equivalent.
+
+### Files touched
+
+- 2 new migrations: `20260526173554_plan_has_paid_artifact.sql` + `20260526173718_list_plan_artifact_statuses.sql`.
+- `app/lib/services/api_client.dart` — 314 lines added (3 new RPC methods + types).
+- `app/lib/services/upload_service.dart` — `consume_credit` → `publishPlanArtifacts` swap with `kinds: [...]` param.
+- New widgets: `app/lib/widgets/publish_gate_sheet.dart`, `app/lib/widgets/artifact_status_row.dart`.
+- `app/lib/screens/studio_mode_screen.dart` — gate wiring + status row mount + paid-only lock refactor + unlock-sheet copy refresh.
+
+### Verification
+
+- `flutter analyze` clean.
+- `flutter test` — 151 passed, 0 failed.
+- CI all green (21 pass, 0 fail).
+- No device install attempted (per `feedback_ask_before_mobile_deployment.md`).
+
+---
 
 ### Locked decisions Carl approved before stepping away
 
@@ -73,21 +129,7 @@ Agent verified:
 
 ---
 
-## Wave 3 — Practitioner publish surfaces
-
-**Branch:** `feat/artifact-publish-gate`
-**Status:** Dispatched 2026-05-26 (running in parallel with Wave 2)
-
-### Scope
-
-- Multi-select publish gate UI in Flutter (mockup at `docs/design/mockups/2026-05-26-publish-gate.html`)
-- Studio AppBar artifact-status row (mockup section 1 in `2026-05-26-studio-status-bits.html`)
-- Edit-lock chip → paid-only logic per ADR 0028 (free-only plans never lock; the chip arms only after a paid artifact is published)
-- Share sheet two-path split: mockup at `2026-05-26-share-sheet.html`. (Could also live in Wave 5; see decision.)
-
-### Decisions made without Carl
-
-(populated when the wave runs)
+> Wave 3 outcome moved up to sit alongside Wave 2 (which it landed in parallel with). The original Wave 3 stub is removed.
 
 ---
 
