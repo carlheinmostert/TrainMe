@@ -235,7 +235,17 @@ double poseDistance(
   ({double yaw, double pitch}) a,
   ({double yaw, double pitch}) b,
 ) {
-  return (a.yaw - b.yaw).abs() + (a.pitch - b.pitch).abs();
+  // Wrap-aware delta — AVMetadataFaceObject.yawAngle reports angles in
+  // [0, 360) where "straight ahead" is ~0 (or wraps through 359). Naive
+  // subtraction makes yaw=359 vs target=0 give delta=359 instead of 1.
+  // Fix: take the smaller of |a-b| and (360-|a-b|) per axis. Targets in
+  // kPromptSequence may be expressed in [-180, +180] (e.g. -30 for left);
+  // wrap-aware math handles either input range correctly.
+  double wrappedDelta(double x, double y) {
+    final d = (x - y).abs();
+    return d > 180.0 ? 360.0 - d : d;
+  }
+  return wrappedDelta(a.yaw, b.yaw) + wrappedDelta(a.pitch, b.pitch);
 }
 
 /// Pose-gating accept threshold (Manhattan-sum degrees). Below = reject.
