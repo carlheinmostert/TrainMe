@@ -4,6 +4,7 @@ Open each script in Claude Code Desktop's preview pane via `Cmd+Shift+V`. Give p
 
 ## Active wave
 
+- [2026-05-26 — Portal My Workouts (M29)](2026-05-26-portal-my-workouts.md) — view-only mirror of mobile My Workouts. Dashboard tile in primary position, list page filtered to self-captures, read-only drill-in, shared source-tag chip system (mobile + portal). 11 items.
 - [2026-05-25 — Mobile stack round 2 (M12/M13/M14)](2026-05-25-mobile-stack-round2.md) — always-on-launch My Workouts default, My Workouts session-card unified with Clients card (swipe-delete + filmstrip), Safe Mode hint overlay toggle promoted out of the 7-tap easter-egg gate into a clearly-labelled Debug section. 7 items.
 - [2026-05-25 — Clipboard hero flight (M15, copy + paste)](2026-05-25-clipboard-hero-flight.md) — replaces the abstract coral-particle copy animation with the Variant 1 "lift-and-arc" hero flight, and adds the mirror staggered paste animation. 6 items.
 - [2026-05-25 — Portal stack fixes (M5/M6/M7 + iPhone-portrait regression sweep)](2026-05-25-portal-stack-fixes.md) — PayFast staging-to-staging bounce-back (return/cancel URLs now read from `NEXT_PUBLIC_APP_URL`), Get-the-iOS-app card renders the actual 3×3 app icon, Safe Mode subscribe page applies dashboard's three-tier practice fallback + drops the regressed 3-day-trial bullet. 19 items.
