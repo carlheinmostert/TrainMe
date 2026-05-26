@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/client.dart';
 import '../services/api_client.dart';
 import '../services/face_embedding_service.dart';
+import '../services/face_enrolment_camera.dart';
 import '../services/face_enrolment_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -219,6 +220,12 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       // Fire-and-forget; the camera plugin's dispose is idempotent.
       unawaited(c.dispose());
     }
+    // M37 — also stop the native session if this screen was driving
+    // the full / embeddingOnly path. Idempotent + safe to call when
+    // no session is running.
+    if (widget.mode != FaceEnrolmentMode.avatarOnly) {
+      unawaited(FaceEnrolmentCameraChannel.instance.stop());
+    }
     final dir = _producerTempDir;
     _producerTempDir = null;
     if (dir != null) {
@@ -248,6 +255,10 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       _cameraController = null;
       if (c != null) {
         unawaited(c.dispose());
+      }
+      // M37 — stop the native session on background.
+      if (widget.mode != FaceEnrolmentMode.avatarOnly) {
+        unawaited(FaceEnrolmentCameraChannel.instance.stop());
       }
       if (mounted) {
         setState(() {
@@ -340,15 +351,17 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       _cameraReady = false;
     });
     unawaited(_persistCameraDirection());
-    // Tear down the current controller, then init the new one. The
-    // service's frame producer hook stays bound (it dereferences the
-    // current controller on every tick).
+    // Tear down the current controller (avatarOnly) or native session
+    // (full / embeddingOnly), then re-init the new direction.
     final old = _cameraController;
     _cameraController = null;
     if (old != null) {
       try {
         await old.dispose();
       } catch (_) {}
+    }
+    if (widget.mode != FaceEnrolmentMode.avatarOnly) {
+      await FaceEnrolmentCameraChannel.instance.stop();
     }
     await _initCamera(skipAutoStart: true);
     if (!mounted) return;
@@ -364,7 +377,70 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   /// post-initialisation `_service.startSweep()` kick-off is
   /// suppressed — used by the flip path which never wants to
   /// auto-restart a fresh sweep mid-flow.
+  ///
+  /// M37 (2026-05-26): full + embeddingOnly modes boot the NATIVE
+  /// AVCaptureSession via [FaceEnrolmentCameraChannel] which gives
+  /// the service-side prompt walker live yaw from
+  /// AVCaptureMetadataOutput. avatarOnly mode stays on the camera
+  /// plugin because all it needs is a single takePicture call — the
+  /// pose tracking would be wasted setup cost.
   Future<void> _initCamera({bool skipAutoStart = false}) async {
+    if (widget.mode == FaceEnrolmentMode.avatarOnly) {
+      await _initPluginCamera(skipAutoStart: skipAutoStart);
+    } else {
+      await _initNativeCamera(skipAutoStart: skipAutoStart);
+    }
+  }
+
+  /// M37 — bring up the native AVCaptureSession for the full /
+  /// embeddingOnly modes. The session emits pose events on the
+  /// service's pose-stream subscription + exposes captureFrameAndEmbed
+  /// for on-demand frame grabs. The preview surface is a
+  /// PlatformView (no `CameraController` involved at all).
+  Future<void> _initNativeCamera({bool skipAutoStart = false}) async {
+    try {
+      await FaceEnrolmentCameraChannel.instance.start(
+        useFrontCamera: _useFrontCamera,
+      );
+      if (!mounted) return;
+      setState(() {
+        _cameraReady = true;
+        _cameraFailed = false;
+        _cameraErrorMessage = null;
+      });
+
+      if (skipAutoStart) return;
+
+      // Tiny delay so the preview lands a frame before the prompt
+      // walker starts asking for poses. Per Carl's mockup signoff,
+      // the sweep auto-begins as soon as the first face arrives — the
+      // service handles a quiet period silently (no pose event = no
+      // accept attempt).
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      if (_service.state == FaceEnrolmentState.idle) {
+        unawaited(_service.startPoseGatedSweep());
+      }
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cameraFailed = true;
+        _cameraErrorMessage = e.message ??
+            "Camera failed to start (${e.code}). Check Settings → Privacy → Camera.";
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cameraFailed = true;
+        _cameraErrorMessage = "Camera failed to start: $e";
+      });
+    }
+  }
+
+  /// avatarOnly path — keep the `camera` plugin for the single-shot
+  /// capture. Pose tracking would be dead-weight here; the user just
+  /// taps the shutter once and we save the frame.
+  Future<void> _initPluginCamera({bool skipAutoStart = false}) async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
@@ -380,15 +456,13 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
           : CameraLensDirection.back;
       final picked = cameras.firstWhere(
         (c) => c.lensDirection == preferred,
-        // Graceful degrade if the device lacks the preferred direction
-        // (e.g. iPad with only one camera in the simulator).
         orElse: () => cameras.first,
       );
 
       final controller = CameraController(
         picked,
         ResolutionPreset.medium,
-        enableAudio: false, // No mic — keeps haptics live + cuts permission noise.
+        enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
@@ -398,10 +472,11 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       }
       _cameraController = controller;
 
-      // Wire the producer hook AFTER the camera is ready. The producer
-      // runs in the service's periodic-timer tick; we keep the take-
-      // picture call gated by `_takePictureInFlight` so a slow frame
-      // doesn't cascade into a backlog.
+      // M37 — the producer hook is kept for legacy compat with
+      // FaceEnrolmentService.startSweep (yaw+pitch still-image sweep).
+      // The new pose-stream flow doesn't call it, but binding here is
+      // free + future-proofs the avatarOnly mode if a future build
+      // exposes a no-sweep embedding path.
       _service.setFrameProducer(_captureFrame);
 
       setState(() {
@@ -410,23 +485,9 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
         _cameraErrorMessage = null;
       });
 
-      // avatarOnly mode never auto-starts a sweep — the user controls
-      // capture via the shutter button. full / embeddingOnly auto-
-      // start the sweep once the preview has a half-beat to settle.
+      // avatarOnly NEVER auto-starts a sweep; the user controls
+      // capture via the shutter button.
       if (skipAutoStart) return;
-      if (widget.mode == FaceEnrolmentMode.avatarOnly) return;
-
-      // Tiny delay so the preview has a frame on screen before the
-      // ring starts spinning — gives the user a half-beat to read the
-      // first instruction. Per Carl's mockup signoff, the sweep auto-
-      // begins as soon as Vision sees a face (no Start button) — the
-      // service's pose-gated tick handles the "no face yet" case
-      // silently by skipping frames that don't return embeddings.
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (!mounted) return;
-      if (_service.state == FaceEnrolmentState.idle) {
-        unawaited(_service.startPoseGatedSweep());
-      }
     } on CameraException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -872,6 +933,25 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       onCameraFlip: _onCameraFlipTap,
       onSkipPrompt: _onSkipPromptTap,
       toast: _toast,
+    );
+  }
+}
+
+/// M37 — native AVCaptureSession preview surface. Renders the
+/// UiKitView registered under `homefit/face_enrolment_camera_preview`
+/// (see `FaceEnrolmentCameraPreviewFactory` in
+/// `app/ios/Runner/FaceEnrolmentCameraChannel.swift`). The native view
+/// hosts an `AVCaptureVideoPreviewLayer` bound to the channel's
+/// session — same texture the metadata + video data outputs receive.
+// ignore: unused_element
+class _NativeCameraPreview extends StatelessWidget {
+  const _NativeCameraPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return const UiKitView(
+      viewType: 'homefit/face_enrolment_camera_preview',
+      creationParamsCodec: StandardMessageCodec(),
     );
   }
 }
