@@ -645,12 +645,26 @@ final class FaceEnrolmentARKitChannel: NSObject {
             rollRad = atan2(r10, r11)
         }
 
-        // Convert to degrees and apply the user-perspective negation
-        // for all three axes per the top-of-file sign convention.
+        // Convert to degrees. M42b (2026-05-26) — drop the yaw negation.
+        // Empirical reading from Carl's iPhone 17 Pro showed the YXZ
+        // extraction already produces user-perspective yaw directly
+        // (negative for user's right turn, positive for user's left).
+        // The original `-rawYawDeg` negation FLIPPED the sign the wrong
+        // way: left turn registered as +60° when the prompt walker
+        // expects -60° for the left bucket, so prompt 5 ("turn left")
+        // could never accept.
+        //
+        // Pitch keeps its negation: Carl's phone-held-low posture
+        // reads as -12° via the negated path, which matches user-
+        // perspective convention (chin tucked down = negative pitch).
+        //
+        // Roll keeps its negation by parity with pitch. The prompt
+        // walker doesn't gate on roll so a wrong-sign here is
+        // cosmetic — verify on a future enrolment if it matters.
         let rawYawDeg = Double(yawRad) * 180.0 / .pi
         let rawPitchDeg = Double(pitchRad) * 180.0 / .pi
         let rawRollDeg = Double(rollRad) * 180.0 / .pi
-        let yawDegUser = -rawYawDeg
+        let yawDegUser = rawYawDeg
         let pitchDegUser = -rawPitchDeg
         let rollDegUser = -rawRollDeg
         return (yawDeg: yawDegUser, pitchDeg: pitchDegUser, rollDeg: rollDegUser)
