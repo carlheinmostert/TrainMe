@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — Studio status bits · artifact-status row + edit-lock + seal placements</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --success: #22c55e;
+      --rest: #86efac;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px 64px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 { font-family: var(--font-display); font-weight: 700; font-size: 22px; margin: 0 0 4px; }
+    .subtitle { color: var(--ink-secondary); font-size: 13px; margin-bottom: 32px; max-width: 760px; line-height: 1.55; }
+    .subtitle b { color: var(--ink-primary); font-weight: 600; }
+
+    /* section separator */
+    .section { margin-bottom: 56px; }
+    .section-heading {
+      font-family: var(--font-display); font-weight: 700; font-size: 17px;
+      margin: 0 0 4px;
+      display: flex; align-items: baseline; gap: 10px;
+    }
+    .section-heading .num {
+      font-family: var(--font-display); font-weight: 800; font-size: 13px;
+      color: var(--brand-default);
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: 7px;
+      padding: 3px 9px;
+    }
+    .section-sub { color: var(--ink-secondary); font-size: 12.5px; margin: 0 0 22px; max-width: 720px; line-height: 1.55; }
+    .section-sub b { color: var(--ink-primary); font-weight: 600; }
+
+    .layout { display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start; }
+    .panel { display: flex; flex-direction: column; }
+    .panel-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 12px; }
+
+    /* ===== Mini phone frame — Studio top region only ===== */
+    .mini-phone {
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 28px 28px 14px 14px;
+      overflow: hidden;
+      width: 360px;
+      position: relative;
+      box-shadow: 0 18px 44px rgba(0,0,0,0.45);
+    }
+
+    /* AppBar */
+    .appbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 16px 12px;
+      background: var(--surface-bg);
+    }
+    .appbar-left { display: flex; align-items: center; gap: 10px; }
+    .back-glyph {
+      width: 28px; height: 28px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-secondary);
+    }
+    .back-glyph svg { width: 18px; height: 18px; }
+    .appbar-title {
+      font-family: var(--font-display); font-weight: 700; font-size: 15px;
+      color: var(--ink-primary);
+      letter-spacing: -0.2px;
+    }
+    .appbar-right { display: flex; align-items: center; gap: 8px; }
+    .icon-btn {
+      width: 32px; height: 32px; border-radius: 9px;
+      background: var(--surface-base); border: 1px solid var(--surface-border);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-secondary);
+    }
+    .icon-btn svg { width: 16px; height: 16px; }
+
+    /* plan-title block (sub-header) */
+    .plan-block {
+      padding: 4px 18px 10px;
+    }
+    .plan-title {
+      font-family: var(--font-display); font-weight: 800; font-size: 22px;
+      color: var(--ink-primary);
+      letter-spacing: -0.4px;
+      line-height: 1.15;
+      margin-bottom: 4px;
+    }
+    .plan-sub {
+      font-size: 11.5px; color: var(--ink-muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-disabled); }
+
+    /* ===== STATUS ROW — sits beneath plan title ===== */
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px 16px;
+      flex-wrap: wrap;
+    }
+    .status-bit {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 11px 6px 8px;
+      border-radius: 999px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      line-height: 1;
+    }
+    .status-bit .kind-glyph {
+      width: 18px; height: 18px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-primary);
+    }
+    .status-bit .kind-glyph svg { width: 14px; height: 14px; }
+    .status-bit .state {
+      display: flex; align-items: center; gap: 5px;
+      font-family: var(--font-display); font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.1px;
+    }
+    .status-bit .state svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+    /* State A — minted-and-fresh ("live") — sage */
+    .status-bit.is-live {
+      background: rgba(134,239,172,0.08);
+      border-color: rgba(134,239,172,0.28);
+    }
+    .status-bit.is-live .state { color: var(--rest); }
+    .status-bit.is-live .kind-glyph { color: var(--rest); }
+
+    /* State B — paid-and-minted ("published") — coral (signals paid + minted) */
+    .status-bit.is-published {
+      background: var(--brand-tint-bg);
+      border-color: var(--brand-tint-border);
+    }
+    .status-bit.is-published .state { color: var(--brand-light); }
+    .status-bit.is-published .kind-glyph { color: var(--brand-light); }
+
+    /* State C — never-published ("not yet") — muted */
+    .status-bit.is-not-yet {
+      background: var(--surface-bg);
+      border-color: var(--surface-border);
+      border-style: dashed;
+    }
+    .status-bit.is-not-yet .state { color: var(--ink-muted); }
+    .status-bit.is-not-yet .kind-glyph { color: var(--ink-muted); opacity: 0.7; }
+
+    /* Hint after the row — small grey */
+    .row-hint {
+      padding: 0 18px 12px;
+      font-size: 10.5px;
+      color: var(--ink-muted);
+      letter-spacing: 0.2px;
+    }
+
+    /* faint exercise list peek (only the very top of it) */
+    .list-peek {
+      padding: 4px 16px 14px;
+      background: linear-gradient(180deg, transparent 0%, rgba(15,17,23,0) 100%);
+    }
+    .peek-card {
+      display: flex; align-items: center; gap: 11px;
+      padding: 10px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 13px;
+      margin-bottom: 9px;
+      opacity: 0.45;
+    }
+    .peek-thumb {
+      width: 50px; height: 50px; border-radius: 9px;
+      background: linear-gradient(150deg, #2b2f3d 0%, #181b24 100%);
+      flex-shrink: 0;
+    }
+    .peek-body { flex: 1; min-width: 0; }
+    .peek-name {
+      height: 11px; border-radius: 4px;
+      background: var(--surface-raised);
+      width: 65%;
+      margin-bottom: 6px;
+    }
+    .peek-meta {
+      height: 8px; border-radius: 3px;
+      background: var(--surface-raised);
+      opacity: 0.7;
+      width: 38%;
+    }
+
+    /* ===== Section 2 — three small appbar regions side-by-side ===== */
+    .triptych { display: flex; gap: 16px; flex-wrap: wrap; }
+    .tript-frame {
+      width: 280px;
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 22px 22px 12px 12px;
+      overflow: hidden;
+      box-shadow: 0 14px 32px rgba(0,0,0,0.4);
+      display: flex; flex-direction: column;
+    }
+    .tript-label {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+      color: var(--ink-muted);
+      padding: 9px 14px 0;
+    }
+    .tript-label .a { color: var(--brand-light); }
+    .tript-body { padding: 8px 14px 14px; }
+
+    .lock-plan-title {
+      font-family: var(--font-display); font-weight: 800; font-size: 17px;
+      color: var(--ink-primary);
+      letter-spacing: -0.3px;
+      line-height: 1.15;
+      margin: 6px 0 4px;
+    }
+    .lock-plan-sub {
+      font-size: 10.5px; color: var(--ink-muted);
+      margin-bottom: 11px;
+    }
+
+    /* Chip variants */
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 10px 5px 8px;
+      border-radius: 999px;
+      font-family: var(--font-display); font-weight: 600; font-size: 11px;
+      line-height: 1;
+    }
+    .chip svg { width: 12px; height: 12px; flex-shrink: 0; }
+    .chip-grace {
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-light);
+    }
+    .chip-lock {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      color: var(--ink-primary);
+    }
+    .chip-lock .pad { color: var(--ink-primary); }
+
+    /* sketch arrow + caption beneath each state */
+    .state-callout {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--surface-border);
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--ink-secondary);
+    }
+    .state-callout b { color: var(--ink-primary); font-weight: 600; }
+    .state-callout .stamp {
+      display: inline-block;
+      font-family: var(--font-display); font-weight: 700;
+      font-size: 9.5px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 5px;
+      margin-bottom: 7px;
+    }
+    .state-callout.a .stamp { color: var(--ink-muted); background: var(--surface-raised); }
+    .state-callout.b .stamp { color: var(--brand-light); background: var(--brand-tint-bg); }
+    .state-callout.c .stamp { color: var(--ink-primary); background: var(--surface-raised); }
+
+    /* expanded bottom-sheet next to state C */
+    .lock-sheet {
+      margin-top: 14px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 14px;
+    }
+    .lock-sheet-h {
+      font-family: var(--font-display); font-weight: 700; font-size: 13px;
+      color: var(--ink-primary);
+      margin-bottom: 5px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .lock-sheet-h svg { width: 14px; height: 14px; color: var(--ink-primary); }
+    .lock-sheet-sub {
+      font-size: 11px; color: var(--ink-secondary);
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+    .lock-sheet-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; color: var(--ink-muted);
+      padding-bottom: 9px;
+      margin-bottom: 10px;
+      border-bottom: 1px dashed var(--surface-border);
+    }
+    .lock-sheet-row b { color: var(--ink-primary); font-weight: 600; }
+    .lock-cta {
+      width: 100%;
+      height: 38px;
+      border-radius: 11px;
+      background: var(--brand-default); color: white;
+      font-family: var(--font-display); font-weight: 700; font-size: 12px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      box-shadow: 0 6px 16px rgba(255,107,53,0.32);
+    }
+    .lock-cta svg { width: 12px; height: 12px; }
+
+    /* state A — empty placeholder where chip would be */
+    .no-chip-line {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 11px;
+      color: var(--ink-disabled);
+      font-style: italic;
+      padding: 5px 0;
+    }
+    .no-chip-line svg { width: 12px; height: 12px; color: var(--ink-disabled); }
+
+    /* ===== Section 3 — 2x2 grid of artifact thumbs with seal callouts ===== */
+    .artifact-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      width: 660px;
+      max-width: 100%;
+    }
+    .artifact-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      padding: 14px;
+      position: relative;
+      display: flex; flex-direction: column;
+    }
+    .artifact-kind {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .artifact-kind svg { width: 12px; height: 12px; color: var(--ink-secondary); }
+    .artifact-kind .ak-name { color: var(--ink-secondary); }
+
+    /* mock surfaces — handout = a printable page; player = phone-shape; poster = square image; reel = vertical 9:16 */
+    .surface {
+      position: relative;
+      border-radius: 11px;
+      overflow: hidden;
+      background: linear-gradient(160deg, #232633 0%, #181b24 100%);
+      border: 1px solid var(--surface-border);
+    }
+
+    /* HANDOUT — A4-ish portrait page */
+    .surface-handout {
+      aspect-ratio: 3 / 4;
+      background: #f7f5f0;
+      color: #2c2e35;
+      padding: 14px 12px;
+      display: flex; flex-direction: column;
+      font-family: var(--font-body);
+    }
+    .handout-head {
+      font-family: var(--font-display); font-weight: 800;
+      font-size: 11px; color: #1a1d27;
+      letter-spacing: -0.2px;
+      margin-bottom: 4px;
+    }
+    .handout-meta {
+      font-size: 8px; color: #6b6f78; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .handout-meta .d { width: 2px; height: 2px; border-radius: 50%; background: #bbb; }
+    .handout-list { flex: 1; display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+    .handout-item {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .handout-thumb {
+      width: 18px; height: 18px; border-radius: 3px;
+      background: linear-gradient(135deg, #ddd 0%, #bbb 100%);
+      flex-shrink: 0;
+    }
+    .handout-line1 {
+      height: 5px; border-radius: 2px; background: #2c2e35;
+      width: 60%; margin-bottom: 2px;
+    }
+    .handout-line2 {
+      height: 3.5px; border-radius: 2px; background: #999;
+      width: 40%;
+    }
+    .handout-item .col { display: flex; flex-direction: column; flex: 1; }
+    /* the seal — bottom of page */
+    .handout-footer {
+      border-top: 1px solid #d4d2cc;
+      padding-top: 7px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .handout-footer .seal {
+      flex-shrink: 0;
+    }
+
+    /* PLAYER — phone-shape with workout in progress */
+    .surface-player {
+      aspect-ratio: 3 / 4;
+      background: #0d0f15;
+      padding: 0;
+      display: flex; flex-direction: column;
+      position: relative;
+    }
+    .player-bg {
+      flex: 1;
+      background:
+        radial-gradient(60% 50% at 50% 40%, rgba(255,107,53,0.10), transparent 70%),
+        linear-gradient(180deg, #181b24 0%, #0d0f15 100%);
+      position: relative;
+    }
+    .player-figure {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: rgba(240,240,245,0.25);
+    }
+    .player-figure svg { width: 60px; height: 60px; }
+    /* progress pills along top */
+    .player-pills {
+      position: absolute; top: 10px; left: 10px; right: 10px;
+      display: flex; gap: 3px;
+    }
+    .player-pills .pill { flex: 1; height: 5px; border-radius: 3px; background: var(--surface-raised); }
+    .player-pills .pill.is-done { background: var(--brand-default); }
+    .player-pills .pill.is-active { background: var(--brand-light); }
+    /* the seal — corner chip during workout (small, non-obscuring) */
+    .player-corner-seal {
+      position: absolute; bottom: 10px; left: 10px;
+      background: rgba(15,17,23,0.78);
+      backdrop-filter: blur(3px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 4px 8px 4px 5px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    /* practitioner's own brand mark — sits NEXT TO the seal, not replacing */
+    .practitioner-mark {
+      position: absolute; bottom: 10px; right: 10px;
+      background: rgba(15,17,23,0.78);
+      backdrop-filter: blur(3px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-family: var(--font-display); font-weight: 700; font-size: 8px;
+      letter-spacing: 0.4px;
+      color: var(--ink-primary);
+      display: flex; align-items: center; gap: 4px;
+    }
+    .practitioner-mark .swatch {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #4ea3ff; /* the practitioner's accent — deliberately NOT coral */
+    }
+
+    /* POSTER — single shareable image */
+    .surface-poster {
+      aspect-ratio: 1 / 1;
+      background: linear-gradient(135deg, #232633 0%, #0d0f15 100%);
+      padding: 14px;
+      display: flex; flex-direction: column; justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+    .surface-poster::before {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(60% 40% at 30% 30%, rgba(255,107,53,0.14), transparent 60%),
+        radial-gradient(45% 35% at 75% 75%, rgba(134,239,172,0.06), transparent 60%);
+    }
+    .poster-title {
+      font-family: var(--font-display); font-weight: 800;
+      color: var(--ink-primary);
+      font-size: 16px; letter-spacing: -0.3px;
+      position: relative; z-index: 1;
+    }
+    .poster-tag {
+      font-size: 9px; color: var(--ink-secondary);
+      letter-spacing: 0.4px;
+      margin-top: 2px;
+      position: relative; z-index: 1;
+    }
+    .poster-fig {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: rgba(240,240,245,0.18);
+      z-index: 0;
+    }
+    .poster-fig svg { width: 80px; height: 80px; }
+    /* seal — small corner mark on the poster */
+    .poster-seal-corner {
+      position: relative; z-index: 1;
+      align-self: flex-end;
+      background: rgba(15,17,23,0.78);
+      backdrop-filter: blur(3px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 5px 8px 5px 5px;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+
+    /* REEL — 9:16 vertical, end-card frame */
+    .surface-reel {
+      aspect-ratio: 9 / 16;
+      max-width: 150px;
+      background: #0d0f15;
+      margin: 0 auto;
+      position: relative;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 14px;
+      overflow: hidden;
+    }
+    .surface-reel::before {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(50% 30% at 50% 30%, rgba(255,107,53,0.10), transparent 60%),
+        linear-gradient(180deg, #181b24 0%, #0d0f15 100%);
+    }
+    .reel-frame-label {
+      position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+      font-size: 8px; color: var(--ink-muted);
+      letter-spacing: 0.4px; text-transform: uppercase;
+      font-family: var(--font-display); font-weight: 700;
+    }
+    .reel-endcard {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      text-align: center;
+    }
+    .reel-endcard .head {
+      font-family: var(--font-display); font-weight: 800;
+      font-size: 11px; color: var(--ink-primary);
+      letter-spacing: -0.2px;
+      line-height: 1.2;
+    }
+    .reel-endcard .body {
+      font-size: 8.5px; color: var(--ink-secondary);
+      line-height: 1.3;
+      max-width: 100px;
+    }
+
+    /* The seal itself — used across all four artifacts; coral always */
+    .seal {
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .seal .mark {
+      width: 16px; height: 16px; border-radius: 4px;
+      background: var(--brand-default);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .seal .mark svg { width: 10px; height: 10px; color: white; }
+    .seal-text {
+      display: flex; flex-direction: column;
+      line-height: 1;
+    }
+    .seal-text .a {
+      font-size: 6.5px; color: var(--ink-muted);
+      letter-spacing: 0.6px; text-transform: uppercase;
+      font-family: var(--font-display); font-weight: 700;
+    }
+    .seal-text .b {
+      font-family: var(--font-display); font-weight: 800;
+      font-size: 9px;
+      color: var(--ink-primary);
+      letter-spacing: -0.2px;
+      margin-top: 1px;
+    }
+    .seal-text .b.dark { color: #1a1d27; }
+    .seal-text .a.dark { color: #6b6f78; }
+    /* QR square */
+    .seal .qr {
+      width: 18px; height: 18px; border-radius: 3px;
+      background:
+        linear-gradient(45deg, #1a1d27 25%, transparent 25%),
+        linear-gradient(-45deg, #1a1d27 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #1a1d27 75%),
+        linear-gradient(-45deg, transparent 75%, #1a1d27 75%),
+        white;
+      background-size: 4px 4px;
+      background-position: 0 0, 0 2px, 2px -2px, -2px 0;
+      flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,0.2);
+    }
+    .seal .qr.light { background-color: white; }
+
+    /* small variant — fits in player corner */
+    .seal.is-mini .mark { width: 13px; height: 13px; border-radius: 3px; }
+    .seal.is-mini .mark svg { width: 8px; height: 8px; }
+    .seal.is-mini .qr { width: 13px; height: 13px; }
+    .seal.is-mini .a { font-size: 5.5px; }
+    .seal.is-mini .b { font-size: 7.5px; }
+
+    /* big variant — reel end-card */
+    .seal.is-big .mark { width: 26px; height: 26px; border-radius: 6px; }
+    .seal.is-big .mark svg { width: 16px; height: 16px; }
+    .seal.is-big .qr { width: 28px; height: 28px; }
+    .seal.is-big .a { font-size: 7.5px; }
+    .seal.is-big .b { font-size: 11px; }
+
+    /* coral arrow callout */
+    .seal-callout {
+      position: absolute;
+      display: flex; align-items: center; gap: 4px;
+      color: var(--brand-default);
+      font-family: var(--font-display); font-weight: 700;
+      font-size: 9.5px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+    .seal-callout svg { width: 16px; height: 16px; }
+    /* arrows go on different edges per card */
+    .callout-handout { right: 8px; bottom: 14px; }
+    .callout-player { right: 8px; bottom: 14px; }
+    .callout-poster { right: 8px; bottom: 14px; }
+    .callout-reel { left: 8px; bottom: 14px; }
+
+    /* mini under-thumb caption */
+    .artifact-caption {
+      font-size: 11px; color: var(--ink-secondary);
+      line-height: 1.45;
+      margin-top: 12px;
+    }
+    .artifact-caption b { color: var(--ink-primary); font-weight: 600; }
+
+    /* ===== legend / anatomy panel ===== */
+    .legend { width: 420px; max-width: 100%; }
+    .leg-card { background: var(--surface-base); border: 1px solid var(--surface-border); border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; }
+    .leg-h { font-family: var(--font-display); font-weight: 700; font-size: 14px; margin: 0 0 12px; }
+    .leg-row { display: flex; gap: 13px; align-items: flex-start; margin-bottom: 13px; }
+    .leg-row:last-child { margin-bottom: 0; }
+    .leg-chip {
+      flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px;
+      background: var(--surface-raised); border: 1px solid var(--surface-border);
+      display: flex; align-items: center; justify-content: center; color: var(--ink-primary);
+    }
+    .leg-chip svg { width: 16px; height: 16px; }
+    .leg-chip.sage { background: rgba(134,239,172,0.10); border-color: rgba(134,239,172,0.30); color: var(--rest); }
+    .leg-chip.coral { background: var(--brand-tint-bg); border-color: var(--brand-tint-border); color: var(--brand-light); }
+    .leg-chip.muted { background: var(--surface-bg); border-style: dashed; color: var(--ink-muted); }
+    .leg-txt { font-size: 12.5px; line-height: 1.5; color: var(--ink-secondary); }
+    .leg-txt b { color: var(--ink-primary); font-weight: 600; }
+    .note { font-size: 12px; color: var(--ink-secondary); line-height: 1.55; }
+    .note b { color: var(--ink-primary); }
+    .note + .note { margin-top: 9px; }
+    .adr-ref {
+      display: inline-block;
+      font-family: var(--font-display); font-weight: 700;
+      font-size: 10px; letter-spacing: 0.4px; text-transform: uppercase;
+      color: var(--ink-muted);
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 5px;
+      padding: 2px 6px;
+      margin-left: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Studio status bits — artifact-status row, edit-lock, seal placements</h1>
+  <p class="subtitle">
+    Three smaller pieces bundled into one wave, each closing out a §8 backlog item from <b>ARTIFACT_SYSTEM.md</b>:
+    a per-plan <b>artifact-status row</b> in the Studio header (reads the publish state of every registered kind
+    at a glance), the <b>edit-lock chip</b> in its three new states (paid-only, never on free-only plans —
+    ADR 0016 extension), and the placement of the permanent <b>"powered by homefit" seal + referral QR</b>
+    across all four artifact kinds. The seal is coral, non-removable; the brand-skin subscription adds the
+    practitioner's mark <i>next to</i> the seal, never in place of it.
+  </p>
+
+  <!-- ============================================================== -->
+  <!-- SECTION 1 — Per-plan artifact-status row in the Studio header  -->
+  <!-- ============================================================== -->
+  <div class="section">
+    <p class="section-heading"><span class="num">1</span> Per-plan artifact-status row</p>
+    <p class="section-sub">
+      Sits in the Studio header beneath the plan title, before the exercise list begins.
+      One <b>bit per registered artifact kind</b> (handout, player, reel today; poster + calendar arrive automatically
+      when the registry lights them up). Each bit is the kind glyph paired with a state. Three states cover the lifecycle:
+      <b>live</b> (minted &amp; current — sage), <b>published</b> (paid &amp; minted — coral), <b>not yet</b>
+      (never-published — muted dashed). The row reads as compactly as a Publish-gate row but consumes one line of header chrome.
+    </p>
+
+    <div class="layout">
+      <!-- ============ Studio header mock ============ -->
+      <div class="panel">
+        <div class="panel-label">Studio header · published plan · three kinds</div>
+        <div class="mini-phone">
+
+          <div class="appbar">
+            <div class="appbar-left">
+              <span class="back-glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+              </span>
+              <span class="appbar-title">Margaret Vorster</span>
+            </div>
+            <div class="appbar-right">
+              <span class="icon-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 1 1 10 0v4"/></svg>
+              </span>
+              <span class="icon-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="plan-block">
+            <div class="plan-title">Lower body strength</div>
+            <div class="plan-sub">6 exercises <span class="dot"></span> ~12 min <span class="dot"></span> edited 2d ago</div>
+          </div>
+
+          <!-- THE STATUS ROW -->
+          <div class="status-row">
+            <!-- handout — live (minted-and-fresh) -->
+            <span class="status-bit is-live">
+              <span class="kind-glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
+              </span>
+              <span class="state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l4 4 10-10"/></svg>
+                Handout · live
+              </span>
+            </span>
+
+            <!-- player — published (paid-and-minted) -->
+            <span class="status-bit is-published">
+              <span class="kind-glyph">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </span>
+              <span class="state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l4 4 10-10"/></svg>
+                Player · published
+              </span>
+            </span>
+
+            <!-- reel — not yet (never-published) -->
+            <span class="status-bit is-not-yet">
+              <span class="kind-glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16M15 4v16M4 9h5M15 9h5M4 15h5M15 15h5"/></svg>
+              </span>
+              <span class="state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14"/></svg>
+                Reel · not yet
+              </span>
+            </span>
+          </div>
+          <div class="row-hint">Tap any bit to open the Publish gate scoped to that kind.</div>
+
+          <!-- faint exercise list peek to anchor the layout -->
+          <div class="list-peek">
+            <div class="peek-card">
+              <div class="peek-thumb"></div>
+              <div class="peek-body">
+                <div class="peek-name"></div>
+                <div class="peek-meta"></div>
+              </div>
+            </div>
+            <div class="peek-card">
+              <div class="peek-thumb"></div>
+              <div class="peek-body">
+                <div class="peek-name"></div>
+                <div class="peek-meta"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============ Legend ============ -->
+      <div class="panel legend">
+        <div class="panel-label">Anatomy</div>
+
+        <div class="leg-card">
+          <p class="leg-h">Bit shape — kind glyph + state</p>
+          <div class="leg-row">
+            <span class="leg-chip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+            <span class="leg-txt"><b>Kind glyph (left)</b> — same glyphs used on My Workouts cards and the Publish gate. Wordmark stays short (<b>Handout</b>, <b>Player</b>, <b>Reel</b>) — no per-card vocabulary drift.</span>
+          </div>
+          <div class="leg-row">
+            <span class="leg-chip sage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l4 4 10-10"/></svg></span>
+            <span class="leg-txt"><b>State glyph (right)</b> — checkmark for <b>live</b> / <b>published</b>; small dash for <b>not yet</b>. State + colour together make the bit readable without parsing the word.</span>
+          </div>
+        </div>
+
+        <div class="leg-card">
+          <p class="leg-h">Three states · one lifecycle</p>
+          <div class="leg-row">
+            <span class="leg-chip sage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l4 4 10-10"/></svg></span>
+            <span class="leg-txt"><b>Live</b> — minted-and-fresh. Sage tint (same colour family as rest, the calmer end of the palette). Used for the <b>free</b> kinds that have been minted and reflect the current plan state. Edits flow through automatically.</span>
+          </div>
+          <div class="leg-row">
+            <span class="leg-chip coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l4 4 10-10"/></svg></span>
+            <span class="leg-txt"><b>Published</b> — paid-and-minted. Coral tint, the <i>only</i> state where a credit was spent. This is also the state that <b>arms the edit-lock</b> the moment the client first opens any paid artifact (see Section 2).</span>
+          </div>
+          <div class="leg-row">
+            <span class="leg-chip muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14"/></svg></span>
+            <span class="leg-txt"><b>Not yet</b> — never-published. Dashed muted border, kind glyph at 70% opacity. Reads as "available but unspent" — no negative tone (it's not "missing" or "broken"). Tapping opens the Publish gate scoped to that kind.</span>
+          </div>
+        </div>
+
+        <div class="leg-card">
+          <p class="leg-h">Why this shape</p>
+          <p class="note"><b>Same vocabulary as the Publish gate.</b> The status row is the compact, read-only twin of the multi-select Publish sheet — same kind glyphs, same state colours (sage = Live row, coral = checked-paid row). A practitioner who's seen the gate once reads the row instantly.</p>
+          <p class="note"><b>Registry-driven.</b> When poster + calendar light up globally, two more bits appear in this row with no per-plan migration. The row is a thin view over <b>plan_artifacts</b> rows joined with the registry.</p>
+          <p class="note"><b>One line, no scrolling.</b> 3–5 bits fit on one line at 360px. Past 5 the row wraps; the order is always <i>registry order</i> (free first, paid second, premium last) so the eye learns the layout.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================== -->
+  <!-- SECTION 2 — Edit-lock chip (three states)                       -->
+  <!-- ============================================================== -->
+  <div class="section">
+    <p class="section-heading"><span class="num">2</span> Edit-lock chip — three states</p>
+    <p class="section-sub">
+      The lock <b>only ever activates on paid plans</b>. A plan that's only ever shipped free artifacts (handout, poster)
+      never locks — no credit was spent, nothing to abuse. The lock arms when a <b>paid artifact</b> (player, reel)
+      has been published <i>and</i> the client has opened it; from that moment the practitioner has <b>14 days of free
+      structural edits</b>, after which the plan locks. <span class="adr-ref">ADR 0016</span> <span class="adr-ref">ADR 0007</span>
+    </p>
+
+    <div class="triptych">
+
+      <!-- ============ State A — Free-only plan ============ -->
+      <div class="tript-frame">
+        <div class="tript-label">State A · free-only plan</div>
+        <div class="tript-body">
+          <div class="appbar" style="padding:6px 0 8px">
+            <div class="appbar-left">
+              <span class="back-glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+              </span>
+              <span class="appbar-title" style="font-size:13px">Self · 31 May</span>
+            </div>
+            <div class="appbar-right">
+              <span class="icon-btn" style="width:28px;height:28px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="lock-plan-title">Morning mobility</div>
+          <div class="lock-plan-sub">5 exercises <span class="dot" style="display:inline-block"></span> handout · live</div>
+          <div class="no-chip-line">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" stroke-dasharray="2 3"/></svg>
+            No chip — handout-only, edits stay free forever
+          </div>
+
+          <div class="state-callout a">
+            <span class="stamp">State A</span>
+            <b>Free-only plan — no chip ever.</b> A practitioner who only mints handouts (or self-trainers who never paid for the player) never sees the lock UI. The header stays clean; structural edits are always free.
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ State B — Grace countdown ============ -->
+      <div class="tript-frame">
+        <div class="tript-label">State B · <span class="a">grace countdown</span></div>
+        <div class="tript-body">
+          <div class="appbar" style="padding:6px 0 8px">
+            <div class="appbar-left">
+              <span class="back-glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+              </span>
+              <span class="appbar-title" style="font-size:13px">Margaret Vorster</span>
+            </div>
+            <div class="appbar-right">
+              <span class="icon-btn" style="width:28px;height:28px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="lock-plan-title">Knee rehab — week 2</div>
+          <div class="lock-plan-sub">8 exercises <span class="dot" style="display:inline-block"></span> player · published</div>
+          <span class="chip chip-grace">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            5 days to free edits
+          </span>
+
+          <div class="state-callout b">
+            <span class="stamp">State B</span>
+            <b>Paid plan · grace window open.</b> Coral-tint pill counts down from 14 days the moment the client first opened the player. Structural edits (add / remove / reorder exercises) stay free during the window. Wording shifts: <b>14 days</b> → <b>1 week</b> → <b>5 days</b> → <b>1 day</b> → <b>locks tomorrow</b>.
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ State C — Locked + unlock sheet ============ -->
+      <div class="tript-frame">
+        <div class="tript-label">State C · locked → unlock</div>
+        <div class="tript-body">
+          <div class="appbar" style="padding:6px 0 8px">
+            <div class="appbar-left">
+              <span class="back-glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+              </span>
+              <span class="appbar-title" style="font-size:13px">James · 18 May</span>
+            </div>
+            <div class="appbar-right">
+              <span class="icon-btn" style="width:28px;height:28px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="lock-plan-title">Lower body strength</div>
+          <div class="lock-plan-sub">6 exercises <span class="dot" style="display:inline-block"></span> player · published</div>
+          <span class="chip chip-lock">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/></svg>
+            Locked
+          </span>
+
+          <!-- expanded bottom sheet -->
+          <div class="lock-sheet">
+            <div class="lock-sheet-h">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/></svg>
+              Unlock structural edits
+            </div>
+            <div class="lock-sheet-sub">14-day grace ended. Spend 1 credit to make the next round of structural edits — your client already has the latest reps + notes for free.</div>
+            <div class="lock-sheet-row">
+              <span>You have <b>4 credits</b></span>
+              <span><b>1 credit</b></span>
+            </div>
+            <button class="lock-cta">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 12l2 2 4-5"/></svg>
+              Spend 1 credit · unlock
+            </button>
+          </div>
+
+          <div class="state-callout c">
+            <span class="stamp">State C</span>
+            <b>Paid plan · grace expired.</b> Padlock chip; tapping it opens a bottom sheet that <b>spends</b> 1 credit (not buys — Apple Guideline 3.1.1 stays clean since we're using existing credits in-app). The unlock pre-pays the next structural republish via <b>unlock_plan_for_edit</b>; non-structural edits (reps, notes, audio) remain free always.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Legend below the triptych -->
+    <div class="layout" style="margin-top:32px;">
+      <div class="panel legend" style="width:auto;flex:1;max-width:920px;">
+        <div class="panel-label">Why this shape</div>
+        <div class="leg-card">
+          <p class="leg-h">Lock semantics</p>
+          <div class="leg-row">
+            <span class="leg-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/></svg></span>
+            <span class="leg-txt"><b>Paid-only.</b> Lock arms on first open of <b>any paid artifact</b> (player today, reel later). Free-only plans <b>never lock</b> — there's no credit to abuse so there's no policy to enforce. This is the cleanest extension of ADR 0016 to the per-kind world.</span>
+          </div>
+          <div class="leg-row">
+            <span class="leg-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span class="leg-txt"><b>Plan-level lock.</b> The lock is shared across artifacts — one set of exercises, one lock. Editing-while-locked blocks <i>structural</i> changes; metadata stays editable. (ADR 0016 unchanged.)</span>
+          </div>
+          <div class="leg-row">
+            <span class="leg-chip coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 12l2 2 4-5"/></svg></span>
+            <span class="leg-txt"><b>Unlock = spend, not buy.</b> The bottom-sheet CTA uses existing credits via <b>unlock_plan_for_edit</b>; no PayFast / Stripe link, no price string, no Reader-App red flag. Top-up happens elsewhere (web portal), unrelated.</span>
+          </div>
+        </div>
+
+        <div class="leg-card">
+          <p class="leg-h">Why grace not freshness</p>
+          <p class="note"><b>14 days matches the practitioner cadence.</b> Patients return 1–2 weeks later for a follow-up; the practitioner needs the freedom to refine based on what they observe. The grace window <i>is</i> the refinement window — it's not a freebie, it's the model.</p>
+          <p class="note"><b>Open-triggered, not publish-triggered.</b> The clock starts when the client <i>looks</i> at the plan — that's when the value is consumed and the anti-abuse rule kicks in. A plan published-then-ignored stays freely editable indefinitely.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================== -->
+  <!-- SECTION 3 — Brand-skin seal placements (2x2)                    -->
+  <!-- ============================================================== -->
+  <div class="section">
+    <p class="section-heading"><span class="num">3</span> Brand-skin seal placements</p>
+    <p class="section-sub">
+      The permanent "powered by homefit" mark + referral QR appears on every artifact, in homefit coral, regardless
+      of brand-skin subscription. The mark is designed as a <b>credibility seal</b>, not a banner — small,
+      tucked into a corner, never obscuring the workout content. Brand-skin practitioners add their own
+      mark <b>next to</b> the seal (illustrated on the player tile) — never replacing it.
+      The QR carries <code>?ref={practitioner_code}</code> as <i>link attribution</i>; the QR's destination is always
+      the recipient's plan, never a signup page.
+    </p>
+
+    <div class="layout">
+      <div class="artifact-grid">
+
+        <!-- HANDOUT — footer of page -->
+        <div class="artifact-card">
+          <div class="artifact-kind">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
+            <span class="ak-name">Workout handout</span>
+          </div>
+          <div class="surface surface-handout">
+            <div class="handout-head">Lower body strength</div>
+            <div class="handout-meta">6 exercises <span class="d"></span> ~12 min</div>
+            <div class="handout-list">
+              <div class="handout-item"><div class="handout-thumb"></div><div class="col"><div class="handout-line1"></div><div class="handout-line2"></div></div></div>
+              <div class="handout-item"><div class="handout-thumb"></div><div class="col"><div class="handout-line1"></div><div class="handout-line2"></div></div></div>
+              <div class="handout-item"><div class="handout-thumb"></div><div class="col"><div class="handout-line1"></div><div class="handout-line2"></div></div></div>
+              <div class="handout-item"><div class="handout-thumb"></div><div class="col"><div class="handout-line1"></div><div class="handout-line2"></div></div></div>
+              <div class="handout-item"><div class="handout-thumb"></div><div class="col"><div class="handout-line1"></div><div class="handout-line2"></div></div></div>
+            </div>
+            <div class="handout-footer">
+              <div class="seal">
+                <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 18V8M12 18V4M20 18v-7"/></svg></div>
+                <div class="seal-text">
+                  <span class="a dark">Powered by</span>
+                  <span class="b dark">homefit.studio</span>
+                </div>
+              </div>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:5px;">
+                <span style="font-size:6px;color:#6b6f78;letter-spacing:0.3px;text-transform:uppercase;font-family:var(--font-display);font-weight:700;text-align:right;line-height:1.2;">scan to<br/>get the<br/>player</span>
+                <div class="qr" style="background-color:white;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="seal-callout callout-handout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 19l8-8M5 11v8h8"/></svg>
+            Footer
+          </div>
+          <p class="artifact-caption"><b>Page footer.</b> Print-safe (light background, dark text). QR sits to the right of the mark with a "scan to get the player" hint — printed handouts are the strongest acquisition channel.</p>
+        </div>
+
+        <!-- PLAYER — corner chip during workout (with practitioner mark NEXT TO it) -->
+        <div class="artifact-card">
+          <div class="artifact-kind">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <span class="ak-name">Workout player <span style="opacity:0.6;font-weight:500;">· brand-skin on</span></span>
+          </div>
+          <div class="surface surface-player">
+            <div class="player-bg">
+              <div class="player-pills">
+                <span class="pill is-done"></span>
+                <span class="pill is-done"></span>
+                <span class="pill is-active"></span>
+                <span class="pill"></span>
+                <span class="pill"></span>
+                <span class="pill"></span>
+              </div>
+              <div class="player-figure">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="12" cy="5.5" r="2.2"/><path d="M12 8v6M12 11l-4 1.5M12 11l4 1.5M12 14l-3.5 5M12 14l3.5 5"/></svg>
+              </div>
+              <!-- seal -->
+              <div class="player-corner-seal">
+                <div class="seal is-mini">
+                  <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 18V8M12 18V4M20 18v-7"/></svg></div>
+                </div>
+                <span style="font-size:7px;color:var(--ink-secondary);letter-spacing:0.3px;font-family:var(--font-display);font-weight:700;text-transform:uppercase;">homefit</span>
+              </div>
+              <!-- practitioner brand-skin mark — sits NEXT TO the seal, opposite corner so both read separately -->
+              <div class="practitioner-mark">
+                <span class="swatch"></span>
+                <span>Cape Bio</span>
+              </div>
+            </div>
+          </div>
+          <div class="seal-callout callout-player">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 19l8-8M5 11v8h8"/></svg>
+            Corner chip
+          </div>
+          <p class="artifact-caption"><b>Bottom-left corner during workout.</b> Tiny, blurred-backdrop chip — doesn't overlap the exercise figure. <b>Brand-skin mark</b> (blue accent, "Cape Bio") sits in the opposite corner — both visible, neither replacing the other.</p>
+        </div>
+
+        <!-- POSTER — corner of image -->
+        <div class="artifact-card">
+          <div class="artifact-kind">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="M4 16l5-4 4 3 3-2 4 3"/></svg>
+            <span class="ak-name">Poster <span style="opacity:0.6;font-weight:500;">· roadmap</span></span>
+          </div>
+          <div class="surface surface-poster">
+            <div class="poster-fig">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="12" cy="5.5" r="2.2"/><path d="M12 8v6M12 11l-4 1.5M12 11l4 1.5M12 14l-3.5 5M12 14l3.5 5"/></svg>
+            </div>
+            <div>
+              <div class="poster-title">Lower body<br/>strength</div>
+              <div class="poster-tag">6 exercises · 12 min</div>
+            </div>
+            <div class="poster-seal-corner">
+              <div class="seal is-mini">
+                <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 18V8M12 18V4M20 18v-7"/></svg></div>
+                <div class="seal-text">
+                  <span class="a">by</span>
+                  <span class="b">homefit</span>
+                </div>
+              </div>
+              <div class="qr" style="background-color:white;width:14px;height:14px;"></div>
+            </div>
+          </div>
+          <div class="seal-callout callout-poster">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 19l8-8M5 11v8h8"/></svg>
+            Bottom-right
+          </div>
+          <p class="artifact-caption"><b>Bottom-right corner of the image.</b> Single shareable PNG — the seal is part of the rendered pixels (not a CSS overlay) so it survives screenshot + WhatsApp re-compression.</p>
+        </div>
+
+        <!-- REEL — end card at the last 1.5s -->
+        <div class="artifact-card">
+          <div class="artifact-kind">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16M15 4v16M4 9h5M15 9h5M4 15h5M15 15h5"/></svg>
+            <span class="ak-name">Reel <span style="opacity:0.6;font-weight:500;">· roadmap · end-card frame</span></span>
+          </div>
+          <div class="surface surface-reel">
+            <div class="reel-frame-label">last 1.5 s</div>
+            <div class="reel-endcard">
+              <div class="seal is-big">
+                <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 18V8M12 18V4M20 18v-7"/></svg></div>
+                <div class="seal-text">
+                  <span class="a">Powered by</span>
+                  <span class="b">homefit.studio</span>
+                </div>
+              </div>
+              <div class="qr" style="background-color:white;width:48px;height:48px;"></div>
+              <div class="body">Scan to follow the full workout</div>
+            </div>
+          </div>
+          <div class="seal-callout callout-reel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M19 19l-8-8M19 11v8h-8"/></svg>
+            End card · last 1.5s
+          </div>
+          <p class="artifact-caption"><b>Final 1.5 seconds of the video.</b> Full-frame seal + scannable QR — the reel pauses on this frame on most players, giving the viewer time to scan. Brand-skin practitioners get their mark above the seal during the workout body.</p>
+        </div>
+
+      </div>
+
+      <!-- Legend column -->
+      <div class="panel legend">
+        <div class="panel-label">Seal anatomy</div>
+
+        <div class="leg-card">
+          <p class="leg-h">What's permanent</p>
+          <div class="leg-row">
+            <span class="leg-chip" style="background:var(--brand-default);border-color:var(--brand-default);color:white;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 18V8M12 18V4M20 18v-7"/></svg></span>
+            <span class="leg-txt"><b>The mark</b> — homefit matrix glyph in coral. Same shape on every artifact; size and surrounding text vary per surface but the coral colour is fixed. <b>Non-removable</b> — there is no white-label tier (decision #23, ADR 0022 backlog).</span>
+          </div>
+          <div class="leg-row">
+            <span class="leg-chip" style="background:white;color:#1a1d27;border:none;"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><rect x="11" y="11" width="3" height="3"/><rect x="16" y="16" width="5" height="5" rx="1"/></svg></span>
+            <span class="leg-txt"><b>The QR</b> — encodes the recipient's plan URL with <code>?ref={practitioner_code}</code> appended. The QR destination is <i>always</i> the plan (the viewer lands where they expect); the referral code is <b>link attribution only</b>, never a forced signup detour.</span>
+          </div>
+        </div>
+
+        <div class="leg-card">
+          <p class="leg-h">Brand-skin adds, doesn't replace</p>
+          <div class="leg-row">
+            <span class="leg-chip" style="background:rgba(78,163,255,0.18);border-color:rgba(78,163,255,0.40);color:#4ea3ff;"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></span>
+            <span class="leg-txt"><b>Practitioner mark sits beside the seal.</b> Logo / accent / practice name pulled from the portal public profile. <b>Never on top of, never instead of, the homefit seal.</b> Both marks visible = professionalism (practitioner) + credibility (platform).</span>
+          </div>
+          <div class="leg-row">
+            <span class="leg-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg></span>
+            <span class="leg-txt"><b>Lapsed subscription reverts the skin.</b> Brand-skin is a credit-denominated subscription (~2 credits / month, ADR 0021 pattern). If credits run out the practitioner mark disappears; the homefit seal continues on the same surface, same position.</span>
+          </div>
+        </div>
+
+        <div class="leg-card">
+          <p class="leg-h">Why this shape — the tri-party deal</p>
+          <p class="note"><b>The seal earns the practitioner referral credits.</b> Every scan that ends in a signup pays a 5% lifetime rebate (Milestone F / M). That's the answer to "why am I happy to leave the homefit mark on my work?" — because <i>that mark is making me money</i>, not just yours.</p>
+          <p class="note"><b>The seal earns the recipient confidence.</b> A patient holding a printed sheet that says "by your physio" + "powered by homefit.studio" trusts both parties more than either alone — the practitioner looks <i>more</i> professional, not less, for using a known platform.</p>
+          <p class="note"><b>The seal earns homefit a permanent funnel.</b> Every artifact every practitioner ever ships carries it. The funnel is free, perpetual, and aligned — the same scan that recruits a new practitioner pays the existing one a rebate. Decision #22–#23.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
