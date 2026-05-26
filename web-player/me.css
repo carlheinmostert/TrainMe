@@ -1,0 +1,713 @@
+/* =============================================================================
+ * me.css — /me consumer-side account page (Wave 2)
+ * =============================================================================
+ *
+ * Two states in one stylesheet: signed-out (magic-link claim) + signed-in
+ * (My Workouts list). The page intentionally stays default homefit-coral —
+ * the brand-skin (Wave 4) transforms client-facing ARTIFACTS, not the
+ * consumer's own UI. A consumer linked to multiple practitioners with
+ * different skins shouldn't see their /me shift identity per session.
+ *
+ * Tokens mirror handout.css and styles.css. The `--seal-coral` /
+ * `--seal-coral-light` pair stays defined here so a future copy of the
+ * permanent homefit seal (e.g. on the signed-out footer) reads from the
+ * unoverridable variables.
+ * ===========================================================================*/
+
+:root {
+  --brand-default:     #ff6b35;
+  --brand-dark:        #e85a24;
+  --brand-light:       #ff8f5e;
+  --brand-tint-bg:     rgba(255, 107, 53, 0.12);
+  --brand-tint-border: rgba(255, 107, 53, 0.30);
+
+  /* Permanent homefit seal tokens — NEVER overridden by .skin-{name}
+     (Wave 4). The /me page is consumer-side default-coral and doesn't
+     need a skin override path, but the tokens are defined here so any
+     future seal renders read the same un-overridable values. */
+  --seal-coral:        #ff6b35;
+  --seal-coral-light:  #ff8f5e;
+
+  --surface-bg:        #0f1117;
+  --surface-base:      #1a1d27;
+  --surface-raised:    #242733;
+  --surface-border:    #2e3140;
+
+  --ink-primary:       #f0f0f5;
+  --ink-secondary:     #9ca3af;
+  --ink-muted:         #6b7280;
+  --ink-disabled:      #4b5563;
+
+  --success:           #22c55e;
+  --rest:              #86efac;
+
+  --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-body:    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   20px;
+  --radius-full: 9999px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-bg);
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100%;
+}
+
+.me-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px 48px;
+}
+
+/* --------------------------------------------------------------------------
+ *  Loading skeleton
+ * ------------------------------------------------------------------------*/
+.me-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 80px auto;
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+
+.me-loading-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 3px solid var(--surface-border);
+  border-top-color: var(--brand-default);
+  animation: me-spin 1s linear infinite;
+}
+
+@keyframes me-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .me-loading-dot { animation: none; border-top-color: var(--brand-default); }
+}
+
+/* --------------------------------------------------------------------------
+ *  Page chrome — used by every signed-in / signed-out state
+ * ------------------------------------------------------------------------*/
+.me-page {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.me-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 2px 14px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.me-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.me-matrix {
+  width: 84px;
+  height: auto;
+  display: block;
+}
+
+.me-brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.2px;
+  color: var(--ink-primary);
+  display: none; /* matrix is enough on the small surface — bring back if needed */
+}
+
+/* The .studio wordmark renders coral (locked decision #28 + the
+   feedback_homefit_studio_wordmark.md memory). Applied via the `dotsuf`
+   class on both the dot AND the word, matching handout.css. */
+.me-brand-name .dotsuf {
+  color: var(--seal-coral);
+}
+
+.me-page-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.2px;
+  margin: 0;
+  color: var(--ink-primary);
+  flex: 1;
+  text-align: center;
+}
+
+.me-avatar-chip {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--brand-default) 0%, var(--brand-dark) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: #fff;
+  letter-spacing: 0.3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+ *  STATE 1 — Claim / sign-in explainer + magic-link form
+ * ------------------------------------------------------------------------*/
+.me-explainer {
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 16px 16px 14px;
+}
+
+.me-explainer h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.2px;
+  margin: 0 0 6px;
+  color: var(--ink-primary);
+  line-height: 1.3;
+}
+
+.me-explainer p {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  line-height: 1.55;
+}
+
+.me-tick-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.me-tick-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  line-height: 1.45;
+}
+
+.me-tick {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  color: var(--brand-default);
+}
+
+.me-tick svg {
+  width: 9px;
+  height: 9px;
+}
+
+.me-attaching {
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.me-attaching-icon {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: var(--brand-light);
+}
+
+.me-attaching-text {
+  font-size: 12px;
+  color: var(--ink-primary);
+  line-height: 1.45;
+}
+
+.me-magic-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.me-magic-form label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.me-magic-form input[type="email"] {
+  width: 100%;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--ink-primary);
+  outline: none;
+}
+
+.me-magic-form input[type="email"]:focus {
+  border-color: var(--brand-tint-border);
+  box-shadow: 0 0 0 3px var(--brand-tint-bg);
+}
+
+.me-magic-form input[type="email"]::placeholder {
+  color: var(--ink-muted);
+}
+
+.me-magic-form button {
+  width: 100%;
+  background: var(--brand-default);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 13px 14px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: background 120ms ease-out, opacity 120ms ease-out;
+}
+
+.me-magic-form button:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.me-magic-form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.me-magic-form .me-returning {
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  line-height: 1.5;
+  margin: 2px 0 0;
+  text-align: center;
+}
+
+.me-claim-status {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.me-claim-status.is-error {
+  background: rgba(220, 38, 38, 0.10);
+  border: 1px solid rgba(220, 38, 38, 0.30);
+  color: #fca5a5;
+}
+
+.me-claim-status.is-info {
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  color: var(--ink-primary);
+}
+
+.me-footer-note {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  letter-spacing: 0.2px;
+}
+
+/* --------------------------------------------------------------------------
+ *  STATE 2 — Signed-in My Workouts
+ * ------------------------------------------------------------------------*/
+.me-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -8px;
+}
+
+.me-settings-link {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.me-settings-link strong {
+  color: var(--ink-secondary);
+  font-weight: 500;
+}
+
+.me-gear {
+  width: 12px;
+  height: 12px;
+  color: currentColor;
+  flex-shrink: 0;
+}
+
+.me-signout-btn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.me-signout-btn:hover {
+  color: var(--ink-primary);
+  border-color: var(--surface-raised);
+}
+
+.me-plans-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.me-plan-card {
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 120ms ease-out, border-color 120ms ease-out;
+}
+
+.me-plan-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.me-plan-card .me-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.me-kind-glyph {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--surface-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--brand-default);
+}
+
+.me-kind-glyph.is-handout { color: var(--brand-light); }
+
+.me-kind-glyph svg {
+  width: 18px;
+  height: 18px;
+}
+
+.me-card-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.me-card-kind {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin: 0 0 2px;
+}
+
+.me-card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.1px;
+  color: var(--ink-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.me-card-sub {
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  margin: 4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.me-card-sub .me-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ink-disabled);
+  flex-shrink: 0;
+}
+
+.me-chev {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+.me-provenance {
+  background: var(--brand-tint-bg);
+  border-top: 1px solid var(--brand-tint-border);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.me-prov-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #3a3f4d 0%, #1f2230 100%);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 8.5px;
+  color: var(--ink-secondary);
+  letter-spacing: 0.3px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.me-prov-text {
+  font-size: 11px;
+  color: var(--ink-primary);
+  letter-spacing: 0.1px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.me-prov-text .me-prov-who {
+  color: var(--brand-light);
+  font-weight: 600;
+}
+
+.me-prov-text .me-prov-practice {
+  color: var(--ink-secondary);
+}
+
+.me-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--rest);
+  box-shadow: 0 0 0 2px rgba(134, 239, 172, 0.18);
+  flex-shrink: 0;
+}
+
+.me-empty {
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 18px 18px;
+  text-align: center;
+}
+
+.me-empty h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  margin: 0 0 6px;
+  color: var(--ink-primary);
+}
+
+.me-empty p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  line-height: 1.5;
+}
+
+.me-list-footnote {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+ *  STATE 3 — magic-link sent card
+ * ------------------------------------------------------------------------*/
+.me-sent-card {
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 28px 22px 22px;
+  text-align: center;
+  margin: 32px auto 0;
+}
+
+.me-sent-icon {
+  width: 36px;
+  height: 36px;
+  color: var(--brand-default);
+  margin: 0 auto 10px;
+  display: block;
+}
+
+.me-sent-card h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  margin: 0 0 8px;
+  color: var(--ink-primary);
+}
+
+.me-sent-card p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--ink-secondary);
+  line-height: 1.55;
+}
+
+.me-sent-card p strong {
+  color: var(--ink-primary);
+  word-break: break-all;
+}
+
+.me-sent-quiet {
+  font-size: 11px !important;
+  color: var(--ink-muted) !important;
+  margin: 12px 0 16px !important;
+}
+
+.me-sent-resend {
+  background: none;
+  border: 1px solid var(--surface-border);
+  color: var(--ink-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.me-sent-resend:hover {
+  color: var(--ink-primary);
+  border-color: var(--surface-raised);
+}
+
+/* --------------------------------------------------------------------------
+ *  STATE 4 — Error fallback
+ * ------------------------------------------------------------------------*/
+.me-error {
+  width: 100%;
+  max-width: 440px;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 24px 20px;
+  text-align: center;
+  margin: 48px auto 0;
+}
+
+.me-error-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.30);
+  color: #f87171;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 18px;
+  margin: 0 auto 12px;
+}
+
+.me-error h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  margin: 0 0 6px;
+  color: var(--ink-primary);
+}
+
+.me-error p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  line-height: 1.55;
+}

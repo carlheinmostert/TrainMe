@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- /me is the consumer-side surface (artifact-system Wave 2, ADR 0024).
+       The page handles both states: signed-out (magic-link claim form) +
+       signed-in (My Workouts list). JS toggles based on auth state read
+       from the consumer session cached in localStorage / hash on return. -->
+  <meta name="robots" content="noindex" />
+
+  <title>My Workouts — homefit.studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/me.css" />
+</head>
+<body class="me-body">
+
+  <!-- Loading skeleton — coral spinner while we check the session. -->
+  <div id="me-loading" class="me-loading" role="status" aria-live="polite">
+    <div class="me-loading-dot"></div>
+    <p>Checking your sign-in…</p>
+  </div>
+
+  <!-- No-JS fallback. -->
+  <noscript>
+    <div class="me-error" style="display:block">
+      <div class="me-error-icon">!</div>
+      <h2>JavaScript required</h2>
+      <p>This page needs JavaScript to sign you in. Please enable it in your browser settings.</p>
+    </div>
+  </noscript>
+
+  <!-- =====================================================================
+       STATE 1 — Claim / sign-in. Magic-link form with the "we'll attach
+       this plan" banner when /me arrived with ?claim=<planId>.
+       ===================================================================== -->
+  <main id="me-claim" class="me-page" hidden>
+    <header class="me-header">
+      <div class="me-lockup">
+        <!-- Default homefit.studio matrix logo. The `.studio` wordmark
+             is coral per locked decision #28 + feedback_homefit_studio_wordmark.md. -->
+        <svg class="me-matrix" viewBox="0 0 48 9.5" aria-hidden="true">
+          <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+          <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+          <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+        </svg>
+        <span class="me-brand-name"><span>homefit</span><span class="dotsuf">.</span><span class="dotsuf">studio</span></span>
+      </div>
+      <h1 class="me-page-title">My Workouts</h1>
+    </header>
+
+    <section class="me-explainer">
+      <h2>All the plans your practitioners share, in one place.</h2>
+      <p>
+        Save the plan you just opened to your own home for workouts. Sign in
+        once and every plan from every practitioner you work with shows up here.
+      </p>
+      <ul class="me-tick-list">
+        <li>
+          <span class="me-tick" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 12 10 18 20 6"></polyline>
+            </svg>
+          </span>
+          Live updates when your practitioner edits the plan
+        </li>
+        <li>
+          <span class="me-tick" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 12 10 18 20 6"></polyline>
+            </svg>
+          </span>
+          Works on any phone, tablet or laptop
+        </li>
+        <li>
+          <span class="me-tick" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 12 10 18 20 6"></polyline>
+            </svg>
+          </span>
+          Nothing shared with your practitioner without your say-so
+        </li>
+      </ul>
+    </section>
+
+    <!-- Attaching banner — only rendered when ?claim=<planId> is on the URL. -->
+    <aside id="me-attaching" class="me-attaching" hidden>
+      <svg class="me-attaching-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+      </svg>
+      <div class="me-attaching-text">
+        We'll save <strong>this plan</strong> to your home as soon as you sign in.
+      </div>
+    </aside>
+
+    <form id="me-claim-form" class="me-magic-form" novalidate>
+      <label for="me-email">Your email</label>
+      <input
+        type="email"
+        id="me-email"
+        name="email"
+        placeholder="you@example.com"
+        autocomplete="email"
+        required
+      />
+      <button type="submit" id="me-claim-submit">Send me a link</button>
+      <p class="me-returning">
+        Already have an account? Enter the email you used &mdash; we'll send a sign-in link.
+      </p>
+    </form>
+
+    <div id="me-claim-status" class="me-claim-status" hidden></div>
+
+    <div class="me-footer-note">
+      We use magic-link sign-in &mdash; no password to forget.
+    </div>
+  </main>
+
+  <!-- =====================================================================
+       STATE 2 — Signed-in My Workouts.
+       ===================================================================== -->
+  <main id="me-list" class="me-page" hidden>
+    <header class="me-header me-header-signed-in">
+      <div class="me-lockup">
+        <svg class="me-matrix" viewBox="0 0 48 9.5" aria-hidden="true">
+          <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+          <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+          <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+        </svg>
+        <span class="me-brand-name"><span>homefit</span><span class="dotsuf">.</span><span class="dotsuf">studio</span></span>
+      </div>
+      <h1 class="me-page-title">My Workouts</h1>
+      <div class="me-avatar-chip" id="me-avatar" aria-label="Signed in" title="">??</div>
+    </header>
+
+    <div class="me-settings-row">
+      <a id="me-settings-link" class="me-settings-link" href="/me/data">
+        <svg class="me-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        Settings <strong id="me-settings-sub">&middot; loading</strong>
+      </a>
+      <button type="button" id="me-signout-btn" class="me-signout-btn" title="Sign out">Sign out</button>
+    </div>
+
+    <section id="me-plans-list" class="me-plans-list" aria-label="My workouts"></section>
+
+    <!-- Empty-state — shown when the consumer is signed in but has no claimed plans yet. -->
+    <div id="me-empty" class="me-empty" hidden>
+      <h2>No saved plans yet.</h2>
+      <p>
+        When your practitioner sends you a workout, open the link and tap
+        "Save this plan to your phone" — it lands here.
+      </p>
+    </div>
+
+    <p class="me-list-footnote">
+      These plans live-update when your practitioner edits them.
+    </p>
+  </main>
+
+  <!-- =====================================================================
+       STATE 3 — Magic-link sent. Shown after a successful signInWithOtp.
+       ===================================================================== -->
+  <main id="me-sent" class="me-page" hidden>
+    <div class="me-sent-card">
+      <svg class="me-sent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M4 6h16v12H4z"></path>
+        <polyline points="4 7 12 13 20 7"></polyline>
+      </svg>
+      <h2>Check your email</h2>
+      <p>
+        We've sent a sign-in link to <strong id="me-sent-email">you</strong>.
+        Tap it on the same device you want to use, and we'll save the plan there.
+      </p>
+      <p class="me-sent-quiet">
+        The link expires after one hour. You can request another from this page.
+      </p>
+      <button type="button" id="me-sent-resend" class="me-sent-resend">Use a different email</button>
+    </div>
+  </main>
+
+  <!-- =====================================================================
+       STATE 4 — Error fallback for unexpected RPC failures.
+       ===================================================================== -->
+  <div id="me-error" class="me-error" hidden>
+    <div class="me-error-icon">!</div>
+    <h2>Something went wrong</h2>
+    <p id="me-error-text">We couldn't load this page. Please refresh and try again.</p>
+  </div>
+
+  <script src="/api.js"></script>
+  <script src="/me.js"></script>
+</body>
+</html>

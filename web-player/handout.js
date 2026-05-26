@@ -425,11 +425,18 @@
     const $claim = document.getElementById('handout-claim');
     if ($claim) {
       $claim.addEventListener('click', (event) => {
-        // Wave 2 wires this to a magic-link claim flow. Wave 1 — soft
-        // no-op + console hint so the click is observable without surfacing
-        // a misleading UI. TODO(wave-2): route to /me?claim={planId}.
+        // Wave 2: route to /me with the current plan as the claim target.
+        // The /me page magic-link form pre-fills the redirect with
+        // ?claim={planId} so the eventual click-through attaches THIS
+        // plan to the new consumer account.
         if (event.target && event.target.closest('.handout-claim-x')) return;
-        try { console.info('[handout] claim chip clicked — Wave 2 will wire magic-link sign-in (plan_id=' + planId + ')'); } catch (_) {}
+        try {
+          window.location.assign('/me?claim=' + encodeURIComponent(planId));
+        } catch (_) {
+          // Fall back to a logged hint if navigation fails (e.g. CSP
+          // restriction or embedded surface).
+          try { console.info('[handout] claim chip clicked — /me unreachable (plan_id=' + planId + ')'); } catch (_) {}
+        }
       });
     }
 

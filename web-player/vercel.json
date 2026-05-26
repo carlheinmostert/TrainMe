@@ -15,6 +15,14 @@
       "destination": "/handout.html"
     },
     {
+      "source": "/me",
+      "destination": "/me.html"
+    },
+    {
+      "source": "/me/data",
+      "destination": "/me-data.html"
+    },
+    {
       "source": "/v/:practiceSlug/:premisesSlug/now",
       "destination": "/live.html"
     },

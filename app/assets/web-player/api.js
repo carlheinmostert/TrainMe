@@ -970,6 +970,321 @@
   }
 
   // -------------------------------------------------------------------
+  // Artifact-system Wave 2 — claim flow + consumer identity (2026-05-26)
+  // -------------------------------------------------------------------
+  //
+  // Five authenticated RPCs that drive the consumer-side /me + /me/data
+  // surfaces. The auth bearer is the Supabase consumer session JWT (set
+  // by signInWithOtp + the magic-link callback). Whenever a session is
+  // present, the helpers below send `Authorization: Bearer <jwt>` so the
+  // SECURITY DEFINER RPCs see a non-null auth.uid().
+  //
+  // See `docs/ARTIFACT_SYSTEM.md` (Identity & claiming) + ADRs 0024 +
+  // 0026. The migration that creates the underlying RPCs is
+  // `supabase/migrations/20260526173515_artifact_system_claim.sql`.
+  //
+  // Auth token handling: we keep a module-local `_consumerAccessToken`
+  // updated by signIn / signOut / restoreSession so the RPC callers
+  // don't need to thread the token through every callsite. The token
+  // also lands in localStorage under HOMEFIT_CONSUMER_SESSION_KEY for
+  // page-reload survival (Supabase emits a #access_token=... hash on
+  // magic-link return which we capture in restoreSession).
+
+  const HOMEFIT_CONSUMER_SESSION_KEY = 'homefit.consumer.session.v1';
+  let _consumerAccessToken = null;
+  let _consumerRefreshToken = null;
+
+  function _persistSession(session) {
+    try {
+      if (session && session.access_token) {
+        _consumerAccessToken  = session.access_token;
+        _consumerRefreshToken = session.refresh_token || null;
+        localStorage.setItem(
+          HOMEFIT_CONSUMER_SESSION_KEY,
+          JSON.stringify({
+            access_token:  session.access_token,
+            refresh_token: session.refresh_token || null,
+            // Best-effort expiry hint — Supabase JWTs are 1h by default;
+            // we store the absolute deadline for restoreSession to detect
+            // staleness. If `expires_in` is present (signInWithOtp does
+            // not return one synchronously) we use it, else add 1h.
+            expires_at: session.expires_at
+              || (Math.floor(Date.now() / 1000) + (session.expires_in || 3600)),
+          }),
+        );
+      } else {
+        _consumerAccessToken  = null;
+        _consumerRefreshToken = null;
+        localStorage.removeItem(HOMEFIT_CONSUMER_SESSION_KEY);
+      }
+    } catch (_) {
+      // localStorage can fail in private-browsing — silently fall back
+      // to in-memory only. The session won't survive reload but the
+      // current page works.
+    }
+  }
+
+  function restoreConsumerSession() {
+    // Two paths:
+    //   1. Magic-link callback — `#access_token=...&refresh_token=...&...`
+    //      lands in window.location.hash. We parse, persist, then clean
+    //      the URL via history.replaceState so a refresh doesn't re-fire
+    //      the side effects.
+    //   2. Existing session — localStorage has a non-expired JSON blob.
+    try {
+      const hash = (window.location.hash || '').replace(/^#/, '');
+      if (hash && hash.indexOf('access_token=') !== -1) {
+        const params = new URLSearchParams(hash);
+        const accessToken  = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+        const expiresIn    = Number(params.get('expires_in')) || 3600;
+        if (accessToken) {
+          _persistSession({
+            access_token:  accessToken,
+            refresh_token: refreshToken,
+            expires_in:    expiresIn,
+          });
+          // Strip the fragment so reload doesn't repeat. Keeps the
+          // claim-target query string (?claim=<planId>) intact.
+          try {
+            const url = new URL(window.location.href);
+            url.hash = '';
+            history.replaceState({}, document.title, url.toString());
+          } catch (_) { /* best-effort */ }
+          return _consumerAccessToken;
+        }
+      }
+
+      const raw = localStorage.getItem(HOMEFIT_CONSUMER_SESSION_KEY);
+      if (!raw) return null;
+      const blob = JSON.parse(raw);
+      if (!blob || !blob.access_token) return null;
+      // Treat anything older than the stored expires_at as stale. We
+      // don't proactively refresh in Wave 2 — the user will see a fresh
+      // "sign in again" form when the JWT 401s, and signInWithOtp is a
+      // one-tap recovery. Wave fast-follow can layer a refresh-token
+      // round-trip if the friction shows up.
+      if (blob.expires_at && Number(blob.expires_at) * 1000 < Date.now()) {
+        _persistSession(null);
+        return null;
+      }
+      _consumerAccessToken  = blob.access_token;
+      _consumerRefreshToken = blob.refresh_token || null;
+      return _consumerAccessToken;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function _consumerHeaders(extra) {
+    const headers = {
+      'apikey':        SUPABASE_ANON_KEY,
+      'Content-Type':  'application/json',
+    };
+    if (_consumerAccessToken) {
+      headers['Authorization'] = 'Bearer ' + _consumerAccessToken;
+    } else {
+      // Fall back to anon bearer so the request shape is valid. The
+      // SECURITY DEFINER RPC will return ok:false / reason:unauthenticated
+      // because auth.uid() resolves to null.
+      headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+    }
+    if (extra) Object.assign(headers, extra);
+    return headers;
+  }
+
+  function isConsumerSignedIn() {
+    return !!_consumerAccessToken;
+  }
+
+  /**
+   * Trigger a magic-link send. `emailRedirectTo` lands the user back at
+   * `session.homefit.studio/me` with the auth fragment in the hash, plus
+   * an optional `?claim=<planId>` query so the page knows which plan to
+   * attach on landing.
+   */
+  async function signInWithMagicLink(email, options) {
+    if (!email || typeof email !== 'string') {
+      return { ok: false, reason: 'missing_email' };
+    }
+    const claimPlanId = options && options.claimPlanId;
+    const origin = (typeof window !== 'undefined' && window.location)
+      ? window.location.origin
+      : 'https://session.homefit.studio';
+    const redirectTo = origin + '/me'
+      + (claimPlanId ? ('?claim=' + encodeURIComponent(claimPlanId)) : '');
+
+    try {
+      const response = await fetch(
+        SUPABASE_URL + '/auth/v1/otp',
+        {
+          method: 'POST',
+          headers: {
+            'apikey':       SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email:                       email.trim().toLowerCase(),
+            create_user:                 true,
+            email_redirect_to:           redirectTo,
+            // Belt-and-braces: Supabase accepts either snake_case or the
+            // newer `options.emailRedirectTo` envelope shape from the JS
+            // client. We send the snake_case top-level form which is the
+            // canonical REST endpoint signature.
+          }),
+        },
+      );
+      if (!response.ok) {
+        let detail = '';
+        try { detail = await response.text(); } catch (_) {}
+        return { ok: false, reason: 'http-' + response.status, detail };
+      }
+      return { ok: true, redirectTo };
+    } catch (err) {
+      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
+    }
+  }
+
+  async function signOutConsumer() {
+    if (!_consumerAccessToken) {
+      _persistSession(null);
+      return { ok: true };
+    }
+    try {
+      await fetch(
+        SUPABASE_URL + '/auth/v1/logout',
+        {
+          method: 'POST',
+          headers: {
+            'apikey':        SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + _consumerAccessToken,
+            'Content-Type':  'application/json',
+          },
+        },
+      );
+    } catch (_) {
+      // Even on network failure we clear the local session — the JWT
+      // expires server-side within an hour anyway.
+    }
+    _persistSession(null);
+    return { ok: true };
+  }
+
+  /**
+   * `claim_plan(p_plan_id)` — SECURITY DEFINER (authenticated). Inherits
+   * consent from the practitioner-proxy on first claim, idempotent on
+   * repeat. Returns `{ok, already_claimed, consumer_user_id,
+   * practice_client_id, inherited_consent}` or `{ok: false, reason}`.
+   */
+  async function claimPlan(planId) {
+    if (!planId) return { ok: false, reason: 'missing_plan_id' };
+    if (!_consumerAccessToken) return { ok: false, reason: 'not_signed_in' };
+    try {
+      const response = await fetch(
+        SUPABASE_URL + '/rest/v1/rpc/claim_plan',
+        {
+          method: 'POST',
+          headers: _consumerHeaders(),
+          body: JSON.stringify({ p_plan_id: planId }),
+        },
+      );
+      if (response.status === 401) {
+        // JWT expired or otherwise rejected — drop the local session and
+        // let the caller redirect to /me sign-in.
+        _persistSession(null);
+        return { ok: false, reason: 'session_expired' };
+      }
+      if (!response.ok) {
+        let detail = '';
+        try { detail = await response.text(); } catch (_) {}
+        return { ok: false, reason: 'http-' + response.status, detail };
+      }
+      const result = await response.json();
+      return result || { ok: false, reason: 'empty_response' };
+    } catch (err) {
+      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
+    }
+  }
+
+  async function getMyPlans() {
+    if (!_consumerAccessToken) return null;
+    try {
+      const response = await fetch(
+        SUPABASE_URL + '/rest/v1/rpc/list_my_plans',
+        {
+          method: 'POST',
+          headers: _consumerHeaders(),
+          body: JSON.stringify({}),
+        },
+      );
+      if (response.status === 401) {
+        _persistSession(null);
+        return null;
+      }
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function getMyRelationships() {
+    if (!_consumerAccessToken) return null;
+    try {
+      const response = await fetch(
+        SUPABASE_URL + '/rest/v1/rpc/list_my_practitioner_relationships',
+        {
+          method: 'POST',
+          headers: _consumerHeaders(),
+          body: JSON.stringify({}),
+        },
+      );
+      if (response.status === 401) {
+        _persistSession(null);
+        return null;
+      }
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function setMyConsent(practiceClientId, consentPatch) {
+    if (!practiceClientId) return { ok: false, reason: 'missing_practice_client_id' };
+    if (!_consumerAccessToken) return { ok: false, reason: 'not_signed_in' };
+    if (!consentPatch || typeof consentPatch !== 'object') {
+      return { ok: false, reason: 'invalid_consent_shape' };
+    }
+    try {
+      const response = await fetch(
+        SUPABASE_URL + '/rest/v1/rpc/set_my_consent',
+        {
+          method: 'POST',
+          headers: _consumerHeaders(),
+          body: JSON.stringify({
+            p_practice_client_id: practiceClientId,
+            p_consent:            consentPatch,
+          }),
+        },
+      );
+      if (response.status === 401) {
+        _persistSession(null);
+        return { ok: false, reason: 'session_expired' };
+      }
+      if (!response.ok) {
+        let detail = '';
+        try { detail = await response.text(); } catch (_) {}
+        return { ok: false, reason: 'http-' + response.status, detail };
+      }
+      const result = await response.json();
+      return result || { ok: false, reason: 'empty_response' };
+    } catch (err) {
+      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
+    }
+  }
+
+  // -------------------------------------------------------------------
   // Safe Mode Transparency — Phase B (2026-05-22)
   // -------------------------------------------------------------------
   async function getLiveSessions(practiceSlug, premisesSlug) {
@@ -1052,6 +1367,15 @@
     getLiveSessions,
     getPremisesActiveRoster,
     reportSession,
+    // Wave 2 — claim flow + consumer identity.
+    signInWithMagicLink,
+    signOutConsumer,
+    restoreConsumerSession,
+    isConsumerSignedIn,
+    claimPlan,
+    getMyPlans,
+    getMyRelationships,
+    setMyConsent,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,
