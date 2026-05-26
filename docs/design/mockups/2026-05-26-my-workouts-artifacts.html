@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — My Workouts · sessions + claimed artifacts</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --success: #22c55e;
+      --rest: #86efac;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px 64px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 { font-family: var(--font-display); font-weight: 700; font-size: 22px; margin: 0 0 4px; }
+    .subtitle { color: var(--ink-secondary); font-size: 13px; margin-bottom: 32px; max-width: 760px; line-height: 1.55; }
+    .subtitle b { color: var(--ink-primary); font-weight: 600; }
+    .layout { display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start; }
+    .panel { display: flex; flex-direction: column; }
+    .panel-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 12px; }
+
+    /* phone frame */
+    .phone {
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 36px;
+      overflow: hidden;
+      width: 380px;
+      height: 760px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    }
+    /* appbar */
+    .appbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 18px 14px;
+      background: var(--surface-bg);
+    }
+    .appbar-title { font-family: var(--font-display); font-weight: 800; font-size: 22px; letter-spacing: -0.4px; }
+    .appbar-avatar {
+      width: 34px; height: 34px; border-radius: 50%;
+      background: var(--surface-raised); border: 1px solid var(--surface-border);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display); font-weight: 700; font-size: 13px; color: var(--ink-secondary);
+    }
+    /* scope capsules (self-trainer IA) */
+    .scope { display: flex; gap: 8px; padding: 0 18px 12px; }
+    .cap { font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: 999px; color: var(--ink-secondary); background: var(--surface-base); border: 1px solid var(--surface-border); }
+    .cap.is-active { color: white; background: var(--brand-default); border-color: var(--brand-default); }
+
+    /* list */
+    .list { flex: 1; overflow: hidden; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+    /* card */
+    .card {
+      display: flex; gap: 13px; align-items: stretch;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      padding: 11px;
+      position: relative;
+    }
+    .thumb {
+      position: relative; flex-shrink: 0;
+      width: 78px; height: 78px; border-radius: 11px; overflow: hidden;
+      background: linear-gradient(150deg, #2b2f3d 0%, #20232e 60%, #181b24 100%);
+    }
+    /* faint hero-figure suggestion */
+    .thumb::after {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(40% 55% at 50% 42%, rgba(255,255,255,0.10), transparent 70%),
+        linear-gradient(0deg, rgba(0,0,0,0.35), transparent 55%);
+    }
+    .thumb-fig { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(240,240,245,0.22); }
+    .thumb-fig svg { width: 40px; height: 40px; }
+
+    /* kind glyph badge — top-left of thumb */
+    .kind {
+      position: absolute; top: 5px; left: 5px; z-index: 2;
+      width: 22px; height: 22px; border-radius: 7px;
+      background: rgba(15,17,23,0.82); backdrop-filter: blur(2px);
+      border: 1px solid rgba(255,255,255,0.12);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-primary);
+    }
+    .kind svg { width: 13px; height: 13px; }
+    .kind.roadmap { color: var(--ink-secondary); }
+
+    /* provenance avatar — bottom-right of thumb, only on received */
+    .pavatar {
+      position: absolute; bottom: -4px; right: -4px; z-index: 3;
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--brand-tint-bg); border: 2px solid var(--surface-base);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display); font-weight: 700; font-size: 10px; color: var(--brand-light);
+    }
+
+    .body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+    .row1 { display: flex; align-items: center; gap: 7px; }
+    .title { font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--ink-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .from { font-size: 12.5px; color: var(--ink-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .from b { color: var(--ink-primary); font-weight: 600; }
+    .meta { font-size: 11.5px; color: var(--ink-muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-disabled); }
+
+    /* state tags */
+    .tag { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; }
+    .tag-pub { color: var(--success); background: rgba(34,197,94,0.13); }
+    .tag-draft { color: var(--ink-muted); background: var(--surface-raised); }
+    .tag-view { color: var(--ink-secondary); background: var(--surface-raised); display: inline-flex; align-items: center; gap: 4px; }
+    .tag-view svg { width: 10px; height: 10px; }
+
+    /* trailing affordance */
+    .trail { display: flex; align-items: center; padding-left: 4px; color: var(--ink-muted); }
+    .trail svg { width: 18px; height: 18px; }
+
+    /* FAB */
+    .fab {
+      position: absolute; right: 20px; bottom: 22px; z-index: 5;
+      height: 52px; padding: 0 20px; border-radius: 26px;
+      background: var(--brand-default); color: white;
+      font-family: var(--font-display); font-weight: 700; font-size: 14px;
+      display: flex; align-items: center; gap: 9px;
+      box-shadow: 0 8px 22px rgba(255,107,53,0.42);
+    }
+    .fab svg { width: 18px; height: 18px; }
+
+    /* fade at bottom behind fab */
+    .list-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 90px; background: linear-gradient(0deg, var(--surface-bg) 18%, transparent); z-index: 4; pointer-events: none; }
+
+    /* ===== legend / anatomy panel ===== */
+    .legend { width: 420px; max-width: 100%; }
+    .leg-card { background: var(--surface-base); border: 1px solid var(--surface-border); border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; }
+    .leg-h { font-family: var(--font-display); font-weight: 700; font-size: 14px; margin: 0 0 12px; }
+    .leg-row { display: flex; gap: 13px; align-items: flex-start; margin-bottom: 13px; }
+    .leg-row:last-child { margin-bottom: 0; }
+    .leg-chip {
+      flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px;
+      background: rgba(15,17,23,0.9); border: 1px solid rgba(255,255,255,0.12);
+      display: flex; align-items: center; justify-content: center; color: var(--ink-primary);
+    }
+    .leg-chip svg { width: 16px; height: 16px; }
+    .leg-txt { font-size: 12.5px; line-height: 1.5; color: var(--ink-secondary); }
+    .leg-txt b { color: var(--ink-primary); font-weight: 600; }
+    .leg-swatch { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display:flex; align-items:center; justify-content:center; }
+    .note { font-size: 12px; color: var(--ink-secondary); line-height: 1.55; }
+    .note b { color: var(--ink-primary); }
+    .note + .note { margin-top: 9px; }
+  </style>
+</head>
+<body>
+  <h1>My Workouts — sessions + claimed artifacts</h1>
+  <p class="subtitle">
+    My Workouts now mixes two different objects in <b>one recency-sorted list</b>: <b>authored sessions</b> (yours, editable)
+    and <b>received / claimed artifacts</b> (someone else's, view-only, in a specific format). The card language carries two
+    badges — a <b>kind glyph</b> (top-left of the thumbnail: which format) and <b>provenance</b> (received cards show the
+    practitioner's avatar + name; yours don't). No split sections, no tabs.
+  </p>
+
+  <div class="layout">
+    <!-- ===================== PHONE ===================== -->
+    <div class="panel">
+      <div class="panel-label">My Workouts · live list</div>
+      <div class="phone">
+        <div class="appbar">
+          <div class="appbar-title">My Workouts</div>
+          <div class="appbar-avatar">CM</div>
+        </div>
+        <div class="scope">
+          <span class="cap">Clients</span>
+          <span class="cap">Classes</span>
+          <span class="cap is-active">My Workouts</span>
+        </div>
+
+        <div class="list">
+
+          <!-- RECEIVED · player -->
+          <div class="card">
+            <div class="thumb">
+              <span class="kind" title="Interactive player">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </span>
+              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 2M12 11l4 2M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
+              <span class="pavatar">MV</span>
+            </div>
+            <div class="body">
+              <div class="title">Rehab — right knee</div>
+              <div class="from">From <b>Margaret Vorster</b> · Cape Biokinetics</div>
+              <div class="meta">8 exercises <span class="dot"></span>
+                <span class="tag tag-view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+              </div>
+            </div>
+            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+          </div>
+
+          <!-- MINE · authored, published -->
+          <div class="card">
+            <div class="thumb">
+              <span class="kind" title="Interactive player">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </span>
+              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v5.5M12 10l-4 1.5M12 10l4 1.5M12 14l-3.5 4.5M12 14l3.5 4.5"/></svg></span>
+            </div>
+            <div class="body">
+              <div class="title">Lower body strength</div>
+              <div class="meta" style="margin-top:1px">You <span class="dot"></span> 6 exercises <span class="dot"></span> edited 2d ago</div>
+              <div class="meta" style="margin-top:3px"><span class="tag tag-pub">Published</span></div>
+            </div>
+            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
+          </div>
+
+          <!-- RECEIVED · overview (free page) -->
+          <div class="card">
+            <div class="thumb">
+              <span class="kind" title="Overview page">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
+              </span>
+              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 1M12 11l4 1M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
+              <span class="pavatar">JF</span>
+            </div>
+            <div class="body">
+              <div class="title">Morning mobility</div>
+              <div class="from">From <b>James</b> · Flex Studio</div>
+              <div class="meta">5 exercises <span class="dot"></span>
+                <span class="tag tag-view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+              </div>
+            </div>
+            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+          </div>
+
+          <!-- MINE · authored, draft -->
+          <div class="card">
+            <div class="thumb">
+              <span class="kind" title="Interactive player">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </span>
+              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 2M12 11l4 2M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
+            </div>
+            <div class="body">
+              <div class="title">Core circuit — week 3</div>
+              <div class="meta" style="margin-top:1px">You <span class="dot"></span> 9 exercises <span class="dot"></span> edited just now</div>
+              <div class="meta" style="margin-top:3px"><span class="tag tag-draft">Draft</span></div>
+            </div>
+            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
+          </div>
+
+          <!-- RECEIVED · reel (roadmap) -->
+          <div class="card">
+            <div class="thumb">
+              <span class="kind roadmap" title="Reel (roadmap)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16M15 4v16M4 9h5M15 9h5M4 15h5M15 15h5"/></svg>
+              </span>
+              <span class="thumb-fig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="6" r="2.4"/><path d="M12 8.5v6M12 11l-4 1M12 11l4 1M12 14.5l-3 4M12 14.5l3 4"/></svg></span>
+              <span class="pavatar">MV</span>
+            </div>
+            <div class="body">
+              <div class="title">Knee rehab — highlight reel</div>
+              <div class="from">From <b>Margaret Vorster</b> · Cape Biokinetics</div>
+              <div class="meta">0:42 <span class="dot"></span>
+                <span class="tag tag-view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>View-only</span>
+              </div>
+            </div>
+            <div class="trail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+          </div>
+
+        </div>
+        <div class="list-fade"></div>
+        <div class="fab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+          Capture
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== LEGEND ===================== -->
+    <div class="panel legend">
+      <div class="panel-label">Card language</div>
+
+      <div class="leg-card">
+        <p class="leg-h">Kind glyph — top-left of the thumbnail</p>
+        <div class="leg-row">
+          <span class="leg-chip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+          <span class="leg-txt"><b>Interactive player</b> — the full workout-along experience (`/p/`). The paid artifact.</span>
+        </div>
+        <div class="leg-row">
+          <span class="leg-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg></span>
+          <span class="leg-txt"><b>Overview page</b> — the free, printable menu view (`/o/`). Free artifact.</span>
+        </div>
+        <div class="leg-row">
+          <span class="leg-chip" style="color:var(--ink-secondary)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16M15 4v16M4 9h5M15 9h5M4 15h5M15 15h5"/></svg></span>
+          <span class="leg-txt"><b>Reel</b> — stitched vertical video (roadmap). The badge system scales to new kinds with no card-language change.</span>
+        </div>
+      </div>
+
+      <div class="leg-card">
+        <p class="leg-h">Provenance — who it belongs to</p>
+        <div class="leg-row">
+          <span class="leg-swatch" style="background:var(--brand-tint-bg);border:2px solid var(--surface-base);font-family:var(--font-display);font-weight:700;font-size:11px;color:var(--brand-light);">MV</span>
+          <span class="leg-txt"><b>Shared with you</b> — a claimed artifact. Carries the practitioner's <b>avatar + name</b> ("From Margaret · Cape Biokinetics") and a <b>View-only</b> tag. The presence of someone else's identity is the signal it isn't yours.</span>
+        </div>
+        <div class="leg-row">
+          <span class="leg-swatch" style="color:var(--ink-muted);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+          <span class="leg-txt"><b>Yours</b> — authored, editable. <b>No</b> attribution avatar; leads with "You", shows a <b>Published / Draft</b> state, and a trailing edit affordance instead of a chevron.</span>
+        </div>
+      </div>
+
+      <div class="leg-card">
+        <p class="leg-h">Why this shape</p>
+        <p class="note"><b>One badged list, not split sections.</b> Mixing in recency order keeps the surface a single timeline; the badges (not headers) carry the distinction, so a freshly-claimed plan and a just-edited session sit side by side naturally.</p>
+        <p class="note"><b>Thumbnail-led.</b> The hero frame dominates; the kind glyph rides its corner so format reads at a glance without a text label.</p>
+        <p class="note"><b>Read-only is unmissable.</b> View-only tag + practitioner identity + a chevron (not an edit pencil) all say "consume, don't edit" — closing the "can I edit this PDF?" trap.</p>
+        <p class="note"><b>Single coral.</b> No per-kind colour. Glyphs are monochrome; coral is reserved for state/identity cues (the claimed-from avatar tint, the Capture FAB).</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
