@@ -132,6 +132,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// `pulseTrigger` to drive its `didUpdateWidget` discriminator.
   int _clipboardPulseCounter = 0;
 
+  /// Exercise IDs currently mid-paste-flight. The Studio list renders
+  /// matching rows at zero opacity until their flight lands — so the
+  /// flying hero has a target to settle INTO rather than appearing
+  /// duplicated. Removed from the set as each flight completes; the
+  /// row fades up via an [AnimatedOpacity] wrap around the card body.
+  final Set<String> _inFlightPasteIds = <String>{};
+
   /// `groupTag` shared by every `Slidable` row in this Studio session.
   /// `SlidableAutoCloseBehavior` (wrapped around the list builder)
   /// keeps only ONE row's action pane open at a time — matches the
@@ -1304,48 +1311,82 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final source = _session.exercises[dataIndex];
     if (source.isRest) return;
 
-    // Compute source point — centre of the card's RenderBox in global
-    // coords. Best-effort: fall back to a sensible default if we
-    // can't resolve the key (e.g. card just rebuilt).
-    Offset? sourceCenter;
+    // Compute source rect — the card's 1:1 hero square on the LEFT
+    // edge. The card's overall RenderBox is height × cardWidth; the
+    // hero is height × height (StudioExerciseCard renders an
+    // `image-left / text-right` layout). Best-effort: fall back to a
+    // small synthetic rect at the card centre if the key can't be
+    // resolved (e.g. card just rebuilt).
+    Rect? sourceRect;
     final rowKey = _rowKeys[source.id];
     final rowCtx = rowKey?.currentContext;
     if (rowCtx != null) {
       final box = rowCtx.findRenderObject() as RenderBox?;
       if (box != null && box.hasSize) {
-        sourceCenter = box.localToGlobal(
-          box.size.center(Offset.zero),
+        final origin = box.localToGlobal(Offset.zero);
+        final heroSize = box.size.height;
+        sourceRect = Rect.fromLTWH(
+          origin.dx,
+          origin.dy,
+          heroSize,
+          heroSize,
         );
       }
     }
 
-    // Compute target point — centre of the chip if it's mounted, else
-    // the screen's top-right corner so the first-ever Copy still has
-    // a satisfying arc destination.
-    final targetCenter = _resolveClipboardChipCenter(context);
+    // Compute target rect — the chip's bounds if mounted, else a
+    // small square near the top-right corner so the first-ever Copy
+    // still has a satisfying destination.
+    final targetRect = _resolveClipboardChipRect(context);
 
     // Pre-fire the haptic so it lands while the arc is in flight.
     unawaited(HomefitHaptics.light());
 
+    // Bump the clipboard service first so the chip materialises
+    // BEFORE the flight starts — that way the hero arcs into a
+    // visible chip rather than empty space.
     final added =
         ClipboardService.instance.addItem(source, _session);
-    if (mounted) {
-      setState(() {
-        _clipboardPulseCounter++;
-      });
-    }
     debugPrint(
       'clipboard.add via=$fromContext source=${source.id} added=${added != null}',
     );
 
-    if (sourceCenter != null && mounted) {
-      // Don't await — the flight is decorative; the clipboard mutation
-      // already landed above.
-      unawaited(playClipboardFlight(
-        context,
-        from: sourceCenter,
-        to: targetCenter,
-      ));
+    if (sourceRect != null && mounted) {
+      // Wait one frame so the freshly-mounted chip has a RenderBox we
+      // can hit, then re-resolve the target to land in the actual
+      // chip rather than the corner fallback.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final liveTargetRect =
+            _resolveClipboardChipRect(context, fallback: targetRect);
+        // Don't await — the flight is decorative; the clipboard
+        // mutation already landed above.
+        unawaited(playClipboardHeroFlight(
+          context,
+          exercise: source,
+          from: sourceRect!,
+          to: liveTargetRect,
+          direction: ClipboardFlightDirection.copy,
+          onLanded: () {
+            if (!mounted) return;
+            setState(() {
+              // Bumping the counter triggers the chip's pulse +
+              // count badge update via ClipboardChip's pulseTrigger
+              // discriminator. We bump on landing (not at copy time)
+              // so the pulse is tightly coupled to the arrival of
+              // the hero — feels like a "capture", not a delayed
+              // reaction.
+              _clipboardPulseCounter++;
+            });
+          },
+        ));
+      });
+    } else if (mounted) {
+      // No source rect — still bump the counter so the chip pulses
+      // even when the geometry resolution failed.
+      setState(() {
+        _clipboardPulseCounter++;
+      });
     }
   }
 
@@ -1353,19 +1394,42 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// the AppBar. Falls back to a point near the top-right corner of
   /// the screen when the chip is empty (and therefore has zero size)
   /// or its RenderBox isn't yet available.
+  ///
+  /// Kept for any caller still pinning to a centre [Offset] — the
+  /// hero-flight path uses [_resolveClipboardChipRect] directly.
+  // ignore: unused_element
   Offset _resolveClipboardChipCenter(BuildContext ctx) {
+    return _resolveClipboardChipRect(ctx).center;
+  }
+
+  /// Resolve the on-screen rect of the [ClipboardChip] mounted in the
+  /// AppBar. Falls back to a small square in the top-right corner
+  /// when the chip is empty or its RenderBox isn't ready. The
+  /// hero-flight animation uses this to interpolate its bounds from
+  /// the source card hero to the chip (copy) or back (paste).
+  Rect _resolveClipboardChipRect(BuildContext ctx, {Rect? fallback}) {
     final chipCtx = _clipboardChipKey.currentContext;
     if (chipCtx != null) {
       final box = chipCtx.findRenderObject() as RenderBox?;
       if (box != null && box.hasSize && box.size.width > 0) {
-        return box.localToGlobal(box.size.center(Offset.zero));
+        final origin = box.localToGlobal(Offset.zero);
+        return Rect.fromLTWH(
+          origin.dx,
+          origin.dy,
+          box.size.width,
+          box.size.height,
+        );
       }
     }
-    // Fallback — pin to the top-right corner just below the status bar.
+    if (fallback != null) return fallback;
+    // Fallback — pin to a 32×24 square near the top-right just below
+    // the status bar (matches chip footprint when populated with 1
+    // item).
     final mq = MediaQuery.of(ctx);
-    return Offset(
-      mq.size.width - 36,
-      mq.viewPadding.top + 28,
+    return Rect.fromCenter(
+      center: Offset(mq.size.width - 36, mq.viewPadding.top + 28),
+      width: 32,
+      height: 24,
     );
   }
 
@@ -1425,10 +1489,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// Run the actual deep-copy + persist for each selected clipboard
   /// item, in the order the paste sheet committed them (FIFO, oldest
   /// first per D7). Appends at the end of the current session.
+  ///
+  /// The visible mechanic mirrors copy: a hero emerges FROM the chip,
+  /// arcs DOWN to the destination row, grows to card-hero size, and
+  /// settles. For batch pastes, flights stagger by 80 ms so they
+  /// spray rather than overlap. The clipboard chip's count decrements
+  /// as each flight lands (D7 — paste-removes-from-clipboard).
   Future<void> _pasteFromClipboard(List<String> itemIds) async {
     if (itemIds.isEmpty) return;
     final created = <ExerciseCapture>[];
     final missing = <String>[];
+    final consumedItemIds = <String>[];
     for (final itemId in itemIds) {
       final item = ClipboardService.instance.itemById(itemId);
       if (item == null) {
@@ -1458,14 +1529,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         positionOverride: _session.exercises.length + created.length,
       );
       created.add(clone);
+      consumedItemIds.add(itemId);
     }
     if (created.isEmpty) return;
+
+    // Stage paste-reveal — mark every new row as in-flight BEFORE the
+    // setState that inserts them, so they render at opacity 0 from
+    // the very first frame and the flying hero has somewhere to land.
+    _inFlightPasteIds.addAll(created.map((e) => e.id));
 
     final exercises = List<ExerciseCapture>.from(_session.exercises)
       ..addAll(created);
     setState(() {
       _touchAndPush(_session.copyWith(exercises: exercises));
     });
+
+    // Schedule the staggered flights after the next frame so the new
+    // rows have RenderBoxes the flight can target.
+    _scheduleStaggeredPasteFlights(
+      clones: created,
+      consumedItemIds: consumedItemIds,
+    );
 
     // Persist each new exercise. Errors are non-fatal per row —
     // log + continue. Matches the duplicate-in-session resilience
@@ -1501,6 +1585,105 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         'clipboard.paste skipped ${missing.length} item(s) — pruned by reactive cleanup',
       );
     }
+  }
+
+  /// Launch the paste-flight animations for [clones] from the
+  /// clipboard chip down to each new row's hero rect. Flights stagger
+  /// by 80 ms so a batch paste reads as a satisfying spray rather
+  /// than a single mass-arrival. Each flight's completion (a) fades
+  /// up the corresponding row via [_inFlightPasteIds] removal, (b)
+  /// removes the consumed clipboard item so the chip count decrements
+  /// item-by-item (D7), and (c) fires a light haptic.
+  ///
+  /// Idempotent against missing RenderBoxes — a row whose key didn't
+  /// hydrate by the time its flight is due fades up immediately
+  /// without playing an animation. Better to surface the new card
+  /// than block on a missing geometry.
+  void _scheduleStaggeredPasteFlights({
+    required List<ExerciseCapture> clones,
+    required List<String> consumedItemIds,
+  }) {
+    const staggerMs = 80;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final chipRect = _resolveClipboardChipRect(context);
+      for (var i = 0; i < clones.length; i++) {
+        final clone = clones[i];
+        final consumedItemId =
+            i < consumedItemIds.length ? consumedItemIds[i] : null;
+        final delay = Duration(milliseconds: staggerMs * i);
+        Future.delayed(delay, () {
+          if (!mounted) return;
+          _playPasteFlightFor(
+            clone: clone,
+            chipRect: chipRect,
+            consumedItemId: consumedItemId,
+          );
+        });
+      }
+    });
+  }
+
+  /// Per-clone paste-flight. Resolves the destination row's RenderBox
+  /// (best-effort), runs the flight, then on completion fades up the
+  /// row + removes the consumed clipboard item.
+  void _playPasteFlightFor({
+    required ExerciseCapture clone,
+    required Rect chipRect,
+    required String? consumedItemId,
+  }) {
+    if (!mounted) return;
+
+    // Re-resolve the chip rect every shot — the chip may have shrunk
+    // mid-batch as earlier flights removed items (count went from 3
+    // to 2 to 1).
+    final liveChipRect =
+        _resolveClipboardChipRect(context, fallback: chipRect);
+
+    Rect? destRect;
+    final rowKey = _rowKeys[clone.id];
+    final rowCtx = rowKey?.currentContext;
+    if (rowCtx != null) {
+      final box = rowCtx.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        final origin = box.localToGlobal(Offset.zero);
+        final heroSize = box.size.height;
+        destRect = Rect.fromLTWH(
+          origin.dx,
+          origin.dy,
+          heroSize,
+          heroSize,
+        );
+      }
+    }
+
+    void revealRowAndConsume() {
+      if (!mounted) return;
+      setState(() {
+        _inFlightPasteIds.remove(clone.id);
+      });
+      if (consumedItemId != null) {
+        ClipboardService.instance.removeItem(consumedItemId);
+      }
+      unawaited(HomefitHaptics.light());
+    }
+
+    if (destRect == null) {
+      // No geometry — fade up immediately so the practitioner sees
+      // the new card. Skip the flight rather than silently degrade
+      // to a default rect that would arc into empty space.
+      revealRowAndConsume();
+      return;
+    }
+
+    unawaited(playClipboardHeroFlight(
+      context,
+      exercise: clone,
+      from: liveChipRect,
+      to: destRect,
+      direction: ClipboardFlightDirection.paste,
+      onLanded: revealRowAndConsume,
+    ));
   }
 
   // ---------------------------------------------------------------------------
@@ -2348,7 +2531,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final isFocused =
         _focusedExerciseId != null && _focusedExerciseId == exercise.id;
 
-    final Widget cardContent;
+    Widget cardContent;
     if (exercise.isRest) {
       cardContent = _buildRestRow(dataIndex);
     } else {
@@ -2551,6 +2734,26 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         ),
         child: cardBody,
       );
+
+      // Paste-flight reveal — rows added by a clipboard paste render at
+      // opacity 0 until their flight lands, so the flying hero has a
+      // target to settle into. The fade up (180ms) starts the moment
+      // the flight completes and the id is removed from
+      // [_inFlightPasteIds].
+      if (_inFlightPasteIds.contains(exercise.id)) {
+        cardContent = AnimatedOpacity(
+          opacity: 0.0,
+          duration: const Duration(milliseconds: 0),
+          child: cardContent,
+        );
+      } else {
+        cardContent = AnimatedOpacity(
+          opacity: 1.0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: cardContent,
+        );
+      }
     }
 
     return Padding(
