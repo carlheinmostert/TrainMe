@@ -19,8 +19,6 @@
 // Dart bridge invariants that any sub-agent regression could break
 // without having to spin up the device.
 
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
