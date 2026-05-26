@@ -212,10 +212,66 @@ Full runbook (Management API + dashboard fallback) at `docs/handoffs/2026-05-26-
 
 ---
 
+---
+
+## Review-followups PR (post-Wave-5 audit)
+
+**Branch:** `fix/artifact-system-review-followups` (deleted after merge)
+**PR:** #544 — **MERGED to staging** as squash commit `597a600`
+
+The `superpowers:code-reviewer` agent ran against the combined Wave 4 + Wave 5 diff. Returned 1 sev1 + 9 sev2 + 6 nits. Triaged + implemented:
+
+**Implemented:**
+- **sev1 — owner-only on subscription debit RPCs.** `start_brand_skin_trial`, `start_brand_skin_subscription`, AND the pre-existing `start_safe_mode_subscription` (same monetization-bypass class — paired fix flagged by reviewer) all required only membership pre-PR. The portal UI gated non-owners but the RPCs were bypassable by any practitioner-role member with a JWT — they could drain 4 credits from any practice they belonged to with no consent. Now soft-fail with `{ok:false, reason:'owner_only'}`. `start_safe_mode_trial` deliberately not widened (delta=0; any member is fine).
+- **sev2 — `practice_brand_skin_state.next_renewal_at` NULL when inactive.** Was unconditionally returning `created_at + 30 days` even for fully-lapsed rows (meaningless past date). Now NULL in the inactive branch.
+- **sev2 — `send-artifact-email` strips upstream Resend detail.** Resend's error body can contain account state + rate-limit reasons. Now logged server-side, response carries only `{ok:false, reason:'send_failed'}`.
+- **sev2 — `applySkin` clears residue on non-skin branch.** SW updates / hot reload reuse the DOM; without `clearSkin()` the previous skin's inline custom properties persisted. Idempotent helper.
+- **sev2 / nit — code comments.** `getBrandSkinState` documents its silent-fallback contract is intentional for THIS surface only (banner mounts everywhere — must not paint a wrong warning from a network blip) per `feedback_no_silent_fallbacks.md`. CSS comment in `handout.css` corrected: `data-skin-practice`, not `data-skin`.
+
+**Skipped (with reasoning):**
+- #3 — `_humanize` reason coverage: resolved transitively by sev2 #2 (server-side `send_failed` collapse).
+- #4 — Partial-index planner check: observation only, no actionable fix without EXPLAIN access.
+- #5 — Materialized-view perf opt: follow-up wave.
+- #6 — `email_stamped:false` surfacing: optional polish.
+- #7 — "Top up at manage.homefit.studio" copy on the brand-skin lapse banner: Carl decision, not code-side.
+- Nits #12–#16: stylistic judgment calls.
+
+### Files touched (review-followups)
+
+7 files, +547 / -11:
+- **New:** `supabase/migrations/20260526220000_artifact_system_review_followups.sql`.
+- **Modified:** `supabase/functions/send-artifact-email/index.ts`, `web-player/handout.{js,css}` + mirror, `app/lib/services/api_client.dart`.
+
+---
+
 ## Outstanding for Carl to review on return
 
-(populated as I go — anything that needed a defensible call I'll log here so you can override before final merge)
+### Carl-side actions (blocking on you, not on code)
+
+1. **Supabase Auth redirect allowlist** (Wave 2) — add 4 entries on both prod (`yrwcofhovrcydootivjx`) and staging (`vadjvkmldtoeyspyoqbx`) Supabase projects so the `/me` claim flow can deep-link. Runbook: `docs/handoffs/2026-05-26-wave2-auth-config-needed.md`. Wave 2 test items 1-3 work without it; items 4+ blocked until applied.
+2. **Resend HTTP API key for `send-artifact-email`** (Wave 5) — generate an HTTP API key from the Resend dashboard (the SMTP path used today is a different key). Then:
+   ```
+   supabase secrets set RESEND_API_KEY=re_xxx --project-ref vadjvkmldtoeyspyoqbx
+   supabase functions deploy send-artifact-email --project-ref vadjvkmldtoeyspyoqbx
+   ```
+   Same for prod when promoting `staging → main`. Until done the share sheet's email CTA returns 500; the "Share link" path works unchanged.
+3. **ADR 0028 wording amendment** — Wave 3's predicate uses `credits_charged > 0` to identify paid plans (more precise than "any artifact exists" which would lock self-trainer free plans + prepaid-unlock republishes). The ADR rationale stays correct but the predicate sentence needs a one-line clarification. Not blocking anything.
+
+### Suggested next steps
+
+- E2E testing on staging once the redirect allowlist is applied + the edge function is deployed: capture/publish a plan → load `/h/{planId}` → verify handout renders; claim from `/me?claim=<planId>` → verify supersession; subscribe to brand-skin via portal → verify lapse banner appears on staging-app handout; share-sheet managed email → verify Resend delivery.
+- Promote `staging → main` when satisfied. The release-train will tag `v2026-05-26.N` automatically.
 
 ## Final state at handoff
 
-(populated at the end — links to all PRs, current staging tip, any unresolved blockers)
+- **Staging tip:** `597a600` (review-followups). Built on top of `93313c4` (Wave 5) → `b543130` (Wave 4) → `6ebefb9` (Wave 3, pre-run baseline).
+- **PRs merged this run (in order):**
+  - #539 — Wave 4 brand-skin subscription (squash `b543130`)
+  - #541 — Wave 5 share sheet + managed email (squash `93313c4`)
+  - #544 — Review-followups (squash `597a600`)
+- **Design-branch tip (this log):** `feat/artifact-system-design`, latest commit appends this final-state section.
+- **Open PRs:** #516 (the docs/mockups/ADR bundle from earlier today, still draft against main — not touched per the handoff brief).
+- **iPhone build state:** not changed by this run (no device installs per `feedback_ask_before_mobile_deployment.md`). Carl's iPhone is still on whatever was installed pre-run.
+- **Vercel:** auto-deploys triggered by each staging merge. Vercel spend not auto-checked (per `feedback_vercel_spend_monitor.md`).
+
+All 5 waves of the artifact-system rollout are merged. Ready for Carl's morning review + manual QA on the simulator.
