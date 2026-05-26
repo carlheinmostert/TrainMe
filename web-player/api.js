@@ -381,6 +381,55 @@
   }
 
   /**
+   * `record_artifact_opened(p_plan_id, p_kind)` — artifact-system Wave 1
+   * SECURITY DEFINER RPC. Per-artifact analogue of `record_plan_opened`;
+   * idempotently stamps `plan_artifacts.first_opened_at` on the
+   * (plan_id, kind) row. Drives the per-artifact engagement signal that
+   * ADR 0028's edit-lock arming (Wave 3) reads.
+   *
+   * Anonymous-callable per ADR 0024. Best-effort: errors are caught +
+   * logged; the page still renders if this round-trip fails.
+   *
+   * Skipped on the local surface (mobile preview WebView) — practitioner
+   * rehearsal isn't a real client open.
+   */
+  async function recordArtifactOpened(planId, kind) {
+    if (!planId || !kind) return;
+    if (isLocalSurface()) return;
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/record_artifact_opened`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_plan_id: planId, p_kind: kind }),
+        },
+      );
+    } catch (err) {
+      try { console.warn('[homefit] record_artifact_opened failed:', err); } catch (_) {}
+    }
+  }
+
+  /**
+   * `getHandoutForPlan(planId)` — convenience alias over `getPlanFull`
+   * for the workout-handout surface at /h/{planId} (ADR 0025). Wave 1
+   * doesn't need a separate RPC — `get_plan_full` already returns the
+   * artifacts array including the `handout` row (when published) with
+   * `published_at` + `first_opened_at`. The alias exists so the handout
+   * page reads through a name that reflects intent. Future waves that
+   * need handout-specific projections (e.g. an OG-card route that
+   * returns ONLY the first non-rest exercise + plan title) can hang a
+   * specialised RPC off this alias without rewriting the caller.
+   */
+  async function getHandoutForPlan(planId) {
+    return getPlanFull(planId);
+  }
+
+  /**
    * `record_plan_opened(p_plan_id)` — Wave 33 SECURITY DEFINER RPC that
    * idempotently stamps `plans.first_opened_at = COALESCE(first_opened_at, now())`
    * + `plans.last_opened_at = now()` on every call. Drives the Studio
@@ -988,6 +1037,8 @@
 
   window.HomefitApi = Object.freeze({
     getPlanFull,
+    getHandoutForPlan,
+    recordArtifactOpened,
     getPracticeProfile,
     getPracticePublicMembers,
     reportPremises,
