@@ -943,7 +943,11 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
 /// `app/ios/Runner/FaceEnrolmentCameraChannel.swift`). The native view
 /// hosts an `AVCaptureVideoPreviewLayer` bound to the channel's
 /// session — same texture the metadata + video data outputs receive.
-// ignore: unused_element
+/// M37 — native PlatformView preview. Hosts the AVCaptureVideoPreviewLayer
+/// bound to the AVCaptureSession in FaceEnrolmentCameraChannel. Mounted
+/// by the sweep / confirm / persisting views when `cameraReady=true` and
+/// `cameraController==null` (M37 native path; legacy avatarOnly mode
+/// keeps using `CameraPreview(cameraController!)`).
 class _NativeCameraPreview extends StatelessWidget {
   const _NativeCameraPreview();
 
@@ -1010,6 +1014,12 @@ class _SimpleShotView extends StatelessWidget {
               ),
             ),
           )
+        else if (cameraReady)
+          // M37 — native AVCaptureSession path. The PlatformView hosts the
+          // session's AVCaptureVideoPreviewLayer directly; no Flutter-side
+          // CameraController exists in this mode. Salvage fix for the
+          // "Preparing camera forever" bug when cameraController is null.
+          const SizedBox.expand(child: _NativeCameraPreview())
         else
           const Center(
             child: Padding(
@@ -1397,6 +1407,12 @@ class _PoseGatedSweepView extends StatelessWidget {
               ),
             ),
           )
+        else if (cameraReady)
+          // M37 — native AVCaptureSession path. The PlatformView hosts the
+          // session's AVCaptureVideoPreviewLayer directly; no Flutter-side
+          // CameraController exists in this mode. Salvage fix for the
+          // "Preparing camera forever" bug when cameraController is null.
+          const SizedBox.expand(child: _NativeCameraPreview())
         else
           const Center(
             child: Padding(
@@ -2022,6 +2038,14 @@ class _PersistingOverlayView extends StatelessWidget {
                 ),
               ),
             ),
+          )
+        else if (cameraReady)
+          // M37 — native AVCaptureSession path; mount native preview at the
+          // same 0.4 opacity so the persisting overlay reads consistently
+          // across legacy + native modes. Salvage fix.
+          const Opacity(
+            opacity: 0.4,
+            child: SizedBox.expand(child: _NativeCameraPreview()),
           ),
         Container(color: Colors.black.withValues(alpha: 0.45)),
         const Center(
