@@ -8,7 +8,6 @@ import '../services/safe_mode_service.dart';
 import '../services/safe_mode_subscription_service.dart';
 import '../services/portal_links.dart';
 import 'safe_mode_icon.dart';
-import 'safe_mode_paywall_sheet.dart';
 
 /// Top-of-app persistent Safe Mode banner — single source of truth for
 /// the in-zone communication of Safe Mode.
@@ -39,12 +38,14 @@ import 'safe_mode_paywall_sheet.dart';
 ///     if needed.
 ///   * **Not-subscribed state:** sub-copy `Safe Mode required here —
 ///     tap to subscribe`. Right-edge chevron `›`. Whole banner is
-///     tappable → opens [showSafeModePaywallSheet].
+///     tappable → opens the portal `/safe-mode/subscribe` page in an
+///     external Safari View Controller (Reader-App compliant, and
+///     bypasses the Navigator-above-banner trap that broke the
+///     in-app sheet path — see M27 in the 2026-05-26 stack).
 ///   * **Subscribed-active state:** sub-copy `Safe Mode active —
 ///     bystanders blurred`. Right-edge dark-circle-with-sage-check
-///     badge. Tappable → opens the manage sheet (deep-links to the
-///     portal `/safe-mode` page so the practitioner can cancel /
-///     change plan).
+///     badge. Tappable → opens the portal `/safe-mode` manage page
+///     in external Safari so the practitioner can cancel / change plan.
 ///   * **Manual mode** (rare — practitioner opt-in outside any
 ///     geofence): same green treatment with `Manual · bystanders
 ///     obscured` copy; tap goes to the manage sheet so they can
@@ -75,7 +76,8 @@ class PersistentSafeModeBanner extends StatefulWidget {
       _PersistentSafeModeBannerState();
 }
 
-class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner> {
+class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner>
+    with WidgetsBindingObserver {
   /// Per-second tick used to refresh the trailing-window countdown.
   /// Only runs while the service reports [SafeModeService.isTrailing]
   /// — the rest of the time the banner is fully static so there's no
@@ -87,13 +89,19 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner> {
   void initState() {
     super.initState();
     SafeModeService.instance.addListener(_handleServiceChange);
+    WidgetsBinding.instance.addObserver(this);
     try {
       SafeModeSubscriptionService.instance.addListener(
         _handleSubscriptionChange,
       );
-      // Trigger a refresh-if-stale now so the cold-launch render
-      // resolves to its true state on first paint.
-      SafeModeSubscriptionService.instance.refreshIfStale();
+      // M26 regression guard (2026-05-26 stack round 4) — banner mount
+      // should re-evaluate the subscription on every fresh paint so a
+      // recently-subscribed practitioner whose cache is stale sees the
+      // checkmark variant within ~1s rather than waiting up to an hour
+      // for the hourly freshness window. Reuses the same throttled
+      // forced-refresh path that `AppLifecycleState.resumed` calls, so
+      // rapid re-mounts (hot reload / banner fade in-out) coalesce.
+      SafeModeSubscriptionService.instance.refreshThrottled();
     } catch (_) {
       // Service not initialised (unit tests / hot reload edge) —
       // banner just renders the unknown-cache shrink state.
@@ -104,6 +112,7 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner> {
   @override
   void dispose() {
     SafeModeService.instance.removeListener(_handleServiceChange);
+    WidgetsBinding.instance.removeObserver(this);
     try {
       SafeModeSubscriptionService.instance.removeListener(
         _handleSubscriptionChange,
@@ -114,6 +123,27 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner> {
     _trailingTick?.cancel();
     _trailingTick = null;
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // M26 regression guard — when the practitioner returns to the
+    // foreground after subscribing in the portal, refresh the cached
+    // subscription answer so the banner flips to the checkmark variant
+    // without waiting for the hourly freshness window. Throttled to
+    // 5s in the service so rapid app-switches don't hammer the RPC.
+    //
+    // The subscription service also installs its OWN lifecycle observer
+    // (registered at app launch); the banner installs a second one so
+    // the refresh fires whether or not the service singleton was ready
+    // when the banner mounted. Throttling makes the duplicate call free.
+    if (state == AppLifecycleState.resumed) {
+      try {
+        SafeModeSubscriptionService.instance.refreshThrottled();
+      } catch (_) {
+        // Service not initialised — no-op.
+      }
+    }
   }
 
   void _handleSubscriptionChange() {
@@ -348,38 +378,49 @@ class _PersistentSafeModeBannerState extends State<PersistentSafeModeBanner> {
     SafeModeService svc,
   ) async {
     HapticFeedback.selectionClick();
-    if (subscribed) {
-      // Subscribed → open the manage sheet (portal /safe-mode in
-      // external Safari, since in-app purchase / cancel is Reader-App
-      // forbidden).
-      try {
-        await launchUrl(
-          portalLink('/safe-mode'),
-          mode: LaunchMode.externalApplication,
-        );
-      } catch (_) {
-        // Silent — best-effort manage link. The legacy `onTap`
-        // callback (if any) still fires below as a fallback.
-      }
-      widget.onTap?.call();
-      return;
+
+    // M27 fix (2026-05-26 stack round 4) — tap opens an external
+    // Safari View Controller to the portal subscribe / manage page
+    // directly. We deliberately do NOT show an in-app paywall sheet
+    // here for two reasons:
+    //
+    //   1. The banner is mounted ABOVE the Navigator (inside
+    //      `MaterialApp.builder`); `showModalBottomSheet` walks the
+    //      tree for an ancestor Navigator and finds none, so the sheet
+    //      silently fails to open — the previous bug Carl reported as
+    //      "tap does nothing".
+    //   2. iOS Reader-App compliance (feedback_ios_reader_app) — the
+    //      app must not host in-app purchase paths. The portal subscribe
+    //      page is the canonical surface for the trial-start /
+    //      subscribe flow.
+    //
+    // The portal honours `?practice=<uuid>` so the practitioner lands
+    // in the right tenant; `portalLink` builds the env-aware origin
+    // (`staging.manage.homefit.studio` vs `manage.homefit.studio`).
+    final uri = subscribed
+        ? portalLink('/safe-mode')
+        : portalLink('/safe-mode/subscribe');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // Best-effort — if URL launch fails, fall back to the legacy
+      // `onTap` callback (the rootScaffoldMessenger snackbar in
+      // main.dart) so the practitioner still gets a hint.
     }
-    // Not subscribed → open the paywall sheet directly so the
-    // practitioner can start a trial or be sent to the portal.
-    final cleared = await showSafeModePaywallSheet(
-      context: context,
-      premisesName: svc.premisesName,
-    );
-    if (cleared) {
-      // Trial started — refresh so the banner flips to the
-      // subscribed-active treatment.
-      try {
-        await SafeModeSubscriptionService.instance.refresh();
-      } catch (_) {
-        // Service not initialised — banner will resolve on next
-        // service-driven rebuild.
-      }
+    widget.onTap?.call();
+    // Refresh the subscription cache after the portal hand-off so the
+    // banner picks up the new state the next time the user returns to
+    // the app. AppLifecycleState.resumed also triggers a refresh, so
+    // this is a belt-and-braces second path.
+    try {
+      SafeModeSubscriptionService.instance.refreshThrottled();
+    } catch (_) {
+      // Service not initialised — no-op.
     }
+    // Reference svc so the analyzer keeps the parameter (callers may
+    // want it for future per-premises deep-links).
+    // ignore: unused_local_variable
+    final _ = svc;
   }
 
   /// Headline copy. The premises name takes pride of place; in manual
