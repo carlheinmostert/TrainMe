@@ -44,6 +44,8 @@ import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
 import '../widgets/paste_bottom_sheet.dart';
 import '../widgets/preset_chip_row.dart';
+import '../widgets/artifact_status_row.dart';
+import '../widgets/publish_gate_sheet.dart';
 import '../widgets/publish_progress_sheet.dart';
 import '../widgets/safe_mode_icon.dart';
 import '../widgets/session_expired_banner.dart';
@@ -296,6 +298,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// for published plans. Null = not yet fetched or unavailable.
   PlanAnalyticsSummary? _planAnalytics;
 
+  /// Wave 3 (artifact-system, 2026-05-26) — cached `plan_artifacts` rows
+  /// for this plan. Drives the AppBar artifact-status row and the
+  /// Publish gate's "Live" rendering. Refreshed on init + after every
+  /// successful publish.
+  List<PlanArtifactStatus> _artifactStatuses = const [];
+
+  /// Wave 3 — cached `plan_has_paid_artifact(plan_id)` result. Used by
+  /// [_isPlanLocked] (ADR 0028 paid-only edit-lock). Null means the
+  /// RPC hasn't resolved yet — during that frame the lock check
+  /// pessimistically falls back to the legacy "any publish + 14 days"
+  /// rule until the cache lands. Refreshed on init + after publish.
+  bool? _planHasPaidArtifact;
+
+  /// Wave 3 — kinds the practitioner ticked on the last publish-gate
+  /// confirmation. Drives the "Tap to retry" callback so a failed
+  /// publish replays against the same selection without re-prompting
+  /// for the gate. Null on cold start (first publish from a fresh
+  /// Studio open); the workflow pill's retry-tap then falls back to
+  /// opening the gate.
+  List<String>? _lastPublishKinds;
+
   /// Periodic re-fetch of `_planAnalytics` while the Studio screen is
   /// mounted. Events land server-side as the client opens / completes
   /// the plan, but the practitioner's already-open Studio view never
@@ -332,6 +355,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // from first paint. Fire-and-forget; on failure the cost label
     // simply hides until the next refresh.
     unawaited(_refreshPublishCost());
+    // Wave 3 (artifact-system) — load existing plan_artifacts rows so
+    // the AppBar status row paints from first frame, and resolve the
+    // paid-artifact flag for the ADR 0028 edit-lock check.
+    unawaited(_refreshArtifactStatuses());
     // Lazy line-drawing prefetch — pulls public media-bucket files for
     // any exercise on this session that's cloud-only (fresh sandbox /
     // app reinstall). Fire-and-forget; per-card spinner overlays
@@ -608,6 +635,36 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
   }
 
+  /// Wave 3 (artifact-system, 2026-05-26) — fetch the per-kind
+  /// `plan_artifacts` rows for this plan, plus the paid-artifact flag.
+  /// Drives the AppBar status row + ADR 0028's free-only-never-locks
+  /// edit-lock rule. Best-effort: failures leave the cached state as
+  /// the last-known good value (or null on cold start) so the lock
+  /// check pessimistically falls back to the legacy rule.
+  Future<void> _refreshArtifactStatuses() async {
+    final sessionId = _session.id;
+    try {
+      final results = await Future.wait([
+        ApiClient.instance.listPlanArtifactStatuses(planId: sessionId),
+        ApiClient.instance.planHasPaidArtifact(planId: sessionId),
+      ]);
+      if (!mounted) return;
+      // Drop stale results if the session swapped under us.
+      if (_session.id != sessionId) return;
+      final statuses = results[0] as List<PlanArtifactStatus>;
+      final hasPaid = results[1] as bool;
+      setState(() {
+        _artifactStatuses = statuses;
+        _planHasPaidArtifact = hasPaid;
+      });
+    } catch (e) {
+      debugPrint(
+        'StudioModeScreen._refreshArtifactStatuses failed for $sessionId: $e',
+      );
+      // Leave cache as-is. The lock getter handles null defensively.
+    }
+  }
+
   /// Wave 35 — drop the Preview-handoff focus marker on the next user
   /// interaction (any field edit, save, or scroll). No-op when the
   /// marker isn't set so call sites can fire it freely.
@@ -877,6 +934,23 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final firstOpened = _session.firstOpenedAt;
     if (firstOpened == null) return false; // No clock until client opens.
     if (_session.unlockCreditPrepaidAt != null) return false;
+
+    // Wave 3 (ADR 0028) — paid-only edit-lock. A plan that has only
+    // ever shipped free artifacts (handout, future poster/calendar)
+    // NEVER locks: no credit was spent so there's no abuse vector to
+    // enforce. The cache value is null until the first
+    // `_refreshArtifactStatuses` resolves; during that frame we keep
+    // the legacy "any publish" lock behaviour (pessimistic — the
+    // server-side guard via `consume_credit` is still the source of
+    // truth, so a false-positive here at worst prompts a one-tap
+    // unlock sheet that the server immediately accepts).
+    final hasPaid = _planHasPaidArtifact;
+    if (hasPaid == false) {
+      // Authoritatively free-only — no lock pressure regardless of how
+      // many days have passed.
+      return false;
+    }
+
     final since = DateTime.now().difference(firstOpened);
     return since >= const Duration(days: _kLockGraceDays);
   }
@@ -2303,6 +2377,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         ),
       );
     }
+    // Wave 3 (artifact-system) — artifact-status row pinned above the
+    // exercise list. Renders one compact pill per known kind, sage
+    // when minted-free, coral when published-paid, dashed-muted when
+    // never-published. Returns SizedBox.shrink() while the initial
+    // RPC is in flight or when no kinds are visible yet — the column
+    // gracefully collapses.
+    final statusRow = ArtifactStatusRow(statuses: _artifactStatuses);
     // Wave 38 — 12pt breather above the first card. The list's own
     // padding (bottom: 8) already cushions below.
     //
@@ -2311,6 +2392,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // bottom toolbar. The `Transform.translate` on the list itself
     // shifts the WHOLE column down (including any sticky header) when
     // latched — `Curves.easeOut` over 200ms via TweenAnimationBuilder.
+    return Column(
+      mainAxisSize: MainAxisSize.max,
+      children: [
+        statusRow,
+        Expanded(child: _buildExerciseListPanel()),
+      ],
+    );
+  }
+
+  /// Wave 3 — split out the legacy `_buildBody`'s LayoutBuilder + Stack
+  /// for the exercise list so the artifact-status row can sit above it
+  /// without losing the reachability drop / animated translate pattern.
+  Widget _buildExerciseListPanel() {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Compute drop offset: half the available viewport, but never
@@ -3290,12 +3384,22 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   VoidCallback? _resolveChipTap() {
     if (_publishJustSucceeded) return null;
     if (_publishError != null && _publishFailures.isNotEmpty) {
-      return _publishFromToolbar;
+      // Wave 3 — re-fire against the last gate selection if we have
+      // one; otherwise fall back to opening the gate fresh.
+      return _retryPublishFromLast;
     }
     if (_isPublishing) {
       return _reopenPublishSheet;
     }
     return null;
+  }
+
+  /// Wave 3 (artifact-system) — retry the last publish without
+  /// re-prompting the gate. When no prior selection exists (cold
+  /// start), falls back to opening the gate fresh. Wraps the async
+  /// call in `unawaited` since callbacks are `VoidCallback`.
+  void _retryPublishFromLast() {
+    unawaited(_publishFromToolbar(kinds: _lastPublishKinds));
   }
 
   /// Re-open the progress sheet against the same notifier so a
@@ -3312,7 +3416,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     PublishProgressSheet.show(
       context,
       progress: _publishProgress,
-      onRetry: _publishFromToolbar,
+      onRetry: _retryPublishFromLast,
       onSuccessDismiss: () {},
       onDismissed: () {
         if (!mounted) {
@@ -3326,7 +3430,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
-  Future<void> _publishFromToolbar() async {
+  Future<void> _publishFromToolbar({
+    /// Wave 3 (artifact-system) — kinds the practitioner selected on
+    /// the Publish gate. Null means "open the gate first"; passing a
+    /// non-null list bypasses the gate (used by the retry path so a
+    /// failed publish re-runs against the same selection without
+    /// re-prompting). The default kinds-on-retry path keeps the
+    /// existing UX where `Tap to retry` immediately re-fires the
+    /// previous selection.
+    List<String>? kinds,
+  }) async {
     // Extra guard — archive compression can trail the line-drawing
     // conversion; publishing before the raw-archive lands would
     // silently skip B&W / Original playback. Match the client-sessions
@@ -3360,6 +3473,39 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       return;
     }
 
+    // Wave 3 (artifact-system, 2026-05-26) — open the multi-select
+    // Publish gate. The gate returns the kinds the practitioner
+    // ticked; cancelling drops the publish. Retry-path callers pass
+    // `kinds` directly and skip the gate.
+    List<String> resolvedKinds;
+    if (kinds != null) {
+      resolvedKinds = kinds;
+    } else {
+      // Practice credit balance comes from SyncService's hydrated cache
+      // — keyed by practice id, primed from `cached_credit_balance`
+      // at boot. Null means the cache hasn't been hydrated yet for
+      // this practice; the gate footer renders "—" in that frame.
+      final practiceId = AuthService.instance.currentPracticeId.value ??
+          _session.practiceId;
+      final balance = practiceId == null
+          ? null
+          : SyncService.instance.creditBalances.value[practiceId];
+      final gateResult = await PublishGateSheet.show(
+        context,
+        existing: _artifactStatuses,
+        planUrlCreditCost: _publishCostPreview,
+        creditBalance: balance,
+      );
+      if (!mounted) return;
+      if (gateResult == null || gateResult.kinds.isEmpty) {
+        // Practitioner backed out of the gate. No state mutation;
+        // workflow pill stays in its idle state.
+        return;
+      }
+      resolvedKinds = gateResult.kinds;
+    }
+    _lastPublishKinds = resolvedKinds;
+
     setState(() {
       _isPublishing = true;
       _publishError = null;
@@ -3375,7 +3521,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final sheetFuture = PublishProgressSheet.show(
       context,
       progress: _publishProgress,
-      onRetry: _publishFromToolbar,
+      onRetry: _retryPublishFromLast,
       onSuccessDismiss: () {},
       onDismissed: () {
         if (!mounted) {
@@ -3395,6 +3541,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       if (loadedSession == null) return;
       result = await _uploadService.uploadPlan(
         loadedSession,
+        kinds: resolvedKinds,
         onProgress: (p) {
           if (!mounted) return;
           _publishProgress.value = p;
@@ -3475,6 +3622,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       // (first publish flips the count from 0 to N, which affects the
       // self-trainer all-verified eligibility check).
       unawaited(_refreshPublishCost());
+      // Wave 3 (artifact-system) — refresh per-kind statuses + paid-
+      // artifact flag. The publish stamped one row per selected kind;
+      // the status row paints sage / coral pills off the new state,
+      // and ADR 0028's edit-lock can flip from "free-only, no lock" to
+      // "paid + locked" the moment the player kind ships.
+      unawaited(_refreshArtifactStatuses());
+      // Clear the retry-cache — a successful publish ends the retry
+      // window. The next publish always re-prompts the gate fresh.
+      _lastPublishKinds = null;
       // Per-set PLAN wave \u2014 surface a follow-up SnackBar when the
       // server fell back to default sets for one or more exercises
       // (publish payload missing / empty `sets[]`). The practitioner
@@ -3595,85 +3751,158 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (sheetCtx) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Unlock plan for editing',
-                style: TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
-                  color: AppColors.textOnDark,
+      builder: (sheetCtx) {
+        // Wave 3 (artifact-system) — surface the current credit
+        // balance in the sheet header so the practitioner sees the
+        // remaining-after-spend at a glance. Mirrors the mockup's
+        // Section 2.C lock-sheet design.
+        final practiceId = AuthService.instance.currentPracticeId.value ??
+            _session.practiceId;
+        final balance = practiceId == null
+            ? null
+            : SyncService.instance.creditBalances.value[practiceId];
+        final balanceText = balance == null
+            ? '—'
+            : '$balance credit${balance == 1 ? '' : 's'}';
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.lock_outline,
+                      size: 18,
+                      color: AppColors.textOnDark,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Unlock structural edits',
+                      style: TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                        color: AppColors.textOnDark,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Adds back add / delete / reorder. Consumes 1 credit. '
-                'Version stays at v${_session.version} until you republish.',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: AppColors.textSecondaryOnDark,
-                  height: 1.4,
+                const SizedBox(height: 8),
+                const Text(
+                  '14-day grace ended. Spend 1 credit to make the next '
+                  'round of structural edits — your client already has '
+                  'the latest reps + notes for free.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: AppColors.textSecondaryOnDark,
+                    height: 1.45,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(sheetCtx).pop(false),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.surfaceBorder),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: AppColors.surfaceBorder,
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        'You have $balanceText',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12.5,
+                          color: AppColors.textSecondaryOnDark,
                         ),
                       ),
-                      child: const Text(
-                        'Cancel',
+                      const Spacer(),
+                      const Text(
+                        '1 credit',
                         style: TextStyle(
                           fontFamily: 'Inter',
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w600,
                           color: AppColors.textOnDark,
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(sheetCtx).pop(true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(sheetCtx).pop(false),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppColors.surfaceBorder),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textOnDark,
+                          ),
                         ),
                       ),
-                      child: const Text(
-                        'Unlock',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w700,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      // Wave 3 — CTA verb is "Spend", never "Buy" /
+                      // "Pay" / "Purchase" — Reader-App safe (Guideline
+                      // 3.1.1). The credit being spent already exists
+                      // in the practitioner's balance; no purchase path
+                      // is involved.
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(sheetCtx).pop(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_rounded, size: 16),
+                            SizedBox(width: 6),
+                            Text(
+                              'Spend 1 credit · unlock',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
     if (!mounted || confirmed != true) return false;
 
