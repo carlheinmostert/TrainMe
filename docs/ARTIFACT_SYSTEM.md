@@ -87,7 +87,7 @@ Resolved across the grilling session. Detailed below; captured in the [Decision 
 21. The Publish gate is a **checklist with per-row price + live running total**.
 
 **Brand & monetization**
-22. **Monetize enhancement, not entry** — free artifacts are always free; brand-skin is a paid upgrade *on top* (~2 credits/month, credit-denominated like Safe Mode).
+22. **Monetize enhancement, not entry** — free artifacts are always free; brand-skin is a paid upgrade *on top* (**4 credits/month**, credit-denominated like Safe Mode; **30-day free trial** on first subscription; **7-day lapse-grace** before chrome reverts; **one skin per practice** — a practitioner in multiple practices configures each separately).
 23. The homefit **"powered by" seal + QR is permanent** on every artifact (no white-label), in homefit coral, designed as a *credibility seal*; the QR carries the practitioner's **referral code as link attribution**.
 24. Brand identity (logo, accent colour, practice name, contact) is sourced from the **existing portal public profile** — positioning, not new capture.
 25. Skin is a **live property** — lapse live-reverts every artifact (incl. already-shared) to the homefit default; no per-publish-date retention.
@@ -208,7 +208,7 @@ Charge fires once per artifact at publish; the gate sums selected paid kinds and
 
 ## Brand-skin subscription & the always-on homefit seal
 
-**Principle: monetize enhancement, not entry.** Nothing is gated at the door — the free artifacts always work, free. The brand-skin is an *upgrade on top*: a practitioner who wants their own identity on those free artifacts pays a small recurring fee (**~2 credits/month**, credit-denominated like the Safe Mode subscription, ADR 0021). You never charge someone to get in; you charge them to look more professional once they're already in. This also quietly earns money from **free-only practitioners** — someone who never publishes a paid player but wants to look professional buys credits purely for the skin (revenue from the free tier without gating it).
+**Principle: monetize enhancement, not entry.** Nothing is gated at the door — the free artifacts always work, free. The brand-skin is an *upgrade on top*: a practitioner who wants their own identity on those free artifacts pays a recurring fee of **4 credits/month** (R100 at the locked R25/credit bundle rate; credit-denominated like the Safe Mode subscription, ADR 0021). You never charge someone to get in; you charge them to look more professional once they're already in. This also quietly earns money from **free-only practitioners** — someone who never publishes a paid player but wants to look professional buys credits purely for the skin (revenue from the free tier without gating it). First subscription includes a **30-day free trial** (no debit until day 31). Renewal is manual — push notification at day 25, re-up via Settings → Subscription; no auto-debit in v1 (mirrors ADR 0021). **One skin per practice** — a practitioner who belongs to multiple practices subscribes (and configures) each independently; artifacts render with the skin of *the practice the plan was published from*.
 
 **What the skin is.** The practitioner's brand identity — logo, accent colour, practice name, contact — applied across their artifacts. The source of truth is the **portal public profile** (shipped on `staging` with the self-trainer / Safe Mode transparency waves; not yet promoted to `main`, which is why it's invisible from this branch), which already captures this data. So brand-skin is *not* a data-capture feature — it's a **positioning/design problem**: where each piece of the public profile lands in each artifact type (a mockup question).
 
@@ -219,7 +219,7 @@ Charge fires once per artifact at publish; the gate sums selected paid kinds and
 
 The seal must be *designed as a seal* (credibility), not a banner ad — placement/prominence per artifact type is a visual-layer decision ("in the correct place").
 
-**Skin is a live property.** While subscribed, the skin renders across all the practitioner's artifacts (free + paid). On lapse, every artifact — *including ones already shared and sitting in clients' phones* — live-reverts to the homefit default look. We deliberately do **not** preserve skin per-publish-date: the renewal pressure is intended, and per-date retention is complexity we don't want. It falls straight out of the always-live artifact model.
+**Skin is a live property — with a 7-day lapse grace.** While subscribed, the skin renders across all the practitioner's artifacts (free + paid) for that practice. When credits run out, the chrome **keeps rendering for 7 days** while a coral banner in the Studio + portal warns the practitioner to top up. On day 8 every artifact — *including ones already shared and sitting in clients' phones* — live-reverts to the homefit default look. We deliberately do **not** preserve skin per-publish-date: the renewal pressure is intended, and per-date retention is complexity we don't want. It falls straight out of the always-live artifact model.
 
 **Implementation conventions (locked at the visual phase, 2026-05-26).**
 
@@ -316,7 +316,7 @@ Exact types finalised in the migration PR.
 7. **Consumer consent UI** — the "my practitioners / my data" panel layout (mockup).
 8. **Collaboration** — the whole anchored-comms feature (parked).
 9. **Brand-skin positioning** — where each public-profile piece (logo / accent / name / contact) lands in each artifact type, and how the permanent homefit seal sits beside it (mockup); confirm the exact public-profile field names against `staging` when implementing.
-10. **Brand-skin price** — ~2 credits/month is the working number; confirm.
+<!-- open question #10 (brand-skin price) RESOLVED 2026-05-26: 4 credits/month, 30-day trial, 7-day lapse-grace, one skin per practice. See decision log #30. -->
 
 ---
 
@@ -382,3 +382,4 @@ All six ADRs flagged at the close of the visual phase landed in this branch on 2
 | 27 | Consent matrix is **six toggles**: Line drawing (locked-ON) · B&W · Original · Profile photo · **Face fingerprint** · Workout stats | Five-toggle matrix (omitting biometric) | Face-recognition embedding from Safe Mode v2 is biometric data; consumer must own consent to it. "Face fingerprint" / "Workout stats" labels chosen for the consumer surface in preference to "biometric embedding" / "analytics" |
 | 28 | The `.studio` wordmark renders in **coral** on both the dot AND the word "studio", in every homefit lockup (default header + footer seal in both variants) | `.studio` in muted grey | Canonical brand convention that pre-dates this wave; caught mid-walkthrough. Memory entry `feedback_homefit_studio_wordmark.md` captures the trap |
 | 29 | **Range Movement (red `#dc2626`, hero-figure glyph)** is the canonical fictional practitioner-brand example, reused across mockups that demonstrate brand-skin | Different invented brands per mockup | A consistent example builds the mental model faster; the practitioner glyph follows the homefit hero-figure DNA (stick figure) not abstract symbols |
+| 30 | Brand-skin subscription numbers locked: **4 credits/month** (R100 at R25/cr), **30-day free trial**, **7-day lapse-grace**, **one skin per practice** | 2 cr/mo / 3-day trial / instant revert / one skin per practitioner | 4 cr/mo aligns with the R100 round-number psychology and the Safe Mode 4-cr/mo pattern (ADR 0021); 30-day trial gives the practitioner long enough to fall in love with the look on artifacts they're actively sharing; 7-day grace prevents one missed payment from yanking the skin out from under clients mid-look; per-practice scope matches the existing tenancy boundary and the practice-grain consent model |
