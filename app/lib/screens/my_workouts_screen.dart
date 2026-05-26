@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../models/workout_source_tag.dart';
 import '../services/auth_service.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
@@ -196,6 +197,14 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
             isPublishing: false,
             onOpen: () => widget.onTapSession(session),
             onDelete: () => _deleteSession(session),
+            // M29 (2026-05-26) — every My Workouts row is a self-capture
+            // today. When the inbound-shared-plan branch ships, the
+            // source tag here will derive from the row's payload (this
+            // screen reads from local SQLite which doesn't carry a tag
+            // column yet — `Self` is the safe default until that wave
+            // both seeds the column and the SyncService pull populates
+            // it). Shared vocabulary with the portal.
+            sourceTag: WorkoutSourceTag.self,
             onRenamed: (renamed) {
               if (!mounted) return;
               setState(() {

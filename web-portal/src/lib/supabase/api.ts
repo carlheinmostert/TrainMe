@@ -122,6 +122,49 @@ export type PracticeSession = {
 };
 
 /**
+ * M29 (2026-05-26) — workout source tag. Mirrors the Dart enum
+ * `WorkoutSourceTag` in `app/lib/models/workout_source_tag.dart`. Same
+ * string values on both surfaces so a future shared-plan UNION branch
+ * in `list_my_workouts` populates both surfaces from one place.
+ *
+ * - `self`                   — practitioner is both operator and subject.
+ * - `shared_by_practitioner` — RESERVED. Future inbound shared-plan
+ *                              branch; UI chip falls back to "Shared"
+ *                              when present until that wave ships.
+ */
+export type WorkoutSourceTag = 'self' | 'shared_by_practitioner';
+
+/**
+ * A row from `list_my_workouts()`. Superset of {@link PracticeSession}
+ * — adds `practiceId`, `clientId`, `sourceTag`, and `sharedByEmail` so
+ * the My Workouts surface can render the source chip + deep-link back
+ * into the per-client session detail without a second fetch.
+ *
+ * Today every row is `sourceTag: 'self'` with `sharedByEmail: null`.
+ * The shared-plan ingestion wave populates `sharedByEmail` when the
+ * source is `shared_by_practitioner`.
+ */
+export type MyWorkout = {
+  id: string;
+  practiceId: string | null;
+  title: string;
+  clientId: string | null;
+  clientName: string | null;
+  trainerId: string;
+  trainerEmail: string | null;
+  version: number;
+  lastPublishedAt: string | null;
+  firstOpenedAt: string | null;
+  issuanceCount: number;
+  exerciseCount: number;
+  isOwnSession: boolean;
+  sourceTag: WorkoutSourceTag;
+  /** Email of the practitioner who shared the plan inbound. Null for
+   *  `self` rows. */
+  sharedByEmail: string | null;
+};
+
+/**
  * Per-client consent matrix. Matches the `clients.video_consent` jsonb
  * default from `schema_milestone_g_three_treatment.sql` extended by
  * `schema_wave30_client_avatar.sql`. `line_drawing` is always true —
@@ -623,6 +666,33 @@ export class PortalApi {
     if (error || !data) return [];
     const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
     return rows.map(mapPracticeSessionRow);
+  }
+
+  /**
+   * M29 (2026-05-26) — sessions where the caller is the SUBJECT.
+   *
+   * Wraps the `list_my_workouts()` SECURITY DEFINER RPC. Returns plans
+   * whose `client_id` references a Self-client (clients.user_id =
+   * auth.uid()) for the caller across every practice they belong to.
+   * Non-authenticated callers get `28000` from the RPC which we fold
+   * to an empty list here (page-level redirect handles the real auth
+   * gate first).
+   *
+   * Source-tag column reserved for the future inbound-shared-plan
+   * UNION branch. Today every returned row has sourceTag = 'self'.
+   */
+  async listMyWorkouts(): Promise<MyWorkout[]> {
+    // No type cast on the RPC name — Database.types.ts is regenerated
+    // independently; we coerce after the call (same pattern as other
+    // newly-added RPCs in this file).
+    const { data, error } = await (
+      this.supabase as unknown as {
+        rpc: (name: string) => Promise<{ data: unknown; error: unknown }>;
+      }
+    ).rpc('list_my_workouts');
+    if (error || !data) return [];
+    const rows = (data as Array<Record<string, unknown>>) ?? [];
+    return rows.map(mapMyWorkoutRow);
   }
 
   // ==========================================================================
@@ -2384,6 +2454,35 @@ function mapPracticeSessionRow(r: Record<string, unknown>): PracticeSession {
     issuanceCount: Number(r.issuance_count ?? 0),
     exerciseCount: Number(r.exercise_count ?? 0),
     isOwnSession: Boolean(r.is_own_session),
+  };
+}
+
+/**
+ * M29 (2026-05-26) — row mapper for `list_my_workouts()`. Normalises
+ * any unexpected source_tag string back to 'self' so a future server
+ * tag the portal doesn't yet understand renders as the safe default
+ * rather than crashing the page.
+ */
+function mapMyWorkoutRow(r: Record<string, unknown>): MyWorkout {
+  const rawTag = r.source_tag ? String(r.source_tag) : 'self';
+  const sourceTag: WorkoutSourceTag =
+    rawTag === 'shared_by_practitioner' ? 'shared_by_practitioner' : 'self';
+  return {
+    id: String(r.id ?? ''),
+    practiceId: r.practice_id ? String(r.practice_id) : null,
+    title: String(r.title ?? ''),
+    clientId: r.client_id ? String(r.client_id) : null,
+    clientName: r.client_name ? String(r.client_name) : null,
+    trainerId: r.trainer_id ? String(r.trainer_id) : '',
+    trainerEmail: r.trainer_email ? String(r.trainer_email) : null,
+    version: Number(r.version ?? 0),
+    lastPublishedAt: r.last_published_at ? String(r.last_published_at) : null,
+    firstOpenedAt: r.first_opened_at ? String(r.first_opened_at) : null,
+    issuanceCount: Number(r.issuance_count ?? 0),
+    exerciseCount: Number(r.exercise_count ?? 0),
+    isOwnSession: Boolean(r.is_own_session),
+    sourceTag,
+    sharedByEmail: r.shared_by_email ? String(r.shared_by_email) : null,
   };
 }
 

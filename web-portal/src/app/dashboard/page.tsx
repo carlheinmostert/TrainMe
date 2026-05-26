@@ -21,6 +21,7 @@ import {
   Building2,
   Globe2,
   Layers,
+  Dumbbell,
 } from 'lucide-react';
 
 type SearchParams = { practice?: string };
@@ -119,6 +120,7 @@ export default async function DashboardPage({
     auditPreview,
     premises,
     publicProfile,
+    myWorkouts,
   ] = await Promise.all([
     api.getCurrentUserRole(selected.id, user.id),
     api.listPracticeClients(selected.id),
@@ -144,6 +146,11 @@ export default async function DashboardPage({
     // (pre-v2 practices); the tile handles that with a "Not set up"
     // copy + warning tone.
     api.getPracticePublicProfile(selected.id),
+    // M29 (2026-05-26) — practitioner's self-capture workouts across
+    // every practice they belong to. Powers the primary-position tile.
+    // No practice scoping — list_my_workouts() filters by Self-client
+    // membership (clients.user_id = auth.uid()), not by practice.
+    api.listMyWorkouts(),
   ]);
   const isOwner = role === 'owner';
 
@@ -155,6 +162,24 @@ export default async function DashboardPage({
   /* ----------------------------------------------------------------- */
   /*  Derived tile content                                              */
   /* ----------------------------------------------------------------- */
+
+  // My Workouts (M29) — primary-position tile. Headline = count, subtitle
+  // = relative time of the most-recent publish. The list is already
+  // ordered by `last_published_at DESC NULLS LAST` so we pick the first
+  // row's stamp; the fallback "No self-captures yet" copy fires when
+  // either the count is 0 or no row has been published.
+  const myWorkoutsCount = myWorkouts.length;
+  const myWorkoutsRecent = myWorkouts.find((w) => w.lastPublishedAt !== null);
+  const myWorkoutsHeadline =
+    myWorkoutsCount === 0
+      ? 'No workouts yet'
+      : `${myWorkoutsCount} ${myWorkoutsCount === 1 ? 'workout' : 'workouts'}`;
+  const myWorkoutsSubtitle =
+    myWorkoutsCount === 0
+      ? 'Record your first in the iOS app'
+      : myWorkoutsRecent?.lastPublishedAt
+        ? `Latest ${dashboardRelative(myWorkoutsRecent.lastPublishedAt)}`
+        : 'Drafts only';
 
   // Credits
   const creditsLow = balance < 5;
@@ -301,6 +326,20 @@ export default async function DashboardPage({
               grid (and every ancestor up to <html>) wider than the
               402px iPhone viewport. */}
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {/* M29 (2026-05-26) — primary-position My Workouts tile.
+                Always first, above Credits, Clients, Classes. The
+                practitioner-as-subject library is the most personal
+                surface; surfacing it first matches the mobile IA where
+                My Workouts is the always-on-launch default scope. */}
+            <DashboardTile
+              href={`/my-workouts${qs}`}
+              label="My Workouts"
+              headline={myWorkoutsHeadline}
+              subtitle={myWorkoutsSubtitle}
+              icon={<Dumbbell size={24} strokeWidth={1.75} aria-hidden="true" />}
+              description="Workouts you've captured for yourself. View-only here — capture and editing live in the iOS app."
+            />
+
             <DashboardTile
               href={`/credits${qs}`}
               label="Credits"
@@ -413,4 +452,26 @@ function fmtCredits(n: number): string {
   return Number.isInteger(rounded)
     ? String(Math.round(rounded))
     : rounded.toFixed(1);
+}
+
+/**
+ * M29 (2026-05-26) — compact relative-time formatter for the My
+ * Workouts dashboard tile subtitle. Falls back to "recently" for any
+ * invalid ISO. Keeps the chrome tight ("Latest 3d ago") to fit the
+ * one-line subtitle constraint.
+ */
+function dashboardRelative(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return 'recently';
+  const delta = Date.now() - t;
+  if (delta < 60_000) return 'just now';
+  const minutes = Math.round(delta / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.round(months / 12)}y ago`;
 }

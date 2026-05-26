@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../models/workout_source_tag.dart';
 import '../services/api_client.dart' show PlanAnalyticsSummary;
 import '../services/conversion_service.dart';
 import '../services/exercise_hero_resolver.dart';
@@ -13,6 +14,7 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../utils/hero_crop_alignment.dart';
 import 'conversion_error_log_sheet.dart';
+import 'source_tag_chip.dart';
 
 /// Maximum number of filmstrip cells. Carl signed off N=4 — beyond that
 /// each cell shrinks below ~80px on iPhone widths and the heroes become
@@ -97,6 +99,21 @@ class SessionCard extends StatefulWidget {
   /// unpublished sessions; the renderer handles both states.
   final PlanAnalyticsSummary? analyticsSummary;
 
+  /// M29 (2026-05-26) — optional source tag chip rendered alongside the
+  /// title. Today only the My Workouts list opts in (every row tagged
+  /// [WorkoutSourceTag.self]); ClientSessionsScreen passes null so the
+  /// chip is suppressed.
+  ///
+  /// When the inbound-shared-plan ingest wave ships, ClientSessions
+  /// will start passing [WorkoutSourceTag.sharedByPractitioner] for
+  /// rows where the local practitioner isn't the publisher. Same chip
+  /// component, same vocabulary, both lit up by one feature flip.
+  final WorkoutSourceTag? sourceTag;
+
+  /// Optional email of the sharing practitioner. Only rendered when
+  /// [sourceTag] is [WorkoutSourceTag.sharedByPractitioner].
+  final String? sharedByEmail;
+
   const SessionCard({
     super.key,
     required this.session,
@@ -105,6 +122,8 @@ class SessionCard extends StatefulWidget {
     required this.onDelete,
     this.onRenamed,
     this.analyticsSummary,
+    this.sourceTag,
+    this.sharedByEmail,
   });
 
   @override
@@ -400,6 +419,19 @@ class _SessionCardState extends State<SessionCard> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            // M29 (2026-05-26) — source-tag chip rendered
+                            // BEFORE the title so it reads as a row badge
+                            // rather than a trailing afterthought. Only
+                            // surfaces when the caller passes a non-null
+                            // sourceTag (My Workouts list opts in;
+                            // ClientSessions stays clean).
+                            if (widget.sourceTag != null) ...[
+                              SourceTagChip(
+                                tag: widget.sourceTag!,
+                                sharedByEmail: widget.sharedByEmail,
+                              ),
+                              const SizedBox(height: 4),
+                            ],
                             _buildTitle(session),
                             const SizedBox(height: 2),
                             Text(
