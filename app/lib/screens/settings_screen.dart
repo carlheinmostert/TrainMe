@@ -570,44 +570,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               AuthService.instance.currentPracticeId.value,
                           buildSha: AppConfig.buildSha,
                         ),
-                      ],
-                    ],
-                  ),
-                  // M14 (2026-05-26 mobile stack round 2) — Safe Mode
-                  // debug HUD toggle promoted out of the 7-tap easter
-                  // egg. PR #514 defaulted the overlay to OFF; the
-                  // matching Settings toggle was only reachable via the
-                  // hidden tap-the-version-row gesture, so Carl could
-                  // not flip it back on for QA. Surfaced here as a
-                  // clearly-labelled Debug section so the toggle is
-                  // discoverable without the easter egg. The capture
-                  // screen re-reads the pref on resume, so flipping
-                  // this and re-entering Camera mode surfaces the HUD
-                  // without an app restart.
-                  const SizedBox(height: 24),
-                  _SectionHeader(label: 'Debug'),
-                  _SettingsGroup(
-                    children: [
-                      _ActionRow(
-                        icon: Icons.bug_report_outlined,
-                        label: 'Show Safe Mode hint overlay',
-                        subtitle:
-                            'Diagnostic HUD on the camera viewfinder. '
-                            'Shows GPS + polygon-match data so a Safe '
-                            'Mode regression can be triaged in-app.',
-                        onTap: _safeModeDebugHudEnabled == null
-                            ? null
-                            : () => _toggleSafeModeDebugHud(
-                                  !(_safeModeDebugHudEnabled ?? false),
-                                ),
-                        trailing: Switch.adaptive(
-                          value: _safeModeDebugHudEnabled ?? false,
-                          onChanged: _safeModeDebugHudEnabled == null
+                        _Divider(),
+                        // M19 (2026-05-26 mobile stack round 3) — Safe
+                        // Mode HUD toggle folded back into the existing
+                        // Diagnostics panel under About. PR #518 had
+                        // promoted it to a top-level Debug section
+                        // (M14), but Carl wants per-device toggles like
+                        // this clustered with other diagnostics behind
+                        // the 7-tap easter egg so the Settings screen
+                        // chrome stays free of debug surface area in
+                        // normal use. The pref + handlers are unchanged
+                        // — only the mount point moves.
+                        _ActionRow(
+                          icon: Icons.bug_report_outlined,
+                          label: 'Show Safe Mode hint overlay',
+                          subtitle:
+                              'Diagnostic HUD on the camera viewfinder. '
+                              'Shows GPS + polygon-match data so a Safe '
+                              'Mode regression can be triaged in-app.',
+                          onTap: _safeModeDebugHudEnabled == null
                               ? null
-                              : _toggleSafeModeDebugHud,
-                          activeThumbColor: AppColors.primary,
+                              : () => _toggleSafeModeDebugHud(
+                                    !(_safeModeDebugHudEnabled ?? false),
+                                  ),
+                          trailing: Switch.adaptive(
+                            value: _safeModeDebugHudEnabled ?? false,
+                            onChanged: _safeModeDebugHudEnabled == null
+                                ? null
+                                : _toggleSafeModeDebugHud,
+                            activeThumbColor: AppColors.primary,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                   // Faint build-SHA marker. Relocated from the Home

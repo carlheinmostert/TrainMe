@@ -238,6 +238,25 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// every list build via `_pruneRowKeys`.
   final Map<String, GlobalKey> _rowKeys = {};
 
+  /// M20 (2026-05-26 mobile stack round 3) — separate key map mounted
+  /// on the STATIC outer Padding wrapping each card (NOT inside the
+  /// Slidable). `_rowKeys` resolves to the slidable-wrapped
+  /// StudioExerciseCard which translates with the swipe — so during
+  /// a long-right-swipe Copy, the source rect derived from
+  /// `_rowKeys[id].localToGlobal` ended up at the right edge of the
+  /// screen (where the swiped card was at the moment of dismiss
+  /// commit), making the flying hero appear to originate from the
+  /// RIGHT side of the screen even though the source card's hero is
+  /// rendered on the LEFT.
+  ///
+  /// These anchor keys give us the rest-position rect of the row so
+  /// the hero flight can originate from the EXACT static rect of the
+  /// left-positioned hero (LTWH = anchor.x, anchor.y, cardHeight,
+  /// cardHeight). The card hero is the first child of the
+  /// `image-left / text-right` Row inside StudioExerciseCard with
+  /// `width: cardHeight, height: cardHeight`.
+  final Map<String, GlobalKey> _rowAnchorKeys = {};
+
   /// Wave 39 (Item 5) — reachability drop-pill state.
   ///
   /// One-handed-reach affordance: a coral pill bottom-right of the list
@@ -1311,28 +1330,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final source = _session.exercises[dataIndex];
     if (source.isRest) return;
 
-    // Compute source rect — the card's 1:1 hero square on the LEFT
-    // edge. The card's overall RenderBox is height × cardWidth; the
-    // hero is height × height (StudioExerciseCard renders an
-    // `image-left / text-right` layout). Best-effort: fall back to a
-    // small synthetic rect at the card centre if the key can't be
-    // resolved (e.g. card just rebuilt).
-    Rect? sourceRect;
-    final rowKey = _rowKeys[source.id];
-    final rowCtx = rowKey?.currentContext;
-    if (rowCtx != null) {
-      final box = rowCtx.findRenderObject() as RenderBox?;
-      if (box != null && box.hasSize) {
-        final origin = box.localToGlobal(Offset.zero);
-        final heroSize = box.size.height;
-        sourceRect = Rect.fromLTWH(
-          origin.dx,
-          origin.dy,
-          heroSize,
-          heroSize,
-        );
-      }
-    }
+    // M20 (2026-05-26 mobile stack round 3) — derive the source rect
+    // from the STATIC row anchor (NOT the slidable-translated card),
+    // so the flying hero originates from the EXACT rect of the
+    // left-positioned hero rather than wherever the Slidable has
+    // shifted the card to at the moment of dismiss-commit. The hero
+    // is the first child of the `image-left / text-right` Row in
+    // StudioExerciseCard with size `cardHeight × cardHeight`.
+    Rect? sourceRect = _resolveCardHeroRect(source.id);
 
     // Compute target rect — the chip's bounds if mounted, else a
     // small square near the top-right corner so the first-ever Copy
@@ -1364,7 +1369,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         unawaited(playClipboardHeroFlight(
           context,
           exercise: source,
-          from: sourceRect!,
+          from: sourceRect,
           to: liveTargetRect,
           direction: ClipboardFlightDirection.copy,
           onLanded: () {
@@ -1430,6 +1435,42 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       center: Offset(mq.size.width - 36, mq.viewPadding.top + 28),
       width: 32,
       height: 24,
+    );
+  }
+
+  /// M20 (2026-05-26 mobile stack round 3) — resolve the static
+  /// on-screen rect of the LEFT-positioned hero square inside the
+  /// exercise card with the given [exerciseId]. Uses the dedicated
+  /// `_rowAnchorKeys` map (mounted on the OUTER static Padding so
+  /// the rect is NOT affected by Slidable swipe translation).
+  ///
+  /// The hero square geometry matches StudioExerciseCard's internal
+  /// layout: `SizedBox(width: cardHeight, height: cardHeight)` at the
+  /// left edge of the card's Row. Width and height both equal
+  /// [StudioExerciseCard.cardHeight] (152 logical pixels at time of
+  /// writing).
+  ///
+  /// Returns null when the anchor key isn't mounted yet or the row
+  /// has no live RenderBox (e.g. card was just rebuilt or scrolled
+  /// out of the viewport). Callers fall back to either a synthetic
+  /// rect or skip the flight animation entirely.
+  Rect? _resolveCardHeroRect(String exerciseId) {
+    final anchorKey = _rowAnchorKeys[exerciseId];
+    final anchorCtx = anchorKey?.currentContext;
+    if (anchorCtx == null) return null;
+    final box = anchorCtx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    final origin = box.localToGlobal(Offset.zero);
+    // The anchor wraps the Slidable, which wraps the card. The card's
+    // hero is the first child of the inner Row, taking cardHeight ×
+    // cardHeight at the left edge. So the hero rect is the
+    // cardHeight-square at the anchor's top-left.
+    const heroSide = StudioExerciseCard.cardHeight;
+    return Rect.fromLTWH(
+      origin.dx,
+      origin.dy,
+      heroSide,
+      heroSide,
     );
   }
 
@@ -1640,22 +1681,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final liveChipRect =
         _resolveClipboardChipRect(context, fallback: chipRect);
 
-    Rect? destRect;
-    final rowKey = _rowKeys[clone.id];
-    final rowCtx = rowKey?.currentContext;
-    if (rowCtx != null) {
-      final box = rowCtx.findRenderObject() as RenderBox?;
-      if (box != null && box.hasSize) {
-        final origin = box.localToGlobal(Offset.zero);
-        final heroSize = box.size.height;
-        destRect = Rect.fromLTWH(
-          origin.dx,
-          origin.dy,
-          heroSize,
-          heroSize,
-        );
-      }
-    }
+    // M20 (2026-05-26 mobile stack round 3) — paste-flight destination
+    // mirrors the source-rect derivation: use the static row anchor
+    // (not the slidable-translated card) so the hero settles into
+    // the EXACT rect of the left-positioned hero square.
+    final Rect? destRect = _resolveCardHeroRect(clone.id);
 
     void revealRowAndConsume() {
       if (!mounted) return;
@@ -2407,6 +2437,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // map only grows to the size of the session.
     final liveIds = exercises.map((e) => e.id).toSet();
     _rowKeys.removeWhere((id, _) => !liveIds.contains(id));
+    // M20 (2026-05-26 mobile stack round 3) — same pruning rule for
+    // the static row-anchor keys so deleted exercises don't leak
+    // GlobalKey entries (rare but cheap to handle).
+    _rowAnchorKeys.removeWhere((id, _) => !liveIds.contains(id));
 
     return NotificationListener<ScrollUpdateNotification>(
       // Wave 35 — drop the Preview-handoff focus marker the moment
@@ -2772,7 +2806,20 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                 // Non-positioned child — drives the row's height. Left
                 // margin of (kGutterVisibleWidth + 4) leaves the gutter
                 // strip free for the rail.
+                //
+                // M20 (2026-05-26 mobile stack round 3) — anchor
+                // GlobalKey mounted here on the STATIC Padding (NOT
+                // inside the Slidable that wraps `cardContent`). This
+                // is the rest-position rect of the row, which is what
+                // the clipboard hero-flight animation reads via
+                // [_resolveCardHeroRect] so the flying hero originates
+                // from / lands in the EXACT left-positioned hero rect
+                // rather than the swiped-position rect.
                 Padding(
+                  key: !exercise.isRest
+                      ? _rowAnchorKeys.putIfAbsent(
+                          exercise.id, () => GlobalKey())
+                      : null,
                   padding: const EdgeInsets.only(left: kGutterVisibleWidth + 4),
                   child: cardContent,
                 ),

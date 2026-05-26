@@ -299,35 +299,58 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                // M2 (2026-05-25 mobile stack) — copy revised. Line-drawing
-                // emphasis retired now that the player runs three treatments
-                // (line / B&W / colour); the empty state speaks to the
-                // self-trainer twin-purpose story instead.
-                const Text(
-                  'Tap New Session to record a workout. Use it as your '
-                  'own follow-along, or share it with the people you train.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    color: AppColors.textSecondaryOnDark,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Inbound-from-practitioner ingress is deferred to a
-                // follow-up PR (see `docs/SELF_TRAINER_WAVE.md`
-                // § "Capture-entry path from My Workouts"). Render
-                // the affordance copy without an `onTap` so the
-                // surface area is staked out but doesn't promise a
-                // working action yet.
-                const Text(
-                  'Got a link from your practitioner? Tap to claim it.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    color: AppColors.grey500,
+                // M18 (2026-05-26 mobile stack round 3) — copy revised
+                // again. The prior M2 "share it with the people you
+                // train" framing was misleading — a My Workout cannot
+                // be shared directly; it's a library you copy exercises
+                // OUT OF into client sessions. The new 3-line list
+                // states the three real use cases:
+                //   1. Record workouts to follow back yourself
+                //   2. Copy exercises into client sessions
+                //   3. Open plans shared with you by other practitioners
+                //
+                // The separate inbound-from-practitioner line ("Got a
+                // link from your practitioner? Tap to claim it.") is
+                // retired because item 3 above already covers it.
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'My Workouts is where you:',
+                        textAlign: TextAlign.left,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          color: AppColors.textSecondaryOnDark,
+                          height: 1.4,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      _EmptyStateBullet(
+                        text: 'Record workouts to follow back yourself',
+                      ),
+                      _EmptyStateBullet(
+                        text: 'Copy exercises into client sessions',
+                      ),
+                      _EmptyStateBullet(
+                        text:
+                            'Open plans shared with you by other '
+                            'practitioners',
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Tap New Session below to start.',
+                        textAlign: TextAlign.left,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          color: AppColors.textSecondaryOnDark,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -335,6 +358,54 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Single bullet row for the M18 empty-state list. Mirrors the
+/// `* {text}` list shape from the Carl-approved copy. Asterisk-bullet
+/// glyph is a flat dot for typographic consistency with the rest of
+/// the in-app Inter body copy.
+class _EmptyStateBullet extends StatelessWidget {
+  final String text;
+
+  const _EmptyStateBullet({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            // Vertical offset roughly aligns the bullet with the body
+            // text x-height at fontSize 14.
+            padding: EdgeInsets.only(top: 8, right: 8),
+            child: SizedBox(
+              width: 4,
+              height: 4,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.textSecondaryOnDark,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.textSecondaryOnDark,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
