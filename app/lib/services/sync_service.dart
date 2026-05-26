@@ -166,7 +166,7 @@ class SyncService {
       );
       _setCreditBalanceLocal(practiceId, balance);
     } catch (e) {
-      debugPrint('SyncService.refreshCreditBalance: $e');
+      dev.log('SyncService.refreshCreditBalance: $e');
     }
   }
 
@@ -190,7 +190,7 @@ class SyncService {
       final initial = await Connectivity().checkConnectivity();
       offline.value = _isOffline(initial);
     } catch (e) {
-      debugPrint('SyncService.start: connectivity plugin unavailable: $e');
+      dev.log('SyncService.start: connectivity plugin unavailable: $e');
       offline.value = false;
     }
 
@@ -258,7 +258,7 @@ class SyncService {
         },
       );
     } catch (e) {
-      debugPrint('SyncService.start: auth listener attach failed: $e');
+      dev.log('SyncService.start: auth listener attach failed: $e');
     }
   }
 
@@ -283,7 +283,7 @@ class SyncService {
       // Offline → online. Fire a flush + pullAll for the currently
       // bound practice. Kick off in parallel; errors are swallowed
       // inside each call.
-      debugPrint('SyncService: online — draining pending ops');
+      dev.log('SyncService: online — draining pending ops');
       dev.log('online transition — draining pending ops', name: 'SyncService');
       await flush();
       final practiceId = _lastPracticeId;
@@ -362,7 +362,7 @@ class SyncService {
             }
           }
         } catch (e) {
-          debugPrint('SyncService._pullPractices: joined_at fetch failed: $e');
+          dev.log('SyncService._pullPractices: joined_at fetch failed: $e');
         }
       }
 
@@ -380,7 +380,7 @@ class SyncService {
       await _storage.replaceCachedPractices(cached);
       return _BranchOutcome.ok;
     } catch (e) {
-      debugPrint('SyncService._pullPractices: $e');
+      dev.log('SyncService._pullPractices: $e');
       return _BranchOutcome.error;
     }
   }
@@ -411,7 +411,7 @@ class SyncService {
       );
       return _BranchOutcome.ok;
     } catch (e) {
-      debugPrint('SyncService._pullClients: $e');
+      dev.log('SyncService._pullClients: $e');
       return _BranchOutcome.error;
     }
   }
@@ -438,7 +438,7 @@ class SyncService {
       _setCreditBalanceLocal(practiceId, balance);
       return _BranchOutcome.ok;
     } catch (e) {
-      debugPrint('SyncService._pullCreditBalance: $e');
+      dev.log('SyncService._pullCreditBalance: $e');
       return _BranchOutcome.error;
     }
   }
@@ -454,7 +454,7 @@ class SyncService {
       );
       return _BranchOutcome.ok;
     } catch (e) {
-      debugPrint('SyncService._backfillSessionClientIds: $e');
+      dev.log('SyncService._backfillSessionClientIds: $e');
       return _BranchOutcome.error;
     }
   }
@@ -527,7 +527,7 @@ class SyncService {
       );
       return inserted > 0 ? _BranchOutcome.ok : _BranchOutcome.noop;
     } catch (e) {
-      debugPrint('SyncService._pullSessions: $e');
+      dev.log('SyncService._pullSessions: $e');
       return _BranchOutcome.error;
     }
   }
@@ -829,10 +829,7 @@ class SyncService {
       name: cached.name,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    // Best-effort immediate push — if offline, this is a quick no-op.
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return cached;
   }
 
@@ -855,9 +852,7 @@ class SyncService {
       newName: trimmed,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return updated;
   }
 
@@ -884,9 +879,7 @@ class SyncService {
       newTitle: trimmed,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return true;
   }
 
@@ -909,9 +902,7 @@ class SyncService {
       clientId: clientId,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return cascadeTs;
   }
 
@@ -932,9 +923,7 @@ class SyncService {
       clientId: clientId,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
   }
 
   /// Local-first consent write.
@@ -983,9 +972,7 @@ class SyncService {
       analyticsAllowed: nextAnalytics,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return updated;
   }
 
@@ -1019,9 +1006,7 @@ class SyncService {
       avatarPath: avatarPath,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return updated;
   }
 
@@ -1069,10 +1054,20 @@ class SyncService {
       value: value,
       nowMs: nowMs,
     );
+    await _enqueueAndFlush(op);
+    return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  /// Enqueue [op], refresh the pending-count badge, and kick off a
+  /// best-effort flush. Every queue* method ends with this call.
+  Future<void> _enqueueAndFlush(PendingOp op) async {
     await _storage.enqueuePendingOp(op);
     await _refreshPendingCount();
     unawaited(flush());
-    return updated;
   }
 
   // ---------------------------------------------------------------------------
@@ -1158,13 +1153,6 @@ class SyncService {
             error: msg,
             nowMs: nowMs,
           );
-          debugPrint(
-            'SyncService.flush: op ${op.type.name} '
-            'id=${op.id} failed (code=$code): $msg',
-          );
-          // Profile builds strip debugPrint from os_log; dev.log goes
-          // through the VM service + Dart os_log subsystem so it's
-          // visible in idevicesyslog / Console.app.
           dev.log(
             'flush ${op.type.name} id=${op.id} code=$code: $msg',
             name: 'SyncService',
@@ -1349,7 +1337,7 @@ class SyncService {
     required String fromId,
     required String toId,
   }) async {
-    debugPrint('SyncService: rewiring client $fromId -> $toId (name conflict)');
+    dev.log('SyncService: rewiring client $fromId -> $toId (name conflict)');
     await _storage.db.transaction((txn) async {
       // Move session.client_id references to the winning id.
       await txn.rawUpdate(
@@ -1417,7 +1405,7 @@ class SyncService {
         creditBalances.value = next;
       }
     } catch (e) {
-      debugPrint('SyncService._seedCreditBalances: $e');
+      dev.log('SyncService._seedCreditBalances: $e');
     }
   }
 

@@ -1005,31 +1005,14 @@ class UploadService {
       // `ON CONFLICT DO NOTHING` (implemented as an upsert that omits
       // every mutable column — PostgREST writes back the same values on
       // conflict). The version stays at `session.version` here.
-      await _api.upsertPlan({
-        'id': session.id,
-        'client_name': effectiveClientName,
-        'client_id': clientId,
-        'title': session.displayTitle,
-        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
-        'circuit_cycles': session.circuitCycles,
-        'circuit_names': session.circuitNames,
-        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': nonRestCount,
-        // IMPORTANT: do NOT bump version here — only after consume_credit.
-        'version': session.version,
-        // Wave 39.4 — emit UTC. Postgres timestamptz columns interpret
-        // any naked-offset ISO string in the connection's TZ; the audit
-        // trail and dashboard timestamps both read these as authored,
-        // so non-UTC writes drift across viewers. Always toUtc() before
-        // toIso8601String().
-        'created_at': session.createdAt.toUtc().toIso8601String(),
-        'practice_id': practiceId,
-        // Wave 27 — NULL means "use the surface default" on the cloud side
-        // too; the reset button explicitly writes null so a re-publish
-        // restores the default-rendered view.
-        'crossfade_lead_ms': session.crossfadeLeadMs,
-        'crossfade_fade_ms': session.crossfadeFadeMs,
-      });
+      await _api.upsertPlan(_buildPlanRow(
+        session: session,
+        effectiveClientName: effectiveClientName,
+        clientId: clientId,
+        nonRestCount: nonRestCount,
+        practiceId: practiceId,
+        version: session.version,
+      ));
 
       // Step 3b: atomic credit consumption. Source of truth for whether
       // the publish can proceed. If this returns `{ok: false}` the plan
@@ -1079,23 +1062,15 @@ class UploadService {
       // any later failure (media upload, exercise upsert) triggers the
       // refund compensator below.
       // ----------------------------------------------------------------
-      await _api.upsertPlan({
-        'id': session.id,
-        'client_name': effectiveClientName,
-        'client_id': clientId,
-        'title': session.displayTitle,
-        'circuit_cycles': session.circuitCycles,
-        'circuit_names': session.circuitNames,
-        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': nonRestCount,
-        'version': newVersion,
-        // Wave 39.4 — UTC wire format (see comment in upsertPlan above).
-        'created_at': session.createdAt.toUtc().toIso8601String(),
-        'sent_at': DateTime.now().toUtc().toIso8601String(),
-        'practice_id': practiceId,
-        'crossfade_lead_ms': session.crossfadeLeadMs,
-        'crossfade_fade_ms': session.crossfadeFadeMs,
-      });
+      await _api.upsertPlan(_buildPlanRow(
+        session: session,
+        effectiveClientName: effectiveClientName,
+        clientId: clientId,
+        nonRestCount: nonRestCount,
+        practiceId: practiceId,
+        version: newVersion,
+        sentAt: DateTime.now(),
+      ));
       planVersionBumped = true;
 
       // ----------------------------------------------------------------
@@ -2392,14 +2367,10 @@ class UploadService {
         continue;
       }
       final ext = p.extension(absRaw).toLowerCase();
-      // Default to .jpg when the camera handed us something exotic —
-      // the file content is fine, the bucket only cares about the path
-      // segment for RLS, and get_plan_full's signed URL hard-codes
-      // .jpg as the suffix.
-      final normalisedExt =
-          (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
-              ? '.jpg'
-              : '.jpg';
+      // Always store under .jpg — the bucket path segment is what
+      // get_plan_full's signed URL hard-codes; file content is fine
+      // regardless of the original camera extension.
+      const normalisedExt = '.jpg';
       final mime = (ext == '.png')
           ? 'image/png'
           : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
@@ -2763,6 +2734,46 @@ class UploadService {
       // Schema v11 not applied yet — skip.
       swallow: true,
     );
+  }
+
+  /// Build the common plan row map for [ApiClient.upsertPlan].
+  ///
+  /// Both calls to `upsertPlan` inside [uploadPlan] share every key except
+  /// `version` and `sent_at`. Centralising here keeps them in sync when
+  /// new columns land on `plans`.
+  ///
+  /// Wave 39.4 note: all timestamps are UTC ISO-8601. Postgres
+  /// `timestamptz` columns interpret any naked-offset string in the
+  /// connection's TZ; non-UTC writes drift across timezones on the audit
+  /// feed and dashboard.
+  Map<String, dynamic> _buildPlanRow({
+    required Session session,
+    required String effectiveClientName,
+    required String? clientId,
+    required int nonRestCount,
+    required String practiceId,
+    required int version,
+    DateTime? sentAt,
+  }) {
+    return {
+      'id': session.id,
+      'client_name': effectiveClientName,
+      'client_id': clientId,
+      'title': session.displayTitle,
+      // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
+      'circuit_cycles': session.circuitCycles,
+      'circuit_names': session.circuitNames,
+      'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+      'exercise_count': nonRestCount,
+      'version': version,
+      'created_at': session.createdAt.toUtc().toIso8601String(),
+      if (sentAt != null) 'sent_at': sentAt.toUtc().toIso8601String(),
+      'practice_id': practiceId,
+      // Wave 27 — NULL means "use surface default"; explicit null
+      // re-publish restores the default crossfade view.
+      'crossfade_lead_ms': session.crossfadeLeadMs,
+      'crossfade_fade_ms': session.crossfadeFadeMs,
+    };
   }
 
   /// Read the last publish error for a session, if any. Returns null when

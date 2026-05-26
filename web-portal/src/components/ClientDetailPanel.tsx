@@ -63,8 +63,23 @@ export function ClientDetailPanel({
   const [avatar, setAvatar] = useState(initialConsent.avatar);
   const [savedConsent, setSavedConsent] = useState(initialConsent);
   const [toast, setToast] = useState<Toast>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const [pending, startTransition] = useTransition();
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  function scheduleToastDismiss(ms: number) {
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, ms);
+  }
   // Keep a stable alias so the rest of the component's f-strings stay
   // readable. The live name is `displayName`; rename updates it.
   const clientName = displayName;
@@ -111,7 +126,7 @@ export function ClientDetailPanel({
         msg = `Couldn't delete — ${e.message}`;
       }
       setToast({ text: msg, tone: 'error' });
-      window.setTimeout(() => setToast(null), 4000);
+      scheduleToastDismiss(4000);
       return;
     }
 
@@ -153,7 +168,7 @@ export function ClientDetailPanel({
         const msg = e instanceof Error ? e.message : 'Something went wrong.';
         setToast({ text: `Couldn’t save — ${msg}`, tone: 'error' });
       }
-      window.setTimeout(() => setToast(null), 2500);
+      scheduleToastDismiss(2500);
     });
   }
 

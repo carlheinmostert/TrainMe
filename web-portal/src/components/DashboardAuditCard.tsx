@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import {
   auditChipTone,
+  auditChipClass,
   type AuditChipTone,
   type AuditRow,
 } from '@/lib/supabase/api';
@@ -99,24 +100,11 @@ function AuditPreviewRow({ row }: { row: AuditRow }) {
 function KindChip({ kind, tone }: { kind: string; tone: AuditChipTone }) {
   return (
     <span
-      className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${chipClass(tone)}`}
+      className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${auditChipClass(tone)}`}
     >
       {kindShortLabel(kind)}
     </span>
   );
-}
-
-function chipClass(tone: AuditChipTone): string {
-  switch (tone) {
-    case 'coral':
-      return 'bg-brand-tint-bg text-brand';
-    case 'sage':
-      return 'bg-emerald-500/15 text-emerald-400';
-    case 'red':
-      return 'bg-red-500/15 text-red-400';
-    default:
-      return 'bg-surface-raised text-ink-muted';
-  }
 }
 
 /**

@@ -4,7 +4,7 @@ import { getServerClient } from '@/lib/supabase-server';
 import {
   createPortalApi,
   createPortalAuditApi,
-  PortalReferralApi,
+  createPortalReferralApi,
 } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { PracticeContextLine } from '@/components/PracticeContextLine';
@@ -89,7 +89,7 @@ export default async function DashboardPage({
   // caller is a member of — the switcher popover renders them as the
   // per-row disambiguator ("47 credits" / "0 credits"). Parallelised
   // so the extra membership's balance costs one round-trip, not two.
-  const referralApi = new PortalReferralApi(supabase);
+  const referralApi = createPortalReferralApi(supabase);
   const auditApi = createPortalAuditApi(supabase);
   const [
     role,

@@ -286,6 +286,13 @@
         opts.heroCropOffset,
       );
       return rasteriseToSquare(img, rect, opts.targetSize, opts.treatment);
+    }).catch(function (err) {
+      // Evict on failure so callers can retry — a rejected Promise left
+      // in the cache would permanently block any future successful load
+      // for this key (e.g. after a transient network error during PDF
+      // export or lobby render).
+      _cache.delete(key);
+      throw err;
     });
 
     _cache.set(key, task);

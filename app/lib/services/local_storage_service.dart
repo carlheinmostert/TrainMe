@@ -24,6 +24,13 @@ class LocalStorageService {
   static const _dbName = 'raidme.db';
   static const _dbVersion = 42;
 
+  /// The current schema version. Exposed for tests so they can assert the
+  /// correct value without hardcoding it — a migration bump that forgets
+  /// to update a test constant becomes a compile-time hint rather than a
+  /// silent wrong-number pass.
+  @visibleForTesting
+  static int get currentDbVersion => _dbVersion;
+
   Database? _db;
 
   /// The database instance. Throws if [init] hasn't been called.
@@ -1370,13 +1377,7 @@ class LocalStorageService {
     // Gather file paths before deleting rows — resolve to absolute for disk I/O
     final exercises = await _getExercisesForSession(id);
     for (final ex in exercises) {
-      _deleteFileIfExists(PathResolver.resolve(ex.rawFilePath));
-      if (ex.convertedFilePath != null) {
-        _deleteFileIfExists(PathResolver.resolve(ex.convertedFilePath!));
-      }
-      if (ex.thumbnailPath != null) {
-        _deleteFileIfExists(PathResolver.resolve(ex.thumbnailPath!));
-      }
+      _deleteExerciseFiles(ex);
     }
 
     await db.delete('exercises', where: 'session_id = ?', whereArgs: [id]);
@@ -1841,14 +1842,7 @@ class LocalStorageService {
       whereArgs: [exerciseId],
     );
     if (rows.isNotEmpty) {
-      final ex = ExerciseCapture.fromMap(rows.first);
-      _deleteFileIfExists(PathResolver.resolve(ex.rawFilePath));
-      if (ex.convertedFilePath != null) {
-        _deleteFileIfExists(PathResolver.resolve(ex.convertedFilePath!));
-      }
-      if (ex.thumbnailPath != null) {
-        _deleteFileIfExists(PathResolver.resolve(ex.thumbnailPath!));
-      }
+      _deleteExerciseFiles(ExerciseCapture.fromMap(rows.first));
     }
     await db.delete('exercises', where: 'id = ?', whereArgs: [exerciseId]);
   }
@@ -1919,6 +1913,19 @@ class LocalStorageService {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  /// Delete the on-disk files associated with an exercise row. Used by
+  /// both [deleteSession] and [deleteExercise] — single place to update
+  /// when new file columns (archive, segmented, mask) are added.
+  void _deleteExerciseFiles(ExerciseCapture ex) {
+    _deleteFileIfExists(PathResolver.resolve(ex.rawFilePath));
+    if (ex.convertedFilePath != null) {
+      _deleteFileIfExists(PathResolver.resolve(ex.convertedFilePath!));
+    }
+    if (ex.thumbnailPath != null) {
+      _deleteFileIfExists(PathResolver.resolve(ex.thumbnailPath!));
+    }
+  }
 
   /// Best-effort file deletion. Failures are silently ignored — the file
   /// may have been cleaned up by the OS or a previous attempt.

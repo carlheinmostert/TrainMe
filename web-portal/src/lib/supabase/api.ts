@@ -1314,6 +1314,24 @@ export function auditChipTone(kind: string): AuditChipTone {
   }
 }
 
+/**
+ * Tailwind class string for an audit kind chip at the given tone. Both
+ * `DashboardAuditCard` and `audit/page.tsx` use this; a single source
+ * of truth means brand token renames hit one file.
+ */
+export function auditChipClass(tone: AuditChipTone): string {
+  switch (tone) {
+    case 'coral':
+      return 'bg-brand-tint-bg text-brand';
+    case 'sage':
+      return 'bg-emerald-500/15 text-emerald-400';
+    case 'red':
+      return 'bg-red-500/15 text-red-400';
+    default:
+      return 'bg-surface-raised text-ink-muted';
+  }
+}
+
 /** A single row emitted by `list_practice_audit`. The jsonb `meta` bag is
  *  kind-specific; callers key into it defensively.
  *

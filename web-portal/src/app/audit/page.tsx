@@ -7,6 +7,7 @@ import {
   createPortalApi,
   createPortalAuditApi,
   auditChipTone,
+  auditChipClass,
   AUDIT_EVENT_KINDS,
   type AuditChipTone,
   type AuditRow,
@@ -445,7 +446,7 @@ function buildSubtitle(
 function KindChip({ kind, tone }: { kind: string; tone: AuditChipTone }) {
   return (
     <span
-      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${chipClass(tone)}`}
+      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${auditChipClass(tone)}`}
     >
       {kindLabel(kind)}
     </span>
@@ -620,13 +621,13 @@ function fmtCreditDelta(n: number): string {
   // Strip trailing zeros on fractional values but keep integers clean.
   const rounded = Math.round(n * 10000) / 10000;
   if (Number.isInteger(rounded)) return `${sign}${rounded}`;
-  return `${sign}${rounded}`;
+  return `${sign}${rounded.toFixed(4).replace(/\.?0+$/, '')}`;
 }
 
 function fmtBalance(n: number): string {
   const rounded = Math.round(n * 10000) / 10000;
   if (Number.isInteger(rounded)) return `${rounded}`;
-  return `${rounded}`;
+  return rounded.toFixed(4).replace(/\.?0+$/, '');
 }
 
 function creditsClass(n: number | null): string {
@@ -666,19 +667,6 @@ function kindLabel(kind: string): string {
   };
   if (map[kind]) return map[kind];
   return kind.replaceAll('.', ' ').replaceAll('_', ' ');
-}
-
-function chipClass(tone: AuditChipTone): string {
-  switch (tone) {
-    case 'coral':
-      return 'bg-brand-tint-bg text-brand';
-    case 'sage':
-      return 'bg-emerald-500/15 text-emerald-400';
-    case 'red':
-      return 'bg-red-500/15 text-red-400';
-    default:
-      return 'bg-surface-raised text-ink-muted';
-  }
 }
 
 function buildDescription(row: AuditRow): string {

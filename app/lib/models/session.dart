@@ -4,6 +4,7 @@ import '../config.dart';
 import '../services/auth_service.dart';
 import '../utils/duration_format.dart';
 import 'exercise_capture.dart';
+import 'exercise_set.dart';
 
 /// A capture session — one bio + one client sitting.
 ///
@@ -506,8 +507,13 @@ class Session {
                 ? ((ex.videoDurationMs! / 1000) / (ex.videoRepsPerLoop ?? 1))
                     .round()
                 : AppConfig.secondsPerRep;
+            final holdTotal = switch (first.holdPosition) {
+              HoldPosition.perRep => first.reps * first.holdSeconds,
+              HoldPosition.endOfSet => first.holdSeconds,
+              HoldPosition.endOfExercise => first.holdSeconds,
+            };
             oneRoundSeconds += first.reps * perRep +
-                first.holdSeconds +
+                holdTotal +
                 first.breatherSecondsAfter;
           } else {
             // Empty sets list (capture without persistence defaults

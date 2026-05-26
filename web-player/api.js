@@ -142,6 +142,19 @@
   const SUPABASE_ANON_KEY = _cfg.supabaseAnonKey;
 
   /**
+   * Standard headers for every Supabase RPC POST. Centralised so a key
+   * rotation or extra header (e.g. `Prefer: return=minimal`) touches one
+   * place rather than every fetch call in this file.
+   */
+  function _rpcHeaders() {
+    return {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  /**
    * Wave 4 Phase 1 — unified player prototype.
    *
    * When the page is loaded from the Flutter-embedded `LocalPlayerServer`
@@ -343,11 +356,7 @@
       `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
       {
         method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: _rpcHeaders(),
         body: JSON.stringify({ p_plan_id: planId }),
       },
     );
@@ -388,11 +397,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/record_plan_opened`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -426,11 +431,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/start_analytics_session`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_user_agent_bucket: userAgentBucket || 'other',
@@ -462,11 +463,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_event_kind: eventKind,
@@ -493,11 +490,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/set_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_granted: !!granted,
@@ -522,11 +515,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/revoke_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_session_id: sessionId || null,
@@ -569,11 +558,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_kind: kind,
@@ -607,11 +592,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PracticeSession } from '@/lib/supabase/api';
 import { webPlayerBaseUrl } from '@/lib/env';
 import { ClientAvatar } from './ClientAvatar';
+import { RelativeTime } from '@/lib/relative-time';
 
 type Props = {
   sessions: PracticeSession[];
@@ -387,48 +388,6 @@ function VersionChip({ version }: { version: number }) {
  * exact-timestamp `title` attribute for hover. Falls back to the provided
  * text when the timestamp is null.
  */
-function RelativeTime({
-  iso,
-  fallback,
-  fallbackClass,
-}: {
-  iso: string | null;
-  fallback: string;
-  fallbackClass?: string;
-}) {
-  if (!iso) {
-    return <span className={fallbackClass}>{fallback}</span>;
-  }
-  const date = new Date(iso);
-  const abs = date.toLocaleString('en-ZA', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-  return <span title={abs}>{relative(date)}</span>;
-}
-
-/**
- * Small relative-time formatter. No date-fns dep (constraint: no new
- * deps). Accuracy here is "scannable at a glance", not statistical.
- */
-function relative(d: Date): string {
-  const diffMs = Date.now() - d.getTime();
-  const diffSec = Math.round(diffMs / 1000);
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.round(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} min${diffMin === 1 ? '' : 's'} ago`;
-  const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`;
-  const diffDay = Math.round(diffHr / 24);
-  if (diffDay < 7) return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
-  const diffWk = Math.round(diffDay / 7);
-  if (diffWk < 5) return `${diffWk} week${diffWk === 1 ? '' : 's'} ago`;
-  const diffMo = Math.round(diffDay / 30);
-  if (diffMo < 12) return `${diffMo} month${diffMo === 1 ? '' : 's'} ago`;
-  const diffYr = Math.round(diffDay / 365);
-  return `${diffYr} year${diffYr === 1 ? '' : 's'} ago`;
-}
-
 function ClipboardIcon() {
   return (
     <svg

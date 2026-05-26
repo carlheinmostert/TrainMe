@@ -479,6 +479,25 @@ class ExerciseCapture {
   /// Whether this exercise is a rest period.
   bool get isRest => mediaType == MediaType.rest;
 
+  /// Bounds-safe [MediaType] index decoder. Returns [MediaType.photo] on
+  /// an out-of-range or null index so a future enum-extension migration
+  /// does not crash [fromMap] on an older app build.
+  static MediaType _mediaTypeFromIndex(int? index) {
+    if (index == null || index < 0 || index >= MediaType.values.length) {
+      return MediaType.photo;
+    }
+    return MediaType.values[index];
+  }
+
+  /// Bounds-safe [ConversionStatus] index decoder. Returns
+  /// [ConversionStatus.pending] on an out-of-range or null index.
+  static ConversionStatus _conversionStatusFromIndex(int? index) {
+    if (index == null || index < 0 || index >= ConversionStatus.values.length) {
+      return ConversionStatus.pending;
+    }
+    return ConversionStatus.values[index];
+  }
+
   /// Deserialize from a SQLite row. Sets are attached separately by the
   /// LocalStorageService loader (one query per session bucketed by
   /// exercise id), since they live in their own table.
@@ -492,9 +511,8 @@ class ExerciseCapture {
       rawFilePath: map['raw_file_path'] as String,
       convertedFilePath: map['converted_file_path'] as String?,
       thumbnailPath: map['thumbnail_path'] as String?,
-      mediaType: MediaType.values[map['media_type'] as int],
-      conversionStatus:
-          ConversionStatus.values[map['conversion_status'] as int],
+      mediaType: _mediaTypeFromIndex(map['media_type'] as int?),
+      conversionStatus: _conversionStatusFromIndex(map['conversion_status'] as int?),
       sets: sets,
       restHoldSeconds: map['rest_hold_seconds'] as int?,
       notes: map['notes'] as String?,
