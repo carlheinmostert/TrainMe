@@ -141,14 +141,29 @@ class _NetworkShareSheetState extends State<NetworkShareSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 4),
-            const Text(
-              'Share with another practitioner',
-              style: TextStyle(
-                fontFamily: 'Montserrat',
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
-                color: AppColors.textOnDark,
+            // Heading names the product so it's unambiguous what is being
+            // shared (not a plan, not a client — the platform itself).
+            // Wordmark renders in canonical brand split: `homefit` in
+            // textOnDark + `.studio` (with the leading dot) in coral, per
+            // `app/lib/widgets/homefit_logo.dart`.
+            const Text.rich(
+              TextSpan(
+                style: TextStyle(
+                  fontFamily: 'Montserrat',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.2,
+                  color: AppColors.textOnDark,
+                ),
+                children: [
+                  TextSpan(text: 'Share '),
+                  TextSpan(text: 'homefit'),
+                  TextSpan(
+                    text: '.studio',
+                    style: TextStyle(color: AppColors.primary),
+                  ),
+                  TextSpan(text: ' with another practitioner'),
+                ],
               ),
             ),
             const SizedBox(height: 6),
