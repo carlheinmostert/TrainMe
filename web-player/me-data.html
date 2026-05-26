@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- /me/data — consumer-side per-practice consent panel (artifact-system
+       Wave 2, ADR 0026). Six toggles per linked practice: line drawing
+       (locked ON), B&W, Original, Profile photo, Face fingerprint,
+       Workout stats. Master "Stop all stats" switch in the footer.
+
+       Authenticated consumer surface — magic-link-only auth. If the
+       consumer arrives here unauthenticated we redirect to /me. -->
+  <meta name="robots" content="noindex" />
+
+  <title>Your data — homefit.studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/me-data.css" />
+</head>
+<body class="md-body">
+
+  <div id="md-loading" class="md-loading" role="status" aria-live="polite">
+    <div class="md-loading-dot"></div>
+    <p>Loading your data preferences…</p>
+  </div>
+
+  <noscript>
+    <div class="md-error" style="display:block">
+      <div class="md-error-icon">!</div>
+      <h2>JavaScript required</h2>
+      <p>This page needs JavaScript to load your preferences. Please enable it in your browser settings.</p>
+    </div>
+  </noscript>
+
+  <main id="md-page" class="md-page" hidden>
+
+    <header class="md-header">
+      <div class="md-lockup">
+        <svg class="md-matrix" viewBox="0 0 48 9.5" aria-hidden="true">
+          <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+          <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+          <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+        </svg>
+      </div>
+      <h1 class="md-page-title">Your data</h1>
+      <a class="md-back-link" href="/me" title="Back to My Workouts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+        Back
+      </a>
+    </header>
+
+    <section class="md-intro">
+      <p>
+        You decide what each of your practitioners can show you and learn from
+        your workouts. <strong>Line drawings are always available</strong> —
+        they don't identify you.
+      </p>
+      <div class="md-first-visit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v5M12 16h.01" />
+        </svg>
+        <span>Here's what's currently shared — you can change it.</span>
+      </div>
+    </section>
+
+    <section id="md-practice-cards" class="md-practice-cards" aria-label="Linked practices"></section>
+
+    <!-- Empty-state for consumers who haven't claimed anything yet
+         (shouldn't normally happen — the claim flow lands them here only
+         after their first claim succeeds — but defensive). -->
+    <div id="md-empty" class="md-empty" hidden>
+      <h2>No practices linked yet.</h2>
+      <p>
+        When your practitioner sends you a workout, save it from the
+        link they share — the practice shows up here automatically.
+      </p>
+      <a href="/me" class="md-empty-link">Back to My Workouts</a>
+    </div>
+
+    <!-- Footer card — leave-relationship note + master "Stop all stats" switch. -->
+    <section id="md-footer-card" class="md-footer-card" hidden>
+      <p class="md-footer-note">
+        If you want to <strong>leave one of these practices entirely</strong>,
+        ask them directly to remove you &mdash; we don't override your
+        relationship.
+      </p>
+      <div class="md-master-row" id="md-master-row">
+        <div class="md-master-name">
+          Stop all stats
+          <span class="md-master-sub">Turns off workout stats across every practice in one tap.</span>
+        </div>
+        <button
+          type="button"
+          class="md-pill"
+          role="switch"
+          aria-checked="false"
+          data-control="master-analytics-off"
+          aria-label="Stop all stats across every practice"
+        >
+          <span class="md-pill-thumb"></span>
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Error fallback. -->
+  <div id="md-error" class="md-error" hidden>
+    <div class="md-error-icon">!</div>
+    <h2>Something went wrong</h2>
+    <p id="md-error-text">We couldn't load your preferences. Please refresh and try again.</p>
+  </div>
+
+  <script src="/api.js"></script>
+  <script src="/me-data.js"></script>
+</body>
+</html>
