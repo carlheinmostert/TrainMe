@@ -4,6 +4,7 @@ Open each script in Claude Code Desktop's preview pane via `Cmd+Shift+V`. Give p
 
 ## Active wave
 
+- [2026-05-26 — Face enrolment redesign (M30 explicit prompts + M31 state machine)](2026-05-26-face-enrolment-redesign.md) — replaces silent autostart with six explicit pose prompts (look ahead, right, left, up, down, smile) + per-prompt stall hints + skip-pose CTA. Fixes the M31 sev1 where the failed state rendered the initial prompt overlaid on the error AND the close X button silently no-oped trapping the user. 15 items.
 - [2026-05-26 — Portal My Workouts (M29)](2026-05-26-portal-my-workouts.md) — view-only mirror of mobile My Workouts. Dashboard tile in primary position, list page filtered to self-captures, read-only drill-in, shared source-tag chip system (mobile + portal). 11 items.
 - [2026-05-25 — Mobile stack round 2 (M12/M13/M14)](2026-05-25-mobile-stack-round2.md) — always-on-launch My Workouts default, My Workouts session-card unified with Clients card (swipe-delete + filmstrip), Safe Mode hint overlay toggle promoted out of the 7-tap easter-egg gate into a clearly-labelled Debug section. 7 items.
 - [2026-05-25 — Clipboard hero flight (M15, copy + paste)](2026-05-25-clipboard-hero-flight.md) — replaces the abstract coral-particle copy animation with the Variant 1 "lift-and-arc" hero flight, and adds the mirror staggered paste animation. 6 items.
