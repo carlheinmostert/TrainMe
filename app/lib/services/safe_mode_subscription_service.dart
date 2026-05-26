@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'safe_mode_service.dart';
 
 /// Local cache + refresh policy for the Safe Mode subscription gate.
 ///
@@ -59,11 +60,22 @@ class SafeModeSubscriptionService extends ChangeNotifier
 
   /// One-time wire-up at app launch. Idempotent — repeated calls
   /// reuse the existing instance. Registers the lifecycle observer
-  /// so the foreground-resume hook can refresh the cache.
+  /// so the foreground-resume hook can refresh the cache, and (best
+  /// effort) subscribes to [SafeModeService] so a false→true geofence
+  /// transition (the practitioner walking INTO an enforcing premises)
+  /// triggers a throttled re-check too. The geofence hook is best
+  /// effort: if [SafeModeService] hasn't been initialised yet (test
+  /// harness, hot reload) we just skip it — the lifecycle resume
+  /// hook still works.
   static void initialize(ApiClient api) {
     if (_instance != null) return;
     final svc = SafeModeSubscriptionService._(api);
     WidgetsBinding.instance.addObserver(svc);
+    try {
+      svc._wireSafeModeListener();
+    } catch (_) {
+      // SafeModeService not initialised yet — skip.
+    }
     _instance = svc;
   }
 
@@ -71,6 +83,18 @@ class SafeModeSubscriptionService extends ChangeNotifier
   /// "stale" and the next `refreshIfStale()` will hit the network.
   /// Aligned with the brief's "every 1 hour while app is foreground".
   static const Duration kCacheFreshness = Duration(hours: 1);
+
+  /// Minimum interval between forced refreshes triggered by user
+  /// events (app foreground resume, geofence false→true transition).
+  /// Stack item M17 (2026-05-25): a practitioner who subscribes via
+  /// the portal while the app is backgrounded would otherwise sit on
+  /// a stale `hasAccess=false` cache for up to [kCacheFreshness] —
+  /// the chip stays visible + the capture-gate stays armed. The
+  /// forced-refresh path bypasses the hourly freshness window
+  /// completely, but throttled to 5 s minimum between calls so rapid
+  /// app-switching (or quick repeated geofence flips at a polygon
+  /// edge) doesn't hammer the RPC.
+  static const Duration kForcedRefreshThrottle = Duration(seconds: 5);
 
   /// SharedPreferences key prefix. The full key is per-user so a
   /// quick account switch doesn't leak the previous user's answer.
@@ -96,6 +120,21 @@ class SafeModeSubscriptionService extends ChangeNotifier
   /// True iff an inflight refresh is currently running. Prevents
   /// hammering the RPC from multiple concurrent gate checks.
   bool _refreshing = false;
+
+  /// Wall-clock instant of the last `refreshThrottled()` call (whether
+  /// it actually fired or was throttled). Used to gate the next call
+  /// against [kForcedRefreshThrottle]. Distinct from [_fetchedAt] —
+  /// that one is the last SUCCESSFUL fetch; this one is the last
+  /// ATTEMPT (and includes throttle-skipped attempts so the throttle
+  /// itself counts toward the cool-down).
+  DateTime? _lastForcedAttemptAt;
+
+  /// Subscription handle for the [SafeModeService] listener so we can
+  /// detect false→true geofence transitions and trigger a forced
+  /// refresh. Held so we can detach + re-attach across hot reloads in
+  /// dev (production never disposes the singleton).
+  VoidCallback? _safeModeListener;
+  bool _lastSafeModeActive = false;
 
   /// The cached gate answer. `null` means "unknown" — capture-entry
   /// callers should treat this as optimistic-allow (the paywall would
@@ -213,6 +252,31 @@ class SafeModeSubscriptionService extends ChangeNotifier
     }
   }
 
+  /// Force a refresh IF [kForcedRefreshThrottle] has elapsed since
+  /// the last call. Bypasses the [kCacheFreshness] hourly window
+  /// completely — this is the path for "user event happened, the
+  /// cached answer might be wrong RIGHT NOW".
+  ///
+  /// Throttled so rapid foreground/background app-switches or
+  /// flickering geofence transitions at a polygon edge don't hammer
+  /// the RPC. The throttle counts attempts (not just successful
+  /// fetches) so repeatedly bouncing back into foreground inside the
+  /// 5 s window still skips the network call.
+  ///
+  /// Non-blocking — returns immediately. Listeners get notified on
+  /// state change via the underlying [refresh] call.
+  void refreshThrottled() {
+    final now = DateTime.now();
+    if (_lastForcedAttemptAt != null) {
+      final since = now.difference(_lastForcedAttemptAt!);
+      if (since < kForcedRefreshThrottle) {
+        return;
+      }
+    }
+    _lastForcedAttemptAt = now;
+    unawaited(refresh());
+  }
+
   /// Drop the cache entirely (e.g. on sign-out). Removes the
   /// SharedPreferences row too so a different user signing in on the
   /// same device starts clean.
@@ -254,9 +318,42 @@ class SafeModeSubscriptionService extends ChangeNotifier
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Refresh on foreground resume, but only if the cache is stale.
+    // Stack item M17 (2026-05-25): use the FORCED refresh (throttled
+    // to ~5 s) rather than `refreshIfStale()`. Carl's scenario: user
+    // subscribes via the portal while the app is backgrounded, then
+    // brings the app back to the foreground a few minutes later. The
+    // hourly freshness window would leave the cache reading "no sub"
+    // for up to an hour — the chip stays visible, capture-gate stays
+    // armed. The forced path bypasses that and the throttle keeps
+    // rapid app-switches from spamming the RPC.
     if (state == AppLifecycleState.resumed) {
-      refreshIfStale();
+      refreshThrottled();
     }
+  }
+
+  /// Wire the false→true [SafeModeService.isActive] transition to a
+  /// throttled subscription re-check. Catches the case where the user
+  /// was already foregrounded but just walked into an enforcing
+  /// geofence — without this, the chip would render based on a
+  /// possibly-stale subscription answer at the worst moment (right
+  /// when the practitioner is about to try to capture).
+  ///
+  /// Called once at [initialize]; idempotent (no-op if already wired).
+  void _wireSafeModeListener() {
+    if (_safeModeListener != null) return;
+    final safeModeSvc = SafeModeService.instance;
+    _lastSafeModeActive = safeModeSvc.isActive;
+    _safeModeListener = () {
+      final nowActive = safeModeSvc.isActive;
+      if (!_lastSafeModeActive && nowActive) {
+        // Just entered an enforcing premises — re-check subscription
+        // before the chip / paywall reads the cached answer. Throttle
+        // shared with the lifecycle hook so polygon-edge flicker
+        // doesn't hammer the RPC.
+        refreshThrottled();
+      }
+      _lastSafeModeActive = nowActive;
+    };
+    safeModeSvc.addListener(_safeModeListener!);
   }
 }
