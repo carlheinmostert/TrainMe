@@ -1053,6 +1053,13 @@ class FaceEnrolmentService extends ChangeNotifier {
       if (embsRaw.isEmpty) {
         // No face detected in the frame — silently skip; the next tick
         // retries.
+        if (_kDiagLogs) {
+          debugPrint(
+            '[FaceEnrolment] tick NO_FACE — Vision returned no embedding '
+            'for the captured frame. Likely causes: face out of frame, '
+            'too dark, camera covered, or selfie cam not active.',
+          );
+        }
         return;
       }
 
@@ -1082,7 +1089,18 @@ class FaceEnrolmentService extends ChangeNotifier {
       final targetCentre = targetBucket.centerDeg;
       final dToTarget = poseDistance(candidatePose, targetCentre);
       const double promptAcceptTolerance = 20.0;
-      if (dToTarget > promptAcceptTolerance) return;
+      if (dToTarget > promptAcceptTolerance) {
+        if (_kDiagLogs) {
+          debugPrint(
+            '[FaceEnrolment] tick POSE_REJECT prompt=$_currentPromptIndex '
+            'bucket=$targetBucket '
+            'measured=(yaw=${yawDeg.toStringAsFixed(1)}, pitch=${pitchDeg.toStringAsFixed(1)}) '
+            'target=(yaw=${targetCentre.yaw.toStringAsFixed(1)}, pitch=${targetCentre.pitch.toStringAsFixed(1)}) '
+            'delta=${dToTarget.toStringAsFixed(1)} tolerance=${promptAcceptTolerance.toStringAsFixed(1)}',
+          );
+        }
+        return;
+      }
 
       final existingPoses = _accumulatedSlots
           .map((s) => (
