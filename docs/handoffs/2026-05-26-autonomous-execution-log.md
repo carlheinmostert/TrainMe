@@ -23,29 +23,42 @@ This document is the running record of every consequential decision I made witho
 
 ## Wave 1 — Foundation (handout + multi-kind publish)
 
-**Branch:** `feat/artifact-handout-foundation`
-**Status:** Dispatched 2026-05-26 — agent running (id `aa36619ac717a1a72`)
-**Brief:** see the parent session's last Agent dispatch
-**Reading order for review:** `docs/ARTIFACT_SYSTEM.md` (the design) → ADRs 0022, 0025, 0027 → this wave's PR
+**Branch:** `feat/artifact-handout-foundation` (deleted after merge)
+**PR:** #533 — **MERGED to staging** as squash commit `5715efd`
+**Reading order for review:** `docs/ARTIFACT_SYSTEM.md` (the design) → ADRs 0022, 0025, 0027 → PR #533
 
 ### Decisions made without Carl
 
-(populated when the agent returns)
+- **Kept `web-player/lobby.js` mostly intact** (agent's judgement call). The original brief said delete the file; agent discovered it's 3,526 lines and houses the player's pre-workout entry surface (hero matrix, gear popover, treatment pills, body-focus, Start-Workout button, settings popover, hero-crop hydration, signed-URL expiry recovery) — not just the PDF export. Agent removed only the export region (~1,300 lines: `triggerLobbyShare` + helpers + constants + `lobby-share-btn` wiring) and left the rest. ADR 0025 only called for deleting the export path anyway — the original brief was over-broad on this single instruction. **I agree with the agent's call; revisit if the player misbehaves.**
+- **`plan_issuances.kind` made nullable** (agent's call). The existing client-side INSERT via RLS policy `plan_issuances_insert_own` keeps writing rows without `kind`; new RPC writes filled-in rows. Revoking INSERT from `authenticated` belongs to Wave 3 when the Flutter publish flow moves into the new RPC.
+- **`status` enum left untouched.** ADR 0022 + the design doc propose `offered → rendering → ready → failed`. Existing constraint is `pending → generating → ready → failed`. Computed kinds (handout) go straight to `'ready'`; no functional difference. Migrating the enum is a separate later concern.
+- **Manual mirror sync** (my call, post-agent). The drift guard failed because the agent updated `web-player/*` but didn't sync to `app/assets/web-player/*`. I attempted `dart run app/tool/sync_web_player_bundle.dart` which crashed on a native-assets compile error on this Mac. Manual `cp` of every modified+new file did the equivalent. Committed as `chore(artifact-system): sync web-player mirror for Wave 1 handout`.
+- **Rebase onto current staging** (my call, post-agent). The pre-rebase CI had 2 Flutter test failures in `face_enrolment_service_test.dart` — pre-existing failures fixed by PR #534 (Vision streamed-yaw rebuild Phase 2) that landed on staging while Wave 1 was being implemented. Rebasing onto `f69a6c3` (then-current staging tip) resolved them.
 
 ### Pre-flight findings against live staging DB
 
-(populated when the agent returns)
+Agent verified:
+- `get_plan_full` is `RETURNS jsonb`, NOT `RETURNS TABLE`. Migration carries the whole existing body forward and only extends the `v_artifacts` sub-select. Every existing key (three-treatment URLs, sets, thumbnails, brand colour, public profile) preserved.
+- `consume_credit` already upserts a `plan_url` `plan_artifacts` row on all three publish paths (paid, free self-trainer, prepaid unlock). New `publish_plan_artifacts` RPC rides on top via `ON CONFLICT ... DO UPDATE` (idempotent; re-ticking is no-op).
 
 ### Manual-apply state
 
-(populated when the agent returns — whether Branching CI worked or `supabase db query --linked --file` was required)
+**Branching CI applied the migration cleanly** — "Apply all migrations against Postgres 17" check passed. Supabase Preview branch DB also populated successfully. No manual `supabase db query --linked --file` needed for this wave. The `feedback_supabase_branching_one_source.md` "Branching wedged" memory may be stale; future waves can default to git-only apply unless CI reports otherwise.
+
+### Files touched
+
+15 files, +2,098 / -2,138 (net smaller — deprecation removed more than the handout added):
+
+- **New:** `supabase/migrations/20260526150953_artifact_system_foundation.sql`, `web-player/handout.{html,css,js}`
+- **Modified:** `web-player/{api.js, middleware.js, vercel.json, sw.js, index.html, lobby.js, styles.css, app.js}`, `app/lib/screens/unified_preview_screen.dart`, full mirror in `app/assets/web-player/`
+- **Deleted:** `web-player/{html2canvas.min.js, jspdf.umd.min.js}` + mirror copies
 
 ---
 
 ## Wave 2 — Claim + consumer identity
 
-**Branch:** `feat/artifact-claim-consumer-identity` (planned)
-**Status:** Queued
+**Branch:** `feat/artifact-claim-consumer-identity`
+**Status:** Dispatched 2026-05-26 (running in parallel with Wave 3 — no file overlap; Wave 2 = web only, Wave 3 = Flutter only)
 
 ### Locked decisions Carl approved before stepping away
 
@@ -62,8 +75,8 @@ This document is the running record of every consequential decision I made witho
 
 ## Wave 3 — Practitioner publish surfaces
 
-**Branch:** `feat/artifact-publish-gate` (planned)
-**Status:** Queued
+**Branch:** `feat/artifact-publish-gate`
+**Status:** Dispatched 2026-05-26 (running in parallel with Wave 2)
 
 ### Scope
 
