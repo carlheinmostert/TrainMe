@@ -11,6 +11,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/h/:planId",
+      "destination": "/handout.html"
+    },
+    {
       "source": "/v/:practiceSlug/:premisesSlug/now",
       "destination": "/live.html"
     },

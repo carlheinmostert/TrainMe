@@ -100,6 +100,10 @@ const APP_SHELL = [
   '/lobby.js',
   '/v.html',
   '/v.js',
+  // Workout handout (artifact-system Wave 1 / ADR 0025).
+  '/handout.html',
+  '/handout.css',
+  '/handout.js',
 ];
 
 // ============================================================

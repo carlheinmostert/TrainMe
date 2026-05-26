@@ -23,8 +23,13 @@
 export default async function middleware(request) {
   const url = new URL(request.url);
   const planMatch = url.pathname.match(/^\/p\/([a-zA-Z0-9_-]+)/);
+  // Workout handout (artifact-system Wave 1 / ADR 0025) — same OG pattern
+  // as /p/{planId}. The bot sees the plan title + first non-rest hero
+  // image. The unfurl card is the same as the player so practitioners
+  // pasting either link into WhatsApp get an equivalent preview.
+  const handoutMatch = url.pathname.match(/^\/h\/([a-zA-Z0-9_-]+)/);
   const profileMatch = url.pathname.match(/^\/v\/([a-z0-9-]+)/);
-  if (!planMatch && !profileMatch) return; // Not a known surface, pass through
+  if (!planMatch && !handoutMatch && !profileMatch) return; // Not a known surface, pass through
 
   const ua = request.headers.get('user-agent') || '';
   const isBot = /WhatsApp|facebookexternalhit|Twitterbot|LinkedInBot|Slackbot|TelegramBot/i.test(ua);
@@ -116,7 +121,8 @@ export default async function middleware(request) {
     }
   }
 
-  const planId = planMatch[1];
+  const planId = (planMatch && planMatch[1]) || (handoutMatch && handoutMatch[1]);
+  const isHandout = !planMatch && !!handoutMatch;
 
   try {
     // Anon-safe read via SECURITY DEFINER RPC (param name is p_plan_id,
@@ -154,9 +160,14 @@ export default async function middleware(request) {
     const title = plan.title || plan.client_name || 'Your exercise plan';
     const exerciseCount = plan.exercise_count
       || exercises.filter((e) => e && e.media_type !== 'rest').length;
-    const description = `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} ready for you`;
+    // Handout copy differs from player copy — the handout is the
+    // print-friendly hand-off ("save / print your plan"), the player is
+    // the workout-along experience.
+    const description = isHandout
+      ? `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} · printable workout handout`
+      : `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} ready for you`;
     const thumbnail = firstVisible?.thumbnail_url || '';
-    const planUrl = `${originHost}/p/${planId}`;
+    const planUrl = `${originHost}${isHandout ? '/h/' : '/p/'}${planId}`;
 
     // Return minimal HTML with OG tags + redirect.
     // Brand: always "homefit.studio" (lowercase, one word). The bot sees
@@ -206,5 +217,5 @@ function escapeHtml(str) {
 }
 
 export const config = {
-  matcher: ['/p/:path*', '/v/:slug*'],
+  matcher: ['/p/:path*', '/h/:planId*', '/v/:slug*'],
 };

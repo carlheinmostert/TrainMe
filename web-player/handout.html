@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- Open Graph fallback — web-player/middleware.js rewrites these per-plan
+       for bot user-agents so WhatsApp / iMessage previews unfurl with the
+       real plan title + hero image. Same pattern the /p/ player uses. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Your workout handout — homefit.studio" />
+  <meta property="og:description" content="A page-format view of your exercise plan — reps, sets, notes, with a Save-PDF button." />
+  <meta property="og:image" content="" />
+  <meta property="og:url" content="" />
+  <meta property="og:site_name" content="homefit.studio" />
+
+  <title>Workout handout — homefit.studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/handout.css" />
+</head>
+<body class="handout-body">
+
+  <!-- Loading skeleton — coral spinner matching the player's pattern. -->
+  <div id="handout-loading" class="handout-loading" role="status" aria-live="polite">
+    <div class="handout-loading-dot"></div>
+    <p>Loading your plan…</p>
+  </div>
+
+  <!-- Error fallback — shown if the plan ID is invalid or no handout has
+       been published for this plan. Anonymous-link surface per ADR 0024 —
+       the page never asks the recipient to sign in or contact support. -->
+  <div id="handout-error" class="handout-error" hidden>
+    <div class="handout-error-icon">!</div>
+    <h2>This plan isn’t available</h2>
+    <p>The link may have expired or the plan may no longer be published. Ask your practitioner to share the link again.</p>
+  </div>
+
+  <!-- No-JS fallback. -->
+  <noscript>
+    <div class="handout-error" style="display:block">
+      <div class="handout-error-icon">!</div>
+      <h2>JavaScript required</h2>
+      <p>This workout handout needs JavaScript to load. Please enable it in your browser settings.</p>
+    </div>
+  </noscript>
+
+  <!-- Main page chrome. JS unhides this once the plan loads. -->
+  <main id="handout-page" class="handout-page" hidden>
+
+    <!-- Header — practitioner brand + plan title + practitioner byline + print button.
+         The .skin-{name} class is NOT applied in Wave 1; brand-skin overrides ship
+         in Wave 4. The default homefit lockup renders unconditionally. -->
+    <header class="handout-header">
+      <div class="handout-brand">
+        <!-- Default homefit.studio lockup. The `.studio` part is COLOURED CORAL
+             per locked decision #28 in the artifact-system design doc — both
+             the dot AND the word. Memory ref: feedback_homefit_studio_wordmark.md.
+             The seal at the footer also renders coral on this same convention. -->
+        <div class="brand-default" aria-label="homefit.studio">
+          <span class="brand-name">homefit</span><!--
+          --><span class="brand-dot dotsuf">.</span><!--
+          --><span class="brand-studio dotsuf">studio</span>
+        </div>
+        <h1 class="handout-title" id="handout-title">Loading…</h1>
+        <p class="handout-byline" id="handout-byline"></p>
+      </div>
+      <button class="handout-print-btn" id="handout-print-btn" type="button" title="Print or save as PDF" aria-label="Print or save as PDF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 9V3h12v6" />
+          <rect x="3" y="9" width="18" height="9" rx="2" />
+          <rect x="6" y="14" width="12" height="7" />
+        </svg>
+      </button>
+    </header>
+
+    <!-- Claim chip — soft, dismissible, escalating-but-never-modal per
+         R-01 + ADR 0024 (locked decisions #11 + #12). VISIBLE in Wave 1 to
+         seed the funnel; the click handler is a TODO until the Wave 2
+         magic-link claim flow lands. The chip is hidden in print via
+         @media print + body.is-printing. -->
+    <aside class="handout-claim" id="handout-claim">
+      <span class="handout-claim-glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+          <path d="M12 11v6M9 14l3 3 3-3" />
+        </svg>
+      </span>
+      <div class="handout-claim-text">
+        <div class="handout-claim-title">Save this plan to your phone</div>
+        <div class="handout-claim-sub">One tap · magic-link sign-in · all your plans in one place</div>
+      </div>
+      <button class="handout-claim-x" id="handout-claim-x" type="button" title="Dismiss" aria-label="Dismiss claim prompt">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </aside>
+
+    <!-- Treatment toggle — Line / B&W / Original. Same consent gating as
+         the player (locked decision #10 — no "higher bar for print"). -->
+    <div class="handout-treatment" id="handout-treatment">
+      <span class="handout-treatment-label">View</span>
+      <div class="handout-seg" role="tablist" aria-label="Treatment selection">
+        <button type="button" class="handout-seg-item is-active" data-treatment="line" role="tab" aria-selected="true">Line</button>
+        <button type="button" class="handout-seg-item" data-treatment="bw" role="tab" aria-selected="false">B&amp;W</button>
+        <button type="button" class="handout-seg-item" data-treatment="original" role="tab" aria-selected="false">Original</button>
+      </div>
+    </div>
+
+    <!-- Exercise list — flat list with optional circuit groupings.
+         JS renders into this container; markup pattern below in handout.js. -->
+    <section class="handout-list" id="handout-list" aria-label="Exercises"></section>
+
+    <!-- Footer seal — ALWAYS homefit coral, even when a brand-skin lands in
+         Wave 4. The CSS uses --seal-coral / --seal-coral-light tokens that
+         the .skin-{name} override class is forbidden from re-pointing.
+         Locked decision #23. -->
+    <footer class="handout-seal">
+      <div class="handout-seal-mark">
+        <div class="handout-seal-line">
+          <span class="handout-seal-powered">powered by</span>
+          <span class="handout-seal-brand">
+            <span>homefit</span><span class="dotsuf">.</span><span class="dotsuf">studio</span>
+          </span>
+        </div>
+        <div class="handout-seal-version" id="handout-seal-version">v? · loading</div>
+      </div>
+      <!-- QR — Wave 1 placeholder. Wave fast-follow renders a real QR
+           pointing at /p/{planId}?ref={practiceReferralCode} per ADR 0029
+           locked decision #23. Today this is a CSS-only square. -->
+      <div class="handout-qr" id="handout-qr" title="Open the workout player">
+        <div class="handout-qr-inner"></div>
+      </div>
+    </footer>
+  </main>
+
+  <script src="/api.js"></script>
+  <script src="/handout.js"></script>
+</body>
+</html>
