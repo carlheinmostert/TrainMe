@@ -664,8 +664,31 @@ class FaceEnrolmentService extends ChangeNotifier {
   /// M37 — most-recent pose event observed (regardless of accept).
   /// Drives the hint-text "closest unfilled bucket" computation + the
   /// stall flag updates. Updated on every pose stream event.
-  // ignore: unused_field
   ({double yaw, double pitch})? _lastObservedPose;
+
+  /// Public read-only getter for the debug HUD. Returns the most-recent
+  /// pose values received via the EventChannel (already mirror-inverted
+  /// to user-perspective by the native side). Null until the first
+  /// pose event lands or after dispose.
+  ({double yaw, double pitch})? get lastObservedPose => _lastObservedPose;
+
+  /// Diagnostic counters — wired purely to surface event-delivery
+  /// behaviour in the on-screen debug HUD when device-side log
+  /// streaming is unavailable (iOS profile-build NSLog filtering).
+  ///
+  /// - [poseEventCount] increments on every pose event received from
+  ///   the native EventChannel, regardless of whether yaw/pitch were
+  ///   nil. Zero after several seconds of camera time means the native
+  ///   side is not emitting (Vision isn't running or the stream is
+  ///   detached).
+  /// - [poseNilCount] increments on the subset of events where either
+  ///   yaw or pitch came back nil (frame skipped per the no-silent-
+  ///   fallback rule). If this tracks 1:1 with [poseEventCount] we have
+  ///   the Vision-returns-nil-on-streamed-buffers regression.
+  int _poseEventCount = 0;
+  int _poseNilCount = 0;
+  int get poseEventCount => _poseEventCount;
+  int get poseNilCount => _poseNilCount;
 
   /// M37 — guard against re-entrant `captureFrameAndEmbed` calls.
   /// Each native call takes ~50-150ms; a second pose event landing
@@ -962,8 +985,13 @@ class FaceEnrolmentService extends ChangeNotifier {
   /// fire captureFrameAndEmbed when we're within tolerance + idle.
   Future<void> _onPoseEvent(FaceEnrolmentPoseEvent event) async {
     if (_cancelled) return;
+    // Debug HUD counter — every event from the native EventChannel
+    // increments this regardless of whether it's actionable. Surfaces
+    // "is the stream alive at all" without needing device logs.
+    _poseEventCount += 1;
     if (_currentPromptIndex < 0 ||
         _currentPromptIndex >= kPromptSequence.length) {
+      notifyListeners();
       return;
     }
     final yawDeg = event.yawDeg;
@@ -974,11 +1002,13 @@ class FaceEnrolmentService extends ChangeNotifier {
       // next event retries. The native side already nil-skips emission
       // when either yaw or pitch came back nil, so reaching this branch
       // means a defensive miss against malformed payloads.
+      _poseNilCount += 1;
       if (_kDiagLogs) {
         debugPrint(
           '[FaceEnrolment] pose event with nil axis — yaw=$yawDeg pitch=$pitchDeg (skipping)',
         );
       }
+      notifyListeners();
       return;
     }
     final candidatePose = (yaw: yawDeg, pitch: pitchDeg);

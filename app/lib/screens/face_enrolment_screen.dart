@@ -920,6 +920,7 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     // embedding render the same prompt-walk UI; service drives which
     // prompt + stall flags are surfaced).
     return _PoseGatedSweepView(
+      service: _service,
       cameraController: _cameraController,
       cameraReady: _cameraReady,
       filledBuckets: _service.filledBuckets,
@@ -1358,8 +1359,13 @@ class _PoseGatedSweepView extends StatelessWidget {
   final VoidCallback onCameraFlip;
   final VoidCallback onSkipPrompt;
   final String? toast;
+  /// M38 debug HUD reads pose counters + last-observed pose off the
+  /// service. Plumbing it as a field rather than reaching for InheritedWidget
+  /// keeps the change minimal — the HUD is intentionally short-lived.
+  final FaceEnrolmentService service;
 
   const _PoseGatedSweepView({
+    required this.service,
     required this.cameraController,
     required this.cameraReady,
     required this.filledBuckets,
@@ -1554,6 +1560,13 @@ class _PoseGatedSweepView extends StatelessWidget {
                   total: totalPrompts,
                   current: currentPromptIndex,
                 ),
+                const SizedBox(height: 10),
+                // M38 DEBUG HUD — live pose telemetry. Surfaces what the
+                // native EventChannel is actually delivering when iOS
+                // profile-build NSLog filtering hides Console.app logs.
+                // Remove once the Vision pose plumbing is verified
+                // end-to-end on real hardware.
+                _DebugPoseHud(service: service),
               ],
             ),
           ),
@@ -1578,6 +1591,98 @@ class _PoseGatedSweepView extends StatelessWidget {
             child: _ErrorToast(message: toast!),
           ),
       ],
+    );
+  }
+}
+
+/// M38 — debug HUD that surfaces live pose telemetry on the
+/// enrolment screen because iOS profile-build NSLog/debugPrint are
+/// filtered by the unified-logging system, leaving Console.app empty
+/// and the Phase 1 POC `[FaceEnrolment-vision]` lines invisible.
+///
+/// Renders four lines:
+///   events=N nil=M       — pose-event counters; nil counts events
+///                           where Vision returned a null yaw/pitch
+///                           (the M35 dead-end signature).
+///   yaw=…  pitch=…       — most-recent observed pose in degrees
+///                           (already user-perspective from the
+///                           native mirror inversion).
+///   target=… (yaw/pitch) — the current bucket's target centre.
+///   Δ=… (tol 20)         — Manhattan-sum distance + accept threshold.
+///
+/// Rebuilds on every `notifyListeners()` from the service, which fires
+/// on every pose event. Coral text on a 60%-black pill so it stays
+/// readable over the camera preview. Remove once the rebuild is
+/// verified end-to-end on hardware.
+class _DebugPoseHud extends StatelessWidget {
+  final FaceEnrolmentService service;
+
+  const _DebugPoseHud({required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: service,
+      builder: (context, _) {
+        final last = service.lastObservedPose;
+        final yawStr = last == null ? '—' : last.yaw.toStringAsFixed(1);
+        final pitchStr = last == null ? '—' : last.pitch.toStringAsFixed(1);
+        final target = service.currentTargetBucket?.centerDeg;
+        final tYawStr =
+            target == null ? '—' : target.yaw.toStringAsFixed(0);
+        final tPitchStr =
+            target == null ? '—' : target.pitch.toStringAsFixed(0);
+        final delta = (last == null || target == null)
+            ? '—'
+            : poseDistance(last, target).toStringAsFixed(1);
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.55),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'events=${service.poseEventCount}  nil=${service.poseNilCount}',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                  height: 1.4,
+                ),
+              ),
+              Text(
+                'yaw=$yawStr°  pitch=$pitchStr°',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  height: 1.4,
+                ),
+              ),
+              Text(
+                'target=$tYawStr°/$tPitchStr°   Δ=$delta (tol 20)',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
