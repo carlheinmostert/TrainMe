@@ -14,6 +14,7 @@ import '../models/client.dart';
 import '../services/api_client.dart';
 import '../services/face_embedding_service.dart';
 import '../services/face_enrolment_camera.dart';
+import '../services/face_enrolment_debug_hud_preference.dart';
 import '../services/face_enrolment_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -176,6 +177,12 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
   /// detects self-enrolment on first open (rare, Carl-sentinel-claim).
   bool _useFrontCamera = false;
 
+  /// M38 (2026-05-26) — gates rendering of [_DebugPoseHud]. Loaded from
+  /// [FaceEnrolmentDebugHudPreference] in [initState]. Default false
+  /// so the HUD only surfaces when a practitioner (Carl) has explicitly
+  /// flipped it on via Settings → Diagnostics.
+  bool _debugHudEnabled = FaceEnrolmentDebugHudPreference.defaultValue;
+
   /// True while the camera flip toggle is busy tearing down + re-
   /// initialising. Suppresses repeated taps that would race the
   /// camera plugin's lifecycle.
@@ -203,6 +210,19 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
       if (!mounted) return;
       _initCamera();
     }));
+    // M38 — load the debug HUD pref. Best-effort; the HUD just stays
+    // hidden if the pref read flakes.
+    unawaited(_loadDebugHudPref());
+  }
+
+  Future<void> _loadDebugHudPref() async {
+    try {
+      final enabled = await FaceEnrolmentDebugHudPreference.isEnabled();
+      if (!mounted) return;
+      setState(() => _debugHudEnabled = enabled);
+    } catch (_) {
+      // Default stays false.
+    }
   }
 
   @override
@@ -921,6 +941,7 @@ class _FaceEnrolmentScreenState extends State<FaceEnrolmentScreen>
     // prompt + stall flags are surfaced).
     return _PoseGatedSweepView(
       service: _service,
+      debugHudEnabled: _debugHudEnabled,
       cameraController: _cameraController,
       cameraReady: _cameraReady,
       filledBuckets: _service.filledBuckets,
@@ -1363,9 +1384,12 @@ class _PoseGatedSweepView extends StatelessWidget {
   /// service. Plumbing it as a field rather than reaching for InheritedWidget
   /// keeps the change minimal — the HUD is intentionally short-lived.
   final FaceEnrolmentService service;
+  /// M38 — gated by [FaceEnrolmentDebugHudPreference]. False = HUD hidden.
+  final bool debugHudEnabled;
 
   const _PoseGatedSweepView({
     required this.service,
+    required this.debugHudEnabled,
     required this.cameraController,
     required this.cameraReady,
     required this.filledBuckets,
@@ -1560,13 +1584,15 @@ class _PoseGatedSweepView extends StatelessWidget {
                   total: totalPrompts,
                   current: currentPromptIndex,
                 ),
-                const SizedBox(height: 10),
-                // M38 DEBUG HUD — live pose telemetry. Surfaces what the
-                // native EventChannel is actually delivering when iOS
-                // profile-build NSLog filtering hides Console.app logs.
-                // Remove once the Vision pose plumbing is verified
-                // end-to-end on real hardware.
-                _DebugPoseHud(service: service),
+                if (debugHudEnabled) ...[
+                  const SizedBox(height: 10),
+                  // M38 DEBUG HUD — live pose telemetry. Surfaces what the
+                  // native EventChannel is actually delivering when iOS
+                  // profile-build NSLog filtering hides Console.app logs.
+                  // Toggled via Settings → Diagnostics → "Show face-
+                  // enrolment pose HUD" (default OFF).
+                  _DebugPoseHud(service: service),
+                ],
               ],
             ),
           ),

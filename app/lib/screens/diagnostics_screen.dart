@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../services/api_client.dart';
 import '../services/homefit_haptics.dart';
 import '../services/loud_swallow.dart';
+import '../services/face_enrolment_debug_hud_preference.dart';
 import '../services/safe_mode_debug_hud_preference.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -116,6 +117,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   /// the pref resolves.
   bool? _safeModeDebugHudEnabled;
 
+  /// M38 (2026-05-26) — Face-enrolment pose HUD toggle, same gating
+  /// pattern as the Safe Mode entry above. null = still loading.
+  bool? _faceEnrolmentDebugHudEnabled;
+
   @override
   void initState() {
     super.initState();
@@ -123,6 +128,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     // time-bounded so one slow RPC can't block the others.
     _runAll();
     unawaited(_loadSafeModeDebugHudPref());
+    unawaited(_loadFaceEnrolmentDebugHudPref());
   }
 
   Future<void> _loadSafeModeDebugHudPref() async {
@@ -139,6 +145,22 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     HapticFeedback.selectionClick();
     setState(() => _safeModeDebugHudEnabled = value);
     await SafeModeDebugHudPreference.setEnabled(value);
+  }
+
+  Future<void> _loadFaceEnrolmentDebugHudPref() async {
+    try {
+      final enabled = await FaceEnrolmentDebugHudPreference.isEnabled();
+      if (!mounted) return;
+      setState(() => _faceEnrolmentDebugHudEnabled = enabled);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
+  Future<void> _toggleFaceEnrolmentDebugHud(bool value) async {
+    HapticFeedback.selectionClick();
+    setState(() => _faceEnrolmentDebugHudEnabled = value);
+    await FaceEnrolmentDebugHudPreference.setEnabled(value);
   }
 
   Future<void> _runAll() async {
@@ -369,6 +391,21 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   onChanged: _safeModeDebugHudEnabled == null
                       ? null
                       : _toggleSafeModeDebugHud,
+                ),
+                _Divider(),
+                _ToggleRow(
+                  icon: Icons.center_focus_strong_outlined,
+                  label: 'Show face-enrolment pose HUD',
+                  subtitle:
+                      'Live pose telemetry on the face-enrolment '
+                      'screen — event count, nil-axis count, '
+                      'observed yaw/pitch, current target + delta. '
+                      'Use when an enrolment sweep is stuck and '
+                      'profile-build logs aren’t reachable.',
+                  value: _faceEnrolmentDebugHudEnabled ?? false,
+                  onChanged: _faceEnrolmentDebugHudEnabled == null
+                      ? null
+                      : _toggleFaceEnrolmentDebugHud,
                 ),
               ],
             ),
