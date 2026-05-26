@@ -1,15 +1,34 @@
 import Flutter
 import UIKit
 import AVFoundation
+import Vision
 import os.log
 
-// MARK: - M37 — Real-time AVCaptureMetadataOutput face tracking
+// MARK: - M37 + M38 — Real-time face tracking with optional Vision pose
 //
-// Replaces the still-image `VNDetectFaceLandmarksRequest` pose detection
-// that the Wave-D + Phase 2 enrolment flow relied on. Diagnostic logs on
-// Carl's iPhone confirmed VNFaceObservation.yaw / .pitch returned nil for
-// EVERY captured frame (even straight-ahead, even with revision 3), which
-// silently rejected the entire sweep at the per-prompt tolerance check.
+// Lineage:
+//   - Wave-D / Phase 2 ran VNDetectFaceLandmarksRequest on STILL JPEGs.
+//     On Carl's iPhone every observation returned nil yaw + nil pitch
+//     so the per-prompt tolerance gate rejected every frame.
+//   - M37 swapped to AVCaptureMetadataOutput which returns yaw + roll
+//     from the ISP reliably across off-axis angles. Two problems: the
+//     yaw is QUANTIZED to 45-degree steps (`yawAngle` returns 0, 45,
+//     90, ...), and `pitch` is not exposed at all. That made the
+//     prompt sweep land within 20-degree tolerance windows but with
+//     coarse staircased values that snap rather than glide.
+//
+// M38 (this commit) — POC pass to validate that
+// `VNDetectFaceLandmarksRequest` on CMSampleBuffer (NOT the still-JPEG
+// path that previously failed) returns non-nil continuous yaw + pitch.
+// If the diagnostic logs from Carl's iPhone confirm Vision works on the
+// streamed buffer, the follow-up wave replaces the metadata-emit path
+// with the Vision-derived pose. Until then both paths co-exist:
+//
+//   * `AVCaptureMetadataOutput` keeps emitting + drives the existing
+//     prompt walker (unchanged behaviour for safety).
+//   * `VNDetectFaceLandmarksRequest` runs on every Nth video frame
+//     (~10 Hz at 30 FPS) on the same outputQueue. Results are logged
+//     via NSLog only — NOT routed into the pose event stream yet.
 //
 // This channel owns an `AVCaptureSession` configured for the front
 // (or back) camera with TWO outputs:
@@ -133,6 +152,19 @@ final class FaceEnrolmentCameraChannel: NSObject {
     /// detected since session start.
     private var latestFaceBoundsNormalized: CGRect?
     private let latestFaceLock = NSLock()
+
+    // MARK: M38 POC — Vision on streamed CMSampleBuffer
+
+    /// Reused across frames so CoreML model load happens once. Configured
+    /// in `prepareVisionRequest()` the first time a frame is processed.
+    private var visionFaceRequest: VNDetectFaceLandmarksRequest?
+
+    /// Frame counter — every Nth frame is fed to Vision. With 30 FPS
+    /// capture and `kVisionEveryNthFrame = 3` we run at ~10 Hz, matching
+    /// Apple's own sample-code throttle. Higher rates thermal-throttle
+    /// the front camera during a 30s enrolment sweep.
+    private var videoFrameCounter: UInt64 = 0
+    private static let kVisionEveryNthFrame: UInt64 = 3
 
     init(messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
@@ -720,6 +752,126 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
         // Ring-buffer the latest sample. The captureFrameAndEmbed path
         // pulls from this ring on demand — we don't decode every frame.
         appendSample(sampleBuffer)
+
+        // M38 POC — run Vision face landmarks on every Nth frame to
+        // diagnose whether VNDetectFaceLandmarksRequest returns
+        // continuous yaw + pitch on streamed CMSampleBuffers (the
+        // still-image path returned nil for every frame on Carl's
+        // iPhone in the M35 wave). Synchronous on outputQueue — fine
+        // at 10 Hz; would not be at 30.
+        videoFrameCounter &+= 1
+        let frameIdx = videoFrameCounter
+        if frameIdx % Self.kVisionEveryNthFrame == 0 {
+            runVisionPoseDiagnostic(
+                sampleBuffer: sampleBuffer,
+                connection: connection,
+                frameIdx: frameIdx
+            )
+        }
+    }
+
+    /// Build (or reuse) the Vision request and run it against the given
+    /// `CMSampleBuffer`. Diagnostic logging only — does NOT route into
+    /// the pose event stream yet. See file-level M38 comment for the
+    /// POC plan.
+    private func runVisionPoseDiagnostic(
+        sampleBuffer: CMSampleBuffer,
+        connection: AVCaptureConnection,
+        frameIdx: UInt64
+    ) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            NSLog("[FaceEnrolment-vision] frame#\(frameIdx) NO_PIXEL_BUFFER")
+            return
+        }
+
+        // Build the Vision request once and reuse. revision 3 is the
+        // latest available on iOS 14+; the M35 still-image path used
+        // the same revision and STILL got nil yaw — that's the
+        // hypothesis Phase 1 is testing (revision wasn't the problem,
+        // the still-image input was).
+        if visionFaceRequest == nil {
+            let req = VNDetectFaceLandmarksRequest()
+            req.revision = VNDetectFaceLandmarksRequestRevision3
+            visionFaceRequest = req
+        }
+        guard let request = visionFaceRequest else { return }
+
+        let orientation = visionOrientation(for: connection)
+        let handler = VNImageRequestHandler(
+            cvPixelBuffer: pixelBuffer,
+            orientation: orientation,
+            options: [:]
+        )
+        do {
+            try handler.perform([request])
+        } catch {
+            NSLog(
+                "[FaceEnrolment-vision] frame#\(frameIdx) perform_threw=\(error.localizedDescription)"
+            )
+            return
+        }
+
+        let results = request.results ?? []
+        guard let obs = results.first else {
+            NSLog("[FaceEnrolment-vision] frame#\(frameIdx) face=NO")
+            return
+        }
+
+        // VNFaceObservation.yaw / .pitch / .roll are NSNumber? in radians
+        // on iOS 14+. Nil means Vision couldn't compute that axis.
+        if let yawNS = obs.yaw, let pitchNS = obs.pitch {
+            let yawRad = yawNS.doubleValue
+            let pitchRad = pitchNS.doubleValue
+            let rollRad = obs.roll?.doubleValue ?? .nan
+            let yawDeg = yawRad * 180.0 / .pi
+            let pitchDeg = pitchRad * 180.0 / .pi
+            let rollDeg = rollRad * 180.0 / .pi
+            NSLog(String(
+                format:
+                    "[FaceEnrolment-vision] frame#%llu face=YES yaw=%.3frad/%.1f° pitch=%.3frad/%.1f° roll=%.3frad/%.1f° orient=%@",
+                frameIdx, yawRad, yawDeg, pitchRad, pitchDeg, rollRad, rollDeg,
+                String(describing: orientation)
+            ))
+        } else {
+            let yawStr = obs.yaw.map { String(format: "%.3f", $0.doubleValue) } ?? "nil"
+            let pitchStr = obs.pitch.map { String(format: "%.3f", $0.doubleValue) } ?? "nil"
+            NSLog(
+                "[FaceEnrolment-vision] frame#\(frameIdx) face=YES POSE_NIL yaw=\(yawStr) pitch=\(pitchStr) orient=\(orientation)"
+            )
+        }
+    }
+
+    /// Resolve the `CGImagePropertyOrientation` to feed Vision so the
+    /// pixel buffer matches Vision's "upright" coordinate convention.
+    /// AVCaptureVideoDataOutput delivers raw sensor pixels — for the
+    /// front camera in portrait that's the sensor's native landscape
+    /// orientation rotated 90 degrees clockwise from "upright", AND
+    /// optionally horizontally mirrored if `isVideoMirrored` is true.
+    ///
+    /// We deliberately query the connection rather than hard-coding
+    /// `.leftMirrored` so the POC log shows which orientation was
+    /// actually picked. If the streamed Vision yaw values look wrong
+    /// we know which dimension to flip in the follow-up wave.
+    private func visionOrientation(
+        for connection: AVCaptureConnection
+    ) -> CGImagePropertyOrientation {
+        let videoOrientation: AVCaptureVideoOrientation =
+            connection.isVideoOrientationSupported
+                ? connection.videoOrientation
+                : .portrait
+        let mirrored = connection.isVideoMirrored
+        switch videoOrientation {
+        case .portrait:
+            return mirrored ? .leftMirrored : .right
+        case .portraitUpsideDown:
+            return mirrored ? .rightMirrored : .left
+        case .landscapeRight:
+            return mirrored ? .downMirrored : .up
+        case .landscapeLeft:
+            return mirrored ? .upMirrored : .down
+        @unknown default:
+            return .right
+        }
     }
 }
 
