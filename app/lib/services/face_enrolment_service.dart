@@ -1015,8 +1015,6 @@ class FaceEnrolmentService extends ChangeNotifier {
 
     final targetBucket = kPromptSequence[_currentPromptIndex];
     final targetCentre = targetBucket.centerDeg;
-    final dToTarget = poseDistance(candidatePose, targetCentre);
-    const double promptAcceptTolerance = 20.0;
 
     // Update the stall flags + hint bucket every pose event so the UI
     // reflects how close the user is to the target.
@@ -1024,7 +1022,26 @@ class FaceEnrolmentService extends ChangeNotifier {
     _currentTargetBucket = targetBucket;
     notifyListeners();
 
-    if (dToTarget > promptAcceptTolerance) {
+    // M42 (2026-05-26) — decoupled per-axis tolerance instead of
+    // Manhattan sum. Live device QA revealed the realistic posture for
+    // a phone held below eye level is pitch≈-12° even when the user is
+    // facing perfectly forward. With Manhattan-sum tolerance=20, the
+    // pitch baseline ate enough of the budget that prompt 3 (right,
+    // target yaw=+60) couldn't accept at yaw=+52 (delta 8) plus
+    // pitch=-12 (delta 12) = 20, exactly at threshold. Per-axis budgets
+    // model the real constraint: each axis is independently noisy + has
+    // its own ergonomic baseline. Yaw stays at 20° (the primary
+    // discriminator); pitch gets 30° because the natural baseline can
+    // drift that far. [poseDistance] stays unchanged — it's still used
+    // by other consumers (closestUnfilledBucket hint computation +
+    // tests).
+    const double yawTolerance = 20.0;
+    const double pitchTolerance = 30.0;
+    final dYawRaw = (candidatePose.yaw - targetCentre.yaw).abs();
+    final dYaw = dYawRaw > 180.0 ? 360.0 - dYawRaw : dYawRaw;
+    final dPitch = (candidatePose.pitch - targetCentre.pitch).abs();
+
+    if (dYaw > yawTolerance || dPitch > pitchTolerance) {
       if (_kDiagLogs) {
         debugPrint(
           '[FaceEnrolment] pose REJECT prompt=$_currentPromptIndex '
@@ -1033,7 +1050,8 @@ class FaceEnrolmentService extends ChangeNotifier {
           'measured_pitch=${pitchDeg.toStringAsFixed(1)} '
           'target_yaw=${targetCentre.yaw.toStringAsFixed(1)} '
           'target_pitch=${targetCentre.pitch.toStringAsFixed(1)} '
-          'delta=${dToTarget.toStringAsFixed(1)} tol=${promptAcceptTolerance.toStringAsFixed(1)}',
+          'dYaw=${dYaw.toStringAsFixed(1)} (tol $yawTolerance) '
+          'dPitch=${dPitch.toStringAsFixed(1)} (tol $pitchTolerance)',
         );
       }
       return;
