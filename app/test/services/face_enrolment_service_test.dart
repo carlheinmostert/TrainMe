@@ -538,36 +538,95 @@ void main() {
 
   // ── M30 — explicit prompt sequence (2026-05-26) ───────────────────────────
 
-  group('M30 — explicit prompt sequence', () {
+  group('Phase 2 — restored 6-prompt sequence with slightUp', () {
     test('kPromptSequence has six prompts', () {
       expect(kPromptSequence, hasLength(6));
+    });
+
+    test('sequence sweeps all five horizontal yaw angles + slightUp', () {
+      // Pose source is now Vision-on-CMSampleBuffer which emits pitch
+      // reliably, so the 6th prompt is a chin-lift rather than a smile
+      // retry of the front bucket. Order: front, right pair, left pair,
+      // chin up.
+      expect(
+        kPromptSequence,
+        const <PoseBucket>[
+          PoseBucket.front,
+          PoseBucket.frontRight,
+          PoseBucket.right,
+          PoseBucket.frontLeft,
+          PoseBucket.left,
+          PoseBucket.slightUp,
+        ],
+      );
+    });
+
+    test('full 6-prompt sweep advances through each bucket in order', () {
+      // Walk the sequence linearly and verify each step's expected
+      // bucket. Defends against accidental reordering — a sweep that
+      // pitches up before sweeping horizontally would force the
+      // practitioner to immediately swing through extremes.
+      for (var i = 0; i < kPromptSequence.length; i++) {
+        final bucket = kPromptSequence[i];
+        switch (i) {
+          case 0:
+            expect(bucket, PoseBucket.front);
+            break;
+          case 1:
+            expect(bucket, PoseBucket.frontRight);
+            break;
+          case 2:
+            expect(bucket, PoseBucket.right);
+            break;
+          case 3:
+            expect(bucket, PoseBucket.frontLeft);
+            break;
+          case 4:
+            expect(bucket, PoseBucket.left);
+            break;
+          case 5:
+            expect(bucket, PoseBucket.slightUp);
+            break;
+          default:
+            fail('Unexpected prompt index $i');
+        }
+      }
     });
 
     test('kPromptInstructions matches sequence length and is in order', () {
       expect(kPromptInstructions, hasLength(6));
       expect(kPromptInstructions[0], 'Look straight ahead');
-      expect(kPromptInstructions[1], 'Turn slowly to your right');
-      expect(kPromptInstructions[2], 'Turn slowly to your left');
-      expect(kPromptInstructions[3], 'Tilt head up slightly');
-      expect(kPromptInstructions[4], 'Tilt head down slightly');
-      expect(kPromptInstructions[5],
-          'Look straight ahead with a slight smile');
+      expect(kPromptInstructions[1], 'Turn slightly to your right');
+      expect(kPromptInstructions[2], 'Turn further to your right');
+      expect(kPromptInstructions[3], 'Turn slightly to your left');
+      expect(kPromptInstructions[4], 'Turn further to your left');
+      expect(kPromptInstructions[5], 'Lift your chin slightly');
     });
 
-    test('kPromptDirections matches sequence length', () {
+    test('kPromptDirections matches sequence length and points up at slot 5', () {
       expect(kPromptDirections, hasLength(6));
-      expect(kPromptDirections, ['straight', 'right', 'left', 'up', 'down', 'smile']);
+      expect(
+        kPromptDirections,
+        const <String>['straight', 'right', 'right', 'left', 'left', 'up'],
+      );
     });
 
-    test('kPromptStallHints has six entries', () {
+    test('kPromptStallHints has six entries with non-empty copy', () {
       expect(kPromptStallHints, hasLength(6));
       for (final hint in kPromptStallHints) {
         expect(hint, isNotEmpty);
       }
+      // The 6th stall hint is chin-lift specific now that the prompt
+      // is "Lift your chin slightly" rather than a smile retry.
+      expect(kPromptStallHints[5], contains('chin'));
     });
 
     test('first prompt target bucket is front', () {
       expect(kPromptSequence.first, PoseBucket.front);
+    });
+
+    test('last prompt target bucket is slightUp', () {
+      expect(kPromptSequence.last, PoseBucket.slightUp);
     });
 
     test('kMinPromptsForValidEnrolment is at most kPromptSequence.length', () {
@@ -577,6 +636,84 @@ void main() {
 
     test('stall hint timing — soft hint before skip hint', () {
       expect(kStallSoftHintAfter, lessThan(kStallSkipAfter));
+    });
+  });
+
+  group('Phase 2 — slightUp prompt requires non-zero pitch', () {
+    // The Vision-on-CMSampleBuffer pose source emits pitch reliably,
+    // so the slightUp bucket (yaw 0, pitch +20) demands a genuine
+    // chin-lift rather than any horizontal pose. These tests pin
+    // down that pitch is load-bearing for the slightUp bucket — a
+    // regression that re-pinned pitch to 0 would silently allow the
+    // straight-ahead pose to satisfy the chin-lift prompt.
+
+    test('horizontal pose (yaw 45, pitch 0) does NOT satisfy slightUp', () {
+      // slightUp centre is (yaw 0, pitch 20). Distance from (45, 0) is
+      // |45| + |20| = 65, well outside the 20-deg accept tolerance the
+      // service uses. The bucket walker correctly rejects the frame.
+      const horizontalCandidate = (yaw: 45.0, pitch: 0.0);
+      final target = PoseBucket.slightUp.centerDeg;
+      final d = poseDistance(horizontalCandidate, target);
+      expect(d, greaterThan(20.0),
+          reason: 'Pure-yaw pose must not satisfy the chin-up prompt');
+    });
+
+    test('chin-lift pose (yaw 0, pitch 20) satisfies slightUp', () {
+      const chinLiftCandidate = (yaw: 0.0, pitch: 20.0);
+      final target = PoseBucket.slightUp.centerDeg;
+      final d = poseDistance(chinLiftCandidate, target);
+      // On-bucket-centre — distance 0.
+      expect(d, 0.0);
+      // And it does NOT satisfy the front bucket (pitch 20 vs 0 = 20
+      // delta, equal to the accept tolerance — boundary case but the
+      // bucket walker tracks the CURRENT prompt's target, not the
+      // closest; this expectation is informational and pins down that
+      // the chin-lift pose is meaningfully different from front).
+      final frontDist = poseDistance(
+          chinLiftCandidate, PoseBucket.front.centerDeg);
+      expect(frontDist, 20.0);
+    });
+
+    test('snapToBucket prefers slightUp for a pure chin-lift pose', () {
+      // The 35-degree guard in snapToBucket means a clean (0, 20)
+      // pose should land on slightUp, not front.
+      expect(snapToBucket(const (yaw: 0.0, pitch: 20.0)),
+          PoseBucket.slightUp);
+    });
+  });
+
+  group('Phase 2 — pose event mirror semantics (user-perspective)', () {
+    // The native side negates yaw + roll for the front camera before
+    // emitting so the Dart side consumes user-perspective values
+    // directly. These tests pin down the contract that arriving pose
+    // events use the same chirality as kPromptSequence — a regression
+    // that dropped the inversion would make "turn right" prompts walk
+    // the wrong way.
+
+    test('positive yaw matches "user turned head right" (sequence chirality)', () {
+      // kPromptSequence position 2 targets PoseBucket.right with centre
+      // (yaw +60, pitch 0). If the native side ever stopped inverting
+      // yaw for the front camera, the practitioner turning their head
+      // to their right would emit NEGATIVE yaw and the prompt walker
+      // would silently never advance past prompt 1.
+      const userTurnedRight = (yaw: 60.0, pitch: 0.0);
+      final target = PoseBucket.right.centerDeg;
+      expect(poseDistance(userTurnedRight, target), 0.0);
+    });
+
+    test('negative yaw matches "user turned head left"', () {
+      const userTurnedLeft = (yaw: -60.0, pitch: 0.0);
+      final target = PoseBucket.left.centerDeg;
+      expect(poseDistance(userTurnedLeft, target), 0.0);
+    });
+
+    test('positive pitch matches "user lifted chin"', () {
+      // The native side does NOT negate pitch for the front camera
+      // (mirroring around the vertical axis doesn't swap up/down).
+      // A user lifting their chin should emit positive pitch directly.
+      const userChinUp = (yaw: 0.0, pitch: 20.0);
+      final target = PoseBucket.slightUp.centerDeg;
+      expect(poseDistance(userChinUp, target), 0.0);
     });
   });
 

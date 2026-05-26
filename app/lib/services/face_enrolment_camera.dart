@@ -2,17 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-/// M37 (2026-05-26) — Dart wrapper around the native
-/// `FaceEnrolmentCameraChannel` (`app/ios/Runner/FaceEnrolmentCameraChannel.swift`).
+/// Dart wrapper around the native `FaceEnrolmentCameraChannel`
+/// (`app/ios/Runner/FaceEnrolmentCameraChannel.swift`).
 ///
 /// Owns the lifecycle handshake for the native AVCaptureSession that
-/// powers real-time face tracking on the enrolment screen. Replaces
-/// the camera-plugin + still-image `VNDetectFaceLandmarksRequest`
-/// pipeline whose pose data was nil on every frame.
+/// powers real-time face tracking on the enrolment screen.
+///
+/// Pose source (Phase 2, 2026-05-26): pose is computed by
+/// `VNDetectFaceLandmarksRequest` (revision 3) on the streamed
+/// CMSampleBuffer at ~10 Hz. AVCaptureMetadataOutput is retained on
+/// the native side only for cheap face-presence + bounding-box update
+/// used by `captureFrameAndEmbed`; it no longer emits pose. Pitch is
+/// available again (the metadata-output path didn't expose it; Vision
+/// does), so the prompt walker can include "lift your chin" prompts.
 ///
 /// Surface:
 ///   - [poseStream] — broadcast stream of live face pose events at
-///     ~10-30 Hz. Subscribe BEFORE [start]ing; the native EventChannel
+///     ~10 Hz. Subscribe BEFORE [start]ing; the native EventChannel
 ///     is one-shot per onListen.
 ///   - [start] — boot the session for the given direction.
 ///   - [stop] — tear down.
@@ -20,18 +26,18 @@ import 'package:flutter/services.dart';
 ///     native ring buffer, write it as JPG, run MobileFaceNet,
 ///     return the 2048-byte embedding + frame path.
 ///
-/// Pose units: yaw + roll come from AVCaptureMetadataOutput in DEGREES
-/// already (no conversion needed). Pitch is NOT exposed — the M37
-/// brief chose option 1 (drop pitch-based prompts entirely) so the
-/// service-side prompt walker uses yaw-only buckets.
+/// Pose units: yaw / pitch / roll are emitted in DEGREES already
+/// (Vision returns radians; the native side converts before emitting).
 ///
-/// Pose perspective: the native channel emits yaw + roll in
+/// Pose perspective: the native channel emits yaw + pitch + roll in
 /// USER-PERSPECTIVE. Positive yaw = user turned their head to THEIR
-/// right; positive roll = user tilted toward THEIR right shoulder.
-/// This matches the chirality of [kPromptSequence] in
-/// `face_enrolment_service.dart`. The native side handles the
-/// front-camera mirror inversion before emitting — the Dart side
-/// never needs to know which physical camera produced the event.
+/// right; positive pitch = user lifted their chin; positive roll =
+/// user tilted toward THEIR right shoulder. This matches the chirality
+/// of [kPromptSequence] in `face_enrolment_service.dart`. The native
+/// side handles the front-camera mirror inversion before emitting (yaw
+/// + roll only — pitch isn't affected by horizontal mirroring) so the
+/// Dart side never needs to know which physical camera produced the
+/// event.
 class FaceEnrolmentCameraChannel {
   static const MethodChannel _methods =
       MethodChannel('homefit/face-enrolment-camera');
@@ -127,13 +133,29 @@ class FaceEnrolmentPoseEvent {
   /// pick is already bystander-resilient).
   final int faceID;
 
-  /// Yaw in DEGREES. Positive = head rotated to the device's RIGHT
-  /// (subject's left shoulder). Negative = device's LEFT. Null when
-  /// the ISP didn't compute yaw for this frame (rare on iPhone 12+).
+  /// Yaw in DEGREES, USER-PERSPECTIVE. Positive = user turned their
+  /// head to THEIR right (head rotates around the vertical axis).
+  /// Negative = user's left. Null when Vision couldn't compute yaw on
+  /// this frame — callers MUST skip the frame rather than default to
+  /// zero (per `feedback_no_silent_fallbacks`). The native side
+  /// already nil-skips emission when yaw OR pitch came back nil, so
+  /// in practice this is non-null whenever an event arrives — the
+  /// nullability is retained for defensive decoding.
   final double? yawDeg;
 
-  /// Roll in DEGREES. Positive = head tilted toward the subject's
-  /// RIGHT shoulder. Null when the ISP didn't compute roll.
+  /// Pitch in DEGREES, USER-PERSPECTIVE. Positive = user lifted their
+  /// chin (head tilts back). Negative = user dropped their chin. Null
+  /// for the same reason as [yawDeg] — defensive nil-skip rather than
+  /// silently default to zero. Pitch was unavailable on the prior
+  /// AVCaptureMetadataOutput pose source; the Vision-on-CMSampleBuffer
+  /// pipeline emits it. Phase 2 restored "lift your chin" prompts in
+  /// [kPromptSequence] now that pitch is reliable.
+  final double? pitchDeg;
+
+  /// Roll in DEGREES, USER-PERSPECTIVE. Positive = head tilted toward
+  /// the subject's RIGHT shoulder. Null when Vision didn't compute
+  /// roll on this frame. The prompt walker does not currently gate on
+  /// roll; this field is documented for completeness + diagnostics.
   final double? rollDeg;
 
   /// Face bounding box in NORMALIZED preview coordinates (top-left
@@ -152,6 +174,7 @@ class FaceEnrolmentPoseEvent {
   const FaceEnrolmentPoseEvent({
     required this.faceID,
     required this.yawDeg,
+    required this.pitchDeg,
     required this.rollDeg,
     required this.boundsX,
     required this.boundsY,
@@ -165,6 +188,7 @@ class FaceEnrolmentPoseEvent {
     return FaceEnrolmentPoseEvent(
       faceID: (m['faceID'] as num?)?.toInt() ?? -1,
       yawDeg: (m['yawDeg'] as num?)?.toDouble(),
+      pitchDeg: (m['pitchDeg'] as num?)?.toDouble(),
       rollDeg: (m['rollDeg'] as num?)?.toDouble(),
       boundsX: (m['boundsX'] as num?)?.toDouble() ?? 0.0,
       boundsY: (m['boundsY'] as num?)?.toDouble() ?? 0.0,
