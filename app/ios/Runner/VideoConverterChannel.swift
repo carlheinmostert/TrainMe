@@ -3225,7 +3225,13 @@ class VideoConverterChannel {
             // VNDetectFaceLandmarksRequest gives us yaw/pitch on the
             // VNFaceObservation (iOS 15+, in radians). VNDetectFaceRectanglesRequest
             // omits the pose info we need for greedy farthest-point picking.
+            // M35 (2026-05-26): pin to revision 3 (the latest, iOS 14+) for
+            // best off-axis pose coverage. Default revision can return nil
+            // pose for faces turned more than ~30deg.
             let request = VNDetectFaceLandmarksRequest()
+            if #available(iOS 14.0, *) {
+                request.revision = VNDetectFaceLandmarksRequestRevision3
+            }
             let handler = VNImageRequestHandler(
                 cgImage: uprightCG,
                 orientation: .up,
@@ -3243,11 +3249,20 @@ class VideoConverterChannel {
             if observations.count != 1 { continue }
             let obs = observations[0]
 
-            // Pose: VNFaceObservation.yaw / .pitch are NSNumber on iOS 15+.
-            // Default to 0.0 when nil (very rare — usually means landmarks
-            // didn't lock).
-            let yawRad: Double = obs.yaw?.doubleValue ?? 0.0
-            let pitchRad: Double = obs.pitch?.doubleValue ?? 0.0
+            // M35 (2026-05-26): VNFaceObservation.yaw / .pitch are NSNumber
+            // on iOS 15+. NIL means Vision couldn't compute pose for this
+            // frame. Previously we defaulted to 0.0, which made every
+            // unposed frame look like "straight ahead" -> trivially
+            // matched the front-pose prompt + advanced the sequence while
+            // the user was actually turning their head. Now: skip the
+            // frame entirely so the next tick retries. Per
+            // feedback_no_silent_fallbacks.
+            guard let yawNS = obs.yaw, let pitchNS = obs.pitch else {
+                NSLog("[FaceEnrolment-native] POSE_NIL — Vision returned obs but no yaw/pitch (revision=\\(request.revision)); skipping frame")
+                continue
+            }
+            let yawRad: Double = yawNS.doubleValue
+            let pitchRad: Double = pitchNS.doubleValue
 
             accepted.append(AcceptedFrame(
                 pathIndex: pathIdx,

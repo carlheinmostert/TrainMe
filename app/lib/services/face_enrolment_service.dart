@@ -1170,6 +1170,13 @@ class FaceEnrolmentService extends ChangeNotifier {
         );
       }
 
+      // M36 (2026-05-26): haptic on accept so the user KNOWS to look back
+      // at the screen for the next prompt. When turning the head left/right
+      // they physically can't see the screen during the move; the haptic
+      // is the "got it, look here" signal. Medium impact = distinct + not
+      // jarring. Fire BEFORE the advance so it pairs with the dot fill.
+      HapticFeedback.mediumImpact();
+
       // Advance to the next prompt (or finish if we just accepted the
       // last one). The while-loop in startPoseGatedSweep will exit on
       // next iteration when _currentPromptIndex hits sequence length.
