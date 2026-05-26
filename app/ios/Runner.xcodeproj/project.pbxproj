@@ -26,6 +26,7 @@
 		7E80006A80000000F0000001 /* MobileFaceNet.mlmodel in Sources */ = {isa = PBXBuildFile; fileRef = 7E80006B80000000F0000001 /* MobileFaceNet.mlmodel */; };
 		7F90007A90000000F1000001 /* HomefitFaceEmbeddingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F90007B90000000F1000001 /* HomefitFaceEmbeddingChannel.swift */; };
 		8AA0008AA0000000F2000001 /* FaceEnrolmentCameraChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA0008BA0000000F2000001 /* FaceEnrolmentCameraChannel.swift */; };
+		8BB0008CA0000000F3000001 /* FaceEnrolmentARKitChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB0008DA0000000F3000001 /* FaceEnrolmentARKitChannel.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
@@ -79,6 +80,7 @@
 		7E80006B80000000F0000001 /* MobileFaceNet.mlmodel */ = {isa = PBXFileReference; lastKnownFileType = file.mlmodel; path = MobileFaceNet.mlmodel; sourceTree = "<group>"; };
 		7F90007B90000000F1000001 /* HomefitFaceEmbeddingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomefitFaceEmbeddingChannel.swift; sourceTree = "<group>"; };
 		8AA0008BA0000000F2000001 /* FaceEnrolmentCameraChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceEnrolmentCameraChannel.swift; sourceTree = "<group>"; };
+		8BB0008DA0000000F3000001 /* FaceEnrolmentARKitChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceEnrolmentARKitChannel.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		9287FD5733032F2EED1B9894 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
@@ -190,6 +192,7 @@
 				7E80006B80000000F0000001 /* MobileFaceNet.mlmodel */,
 				7F90007B90000000F1000001 /* HomefitFaceEmbeddingChannel.swift */,
 				8AA0008BA0000000F2000001 /* FaceEnrolmentCameraChannel.swift */,
+				8BB0008DA0000000F3000001 /* FaceEnrolmentARKitChannel.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -449,6 +452,7 @@
 				7E80006A80000000F0000001 /* MobileFaceNet.mlmodel in Sources */,
 				7F90007A90000000F1000001 /* HomefitFaceEmbeddingChannel.swift in Sources */,
 				8AA0008AA0000000F2000001 /* FaceEnrolmentCameraChannel.swift in Sources */,
+				8BB0008CA0000000F3000001 /* FaceEnrolmentARKitChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

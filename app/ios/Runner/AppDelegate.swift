@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import AVFoundation
+import ARKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -31,11 +32,20 @@ import AVFoundation
   // compute for the self-verification flow. See HomefitFaceEmbeddingChannel.
   private var faceEmbedding: HomefitFaceEmbeddingChannel?
 
-  // M37 (2026-05-26) — real-time AVCaptureMetadataOutput face tracking for
-  // the Safe Mode v2 enrolment sweep. Replaces the still-image
-  // VNDetectFaceLandmarksRequest pose detection that returned nil for
-  // every frame on Carl's iPhone. See FaceEnrolmentCameraChannel.swift.
+  // M37 (2026-05-26) — Vision-on-CMSampleBuffer face tracking for the
+  // Safe Mode v2 enrolment sweep. FALLBACK path used on non-TrueDepth
+  // devices (e.g. iPhone SE 1/2/3). See FaceEnrolmentCameraChannel.swift
+  // for the AVCaptureSession + VNDetectFaceLandmarksRequest pipeline.
+  // On iOS 18+ Vision yaw is QUANTIZED to 45° steps, so TrueDepth
+  // devices prefer the ARKit primary path below.
   private var faceEnrolmentCamera: FaceEnrolmentCameraChannel?
+
+  // M40 (2026-05-26) — ARKit + TrueDepth face tracking. PRIMARY path on
+  // iPhone X and newer (anywhere ARFaceTrackingConfiguration.isSupported
+  // returns true). Gives continuous 6-DoF head pose at the camera frame
+  // rate; sidesteps the iOS 18 Vision yaw quantization. See
+  // FaceEnrolmentARKitChannel.swift.
+  private var faceEnrolmentARKit: FaceEnrolmentARKitChannel?
 
   override func application(
     _ application: UIApplication,
@@ -312,19 +322,43 @@ import AVFoundation
       faceEmbedding = HomefitFaceEmbeddingChannel(messenger: messenger)
     }
 
-    // M37 — real-time face tracking via AVCaptureMetadataOutput. Owns its
-    // own AVCaptureSession with metadata + video data outputs; emits
-    // pose events on the homefit/face-enrolment-pose-stream EventChannel
-    // and exposes captureFrameAndEmbed via the homefit/face-enrolment-camera
-    // MethodChannel. Preview surface is the PlatformView under view-id
-    // homefit/face_enrolment_camera_preview.
-    if #available(iOS 14.0, *) {
+    // M40 — face enrolment pose source: capability-gated PRIMARY /
+    // FALLBACK pick at launch. Both channels expose the IDENTICAL
+    // surface (MethodChannel `homefit/face-enrolment-camera` +
+    // EventChannel `homefit/face-enrolment-pose-stream` + PlatformView
+    // view-id `homefit/face_enrolment_camera_preview`) so the Dart
+    // `FaceEnrolmentCameraChannel` wrapper is agnostic to which native
+    // implementation is bound.
+    //
+    // We register ONLY ONE channel per launch — Flutter's
+    // setMethodCallHandler is last-writer-wins per channel name, so
+    // registering both would clobber the first registration in a
+    // non-obvious way. The capability check below picks the right one.
+    //
+    // PRIMARY (ARKit + TrueDepth): when ARFaceTrackingConfiguration is
+    // supported (iPhone X+ with a TrueDepth front module). Gives full
+    // continuous 6-DoF head pose via ARFaceAnchor.transform.
+    //
+    // FALLBACK (Vision-on-CMSampleBuffer): non-TrueDepth devices
+    // (e.g. iPhone SE family). Yaw is QUANTIZED to 45° steps on iOS 18+
+    // — workable for a coarse sweep, but ARKit is preferred wherever
+    // available.
+    if #available(iOS 13.0, *), ARFaceTrackingConfiguration.isSupported {
+      faceEnrolmentARKit = FaceEnrolmentARKitChannel(messenger: messenger)
+      let previewFactory = FaceEnrolmentARKitPreviewFactory(messenger: messenger)
+      registrar.register(
+        previewFactory,
+        withId: "homefit/face_enrolment_camera_preview"
+      )
+      NSLog("[FaceEnrolment] startup: ARKit primary (TrueDepth detected)")
+    } else if #available(iOS 14.0, *) {
       faceEnrolmentCamera = FaceEnrolmentCameraChannel(messenger: messenger)
       let previewFactory = FaceEnrolmentCameraPreviewFactory(messenger: messenger)
       registrar.register(
         previewFactory,
         withId: "homefit/face_enrolment_camera_preview"
       )
+      NSLog("[FaceEnrolment] startup: Vision fallback (no TrueDepth)")
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
