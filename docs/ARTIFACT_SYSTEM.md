@@ -24,6 +24,7 @@
 - [Consent & POPIA](#consent--popia)
 - [Analytics](#analytics)
 - [Billing](#billing)
+- [Brand-skin subscription & the always-on homefit seal](#brand-skin-subscription--the-always-on-homefit-seal)
 - [Edit-lock semantics](#edit-lock-semantics)
 - [Visual surfaces](#visual-surfaces)
 - [Artifact-type roadmap](#artifact-type-roadmap)
@@ -84,6 +85,12 @@ Resolved across the grilling session. Detailed below; captured in the [Decision 
 19. My Workouts = one recency-sorted, **badged** list (provenance + kind), not split sections.
 20. Cards are **thumbnail-led with a kind glyph corner badge** (single-coral brand; no per-kind colour).
 21. The Publish gate is a **checklist with per-row price + live running total**.
+
+**Brand & monetization**
+22. **Monetize enhancement, not entry** — free artifacts are always free; brand-skin is a paid upgrade *on top* (~2 credits/month, credit-denominated like Safe Mode).
+23. The homefit **"powered by" seal + QR is permanent** on every artifact (no white-label), in homefit coral, designed as a *credibility seal*; the QR carries the practitioner's **referral code as link attribution**.
+24. Brand identity (logo, accent colour, practice name, contact) is sourced from the **existing portal public profile** — positioning, not new capture.
+25. Skin is a **live property** — lapse live-reverts every artifact (incl. already-shared) to the homefit default; no per-publish-date retention.
 
 ---
 
@@ -197,6 +204,23 @@ Charge fires once per artifact at publish; the gate sums selected paid kinds and
 
 ---
 
+## Brand-skin subscription & the always-on homefit seal
+
+**Principle: monetize enhancement, not entry.** Nothing is gated at the door — the free artifacts always work, free. The brand-skin is an *upgrade on top*: a practitioner who wants their own identity on those free artifacts pays a small recurring fee (**~2 credits/month**, credit-denominated like the Safe Mode subscription, ADR 0021). You never charge someone to get in; you charge them to look more professional once they're already in. This also quietly earns money from **free-only practitioners** — someone who never publishes a paid player but wants to look professional buys credits purely for the skin (revenue from the free tier without gating it).
+
+**What the skin is.** The practitioner's brand identity — logo, accent colour, practice name, contact — applied across their artifacts. The source of truth is the **portal public profile** (shipped on `staging` with the self-trainer / Safe Mode transparency waves; not yet promoted to `main`, which is why it's invisible from this branch), which already captures this data. So brand-skin is *not* a data-capture feature — it's a **positioning/design problem**: where each piece of the public profile lands in each artifact type (a mockup question).
+
+**The homefit seal is permanent.** homefit is never white-labeled away. Every artifact always carries a "powered by homefit" mark + QR, in homefit coral, regardless of subscription. This is deliberate and **tri-party**:
+- **Client/patient** — a credibility signal: "my practitioner runs on a real, auditable system."
+- **Practitioner** — the seal makes them look *more* serious, not less; their own logo *plus* a credible platform mark is the professionalism they're paying for.
+- **homefit** — the permanent funnel, and the QR carries the practitioner's **referral code as link attribution** (`?ref={code}`), so the seal can *earn the practitioner referral rebates* — the strongest reason they're happy to keep it. The code is attribution on the artifact link, **never the QR destination** (the recipient always lands on their plan, not a practitioner-signup page).
+
+The seal must be *designed as a seal* (credibility), not a banner ad — placement/prominence per artifact type is a visual-layer decision ("in the correct place").
+
+**Skin is a live property.** While subscribed, the skin renders across all the practitioner's artifacts (free + paid). On lapse, every artifact — *including ones already shared and sitting in clients' phones* — live-reverts to the homefit default look. We deliberately do **not** preserve skin per-publish-date: the renewal pressure is intended, and per-date retention is complexity we don't want. It falls straight out of the always-live artifact model.
+
+---
+
 ## Edit-lock semantics
 
 The lock (ADR 0016) is an anti-abuse rule on the credit model, not a freshness/format concept. It stays **plan-level** (all artifacts render the same shared exercises → one lock) and **paid-only**:
@@ -285,6 +309,8 @@ Exact types finalised in the migration PR.
 7. **Kind naming** — `overview` vs `handout` vs `lobby_page` (the retired practitioner-facing name was "PDF handout").
 8. **Consumer consent UI** — the "my practitioners / my data" panel layout (mockup).
 9. **Collaboration** — the whole anchored-comms feature (parked).
+10. **Brand-skin positioning** — where each public-profile piece (logo / accent / name / contact) lands in each artifact type, and how the permanent homefit seal sits beside it (mockup); confirm the exact public-profile field names against `staging` when implementing.
+11. **Brand-skin price** — ~2 credits/month is the working number; confirm.
 
 ---
 
@@ -298,6 +324,9 @@ Exact types finalised in the migration PR.
 - **Co-editing collaboration** — collaboration is anchored comms, never the client editing the plan.
 - **Subscription pricing for artifacts** — credits only (consistent with ADR 0007 / 0021).
 - **Mandatory login on shared links** — the anonymous link survives.
+- **White-label / removing the homefit seal** — the "powered by" mark + QR is permanent on every artifact, paid or not.
+- **Per-publish-date skin retention** — the skin is a live property; lapse reverts every artifact.
+- **Entry paywalls** — nothing is gated at the door; paid features are enhancements on top of a usable free floor.
 
 ---
 
@@ -310,6 +339,7 @@ Hard-to-reverse, surprising-without-context decisions warranting their own ADRs 
 - **Practice-grain consent, practitioner-proxy → client-controlled on claim, inherit-on-claim, spanning identity.** — #16, #17 — extends the consent model.
 - **Per-artifact pricing with a free floor** — #4 — extends ADR 0007.
 - **Plan-level, paid-only edit-lock** — extends ADR 0016.
+- **Monetize enhancement, not entry: brand-skin is a live credit-subscription behind a permanent homefit seal** (no white-label; skin reverts on lapse) — #22–#25.
 
 ---
 
@@ -338,3 +368,7 @@ Hard-to-reverse, surprising-without-context decisions warranting their own ADRs 
 | 19 | My Workouts = one badged list | Two sections / segmented tabs | Compact, unified provenance+kind |
 | 20 | Thumbnail-led cards + kind glyph badge | Per-kind colour-coding | Single-coral brand |
 | 21 | Publish gate = checklist + running total | Card grid / stepper | Functional, clear cost |
+| 22 | Monetize enhancement, not entry; brand-skin = paid upgrade on the free tier (~2 cr/mo) | Entry paywall / fully-free skin | No flow friction; value-based upsell; earns from free-only practitioners |
+| 23 | homefit seal permanent (no white-label); QR carries referral code as attribution | White-label removal tier | Permanent funnel + tri-party credibility; referral reward keeps practitioners happy |
+| 24 | Brand content from the existing portal public profile | New brand-capture UI | Data already captured (on staging); only positioning remains |
+| 25 | Skin is a live property; lapse reverts all artifacts | Preserve skin per publish-date | Renewal pressure intended; avoids retention complexity |
