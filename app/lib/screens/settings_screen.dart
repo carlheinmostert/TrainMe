@@ -14,7 +14,6 @@ import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/capture_auto_save_preference.dart';
 import '../services/portal_links.dart';
-import '../services/safe_mode_debug_hud_preference.dart';
 import '../services/self_trainer_bootstrap.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -80,15 +79,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// stored value (default ON for fresh installs).
   bool? _autoSaveOriginals;
 
-  /// M3 (2026-05-25 mobile stack) — per-device debug toggle for the
-  /// Safe Mode HUD on the camera viewfinder. The HUD is a diagnostic
-  /// overlay that ALWAYS rendered until 2026-05-25; default OFF now,
-  /// flipped on per-device when someone needs the GPS / match data in
-  /// the field. M14 (2026-05-26 round 2) promoted the toggle out of
-  /// the 7-tap version-row easter egg into a clearly-labelled Debug
-  /// section so it is reachable without the hidden gesture.
-  bool? _safeModeDebugHudEnabled;
-
   /// R4-M3 — true when the user has dismissed the lazy-backfill prompt
   /// once (the SharedPreferences key in [SelfTrainerBootstrap] is set)
   /// AND they have an avatar AND have NOT yet stamped face-embedding
@@ -106,7 +96,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadAutoSavePref();
     unawaited(_loadSelfFaceReminderState());
-    unawaited(_loadSafeModeDebugHudPref());
   }
 
   /// Resolve whether the coral "Turn on face verification" reminder
@@ -215,25 +204,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await CaptureAutoSavePreference.setEnabled(value);
   }
 
-  /// M3 (2026-05-25 mobile stack) — Safe Mode debug HUD preference
-  /// loader. Best-effort; silent failure leaves the toggle at the
-  /// stored default (OFF) so the practitioner-facing camera surface
-  /// stays clean of diagnostic chrome.
-  Future<void> _loadSafeModeDebugHudPref() async {
-    try {
-      final enabled = await SafeModeDebugHudPreference.isEnabled();
-      if (!mounted) return;
-      setState(() => _safeModeDebugHudEnabled = enabled);
-    } catch (_) {
-      // Best-effort.
-    }
-  }
-
-  Future<void> _toggleSafeModeDebugHud(bool value) async {
-    HapticFeedback.selectionClick();
-    setState(() => _safeModeDebugHudEnabled = value);
-    await SafeModeDebugHudPreference.setEnabled(value);
-  }
+  // M25 (2026-05-26) — `_loadSafeModeDebugHudPref` + `_toggleSafeModeDebugHud`
+  // moved into DiagnosticsScreen alongside the HUD toggle UI. The
+  // pref class itself stays as `SafeModeDebugHudPreference`; this
+  // screen no longer holds a copy.
 
   @override
   Widget build(BuildContext context) {
@@ -540,66 +514,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         shortSha: AppConfig.buildSha,
                         onTap: _handleVersionTap,
                       ),
-                      _Divider(),
-                      // Wave 7 / Milestone Q — Diagnostics screen.
-                      // Always visible (not gated behind the 7-tap
-                      // easter egg) so a practitioner hitting weirdness
-                      // can check the probes themselves and read off
-                      // the result to support. Opens DiagnosticsScreen
-                      // which runs 4 probes: signed-URL self-check,
-                      // Supabase connectivity, local SQLite, and
-                      // pending-ops queue depth.
-                      _ActionRow(
-                        icon: Icons.health_and_safety_outlined,
-                        label: 'Diagnostics',
-                        subtitle:
-                            'Live health probes for signed URLs, '
-                            'Supabase, local DB, sync queue.',
-                        onTap: _signOutPending
-                            ? null
-                            : () {
-                                HapticFeedback.selectionClick();
-                                DiagnosticsScreen.push(context);
-                              },
-                      ),
+                      // M25 (2026-05-26) — Diagnostics row INVERTED:
+                      // now hidden by default and revealed after the
+                      // 7-tap easter egg on the Version row above.
+                      // Before this change, the inline _DiagnosticsPanel
+                      // + HUD toggle appeared after 7 taps WHILE the
+                      // Diagnostics row was permanently visible. That
+                      // gave two diagnostic surfaces (a screen + an
+                      // inline panel) competing for the same content.
+                      // The inline panel + HUD toggle now live inside
+                      // DiagnosticsScreen itself (User ID copy row,
+                      // Safe Mode HUD toggle); this row is the single
+                      // gated entry into that screen.
                       if (_diagnosticsVisible) ...[
                         _Divider(),
-                        _DiagnosticsPanel(
-                          userId: user?.id,
-                          practiceId:
-                              AuthService.instance.currentPracticeId.value,
-                          buildSha: AppConfig.buildSha,
-                        ),
-                        _Divider(),
-                        // M19 (2026-05-26 mobile stack round 3) — Safe
-                        // Mode HUD toggle folded back into the existing
-                        // Diagnostics panel under About. PR #518 had
-                        // promoted it to a top-level Debug section
-                        // (M14), but Carl wants per-device toggles like
-                        // this clustered with other diagnostics behind
-                        // the 7-tap easter egg so the Settings screen
-                        // chrome stays free of debug surface area in
-                        // normal use. The pref + handlers are unchanged
-                        // — only the mount point moves.
                         _ActionRow(
-                          icon: Icons.bug_report_outlined,
-                          label: 'Show Safe Mode hint overlay',
+                          icon: Icons.health_and_safety_outlined,
+                          label: 'Diagnostics',
                           subtitle:
-                              'Diagnostic HUD on the camera viewfinder. '
-                              'Shows GPS + polygon-match data so a Safe '
-                              'Mode regression can be triaged in-app.',
-                          onTap: _safeModeDebugHudEnabled == null
+                              'Live health probes, IDs, debug toggles.',
+                          onTap: _signOutPending
                               ? null
-                              : () => _toggleSafeModeDebugHud(
-                                    !(_safeModeDebugHudEnabled ?? false),
-                                  ),
-                          trailing: Switch.adaptive(
-                            value: _safeModeDebugHudEnabled ?? false,
-                            onChanged: _safeModeDebugHudEnabled == null
-                                ? null
-                                : _toggleSafeModeDebugHud,
-                            activeThumbColor: AppColors.primary,
-                          ),
+                              : () {
+                                  HapticFeedback.selectionClick();
+                                  DiagnosticsScreen.push(context);
+                                },
                         ),
                       ],
                     ],
@@ -1492,120 +1431,11 @@ class _VersionRow extends StatelessWidget {
   }
 }
 
-/// Diagnostic panel unlocked by tapping the Version row seven times.
-/// Surfaces the signed-in user UUID, current practice UUID, and full
-/// build SHA. Each row is tappable to copy the value to clipboard —
-/// same pattern as the error-SnackBar copy behaviour elsewhere.
-class _DiagnosticsPanel extends StatelessWidget {
-  final String? userId;
-  final String? practiceId;
-  final String buildSha;
-
-  const _DiagnosticsPanel({
-    required this.userId,
-    required this.practiceId,
-    required this.buildSha,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Diagnostics',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _DiagRow(label: 'User ID', value: userId ?? '—'),
-          const SizedBox(height: 8),
-          _DiagRow(label: 'Practice ID', value: practiceId ?? '—'),
-          const SizedBox(height: 8),
-          _DiagRow(label: 'Build SHA', value: buildSha),
-        ],
-      ),
-    );
-  }
-}
-
-class _DiagRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _DiagRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: value == '—'
-          ? null
-          : () async {
-              await Clipboard.setData(ClipboardData(text: value));
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context)
-                ..clearSnackBars()
-                ..showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      '$label copied',
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        color: AppColors.textOnDark,
-                      ),
-                    ),
-                    backgroundColor: AppColors.surfaceRaised,
-                    behavior: SnackBarBehavior.floating,
-                    duration: const Duration(seconds: 2),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: const BorderSide(color: AppColors.surfaceBorder),
-                    ),
-                  ),
-                );
-            },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 96,
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-            ),
-            Expanded(
-              child: Text(
-                value,
-                style: const TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontFamilyFallback: ['Menlo', 'Courier'],
-                  fontSize: 12,
-                  color: AppColors.textOnDark,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// M25 (2026-05-26) — `_DiagnosticsPanel` + `_DiagRow` retired. The
+// inline panel (User ID / Practice ID / Build SHA copy rows) was
+// folded into `DiagnosticsScreen`'s `_MetaCard` so all diagnostic
+// content lives behind a single 7-tap-gated entry point. See M25 in
+// the 2026-05-26 settings-reshape PR for the unification rationale.
 
 // ---------------------------------------------------------------------------
 // Network section — mobile twin of the portal's "Your network" +
