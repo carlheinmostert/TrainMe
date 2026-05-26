@@ -18,6 +18,8 @@ import 'local_storage_service.dart';
 import 'loud_swallow.dart';
 import 'path_resolver.dart';
 import 'safe_mode.dart';
+import 'safe_mode_match_diagnostic.dart';
+import 'safe_mode_match_log_preference.dart';
 
 /// Maximum tolerated Vision miss-rate (0.0–1.0) for a Safe Mode
 /// capture before [ConversionService] rejects it with
@@ -1494,6 +1496,49 @@ class ConversionService extends ChangeNotifier {
             } catch (_) {
               // Sanctioned log-of-log swallow.
             }
+          }
+
+          // Wave M41 (2026-05-26) — match-log toggle. When ON, run the
+          // non-destructive diagnostic probe against the SAME raw
+          // capture + SAME subject embeddings and write the per-face
+          // cosSim values to conversion_error.log. Gives Carl an
+          // in-app surface (long-press the "N failed" pill, or the
+          // Diagnostics screen log dump) to confirm whether the matcher
+          // actually saw his face at the expected similarity.
+          //
+          // Best-effort — failure here MUST NOT alter Safe Mode's
+          // output. The diagnostic uses the same Vision +
+          // MobileFaceNet pipeline so any failure mirrors what
+          // applySafeModeV2ToPhoto would also hit.
+          try {
+            if (await SafeModeMatchLogPreference.isEnabled()) {
+              final diag = await SafeModeMatchDiagnostic.run(
+                srcPath: exercise.absoluteRawFilePath,
+                subjectEmbeddings: subjectEmbeddings,
+                threshold: await _resolveSafeModeV2Threshold(null),
+              );
+              final cosSimsText = diag.faces
+                  .map((f) => f.cosSim.toStringAsFixed(3))
+                  .join(', ');
+              final logDir = await getApplicationDocumentsDirectory();
+              final logFile =
+                  File(p.join(logDir.path, 'conversion_error.log'));
+              await logFile.writeAsString(
+                '${DateTime.now()} [SafeMode match diag] '
+                'exercise=${exercise.id} client=${clientId ?? "<none>"} '
+                'refs=${diag.referenceCount} faces=${diag.faces.length} '
+                'cosSims=[$cosSimsText] bestSim=${diag.bestSim.toStringAsFixed(3)} '
+                'branch=${diag.branch} '
+                'subjectIdx=${diag.subjectIndex ?? "none"}\n\n',
+                mode: FileMode.append,
+              );
+            }
+          } catch (e) {
+            // Diagnostic is opt-in best-effort; swallow so a probe
+            // failure can't change Safe Mode behaviour.
+            debugPrint(
+              'SafeMode match log diag failed (non-fatal): $e',
+            );
           }
         }
       }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
@@ -11,6 +12,8 @@ import '../services/api_client.dart';
 import '../services/homefit_haptics.dart';
 import '../services/loud_swallow.dart';
 import '../services/safe_mode_debug_hud_preference.dart';
+import '../services/safe_mode_match_diagnostic.dart';
+import '../services/safe_mode_match_log_preference.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 
@@ -116,6 +119,12 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   /// the pref resolves.
   bool? _safeModeDebugHudEnabled;
 
+  /// Wave M41 (2026-05-26) — Safe Mode per-face cosSim log toggle.
+  /// When ON, conversion_service.dart appends per-face cosine
+  /// similarity values to conversion_error.log after every Safe Mode
+  /// photo capture. null = pref still loading from SharedPreferences.
+  bool? _safeModeMatchLogEnabled;
+
   @override
   void initState() {
     super.initState();
@@ -123,6 +132,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     // time-bounded so one slow RPC can't block the others.
     _runAll();
     unawaited(_loadSafeModeDebugHudPref());
+    unawaited(_loadSafeModeMatchLogPref());
   }
 
   Future<void> _loadSafeModeDebugHudPref() async {
@@ -139,6 +149,22 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     HapticFeedback.selectionClick();
     setState(() => _safeModeDebugHudEnabled = value);
     await SafeModeDebugHudPreference.setEnabled(value);
+  }
+
+  Future<void> _loadSafeModeMatchLogPref() async {
+    try {
+      final enabled = await SafeModeMatchLogPreference.isEnabled();
+      if (!mounted) return;
+      setState(() => _safeModeMatchLogEnabled = enabled);
+    } catch (_) {
+      // Best-effort; the toggle stays disabled if the pref read flakes.
+    }
+  }
+
+  Future<void> _toggleSafeModeMatchLog(bool value) async {
+    HapticFeedback.selectionClick();
+    setState(() => _safeModeMatchLogEnabled = value);
+    await SafeModeMatchLogPreference.setEnabled(value);
   }
 
   Future<void> _runAll() async {
@@ -370,6 +396,20 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       ? null
                       : _toggleSafeModeDebugHud,
                 ),
+                _Divider(),
+                _ToggleRow(
+                  icon: Icons.fingerprint_outlined,
+                  label: 'Log Safe Mode match details',
+                  subtitle:
+                      'After every Safe Mode photo, append per-face '
+                      'cosine-similarity scores to conversion_error.log '
+                      'so a self-recognition regression can be confirmed '
+                      'in-app via the Studio "N failed" pill.',
+                  value: _safeModeMatchLogEnabled ?? false,
+                  onChanged: _safeModeMatchLogEnabled == null
+                      ? null
+                      : _toggleSafeModeMatchLog,
+                ),
               ],
             ),
             const SizedBox(height: 24),
@@ -401,6 +441,18 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   label: 'Test haptics',
                   subtitle: 'Fire each haptic type + report native engine state',
                   onTap: () => _runHapticDiag(context),
+                ),
+                _Divider(),
+                _ActionRow(
+                  icon: Icons.face_retouching_natural_outlined,
+                  label: 'Test self-recognition',
+                  subtitle:
+                      'Take a selfie via the camera. Runs the same '
+                      'matching pipeline Safe Mode uses against the '
+                      'Self-client’s enrolled face. Reports the '
+                      'cosine similarity so you can confirm enrolment is '
+                      'actually recognising your face.',
+                  onTap: () => _runSelfRecognitionCheck(context),
                 ),
               ],
             ),
@@ -491,6 +543,300 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
           duration: const Duration(seconds: 12),
         ),
       );
+  }
+
+  /// Wave M41 (2026-05-26) — verify the bound user's Self-client face
+  /// enrolment by running the SAME matching pipeline Safe Mode uses.
+  ///
+  /// Flow:
+  ///   1. Resolve the signed-in user's Self-client from the local cache.
+  ///   2. Read the cached enrolment slot bundle.
+  ///   3. Open the camera via image_picker (front camera preferred).
+  ///   4. Run [SafeModeMatchDiagnostic.run] on the captured JPG against
+  ///      those slots.
+  ///   5. Surface the result in a bottom sheet — number of faces,
+  ///      bestSim, branch, and an interpretation (Recognised / NOT
+  ///      recognised / no face).
+  ///
+  /// The numbers reported here are bit-for-bit identical to what the
+  /// production Safe Mode photo path would compute on the same inputs.
+  /// A low cosSim against your OWN well-enrolled embeddings is the
+  /// load-bearing signal that the enrolment pipeline is producing
+  /// embeddings incompatible with what the matcher generates from the
+  /// capture-time face crop.
+  Future<void> _runSelfRecognitionCheck(BuildContext context) async {
+    HapticFeedback.selectionClick();
+    final messenger = ScaffoldMessenger.of(context);
+
+    final userId = AuthService.instance.currentUserId;
+    if (userId == null) {
+      _showInfoToast(
+        messenger,
+        'Sign in first — no Self-client to test against.',
+        isError: true,
+      );
+      return;
+    }
+
+    // Pull the Self-client + its cached embedding slots.
+    final SafeModeSelfCheckPrep prep;
+    try {
+      prep = await _prepareSelfCheck(userId: userId);
+    } catch (e) {
+      _showInfoToast(
+        messenger,
+        'Couldn’t load Self-client: $e',
+        isError: true,
+      );
+      return;
+    }
+    if (prep.embeddings.isEmpty) {
+      _showInfoToast(
+        messenger,
+        'No face enrolled yet on the Self-client. Enrol first via '
+        'the client detail screen, then re-run this check.',
+        isError: true,
+      );
+      return;
+    }
+
+    // Take a fresh selfie. image_picker is the cheapest path (system
+    // camera) — keeps the diagnostic isolated from the production
+    // capture pipeline so a regression in CaptureModeScreen can't
+    // mask the result.
+    final XFile? picked;
+    try {
+      picked = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        imageQuality: 90,
+        maxWidth: 1920,
+        maxHeight: 1920,
+      );
+    } on PlatformException catch (e) {
+      _showInfoToast(
+        messenger,
+        'Camera unavailable: ${e.message ?? e.code}',
+        isError: true,
+      );
+      return;
+    }
+    if (picked == null) {
+      // User cancelled — silent.
+      return;
+    }
+
+    SafeModeDiagResult? result;
+    String? errorMessage;
+    try {
+      result = await SafeModeMatchDiagnostic.run(
+        srcPath: picked.path,
+        subjectEmbeddings: prep.embeddings,
+      );
+    } on PlatformException catch (e) {
+      errorMessage = 'Diagnostic failed: ${e.message ?? e.code}';
+    } on TimeoutException catch (_) {
+      errorMessage = 'Diagnostic timed out (>30s).';
+    } catch (e) {
+      errorMessage = 'Unexpected error: $e';
+    }
+
+    if (!mounted) return;
+    if (errorMessage != null) {
+      _showInfoToast(messenger, errorMessage, isError: true);
+      return;
+    }
+    if (result == null) {
+      _showInfoToast(messenger, 'Diagnostic returned no result.', isError: true);
+      return;
+    }
+
+    if (!context.mounted) return;
+    await _showSelfCheckResultSheet(
+      context: context,
+      result: result,
+      clientName: prep.clientName,
+    );
+  }
+
+  Future<SafeModeSelfCheckPrep> _prepareSelfCheck({
+    required String userId,
+  }) async {
+    final storage = SyncService.instance.storage;
+    final client = await storage.getCachedSelfClient(userId);
+    if (client == null) {
+      throw StateError(
+        'No Self-client in cache. Open the Clients tab so the cache '
+        'pulls, then try again.',
+      );
+    }
+    final slots =
+        await storage.getCachedClientFaceEmbeddings(clientId: client.id);
+    return SafeModeSelfCheckPrep(
+      clientName: client.name,
+      embeddings: slots
+          .where((s) => s.embedding.isNotEmpty)
+          .map((s) => s.embedding)
+          .toList(growable: false),
+    );
+  }
+
+  void _showInfoToast(
+    ScaffoldMessengerState messenger,
+    String text, {
+    bool isError = false,
+  }) {
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            text,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          backgroundColor:
+              isError ? AppColors.error : AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+  }
+
+  Future<void> _showSelfCheckResultSheet({
+    required BuildContext context,
+    required SafeModeDiagResult result,
+    required String clientName,
+  }) async {
+    final interpretation = _interpretSelfCheck(result);
+    final cosSims = result.faces
+        .map((f) => f.cosSim.toStringAsFixed(3))
+        .join(', ');
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surfaceRaised,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Self-recognition check',
+                  style: TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textOnDark,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Compared against $clientName · '
+                  '${result.referenceCount} enrolled slot'
+                  '${result.referenceCount == 1 ? "" : "s"}',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    color: AppColors.textSecondaryOnDark,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _SelfCheckSummaryRow(
+                  label: 'Verdict',
+                  value: interpretation.verdict,
+                  emphasised: true,
+                  valueColor: interpretation.tone,
+                ),
+                _SelfCheckSummaryRow(
+                  label: 'Faces detected',
+                  value: '${result.faces.length}',
+                ),
+                _SelfCheckSummaryRow(
+                  label: 'Best similarity',
+                  value: result.bestSim.toStringAsFixed(3),
+                ),
+                _SelfCheckSummaryRow(
+                  label: 'Pick branch',
+                  value: result.branch,
+                ),
+                if (result.faces.isNotEmpty)
+                  _SelfCheckSummaryRow(
+                    label: 'All cosSims',
+                    value: '[$cosSims]',
+                  ),
+                const SizedBox(height: 14),
+                Text(
+                  interpretation.explanation,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: AppColors.textOnDark,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  _SelfCheckInterpretation _interpretSelfCheck(SafeModeDiagResult result) {
+    if (result.faces.isEmpty) {
+      return _SelfCheckInterpretation(
+        verdict: 'No face in frame',
+        tone: AppColors.textSecondaryOnDark,
+        explanation:
+            'Vision saw no face in the photo. Re-take with better '
+            'framing — your face should fill roughly the centre half '
+            'of the frame.',
+      );
+    }
+    if (result.subjectIdentified) {
+      // Recognised. Production matcher would have kept this face sharp.
+      final tone = result.bestSim >= 0.45
+          ? AppColors.primary
+          : AppColors.textOnDark;
+      return _SelfCheckInterpretation(
+        verdict: result.bestSim >= 0.45 ? 'Recognised' : 'Recognised (low)',
+        tone: tone,
+        explanation:
+            'Safe Mode would keep this face sharp. Good news — your '
+            'enrolment is producing embeddings that match what the '
+            'matcher generates from a fresh photo of you.',
+      );
+    }
+    // Faces detected but the picker rejected the subject — for the
+    // solo-floor branch this means the only face scored below the floor.
+    if (result.branch == 'solo-floor') {
+      return _SelfCheckInterpretation(
+        verdict: 'NOT recognised',
+        tone: AppColors.error,
+        explanation:
+            'Vision saw your face but the cosine similarity '
+            '(${result.bestSim.toStringAsFixed(3)}) is below the '
+            'solo-floor. Safe Mode would blur this face. Your enrolled '
+            'embeddings are not matching what the matcher generates '
+            'from a fresh photo — this is a known pipeline mismatch.',
+      );
+    }
+    return _SelfCheckInterpretation(
+      verdict: 'No subject picked',
+      tone: AppColors.textSecondaryOnDark,
+      explanation:
+          'Multiple faces detected and no clear winner. Branch: '
+          '${result.branch}. Re-take with only your face in the frame.',
+    );
   }
 
   /// Dump every pending op to the clipboard as human-readable text so
@@ -1106,6 +1452,93 @@ class _ToggleRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Resolved inputs for [_runSelfRecognitionCheck] — the bound user's
+/// Self-client name + the cached enrolment embedding slot bundle.
+/// Empty `embeddings` signals "not enrolled yet" — the action surfaces
+/// a guidance toast in that case.
+@visibleForTesting
+class SafeModeSelfCheckPrep {
+  const SafeModeSelfCheckPrep({
+    required this.clientName,
+    required this.embeddings,
+  });
+
+  final String clientName;
+  final List<Uint8List> embeddings;
+}
+
+/// Human-readable interpretation of a [SafeModeDiagResult] suitable for
+/// rendering in the self-check bottom sheet. Kept as a small struct so
+/// the verdict + tone + explanation travel together and the sheet code
+/// is a pure render of pre-computed text.
+class _SelfCheckInterpretation {
+  const _SelfCheckInterpretation({
+    required this.verdict,
+    required this.tone,
+    required this.explanation,
+  });
+
+  /// Short verdict shown in the "Verdict" row at the top of the sheet.
+  final String verdict;
+
+  /// Tint applied to the verdict text — coral for recognised, the
+  /// muted error red for not-recognised, secondary grey otherwise.
+  final Color tone;
+
+  /// Single-paragraph explanation. Tells Carl whether his enrolment
+  /// is producing matching embeddings, and what the next step is.
+  final String explanation;
+}
+
+/// Single label : value line for the self-check result sheet.
+class _SelfCheckSummaryRow extends StatelessWidget {
+  const _SelfCheckSummaryRow({
+    required this.label,
+    required this.value,
+    this.emphasised = false,
+    this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasised;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 108,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: emphasised ? FontWeight.w700 : FontWeight.w500,
+                color: valueColor ?? AppColors.textOnDark,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
