@@ -1685,6 +1685,19 @@ class _DebugPoseHud extends StatelessWidget {
                   height: 1.4,
                 ),
               ),
+              if (service.poseReasonCounts.isNotEmpty)
+                Text(
+                  service.poseReasonCounts.entries
+                      .map((e) => '${e.key}=${e.value}')
+                      .join('  '),
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white70,
+                    height: 1.4,
+                  ),
+                ),
               Text(
                 'yaw=$yawStr°  pitch=$pitchStr°',
                 style: const TextStyle(

@@ -777,11 +777,14 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
         // phantom EventChannel issue. See feedback_no_silent_fallbacks —
         // skipping the frame for ACCEPTANCE is correct; staying silent
         // for OBSERVABILITY is not.
-        func emitHeartbeat() {
+        func emitHeartbeat(reason: String) {
             let payload: [String: Any] = [
                 "faceID": -1,
                 // yawDeg + pitchDeg deliberately omitted so the Dart
                 // _onPoseEvent nil-axis branch fires + bumps poseNilCount.
+                // `reason` lets the on-screen HUD categorise without
+                // needing native log access. M38b.
+                "reason": reason,
                 "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
             ]
             DispatchQueue.main.async { [weak poseStreamHandler] in
@@ -791,7 +794,7 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             NSLog("[FaceEnrolment-vision] frame#\(frameIdx) NO_PIXEL_BUFFER")
-            emitHeartbeat()
+            emitHeartbeat(reason: "no_pixel_buffer")
             return
         }
 
@@ -818,14 +821,14 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
             NSLog(
                 "[FaceEnrolment-vision] frame#\(frameIdx) perform_threw=\(error.localizedDescription)"
             )
-            emitHeartbeat()
+            emitHeartbeat(reason: "perform_threw")
             return
         }
 
         let results = request.results ?? []
         guard let obs = results.first else {
             NSLog("[FaceEnrolment-vision] frame#\(frameIdx) face=NO")
-            emitHeartbeat()
+            emitHeartbeat(reason: "face_no")
             return
         }
 
@@ -840,7 +843,7 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
             NSLog(
                 "[FaceEnrolment-vision] frame#\(frameIdx) face=YES POSE_NIL yaw=\(yawStr) pitch=\(pitchStr) orient=\(orientation)"
             )
-            emitHeartbeat()
+            emitHeartbeat(reason: "pose_nil")
             return
         }
 

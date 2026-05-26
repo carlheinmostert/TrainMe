@@ -171,6 +171,13 @@ class FaceEnrolmentPoseEvent {
   /// Useful for staleness checks if listeners debounce.
   final int timestampMs;
 
+  /// M38b — for diagnostic events emitted on Vision-skip paths, the
+  /// reason string ("no_pixel_buffer" | "perform_threw" | "face_no" |
+  /// "pose_nil"). Null for successful pose events. Surfaced in the
+  /// on-screen debug HUD so we can categorise Vision failure without
+  /// native log access. Native NSLog still fires for the same paths.
+  final String? reason;
+
   const FaceEnrolmentPoseEvent({
     required this.faceID,
     required this.yawDeg,
@@ -181,6 +188,7 @@ class FaceEnrolmentPoseEvent {
     required this.boundsWidth,
     required this.boundsHeight,
     required this.timestampMs,
+    required this.reason,
   });
 
   factory FaceEnrolmentPoseEvent._fromNative(dynamic raw) {
@@ -195,6 +203,7 @@ class FaceEnrolmentPoseEvent {
       boundsWidth: (m['boundsWidth'] as num?)?.toDouble() ?? 0.0,
       boundsHeight: (m['boundsHeight'] as num?)?.toDouble() ?? 0.0,
       timestampMs: (m['timestampMs'] as num?)?.toInt() ?? 0,
+      reason: m['reason'] as String?,
     );
   }
 }

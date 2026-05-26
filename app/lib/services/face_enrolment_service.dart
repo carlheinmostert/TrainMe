@@ -690,6 +690,14 @@ class FaceEnrolmentService extends ChangeNotifier {
   int get poseEventCount => _poseEventCount;
   int get poseNilCount => _poseNilCount;
 
+  /// M38b — per-reason breakdown of Vision-skip events. Native side
+  /// stamps every heartbeat payload with a `reason` string and we
+  /// tally it here so the on-screen HUD can show exactly WHY Vision
+  /// is failing without needing access to native NSLog output.
+  final Map<String, int> _poseReasonCounts = <String, int>{};
+  Map<String, int> get poseReasonCounts =>
+      Map<String, int>.unmodifiable(_poseReasonCounts);
+
   /// M37 — guard against re-entrant `captureFrameAndEmbed` calls.
   /// Each native call takes ~50-150ms; a second pose event landing
   /// while we're still in flight must not double-fire.
@@ -989,6 +997,12 @@ class FaceEnrolmentService extends ChangeNotifier {
     // increments this regardless of whether it's actionable. Surfaces
     // "is the stream alive at all" without needing device logs.
     _poseEventCount += 1;
+    // M38b — tally per-reason heartbeats so the HUD can disambiguate
+    // face_no vs pose_nil vs perform_threw without device logs.
+    final reason = event.reason;
+    if (reason != null) {
+      _poseReasonCounts[reason] = (_poseReasonCounts[reason] ?? 0) + 1;
+    }
     if (_currentPromptIndex < 0 ||
         _currentPromptIndex >= kPromptSequence.length) {
       notifyListeners();
