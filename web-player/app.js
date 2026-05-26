@@ -56,35 +56,11 @@
     setAudioPlayback: function (active) {
       postBridge({ type: 'audio', active: !!active });
     },
-    /// 2026-05-14 — share an arbitrary file (mime + filename) via the
-    /// native iOS share sheet. Accepts raw base64 bytes + a mimeType so
-    /// non-image artifacts (PDF, ZIP, …) can route through
-    /// UIActivityViewController without bolting per-format bridge
-    /// methods.
-    ///
-    /// Introduced for the lobby multi-page PDF export pipeline
-    /// (web-player/lobby.js triggerLobbyShare) which generates an
-    /// `application/pdf` blob via jsPDF and needs the iOS share sheet
-    /// to surface Save to Files, AirDrop, Messages, Mail, etc.
-    ///
-    /// Args:
-    ///   `base64`   — raw base64 of the file bytes (NO data: prefix).
-    ///   `fileName` — suggested filename presented to the user.
-    ///   `mimeType` — IANA mime type ("application/pdf").
-    ///
-    /// Returns nothing. If the bridge channel is absent (live web
-    /// player), this is a no-op and the caller's fallback path is
-    /// expected to handle the surface (e.g. navigator.share files +
-    /// download anchor).
-    shareFile: function (base64, fileName, mimeType) {
-      if (typeof base64 !== 'string' || !base64) return;
-      postBridge({
-        type: 'share_file',
-        base64: base64,
-        fileName: typeof fileName === 'string' ? fileName : '',
-        mimeType: typeof mimeType === 'string' ? mimeType : 'application/octet-stream',
-      });
-    },
+    // shareFile() bridge method removed 2026-05-26 per ADR 0025 — the
+    // lobby multi-page PDF export pipeline is superseded by the workout
+    // handout at /h/{planId} + browser-native window.print(). The Dart
+    // side no longer handles 'share_file' / 'share_image' payloads
+    // (unified_preview_screen.dart _onBridgeMessage).
   };
 
   window.homefitBridge = bridge;
