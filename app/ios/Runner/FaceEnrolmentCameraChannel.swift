@@ -56,6 +56,17 @@ import os.log
 // chooses option 1 (drop pitch-based prompts entirely) so the Dart side
 // only acts on yaw values from this channel.
 //
+// FRONT-CAMERA MIRROR INVERSION: yawAngle is reported from the SENSOR's
+// perspective, not the user's. With the front camera, the sensor sees the
+// user mirrored — when the user turns their head to THEIR right, the
+// sensor measures yaw as NEGATIVE (because from the sensor's perspective
+// the user just turned to the sensor's left). The prompt walker on the
+// Dart side encodes targets in USER-PERSPECTIVE ("turn right" → +60), so
+// we invert yaw before emitting when the front camera is active. This
+// gives the Dart side a consistent semantic regardless of camera choice.
+// Back-camera (rare in enrolment) needs no inversion — sensor and user
+// share the same chirality.
+//
 // Preview surface: a separate `FlutterPlatformViewFactory` registered
 // under view-type `homefit/face_enrolment_camera_preview` (see bottom
 // of file). Mirrors the AvatarCameraPreviewFactory pattern.
@@ -666,10 +677,27 @@ extension FaceEnrolmentCameraChannel: AVCaptureMetadataOutputObjectsDelegate {
             "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
         ]
         if largest.hasYawAngle {
-            payload["yawDeg"] = Double(largest.yawAngle)
+            // Front-camera mirror inversion — see comment block at top of
+            // file. Flip the sign so positive yaw consistently means
+            // "user turned their head to their right" regardless of which
+            // physical camera the session is using. AVMetadataFaceObject
+            // reports yaw in degrees in the range (-180, 180]; negation
+            // preserves the range. We also normalise into the same range
+            // after negation in case the ISP ever returns -180 exactly.
+            let rawYaw = Double(largest.yawAngle)
+            let mirroredYaw = (currentPosition == .front) ? -rawYaw : rawYaw
+            payload["yawDeg"] = mirroredYaw
         }
         if largest.hasRollAngle {
-            payload["rollDeg"] = Double(largest.rollAngle)
+            // Roll also mirrors with the camera. Negation here keeps
+            // "positive roll = head tilted toward user's right shoulder"
+            // consistent between front and back cameras. Dart side does
+            // not currently consume roll for pose-walker logic but the
+            // event payload is documented as user-perspective so we keep
+            // both axes in the same frame.
+            let rawRoll = Double(largest.rollAngle)
+            let mirroredRoll = (currentPosition == .front) ? -rawRoll : rawRoll
+            payload["rollDeg"] = mirroredRoll
         }
         // M37: pitch is not available via AVCaptureMetadataOutput. Dart
         // side accepts payloads without a pitch field — option 1 from

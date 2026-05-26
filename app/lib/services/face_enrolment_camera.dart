@@ -24,6 +24,14 @@ import 'package:flutter/services.dart';
 /// already (no conversion needed). Pitch is NOT exposed — the M37
 /// brief chose option 1 (drop pitch-based prompts entirely) so the
 /// service-side prompt walker uses yaw-only buckets.
+///
+/// Pose perspective: the native channel emits yaw + roll in
+/// USER-PERSPECTIVE. Positive yaw = user turned their head to THEIR
+/// right; positive roll = user tilted toward THEIR right shoulder.
+/// This matches the chirality of [kPromptSequence] in
+/// `face_enrolment_service.dart`. The native side handles the
+/// front-camera mirror inversion before emitting — the Dart side
+/// never needs to know which physical camera produced the event.
 class FaceEnrolmentCameraChannel {
   static const MethodChannel _methods =
       MethodChannel('homefit/face-enrolment-camera');
