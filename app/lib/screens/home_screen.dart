@@ -26,7 +26,6 @@ import '../widgets/home_scope_segmented.dart';
 import '../widgets/homefit_logo.dart';
 import '../widgets/network_share_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
-import '../widgets/safe_mode_subscribe_chip.dart';
 import '../widgets/safe_mode_toggle_button.dart';
 import '../widgets/self_face_consent_sheet.dart';
 import '../widgets/self_trainer_intro_banner.dart';
@@ -906,16 +905,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   // when the SharedPreferences dismiss flag is set, so this
                   // slot is visually empty for users who've already seen it.
                   const SelfTrainerIntroBanner(),
-                  // M10 (2026-05-25 mobile stack) — compact Safe Mode
-                  // subscribe chip. Self-hides when the practitioner is
-                  // outside an enforcing premises OR already subscribed.
-                  // Sits between the brand lockup and the capsule strip
-                  // per the Option 2 mockup; reclaims ~70 px of vertical
-                  // real estate vs the prior full-width orange banner
-                  // (now only rendered for the SAFE-MODE-ACTIVE case
-                  // where the practitioner DOES have access — see
-                  // [PersistentSafeModeBanner]).
-                  const SafeModeSubscribeChip(),
+                  // M21 (2026-05-26 mobile stack round 3) — the compact
+                  // SafeModeSubscribeChip that previously sat here is
+                  // retired. The top-of-app PersistentSafeModeBanner is
+                  // now the single in-zone surface for Safe Mode and
+                  // renders ALWAYS-GREEN in both subscribed-active and
+                  // not-subscribed states (with right-edge affordance +
+                  // sub-copy carrying the state difference). See
+                  // [PersistentSafeModeBanner] in main.dart's builder.
                   // Top-level scope picker. Permanent IA — both capsules are
                   // always present so the shape of Home doesn't change when
                   // Classes / My Workouts ship. See [HomeScopeSegmented].
