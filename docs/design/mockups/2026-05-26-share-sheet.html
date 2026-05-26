@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — Share sheet · WhatsApp-or-email two-path split</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --success: #22c55e;
+      --rest: #86efac;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 40px 32px 64px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0 0 4px;
+      letter-spacing: -0.2px;
+    }
+    .subtitle {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin-bottom: 36px;
+      max-width: 760px;
+      line-height: 1.55;
+    }
+    .stage {
+      display: flex;
+      align-items: flex-start;
+      gap: 48px;
+      flex-wrap: wrap;
+    }
+    /* phone frame */
+    .phone {
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 36px;
+      overflow: hidden;
+      width: 380px;
+      height: 760px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+    }
+    /* dimmed Studio behind the sheet */
+    .studio-behind {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      filter: blur(0.5px);
+    }
+    .studio-behind::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .appbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 18px 14px;
+      border-bottom: 1px solid var(--surface-border);
+      background: var(--surface-base);
+    }
+    .appbar-back {
+      color: var(--ink-secondary);
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .appbar-title {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-primary);
+    }
+    .appbar-pubchip {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 10px;
+      color: var(--brand-default);
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: 999px;
+      padding: 3px 8px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .studio-list {
+      flex: 1;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      opacity: 0.6;
+    }
+    .studio-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .studio-thumb {
+      width: 60px;
+      height: 60px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2a2d3a 0%, #1f222d 100%);
+      flex-shrink: 0;
+    }
+    .studio-body { flex: 1; min-width: 0; }
+    .studio-title {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-primary);
+      margin: 0 0 3px;
+    }
+    .studio-meta {
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+    /* bottom sheet — ~55% of phone height */
+    .sheet {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 55%;
+      background: var(--surface-base);
+      border-top: 1px solid var(--surface-border);
+      border-radius: 26px 26px 0 0;
+      display: flex;
+      flex-direction: column;
+      z-index: 2;
+      box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.5);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .sheet-drag {
+      width: 40px;
+      height: 4px;
+      background: var(--surface-border);
+      border-radius: 2px;
+      margin: 10px auto 12px;
+    }
+    .sheet-head {
+      padding: 0 20px 14px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .sheet-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 17px;
+      color: var(--ink-primary);
+      margin: 0 0 4px;
+      letter-spacing: -0.1px;
+    }
+    .sheet-sub {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      letter-spacing: 0.1px;
+    }
+    .sheet-body {
+      flex: 1;
+      padding: 14px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+    /* choice cards */
+    .choice {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      padding: 14px 14px 13px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      position: relative;
+    }
+    .choice-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .choice-body { flex: 1; min-width: 0; }
+    .choice-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--ink-primary);
+      margin: 0 0 2px;
+      letter-spacing: -0.1px;
+    }
+    .choice-sub {
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .choice-note {
+      font-size: 10.5px;
+      color: var(--ink-muted);
+      font-style: italic;
+      letter-spacing: 0.1px;
+    }
+    .choice-chev {
+      color: var(--ink-muted);
+      font-size: 16px;
+      font-weight: 700;
+      align-self: center;
+      flex-shrink: 0;
+      margin-left: 4px;
+    }
+    /* expanded email card */
+    .choice.expanded {
+      background: var(--surface-base);
+      border-color: var(--brand-tint-border);
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+      padding: 14px 14px 14px;
+    }
+    .choice.expanded .expanded-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .choice.expanded .choice-icon {
+      background: var(--brand-default);
+      border-color: var(--brand-default);
+      color: white;
+    }
+    .email-input-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .email-label {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 10px;
+      color: var(--ink-secondary);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .email-input {
+      background: var(--surface-bg);
+      border: 1.5px solid var(--brand-default);
+      border-radius: 11px;
+      padding: 10px 12px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--ink-primary);
+      display: flex;
+      align-items: center;
+      box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.12);
+    }
+    .email-input .placeholder {
+      color: var(--ink-muted);
+      font-style: italic;
+    }
+    .email-input .caret {
+      display: inline-block;
+      width: 1.5px;
+      height: 15px;
+      background: var(--brand-default);
+      margin-left: 2px;
+      animation: caret-blink 1.05s infinite;
+    }
+    @keyframes caret-blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+    .email-note {
+      font-size: 11px;
+      color: var(--ink-secondary);
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+    .email-send {
+      width: 100%;
+      background: var(--brand-default);
+      color: white;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      padding: 12px;
+      border-radius: 13px;
+      text-align: center;
+      letter-spacing: 0.3px;
+      border: none;
+      box-shadow: 0 6px 16px rgba(255, 107, 53, 0.32);
+      margin-bottom: 10px;
+    }
+    .email-aster {
+      font-size: 10px;
+      color: var(--ink-muted);
+      line-height: 1.4;
+      letter-spacing: 0.1px;
+    }
+    .email-aster .star {
+      color: var(--brand-default);
+      font-weight: 700;
+      margin-right: 2px;
+    }
+    /* footer */
+    .sheet-foot {
+      padding: 10px 20px 14px;
+      text-align: center;
+      font-size: 10.5px;
+      color: var(--ink-muted);
+      border-top: 1px solid var(--surface-border);
+      letter-spacing: 0.1px;
+    }
+    /* annotation panel (legend) */
+    .annotation {
+      width: 420px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .anno-header {
+      margin-bottom: 6px;
+    }
+    .anno-eyebrow {
+      font-family: var(--font-display);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--brand-default);
+      margin-bottom: 6px;
+    }
+    .anno-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      margin: 0 0 6px;
+      letter-spacing: -0.1px;
+    }
+    .anno-blurb {
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      line-height: 1.55;
+    }
+    .leg-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 14px 16px 14px;
+    }
+    .leg-h {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 12.5px;
+      color: var(--ink-primary);
+      margin: 0 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: 0;
+    }
+    .leg-h .leg-n {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      letter-spacing: 0;
+    }
+    .leg-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      line-height: 1.5;
+    }
+    .leg-row + .leg-row {
+      margin-top: 6px;
+    }
+    .leg-row .leg-bullet {
+      color: var(--brand-default);
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .leg-txt {
+      flex: 1;
+      min-width: 0;
+    }
+    .leg-txt strong {
+      color: var(--ink-primary);
+      font-weight: 600;
+    }
+    .leg-txt em {
+      color: var(--brand-light);
+      font-style: normal;
+      font-weight: 500;
+    }
+    code {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 11px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      color: var(--brand-default);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Share sheet — WhatsApp or email?</h1>
+  <div class="subtitle">
+    Per-artifact Share bottom sheet on the Flutter app. Two paths split by intent: the OS share sheet (anonymous public link, dominant path) versus our managed email send (branded, captures the address as the engagement-rail filler). Mocked here with the email card in its expanded state to show the input. The artifact in the example is the <strong>workout player</strong> — the paid one and the most interesting case for the split.
+  </div>
+
+  <div class="stage">
+
+    <!-- phone frame -->
+    <div class="phone">
+      <div class="studio-behind">
+        <div class="appbar">
+          <span class="appbar-back">&lsaquo;</span>
+          <span class="appbar-title">Lower body strength</span>
+          <span class="appbar-pubchip">v3 · live</span>
+        </div>
+        <div class="studio-list">
+          <div class="studio-card">
+            <div class="studio-thumb"></div>
+            <div class="studio-body">
+              <p class="studio-title">Squat with band</p>
+              <div class="studio-meta">3 sets · 8 reps</div>
+            </div>
+          </div>
+          <div class="studio-card">
+            <div class="studio-thumb"></div>
+            <div class="studio-body">
+              <p class="studio-title">Deadlift hinge</p>
+              <div class="studio-meta">3 sets · 6 reps</div>
+            </div>
+          </div>
+          <div class="studio-card">
+            <div class="studio-thumb"></div>
+            <div class="studio-body">
+              <p class="studio-title">Bird dog</p>
+              <div class="studio-meta">2 sets · 10 reps</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div class="sheet-drag"></div>
+        <div class="sheet-head">
+          <h2 class="sheet-title">Share workout player</h2>
+          <div class="sheet-sub">Lower body strength · v3</div>
+        </div>
+
+        <div class="sheet-body">
+
+          <!-- card A: OS share sheet -->
+          <div class="choice">
+            <div class="choice-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"></path>
+                <polyline points="16 6 12 2 8 6"></polyline>
+                <line x1="12" y1="2" x2="12" y2="15"></line>
+              </svg>
+            </div>
+            <div class="choice-body">
+              <p class="choice-title">Share link</p>
+              <div class="choice-sub">WhatsApp, Messages, anywhere</div>
+              <div class="choice-note">Link only &mdash; no contact saved.</div>
+            </div>
+            <span class="choice-chev">&rsaquo;</span>
+          </div>
+
+          <!-- card B: managed email — expanded state -->
+          <div class="choice expanded">
+            <div class="expanded-head">
+              <div class="choice-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                  <polyline points="3 7 12 13 21 7"></polyline>
+                </svg>
+              </div>
+              <div class="choice-body">
+                <p class="choice-title">Send by email</p>
+                <div class="choice-sub">Branded email + nudge to save the plan</div>
+              </div>
+            </div>
+
+            <div class="email-input-wrap">
+              <span class="email-label">Client email</span>
+              <div class="email-input">
+                <span class="placeholder">client@email</span><span class="caret"></span>
+              </div>
+            </div>
+
+            <div class="email-note">
+              We&rsquo;ll send a branded reminder + a &ldquo;save your plan&rdquo; link.
+            </div>
+
+            <button class="email-send" type="button">Send &middot; 1 email</button>
+
+            <div class="email-aster">
+              <span class="star">*</span>If your client later claims their plan with a different email, the verified one supersedes this one.
+            </div>
+          </div>
+
+        </div>
+
+        <div class="sheet-foot">
+          Already claimed? They&rsquo;ll be reached on the account email.
+        </div>
+      </div>
+    </div>
+
+    <!-- annotation panel -->
+    <div class="annotation">
+      <div class="anno-header">
+        <div class="anno-eyebrow">Annotation</div>
+        <h2 class="anno-title">Two intents, one sheet</h2>
+        <div class="anno-blurb">
+          Sharing splits the moment a practitioner decides what they need from a client &mdash; a fast blast that reaches them on WhatsApp, or a captured email that anchors the engagement rail. The sheet asks the real question with one tap.
+        </div>
+      </div>
+
+      <div class="leg-card">
+        <h3 class="leg-h"><span class="leg-n">1</span>Two paths, two intents</h3>
+        <div class="leg-row">
+          <span class="leg-bullet">&rsaquo;</span>
+          <div class="leg-txt">
+            <strong>Share link</strong> is the blast &mdash; any channel, no contact captured. WhatsApp dominates per market research (84% of SA healthcare workers use it for work), so the OS sheet is the default path most practitioners will reach for.
+          </div>
+        </div>
+        <div class="leg-row">
+          <span class="leg-bullet">&rsaquo;</span>
+          <div class="leg-txt">
+            <strong>Send by email</strong> is the anchor &mdash; captures the address for the engagement rail. The split asks the practitioner the real question: <em>WhatsApp or email?</em>
+          </div>
+        </div>
+      </div>
+
+      <div class="leg-card">
+        <h3 class="leg-h"><span class="leg-n">2</span>Why email is in here at all</h3>
+        <div class="leg-row">
+          <span class="leg-bullet">&rsaquo;</span>
+          <div class="leg-txt">
+            Email is the engagement rail&rsquo;s filler when the client doesn&rsquo;t claim. The typed address is what we send <em>save your plan</em> nudges to.
+          </div>
+        </div>
+        <div class="leg-row">
+          <span class="leg-bullet">&rsaquo;</span>
+          <div class="leg-txt">
+            Verified claim emails supersede the typed one (POPIA data-minimization). <strong>Open question:</strong> show <code>claimed · linked</code> status only, or expose the verified address to the practitioner?
+          </div>
+        </div>
+      </div>
+
+      <div class="leg-card">
+        <h3 class="leg-h"><span class="leg-n">3</span>The &ldquo;no surprises&rdquo; copy</h3>
+        <div class="leg-row">
+          <span class="leg-bullet">&rsaquo;</span>
+          <div class="leg-txt">
+            Both CTAs name what they do. <strong>Send &middot; 1 email</strong> commits a single branded send; the OS sheet labels itself per its own conventions (the practitioner picks the channel from there). No standalone <strong>Share</strong> button &mdash; the verb without a noun is the ambiguity we&rsquo;re trying to retire.
+          </div>
+        </div>
+      </div>
+
+      <div class="leg-card">
+        <h3 class="leg-h"><span class="leg-n">4</span>What happens to the typed email</h3>
+        <div class="leg-row">
+          <span class="leg-bullet">&rsaquo;</span>
+          <div class="leg-txt">
+            When a verified claim email later attaches to the plan, the typed pre-claim address is <strong>deleted</strong>. Pre-claim is engagement-rail scaffolding only; post-claim, the verified one is the source of truth.
+          </div>
+        </div>
+        <div class="leg-row">
+          <span class="leg-bullet">&rsaquo;</span>
+          <div class="leg-txt">
+            Surfacing this commitment in the legend (and possibly inline on the sheet as the asterisked note) lets the practitioner trust the capture &mdash; we&rsquo;re not building a shadow contact list, we&rsquo;re bridging until the client speaks for themselves.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
