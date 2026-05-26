@@ -168,7 +168,9 @@ Today Share is a URL-only iOS share sheet. The artifact model splits it by **int
 
 ## Consent & POPIA
 
-Consent treatments (line / B&W / original) and `analytics_allowed` apply to **every artifact**. Line-drawing is always available (de-identified; consent can't be withdrawn); B&W/original are consent-gated via signed URLs.
+The consent matrix is six toggles per practice relationship. **Line drawing** is always-on (de-identified by the conversion pipeline; consent can't be withdrawn). **B&W**, **Original**, **Profile photo** (avatar), **Face fingerprint** (the MobileFaceNet biometric embedding from the Safe Mode v2 wave — used to tell the client apart from bystanders), and **Workout stats** (`analytics_allowed`) are all consumer-controllable post-claim, practitioner-proxy pre-claim.
+
+Vocabulary on the client-facing surface uses plain language: "Face fingerprint" rather than "biometric embedding", "Workout stats" rather than "analytics".
 
 **Grain and ownership:**
 - **Practice-grain.** One consent record per practice a client is linked to (presented to the client per-relationship — "Smith Physio", "Cape Biokinetics"). Finer-than-practice was rejected: practitioners in one practice share the client record, so splitting consent per-practitioner is incoherent.
@@ -219,6 +221,12 @@ The seal must be *designed as a seal* (credibility), not a banner ad — placeme
 
 **Skin is a live property.** While subscribed, the skin renders across all the practitioner's artifacts (free + paid). On lapse, every artifact — *including ones already shared and sitting in clients' phones* — live-reverts to the homefit default look. We deliberately do **not** preserve skin per-publish-date: the renewal pressure is intended, and per-date retention is complexity we don't want. It falls straight out of the always-live artifact model.
 
+**Implementation conventions (locked at the visual phase, 2026-05-26).**
+
+- **The seal uses dedicated CSS tokens that the brand-skin never overrides.** `--seal-coral` and `--seal-coral-light` live at `:root` scope; the `.skin-{name}` override class only repaints `--brand-default`, `--brand-light`, `--brand-tint-bg`, `--brand-tint-border`, `--brand-glyph-bg`. The seal renderer reads `--seal-coral*` exclusively. That single un-overridden token is decision #23 in pixels.
+- **The `.studio` wordmark is coral.** In every rendering of the homefit lockup — default-variant header AND footer seal in both variants — `.studio` (both the dot AND the word "studio") uses the coral token. Not muted grey. See `feedback_homefit_studio_wordmark.md` for the trap.
+- **The canonical fictional practitioner brand is "Range Movement" (red `#dc2626`).** Established in `docs/design/mockups/2026-05-26-workout-handout-page.html`, reused across the studio-status-bits seal-placement pairs. Re-using one fictional practitioner across the design wave keeps the mental model consistent. Glyph follows the hero-figure convention (head + spine + arms + legs stick-figure), not an abstract symbol.
+
 ---
 
 ## Edit-lock semantics
@@ -232,24 +240,23 @@ The lock (ADR 0016) is an anti-abuse rule on the credit model, not a freshness/f
 
 ## Visual surfaces
 
-The artifact system changes UI across all three surfaces. **Locked visual decisions** so far: My Workouts = one badged list (#19); cards thumbnail-led + kind glyph corner badge (#20); Publish gate = checklist + running total (#21). The rest need HTML mockups in `docs/design/mockups/` (the house pattern — progress-pills, circuit, logo all live there), reviewed and locked.
+**Visual phase closed 2026-05-26.** All seven mockups walked through with Carl in the Claude Code preview panel and signed off. The locked mockups live in `docs/design/mockups/`:
 
-**Mobile (trainer app)**
-- Preview → artifact-type picker + single-artifact lens.
-- Publish → multi-select gate (checklist, per-kind price, running total, nothing pre-checked).
-- Share → managed-email vs share-sheet split ("WhatsApp or email?").
-- Plan/session state → per-plan artifact status ("handout live · player published · reel not yet").
-- Edit-lock chip → appears only once a paid artifact exists.
-- **My Workouts** → mixes authored sessions (mine, editable) and received/claimed artifacts (read-only); one badged list, thumbnail-led cards with kind glyph; provenance badge distinguishes mine vs shared-with-me.
+| Surface | Mockup file | Locked decisions |
+|---|---|---|
+| **My Workouts** (mobile) | `2026-05-26-my-workouts-artifacts.html` | One badged list (#19); thumbnail-led cards + kind glyph corner badge (#20); coral-tint provenance banner along the **bottom** of received cards; edit-pencil (yours) vs chevron (received) as the tell |
+| **Publish gate** (mobile) | `2026-05-26-publish-gate.html` | Multi-select checklist + per-row price + live running total (#21); four row states (Available unchecked, Available checked, Live, Soon); CTA states the cost explicitly; nothing pre-checked |
+| **Workout handout** (`/h/`, web) | `2026-05-26-workout-handout-page.html` | Two side-by-side renderings: default homefit-coral + Range Movement brand-skin. Claim chip + treatment toggle + exercise list + permanent homefit seal + QR + version stamp. `--seal-coral` token never overridden by skin |
+| **Share sheet** (mobile) | `2026-05-26-share-sheet.html` | Two-path split — OS share (compact) vs managed-email (expanded with input + "Send · 1 email" CTA); footer note on claim-supersedes-typed-email |
+| **Client web account** (`/me`, web) | `2026-05-26-client-web-account.html` | Two-state mockup: magic-link claim + signed-in My Workouts. Card pattern mirrors mobile My Workouts (R-10-style parity); spanning-identity link "Settings · N practitioners linked" |
+| **Consumer consent panel** (`/me/data`, web) | `2026-05-26-consumer-consent-panel.html` | One card per linked practice with six toggles: Line drawing (locked-ON) · B&W · Original · Profile photo · Face fingerprint · Workout stats. "Stop all stats" master switch in the footer |
+| **Studio status bits** (mobile + artifact thumbs) | `2026-05-26-studio-status-bits.html` | Per-plan status row pills (sage live / coral published / dashed not-yet); edit-lock chip triptych (free-only / grace countdown / unlock sheet); brand-skin seal placements as 4 collapsible default-vs-skin pairs |
 
-**Web (player + new client account)**
-- The free workout handout (`/h/{planId}`) — interactive: claim CTA, QR, consent-gated stills, Print/Save-PDF, version stamp; generated OG preview image.
-- Client web account + web My Workouts on `session.homefit.studio`.
-- "Save to My Workouts" claim chip (escalating, never modal).
-- Consumer-side "my practitioners / my data" consent panel — one panel per linked practice (layout TBD via mockups; the consent *grain* is fixed, the UI isn't).
+**Open visual questions deferred to implementation:**
+- Workout player itself (`/p/`) hasn't been re-mocked since it already shipped; its brand-skin integration follows the same pattern as the handout (the studio-status-bits seal-placement section shows it in miniature).
+- Practitioner-facing portal audit feed surfaces for new per-artifact kinds — needs a portal mockup once the kinds are implemented.
 
-**Web portal**
-- Audit feed (new per-artifact publish kinds); per-artifact analytics; client detail shows "claimed · account linked" status.
+**Practitioner-app surfaces are NOT brand-skinned.** The skin transforms client-facing *artifacts*, not the practitioner's own UI. My Workouts, Publish gate, Share sheet, Studio status row, edit-lock chip all stay homefit-coral. The consent panel and client web account are consumer-side but also stay homefit-coral — the consumer's UI shouldn't shift identity across multiple practitioners.
 
 ---
 
@@ -280,7 +287,7 @@ Exact types finalised in the migration PR.
 
 **Consumer identity & consent:**
 - A consumer account model (claimed clients) — likely `auth.users` + a `client_accounts` / claim-link table tying consumer ↔ practice client-rows (the spanning identity).
-- A consent record at **consumer × practice** grain (client-controlled), overriding the practice's `clients.video_consent` (practitioner-proxy) once it exists.
+- A consent record at **consumer × practice** grain (client-controlled), overriding the practice's `clients.video_consent` (practitioner-proxy) once it exists. Six toggles: `line_drawing` (always true, locked), `grayscale` (B&W), `original`, `avatar` (profile photo), `face_recognition` (face fingerprint — already on the practitioner-side from the Safe Mode v2 wave), `analytics_allowed` (workout stats).
 - `plan_claims` (or extend `plan_invitations`): consumer ↔ plan, matched on the claimed plan.
 
 **`plans`:** `first_opened_at` redefined as "first open of *any* enabled artifact."
@@ -372,3 +379,6 @@ Hard-to-reverse, surprising-without-context decisions warranting their own ADRs 
 | 24 | Brand content from the existing portal public profile | New brand-capture UI | Data already captured (on staging); only positioning remains |
 | 25 | Skin is a live property; lapse reverts all artifacts | Preserve skin per publish-date | Renewal pressure intended; avoids retention complexity |
 | 26 | User-facing names: **workout handout** (free) + **workout player** (paid); DB kind `handout`, URL `/h/`, pairs with existing `plan_url` + `/p/` | "overview page" / "printout" / "page" | Practitioner vocabulary ("handout" is what a physio hands a patient); pairs cleanly with "player"; inherits lineage from the retired "PDF handout"; resolves open question #7 |
+| 27 | Consent matrix is **six toggles**: Line drawing (locked-ON) · B&W · Original · Profile photo · **Face fingerprint** · Workout stats | Five-toggle matrix (omitting biometric) | Face-recognition embedding from Safe Mode v2 is biometric data; consumer must own consent to it. "Face fingerprint" / "Workout stats" labels chosen for the consumer surface in preference to "biometric embedding" / "analytics" |
+| 28 | The `.studio` wordmark renders in **coral** on both the dot AND the word "studio", in every homefit lockup (default header + footer seal in both variants) | `.studio` in muted grey | Canonical brand convention that pre-dates this wave; caught mid-walkthrough. Memory entry `feedback_homefit_studio_wordmark.md` captures the trap |
+| 29 | **Range Movement (red `#dc2626`, hero-figure glyph)** is the canonical fictional practitioner-brand example, reused across mockups that demonstrate brand-skin | Different invented brands per mockup | A consistent example builds the mental model faster; the practitioner glyph follows the homefit hero-figure DNA (stick figure) not abstract symbols |
