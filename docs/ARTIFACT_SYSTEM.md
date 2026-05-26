@@ -1,26 +1,31 @@
 # Artifact system — design doc
 
-**Status:** living design doc · authored 2026-05-26 from the grilling session that resolved the artifact-model decision blocks · **extends** [ADR 0022](./adr/0022-plan-artifacts-abstraction-before-reel.md) (which shipped the `plan_artifacts` skeleton for one kind) into the full distribution + billing spine.
+**Status:** living design doc · authored 2026-05-26, consolidated from the grilling session that resolved the identity/sharing/claiming, free-artifact, consent, and analytics threads · **extends** [ADR 0022](./adr/0022-plan-artifacts-abstraction-before-reel.md) (the `plan_artifacts` skeleton) and **supersedes** [`FREE_LOBBY_EXPORT.md`](./FREE_LOBBY_EXPORT.md) (the free artifact is reframed from an on-device PDF/PNG into a live web page — see [The free/paid split](#the-freepaid-split-is-the-artifact-split)).
 
 **Owners:** Carl + Claude
 
 **Related artifacts:**
-- ADRs: [0007](./adr/0007-credit-billing-model.md) (credit model), [0016](./adr/0016-fourteen-day-structural-edit-grace.md) (edit-lock grace), [0022](./adr/0022-plan-artifacts-abstraction-before-reel.md) (`plan_artifacts` table)
-- Predecessor seams: [`SELF_TRAINER_WAVE.md`](./SELF_TRAINER_WAVE.md) — `plan_invitations`, the "My Workouts" tab, and the universal `Publish` verb all land there and this design builds on them rather than forking.
-- Proposed new ADRs to ratify (see [ADRs to ratify](#adrs-to-ratify)): artifacts-as-live-renderings, plan-level-lock-paid-only, per-artifact-pricing-with-free-floor.
+- ADRs: [0007](./adr/0007-credit-billing-model.md) (credit model), [0016](./adr/0016-fourteen-day-structural-edit-grace.md) (edit-lock grace), [0022](./adr/0022-plan-artifacts-abstraction-before-reel.md) (`plan_artifacts`)
+- Predecessor: [`FREE_LOBBY_EXPORT.md`](./FREE_LOBBY_EXPORT.md) — its strategic frame ("one source of truth, two render targets: interactive vs static") *is* this model; its shipped PDF/on-device form is now superseded.
+- Predecessor seams: [`SELF_TRAINER_WAVE.md`](./SELF_TRAINER_WAVE.md) — `plan_invitations`, the My Workouts tab, the universal `Publish` verb.
+- Proposed new ADRs: see [ADRs to ratify](#adrs-to-ratify).
 
 ## Table of Contents
 
 - [North star](#north-star)
+- [What an artifact is](#what-an-artifact-is)
 - [Locked decisions](#locked-decisions)
-- [The model in one paragraph](#the-model-in-one-paragraph)
-- [The publish=enablement / always-live reconciliation](#the-publishenablement--always-live-reconciliation)
+- [The free/paid split is the artifact split](#the-freepaid-split-is-the-artifact-split)
+- [Reversals of shipped behavior](#reversals-of-shipped-behavior)
+- [Publish = enablement; artifacts are always live](#publish--enablement-artifacts-are-always-live)
 - [Pipeline: Preview / Publish / Share](#pipeline-preview--publish--share)
+- [Identity & claiming](#identity--claiming)
+- [Sharing & the engagement rail](#sharing--the-engagement-rail)
+- [Consent & POPIA](#consent--popia)
+- [Analytics](#analytics)
 - [Billing](#billing)
 - [Edit-lock semantics](#edit-lock-semantics)
-- [Consent & POPIA](#consent--popia)
-- [Claiming & My Workouts](#claiming--my-workouts)
-- [Analytics](#analytics)
+- [Visual surfaces](#visual-surfaces)
 - [Artifact-type roadmap](#artifact-type-roadmap)
 - [Schema deltas (proposed)](#schema-deltas-proposed)
 - [RPC surface (proposed)](#rpc-surface-proposed)
@@ -33,188 +38,278 @@
 
 ## North star
 
-A published plan is no longer synonymous with "the Plan URL." A plan is a **single source of truth** — its exercises, sets, consent and versioning — that can be **rendered into many artifacts**: format-specific, independently-priced, independently-shared, *live* outputs. The interactive web player is simply the first artifact. A PDF handout, a stitched video reel, a one-page printable poster, a calendar export, and a premium AI style-transfer reel are its siblings.
+A published plan is not synonymous with "the Plan URL." A plan is a **single source of truth** — its exercises, sets, consent, versioning — that can be **rendered into many artifacts**: format-specific, independently-priced, independently-shared, *live* outputs. The free static overview page and the paid interactive player are the first two; a poster, a stitched reel, a calendar export, and an AI style-transfer reel are siblings.
 
-This is the evolution ADR 0022 anticipated: it shipped `plan_artifacts` as a one-row audit shadow (`kind='plan_url'`, computed URL, written inside the publish transaction) precisely so the second artifact kind wouldn't fork the publish flow. This document turns that table into the actual **distribution and billing spine** of the product.
+The strategic shape: a practitioner delivers real value for **free** (the overview page is a deliberate loss-leader / funnel), and the product monetizes when they reach for the richer formats — the interactive player and, later, premium reels. The free artifact gateways into the paid one.
 
-The strategic shape: a practitioner can deliver real value for **free** (the PDF page is a deliberate loss-leader / funnel), and the product monetizes when they reach for the richer formats — the interactive player and, later, the premium reels.
+---
+
+## What an artifact is
+
+The `plans` row and its `exercises` stay exactly as today — one mutable, version-bumped source of truth. `plan_artifacts` holds **at most one row per `(plan_id, kind)`**. A row's content is never stored on it — the artifact is **rendered on demand** from the live plan. Editing the plan updates every enabled artifact instantly. Money attaches at the artifact level (per-kind price, charged once at publish); the content **edit-lock** attaches at the plan level (one shared body of exercises → one lock).
 
 ---
 
 ## Locked decisions
 
-Resolved in the grilling session. Each is detailed below and captured in the [Decision log](#decision-log).
+Resolved across the grilling session. Detailed below; captured in the [Decision log](#decision-log).
 
-1. **One plan = one source of truth.** Artifacts are format-specific *live renderings*; no plan content is ever copied into an artifact record.
-2. **`plan_artifacts` is the thin per-type record** — singleton per `(plan_id, kind)`. It carries publish state, price paid, share/claim handles, and render metadata. Never content.
-3. **Every supported type is always offered** (render-on-demand). The type registry is global — adding a kind lights it up for every existing plan automatically.
-4. **Pricing is per-type, with an intentional free floor.** PDF (and poster / calendar) free; player paid; reel / AI-reel premium.
-5. **Publish is a multi-select gate.** Preview is a single-artifact lens; Publish lets you choose *which* artifacts to mint (nothing pre-checked); Share acts on one artifact's URL/claim.
-6. **Publish = a one-time enablement event per artifact.** Thereafter the artifact is live forever and tracks the latest plan content — no re-publish needed for edits to flow.
-7. **Freshness lives client-side.** Enabled artifacts are live pages; the recipient "freezes" a copy only by hitting Download (e.g. a PDF/reel file). We never store frozen snapshots server-side.
-8. **Edit-lock is plan-level and paid-only.** It gates structural editing of the shared content; it engages only once a *paid* artifact has been published. Free-only plans never lock.
-9. **Consent applies to every artifact.** The PDF honors line / B&W / original exactly like the player; line-drawing always available, B&W/original consent-gated.
-10. **Analytics is per-artifact** — Wave 17 generalized with an artifact dimension.
-11. **Recipients claim into "My Workouts"** via *both* a web client account (`session.homefit.studio`) and the app inbox; *both* claim mechanisms (anonymous link + email push) are supported.
-12. **Roadmap types to accommodate:** stitched video reel, one-page poster, calendar/reminders export, AI style-transfer reel (beyond player + PDF).
+**Model**
+1. One plan = one source of truth; artifacts are live renderings, never content copies.
+2. `plan_artifacts` is thin, singleton per `(plan_id, kind)` — publish state, price, share/claim handles, render metadata only.
+3. Every supported type is always offered (render-on-demand); the type registry is global.
+4. Pricing is per-type with an intentional free floor (overview page free; player paid; reels premium).
+5. Publish is a multi-select gate (nothing pre-checked); Preview is a single-artifact lens; Share is per-artifact.
+6. Publish is one-time enablement; thereafter the artifact is live and tracks the plan — no re-publish to push edits.
+7. Freshness lives client-side; recipients freeze a copy only via Download/Print.
+
+**The free artifact**
+8. The free artifact is a **live, interactive web page** (`/o/{planId}`), not a PDF. PDF/print is a *button on the page*, not the artifact.
+9. It carries: a claim CTA, a QR back to the live artifact, consent-gated treatment, and a version stamp on print.
+10. Full consent uniformly — the overview honors line/B&W/original exactly like the player (no "higher bar for print").
+
+**Identity & sharing**
+11. The anonymous public link **survives** — not overturned. Account is opt-in via **claim** (magic-link only for now).
+12. The claim CTA is a persistent chip that **escalates** over time but never becomes a modal/wall (R-01).
+13. Claimed plans stay **live-linked** to the creator's plan; claiming never snapshots.
+14. **Claim is the primary engagement-rail filler** (verified email, any channel); practitioner-typed email is a pre-claim fallback + claim-nudge only, and is deleted once a verified one exists.
+15. The claim loop is closed by **matching on the claimed plan**, not the email address; a claimed account back-links to the practitioner's client record.
+
+**Consent & analytics**
+16. Consent is **practice-grain**; practitioner-proxy pre-claim, **client-controlled post-claim** (full autonomy, with transparency to the practitioner).
+17. On claim, consent **inherits** the practitioner's current setting (continuity); the consumer account is a **spanning identity** linking otherwise-separate practice client-rows.
+18. Analytics is **per-artifact**; named adherence starts **claim-forward only** (pre-claim stays anonymous aggregate).
+
+**Visual**
+19. My Workouts = one recency-sorted, **badged** list (provenance + kind), not split sections.
+20. Cards are **thumbnail-led with a kind glyph corner badge** (single-coral brand; no per-kind colour).
+21. The Publish gate is a **checklist with per-row price + live running total**.
 
 ---
 
-## The model in one paragraph
+## The free/paid split is the artifact split
 
-The `plans` row and its `exercises` remain exactly as today — one mutable, version-bumped source of truth. `plan_artifacts` holds **at most one row per `(plan_id, kind)`**, where `kind` ∈ {`plan_url`, `pdf`, `poster`, `reel`, `ai_reel`, `calendar`}. A row's mere existence-with-`published_at` means "this artifact is enabled at a public URL and has been paid for (if paid)." The artifact's *content* is never stored on that row — it is **rendered on demand** from the live plan (a computed page for `plan_url`/`pdf`/`poster`, a materialised file in a bucket for `reel`/`ai_reel`, an ICS stream for `calendar`). Editing the plan updates every enabled artifact instantly. Money attaches at the artifact level (per-kind price, charged once at publish); the **content edit-lock** attaches at the plan level (one shared body of exercises, so one lock).
+The product already had this idea, in [`FREE_LOBBY_EXPORT.md`](./FREE_LOBBY_EXPORT.md): *"The free product is the amputated paid product, not a separate thing — one source of truth, two render targets (interactive vs static)."* That sentence is the artifact model. This design generalizes "two render targets" into N.
+
+- **Paid — the interactive player** (`/p/{planId}`, kind `plan_url`): the full workout-along experience — timers, prep, treatment switching, audio, pill matrix, analytics. Priced (duration-based 1–2 credits).
+- **Free — the overview page** (`/o/{planId}`, kind `overview`): a static "menu" view — exercises with hero frames, reps/sets/hold/notes, circuit grouping. **But live and interactive**: it carries a claim CTA, a QR back to the live artifact, consent-gated stills, and a Print/Save-PDF button. Free (0 credits). Its job is the **no-phone / low-tech / printable fallback** *and* the top of the funnel.
+
+**Why a page and not a PDF.** A PDF is dead — no claim, no live updates, no QR action, no analytics. The artifact must be interactive, so it's a page; print-to-PDF is a browser feature *of* that page (a print stylesheet, not a generator). This also returns to the lobby spec's original anti-goal ("No PDF, ever") — the shipped PDF was an implementation detour.
+
+**Why a link and not an inline image.** The original lobby export was a PNG because an image unfurls beautifully inline in WhatsApp. We accept losing that: an inline image of a 10-exercise plan is too small to read (you tap to zoom regardless) and is *dead*; a link leads somewhere *actionable*, which is what adherence needs, and is a far better funnel (tappable claim + "play with timers" vs. scan-a-QR-with-a-second-device). Mitigation: invest in a **generated OG preview image** (`@vercel/og`) so the WhatsApp unfurl is an attractive card. The full-plan image survives only as an optional later **poster** artifact.
+
+**iOS Reader-App constraint.** Nothing on the free page may read as a purchase path — "Save your plan" and "Scan to play with timers" are fine; "buy / upgrade / credits" are not (`feedback_ios_reader_app.md`).
 
 ---
 
-## The publish=enablement / always-live reconciliation
+## Reversals of shipped behavior
 
-"Publish per artifact" and "artifacts are always live" *look* like they fight. They don't, once you separate two axes:
+Recording these consciously — they remove working code, not just edit a doc:
 
-- **Enablement** is a one-time, per-artifact event. Publishing the player mints its URL and charges its price *once*. Publishing the PDF mints its page *once* (free). After that the artifact exists.
-- **Freshness** is continuous and shared. Every *enabled* artifact is a live rendering of the latest plan. A structural or non-structural edit to the plan flows to all enabled artifacts with no re-publish and no re-charge.
+1. **Free artifact: PDF → live page.** The shipped on-device "PDF handout" (lobby export, PDF pipeline live since 2026-05-15) is deprecated in favor of the `/o/{planId}` page with a print/PDF button. The `LobbyExportCard` Flutter generator and its `lobby.css` R-10 parity tax are retired.
+2. **Generation: on-device/offline/pre-publish → published web artifact.** The on-device path existed only to dodge the credit-charging publish flow (so the freebie could be free). Now that publish is per-artifact and the overview is a 0-credit artifact, that scaffolding is obsolete: you publish the overview for free through the normal flow. The pre-publish-vs-post-publish duality dissolves into "publish the free artifact, it costs nothing." **Accepted loss:** no-signal offline handoff — narrow, and consistent with publish having always been online-only (offline-first covers capture→edit→preview, not sharing).
 
-So you never "re-publish to push an edit." You publish a kind once to bring it into existence; thereafter it tracks the plan. This is what makes per-artifact content snapshots unnecessary (and is why we explicitly rejected them — see [Non-goals](#non-goals)). The only place a frozen copy exists is in the *recipient's* hands, via Download (D7).
+---
+
+## Publish = enablement; artifacts are always live
+
+Two separate axes:
+
+- **Enablement** is one-time, per-artifact. Publishing the player mints its URL and charges its price once; publishing the overview mints its page once (free). After that, the artifact exists.
+- **Freshness** is continuous and shared. Every *enabled* artifact is a live rendering of the latest plan. Edits flow to all enabled artifacts with no re-publish and no re-charge.
+
+You never re-publish to push an edit. The only frozen copy is in the *recipient's* hands, via Download/Print.
 
 ---
 
 ## Pipeline: Preview / Publish / Share
 
-The existing **Camera → Preview → Publish → Share** workflow pill stays, but Preview/Publish/Share become artifact-aware:
-
-- **Preview — single-artifact lens.** The practitioner picks an artifact type and previews *that* rendering. All supported types are always listed (D3); render-on-demand means even un-published types preview live.
-- **Publish — multi-select gate.** A selection sheet lists every artifact type with its per-kind price. **Nothing is pre-checked** (D5 / explicit choice every publish — never charge by surprise). The practitioner ticks the kinds to mint; the sheet shows the running credit total; confirm charges the sum and mints/updates the `plan_artifacts` rows in one transaction (alongside the existing `plan_issuances` audit row). Already-enabled kinds shown as such (re-ticking is a no-op, not a re-charge).
-- **Share — per-artifact.** Each enabled artifact has its own shareable handle (URL for computed/materialised kinds; ICS subscription link for calendar). Sharing is per-artifact; sharing several means sharing each link (a "share all" convenience is a UX detail, not load-bearing).
+- **Preview — single-artifact lens.** Pick an artifact type and preview that rendering; all types always listed (render-on-demand previews live).
+- **Publish — multi-select gate.** Lists every type with its per-kind price; **nothing pre-checked**; shows a live credit total; confirm charges the sum and mints/updates `plan_artifacts` rows in one transaction (alongside `plan_issuances`). Already-enabled kinds shown as such; re-ticking is a no-op, never a re-charge. The free overview is a 0-credit row in this gate.
+- **Share — per-artifact**, two paths (see [Sharing](#sharing--the-engagement-rail)).
 
 ---
 
-## Billing
+## Identity & claiming
 
-- **Per-type price is a policy function**, not a flat number:
-  - `pdf`, `poster`, `calendar` → **free** (0 credits). Deliberate funnel (D4). Note: a free artifact still incurs render/storage/egress cost we absorb — accepted as the funnel's cost of doing business.
-  - `plan_url` (player) → the **existing duration-based price**: 1 credit ≤ 75 min estimated, 2 credits > 75 min (ADR 0007 unchanged).
-  - `reel`, `ai_reel` → **premium, price TBD** (see [Open questions](#open-questions)).
-- **Charge fires once per artifact at publish.** The publish RPC sums the selected paid kinds and consumes credits atomically via the existing `consume_credit` path.
-- **Failure / refund.** Materialised kinds (`reel`, `ai_reel`, `pdf` if cached) can fail *after* the charge (transcode error). Reuse the existing compensating-refund-ledger pattern from the publish flow: charge on accept, refund row if the render terminally fails. Computed kinds (`plan_url`) can't fail this way.
-- **"Plan becomes paid"** = the first time a paid artifact is published (`credits_charged > 0`). This is the trigger that arms the edit-lock — see below.
+**The anonymous public link survives untouched.** We considered requiring login on every shared link and rejected it: it would tax adherence (the thesis), wall out low-tech/older patients, invert the POPIA moat (zero-client-PII today), and grow complexity rather than shrink it. Instead:
+
+- **Anonymous-first.** The link opens the artifact instantly, no auth — exactly as today. A sore-knee patient taps, does the exercises, leaves, and never has an identity. Zero friction, POPIA moat intact.
+- **Account is opt-in via claim.** The artifact carries a soft, dismissible **claim CTA** ("Keep these in your app" / "Save your plan"). Claim auth is **magic-link only** for now (no passwords; Apple/Google deferred). On signup, **the page already knows its `plan_id`** (it's in the URL), so the current plan attaches to the new account — that's the whole mechanism. No silent identity token is minted (rejected — it would assign identity to non-claimers and reintroduce the POPIA problem).
+- **The chip escalates, never walls.** Quiet at first, more insistent on return visits — but never a modal or a gate (R-01). It earns attention by offering what anonymous can't: all plans in one place, progress, history, reminders, re-finding without the WhatsApp link.
+- **Claimed = live-linked.** A claim links the consumer to the *creator's live plan*; updates keep flowing. Claiming never snapshots.
+- **My Workouts** (web account on `session.homefit.studio` + the app inbox) is the claim destination — an *optional* surface, not a gate. The claimed account is a **spanning identity** that threads together otherwise-separate practice client-rows (see [Consent](#consent--popia)).
+
+**Collaboration** (parked): a future feature where the claimed client comments/chats *about* the plan (not co-editing it) — the plan becomes the interface point between client and practitioner. It is auth/claim-gated by nature. Not designed here.
 
 ---
 
-## Edit-lock semantics
+## Sharing & the engagement rail
 
-The edit-lock (ADR 0016) is an **anti-abuse rule on the credit model**, not a freshness or format concept. It exists so a practitioner can't publish one plan for one credit and then quietly rewrite it into many different plans forever. It gates **structural edits** (add/delete/reorder); non-structural edits (reps, sets, hold, notes, filter params) are free forever.
+Today Share is a URL-only iOS share sheet. The artifact model splits it by **intent**, which maps to a real practitioner question — "WhatsApp or email?":
 
-In the artifact world it stays **plan-level** (D8), because all artifacts render the *same* shared exercises — "lock the PDF but not the player" is incoherent when there's one body of content underneath both. Concretely:
+- **Share sheet (public link).** OS sheet flings the public link anywhere — WhatsApp/iMessage/etc. The dominant path. Anonymous, no contact captured.
+- **Managed email.** Our UI sends a branded Resend email with the artifact link + claim CTA. This captures the address and doubles as the **best-converting claim nudge** (a branded "save your plan" email beats a bare WhatsApp link).
 
-- The lock gates editing of the **plan's** content. The grace clock starts at the **first open of any enabled artifact** (`plans.first_opened_at`, redefined as artifact-agnostic). After 14 days, structural edits lock; a plan-level 1-credit prepay (`unlock_plan_for_edit`, unchanged) buys the next structural republish.
-- **Only paid plans ever lock** (D8). If a plan has only ever published *free* artifacts (just the PDF page), no credit was spent, there's nothing to abuse, and the lock machinery never arms. The moment a paid artifact is published, the plan's content becomes credit-backed and the grace/lock logic engages.
+**Email is the ongoing-engagement rail, not a delivery mechanism.** Delivery is already solved by WhatsApp + the link (the page knows its `plan_id`, so any-channel claim works). The reason to hold an email is to *reach* the client once the plan is live and accumulating updates/replies.
 
-This collapses the per-artifact-snapshot complexity entirely: one live version of the content, one lock, conditional on money having changed hands.
+- **Claim is the primary rail-filler.** When any client claims (any channel), magic-link signup yields a *verified* email. That fills the rail for the 84% who arrive via WhatsApp.
+- **Practitioner-typed email** (`clients.email`, new) is a *pre-claim fallback contact* + claim-nudge only — unverified, typo-prone. **When a verified claim email exists, it supersedes and the typed one is deleted** (POPIA data-minimization).
+- **Loop closed by the claimed plan, not the address.** A claimed plan belongs to a practitioner's client record, so the claimed account back-links there regardless of which email was used; the practitioner sees "claimed · account linked."
 
 ---
 
 ## Consent & POPIA
 
-Consent treatments (line / B&W / original) apply to **every artifact** (D9), not just the player:
+Consent treatments (line / B&W / original) and `analytics_allowed` apply to **every artifact**. Line-drawing is always available (de-identified; consent can't be withdrawn); B&W/original are consent-gated via signed URLs.
 
-- **Line-drawing is always available** (de-identified by the pipeline; consent can't be withdrawn — see CLAUDE.md).
-- **B&W and original are consent-gated** per the client's `video_consent` jsonb, served via the existing `sign_storage_url` signed-URL machinery. An artifact that would surface identifiable frames (an "original" PDF, a colour reel) must respect the same gate the player does.
-- The PDF artifact therefore pulls consent + signed URLs into its renderer — it is **not** a line-only static handout. (This was an explicit choice over "PDF is always line-drawing only.")
-- **Claimed clients** introduce a new POPIA surface: once a client claims a plan into a web account, do they gain the ability to manage/withdraw their own consent or opt out of analytics? Flagged in [Open questions](#open-questions).
+**Grain and ownership:**
+- **Practice-grain.** One consent record per practice a client is linked to (presented to the client per-relationship — "Smith Physio", "Cape Biokinetics"). Finer-than-practice was rejected: practitioners in one practice share the client record, so splitting consent per-practitioner is incoherent.
+- **Pre-claim: practitioner-proxy.** The practitioner sets `video_consent` on the client row, as today.
+- **Post-claim: client-controlled, full autonomy.** Once the client has an account linked to that practice, *they* own the consent for that relationship. No clinical carve-out — but with **transparency**: the practitioner sees "analytics off for this client," they just can't override or fake it.
+- **Inherit on claim.** At claim, the client's self-consent *inherits* the practitioner's current setting (continuity — nothing visibly changes); the client adjusts from there. First visit to the consent panel reads "here's what's currently shared — you can change it."
 
----
-
-## Claiming & My Workouts
-
-**The biggest new build.** Recipients can claim an artifact into a durable **"My Workouts"** surface via **both** delivery mechanisms and **both** recipient surfaces (D11):
-
-- **Mechanisms:** (1) the existing **anonymous link** (unguessable UUID, no auth — unchanged for the casual case); (2) **email push** — the practitioner sends the artifact to a client's email (Resend), and the email carries a claim link.
-- **Surfaces:** (1) a **client web account** on `session.homefit.studio` — clients, who have *no* account today, can sign up on the player domain and collect claimed plans in a web "My Workouts"; (2) the **app inbox** — app users (incl. self-trainers) see claimed plans in their existing My Workouts tab.
-
-This builds on the self-trainer wave's `plan_invitations` seam and the My Workouts tab rather than inventing a parallel model. But it opens real identity/consent questions (a brand-new client-facing auth surface; how a claimed client relates to the practice's `clients` row; whether claiming transfers consent ownership). These are scoped as a follow-on sub-wave, not part of the core artifact-model landing — see [Open questions](#open-questions).
+**Spanning identity.** The claimed consumer account sits *above* practice client-rows and threads them together. Per-relationship consent lives on that account at **consumer × practice** grain and overrides the practitioner-proxy once it exists. This maps cleanly to rendering: every plan belongs to exactly one practice (`plans.practice_id` / `trainer_id`), so an artifact always reads the matching relationship's consent — per-relationship consent and per-plan gating are the same thing.
 
 ---
 
 ## Analytics
 
-Per-artifact (D10). Wave 17's analytics (`client_sessions`, `plan_analytics_events`, daily aggregates, opt-outs) gain an **artifact dimension** so PDF-page opens, reel views, and player engagement are tracked separately and can be compared per format. Roll-ups can still present plan-level totals, but the grain is the artifact. Consent-gating (`analytics_allowed`) and the opt-out flow carry over unchanged.
+Per-artifact (D10), and transformed by claiming:
+
+- **Claim upgrades anonymous guesses to known-person truth.** Wave-17 analytics are session-level ("someone opened this 4×"); a claimed client's engagement is attributable to a *person* ("Margaret completed 3/5, last Tuesday") — the adherence thesis made real.
+- **Back-attribution: claim-forward only.** Pre-claim anonymous sessions are *not* retroactively tied to a claiming client (they engaged believing it was anonymous). Named adherence starts at the claim.
+- **Consent ownership** follows the [consent model](#consent--popia) — client-controlled post-claim, transparent to the practitioner.
+- **Per-artifact event vocabularies (proposed, confirm).** Artifacts don't speak the same language: the player has the rich workout funnel (the 13 Wave-17 events); the overview page can only emit page-level events (opened, treatment_changed, claim_tapped, qr_scanned, printed). Proposal: per-artifact event sets rather than one sparse universal schema, so each format honestly reports what it can.
+- **Actionability (proposed, confirm).** Display-first; the real payoff (fast-follow) is wiring adherence into the engagement rail — "Margaret hasn't opened her plan in 5 days → nudge."
+
+---
+
+## Billing
+
+Per-type price is a policy function:
+- `overview` → **free** (0 credits). Funnel; absorbs render/storage cost as cost-of-funnel.
+- `plan_url` (player) → existing duration-based price: 1 credit ≤ 75 min, 2 credits > 75 min (ADR 0007 unchanged).
+- `reel`, `ai_reel` → premium, **price TBD**.
+- `poster`, `calendar` → free/TBD.
+
+Charge fires once per artifact at publish; the gate sums selected paid kinds and consumes credits atomically via `consume_credit`. Materialised kinds (reel) can fail after charge — reuse the compensating-refund pattern. "Plan becomes paid" = first paid artifact published; that arms the edit-lock.
+
+---
+
+## Edit-lock semantics
+
+The lock (ADR 0016) is an anti-abuse rule on the credit model, not a freshness/format concept. It stays **plan-level** (all artifacts render the same shared exercises → one lock) and **paid-only**:
+- Non-structural edits (reps/sets/hold/notes/filter) are free forever — so the ongoing tweaks a live-linked relationship generates reach the client live, free.
+- Structural edits (add/remove/reorder) are free for 14 days after first open of *any* enabled artifact, then lock; a plan-level 1-credit prepay (`unlock_plan_for_edit`) buys the next structural republish.
+- A plan that has only ever published *free* artifacts never locks (no credit spent → nothing to abuse).
+
+---
+
+## Visual surfaces
+
+The artifact system changes UI across all three surfaces. **Locked visual decisions** so far: My Workouts = one badged list (#19); cards thumbnail-led + kind glyph corner badge (#20); Publish gate = checklist + running total (#21). The rest need HTML mockups in `docs/design/mockups/` (the house pattern — progress-pills, circuit, logo all live there), reviewed and locked.
+
+**Mobile (trainer app)**
+- Preview → artifact-type picker + single-artifact lens.
+- Publish → multi-select gate (checklist, per-kind price, running total, nothing pre-checked).
+- Share → managed-email vs share-sheet split ("WhatsApp or email?").
+- Plan/session state → per-plan artifact status ("overview live · player published · reel not yet").
+- Edit-lock chip → appears only once a paid artifact exists.
+- **My Workouts** → mixes authored sessions (mine, editable) and received/claimed artifacts (read-only); one badged list, thumbnail-led cards with kind glyph; provenance badge distinguishes mine vs shared-with-me.
+
+**Web (player + new client account)**
+- The free overview page (`/o/{planId}`) — interactive: claim CTA, QR, consent-gated stills, Print/Save-PDF, version stamp; generated OG preview image.
+- Client web account + web My Workouts on `session.homefit.studio`.
+- "Save to My Workouts" claim chip (escalating, never modal).
+- Consumer-side "my practitioners / my data" consent panel — one panel per linked practice (layout TBD via mockups; the consent *grain* is fixed, the UI isn't).
+
+**Web portal**
+- Audit feed (new per-artifact publish kinds); per-artifact analytics; client detail shows "claimed · account linked" status.
 
 ---
 
 ## Artifact-type roadmap
 
-| `kind` | Format | Render locus | Price tier | Status |
+| `kind` | Format | Render locus | Price | Status |
 |---|---|---|---|---|
-| `plan_url` | Interactive web player | Computed page (live) | Paid (duration-based 1–2 cr) | **Shipped** (the existing player) |
-| `pdf` | Multi-page handout | Computed page → downloadable file | Free | Designed here |
-| `poster` | One-page printable summary | Computed page → downloadable file | Free (provisional) | Roadmap |
-| `reel` | Stitched vertical video montage | Materialised MP4 in a bucket | Premium (TBD) | Roadmap (ADR 0022 anticipated) |
-| `ai_reel` | AI style-transfer reel | Materialised MP4 (cloud render) | Premium (TBD) | Roadmap (parked premium) |
-| `calendar` | Calendar / reminders export | ICS stream / subscription | Free (provisional) | Roadmap |
-
-"Computed" kinds reuse `plan_url`'s live-page pattern (no stored output). "Materialised" kinds populate `plan_artifacts.output_url` with a signed URL to a rendered file and need a render pipeline + bucket + cache/expiry policy (the open question ADR 0022 already flagged).
+| `plan_url` | Interactive player (`/p/`) | Computed page (live) | Paid (1–2 cr) | **Shipped** |
+| `overview` | Live overview page (`/o/`) + print/PDF | Computed page (live) | Free | Designed here (supersedes the on-device PDF handout) |
+| `poster` | Single shareable image (WhatsApp/social) | Materialised image (`@vercel/og`) | Free/TBD | Roadmap (the demoted PNG) |
+| `reel` | Stitched vertical video | Materialised MP4 in a bucket | Premium TBD | Roadmap (ADR 0022 anticipated) |
+| `ai_reel` | AI style-transfer reel | Materialised MP4 (cloud render) | Premium TBD | Roadmap (parked premium) |
+| `calendar` | Calendar / reminders export | ICS stream / subscription | Free/TBD | Roadmap |
 
 ---
 
 ## Schema deltas (proposed)
 
-Extends the ADR 0022 table. **Proposed** — exact types to be finalised in the migration PR.
+Exact types finalised in the migration PR.
 
 **`plan_artifacts`** (existing: `id, plan_id, kind, status, output_url, generated_at, error_message, metadata, UNIQUE(plan_id, kind)`):
-- **Widen the `kind` CHECK** from `('plan_url')` to `('plan_url','pdf','poster','reel','ai_reel','calendar')` via `DROP CONSTRAINT … ADD CONSTRAINT`.
-- `published_at timestamptz` — NULL = offered-but-not-minted; non-NULL = enabled/live. (Distinct from `generated_at`, which is render time.)
-- `credits_charged numeric(10,4) default 0` — what this artifact cost at publish (0 for free kinds).
-- `first_opened_at timestamptz` — per-artifact first open (analytics + feeds the plan-level grace trigger).
-- `status` lifecycle formalised: `offered → rendering → ready → failed` for materialised kinds; computed kinds go straight to `ready`.
-- Keep `output_url` NULL for computed kinds (player URL stays computed); populate for materialised kinds.
-- Stays **RPC-write-only** (same lockdown as `credit_ledger`); the only writer is the publish flow.
+- Widen the `kind` CHECK to `('plan_url','overview','poster','reel','ai_reel','calendar')`.
+- `published_at timestamptz` (NULL = offered, not minted), `credits_charged numeric(10,4) default 0`, `first_opened_at timestamptz` (per-artifact).
+- `status` lifecycle: `offered → rendering → ready → failed` (materialised) / straight to `ready` (computed).
+- Stays RPC-write-only.
 
-**`plans`:**
-- Redefine `first_opened_at` semantics as "first open of *any* enabled artifact" (no new column; the lock trigger reads it only when a paid artifact exists).
+**`clients`:** add `email text` (practitioner-typed, transient; deleted when a verified claim email supersedes; POPIA notice required).
 
-**Analytics tables** (`client_sessions`, `plan_analytics_events`):
-- Add `artifact_kind` (or `artifact_id` FK) dimension so events attribute to a format.
+**Consumer identity & consent:**
+- A consumer account model (claimed clients) — likely `auth.users` + a `client_accounts` / claim-link table tying consumer ↔ practice client-rows (the spanning identity).
+- A consent record at **consumer × practice** grain (client-controlled), overriding the practice's `clients.video_consent` (practitioner-proxy) once it exists.
+- `plan_claims` (or extend `plan_invitations`): consumer ↔ plan, matched on the claimed plan.
 
-**Claiming** (follow-on sub-wave):
-- Reuse/extend `plan_invitations`; a `plan_claims` link table (recipient identity → plan, optional artifact kind) if the invitation model doesn't cover anonymous-web claims. Client web-account identity model is an open question.
+**`plans`:** `first_opened_at` redefined as "first open of *any* enabled artifact."
+
+**Analytics:** add an artifact dimension (`artifact_kind`/`artifact_id`) to `client_sessions` / `plan_analytics_events`; add a claimed-identity link (claim-forward only); per-artifact event vocabularies.
 
 ---
 
 ## RPC surface (proposed)
 
-- **Publish RPC becomes artifact-set-aware.** Accepts the set of `kind`s to publish; validates the lock state; sums paid-kind prices; calls `consume_credit` once for the total; upserts the `plan_artifacts` rows; writes the `plan_issuances` audit row — all in one transaction. Compensating refund on materialised-render failure.
-- **`get_plan_full`** already returns an `artifacts` array (ADR 0022). Extend each entry with publish state + consent-gated per-treatment URLs so any artifact renderer (web player, PDF page, poster) reads from the one anon surface.
+- **Publish RPC** becomes artifact-set-aware: accepts the kinds to publish, validates lock state, sums paid-kind prices, calls `consume_credit` once, upserts `plan_artifacts` rows, writes `plan_issuances` — one transaction. Compensating refund on materialised-render failure.
+- **`get_plan_full`** already returns an `artifacts` array (ADR 0022); extend with publish state + consent-gated per-treatment URLs so every renderer (player, overview page) reads from the one anon surface. Add an `/o/`-friendly variant if needed.
+- **Claim RPC**: magic-link signup → attach current `plan_id` → back-link to the practitioner's client record by matched plan.
 - **Lock RPCs** (`unlock_plan_for_edit`) unchanged — plan-level.
 
 ---
 
 ## Open questions
 
-1. **Client web-account identity model** (largest unknown). Are claiming clients real `auth.users`? Anonymous-with-email? How does a claimed client relate to the practice's `clients` row (link, merge, mirror)? Does claiming transfer consent/analytics ownership to the client? POPIA review needed. This is a sub-wave of its own.
-2. **Premium pricing** for `reel` / `ai_reel` (and whether `poster` / `calendar` are truly free or token-priced).
-3. **Render infrastructure for materialised kinds** — reel transcode (vertical 9:16, cuts, watermark) and PDF generation: on-device vs server, which bucket, regenerate-on-demand vs cache, signed-URL lifetime. (ADR 0022 flagged this for `reel`/`pdf`.)
-4. **Download / freeze UX** — per-artifact Download affordance: which kinds offer it, file naming, and whether a downloaded PDF embeds a "as of version N" stamp.
-5. **`calendar` semantics** — ICS one-shot export vs live subscription feed; reminder cadence; timezone handling.
-6. **Do free artifacts get claim / My Workouts too?** (Leaning yes — the funnel wants the free PDF to be claimable.)
-7. **Backfill** — existing `plan_url` rows are already backfilled (ADR 0022); new columns land with safe defaults (`published_at = generated_at` for existing ready rows, `credits_charged` reconstructed from `plan_issuances` where possible).
+1. **Consumer identity model** — are claimed clients `auth.users`, and exactly how does `client_accounts` link to practice `clients` rows? (The grain — consumer × practice — is fixed; the table shape isn't.)
+2. **Analytics event vocabulary** — confirm per-artifact event sets vs one sparse universal schema.
+3. **Analytics actionability** — confirm display-first, nudges as fast-follow.
+4. **Practitioner view of contact** — show "claimed · linked" *status* only, or expose the consumer's verified email address?
+5. **Premium pricing** — `reel` / `ai_reel` (and whether `poster` / `calendar` are free or token-priced).
+6. **Render infra for materialised kinds** — reel transcode + bucket + cache + signed-URL lifetime (ADR 0022 flagged).
+7. **Kind naming** — `overview` vs `handout` vs `lobby_page` (the retired practitioner-facing name was "PDF handout").
+8. **Consumer consent UI** — the "my practitioners / my data" panel layout (mockup).
+9. **Collaboration** — the whole anchored-comms feature (parked).
 
 ---
 
 ## Non-goals
 
-- **Per-artifact content divergence / snapshots.** Explicitly rejected (D1/D8). All artifacts render one live source; freezing happens only in the recipient's Download.
-- **Multiple rows per type.** Singleton `(plan_id, kind)` enforced (D2/D7-singleton).
-- **Subscription pricing for artifacts.** Credits only, consistent with ADR 0007 and the Safe Mode subscription's credit denomination (ADR 0021).
-- **Re-publish-to-refresh.** Edits flow live to enabled artifacts; publishing is enablement, not a refresh cycle (D6).
+- **Per-artifact content divergence / snapshots** — one live source; freezing only in the recipient's Download/Print.
+- **Multiple rows per type** — singleton `(plan_id, kind)`.
+- **Silent identity tokens** — non-claimers stay genuinely anonymous; identity only on opt-in claim.
+- **PDF as the free artifact** — it's a live page; PDF is a print button.
+- **On-device / offline / pre-publish free generation** — superseded by the published 0-credit web artifact.
+- **Co-editing collaboration** — collaboration is anchored comms, never the client editing the plan.
+- **Subscription pricing for artifacts** — credits only (consistent with ADR 0007 / 0021).
+- **Mandatory login on shared links** — the anonymous link survives.
 
 ---
 
 ## ADRs to ratify
 
-These are hard-to-reverse, surprising-without-context decisions and warrant their own ADRs (to be authored alongside the first implementation PR):
+Hard-to-reverse, surprising-without-context decisions warranting their own ADRs (authored with the first implementation PR):
 
-- **Artifacts are live renderings; freshness is client-side.** (D1/D6/D7) — extends ADR 0022.
-- **Plan-level edit-lock, paid-only trigger.** (D8) — extends ADR 0016.
-- **Per-artifact pricing with an intentional free floor.** (D4) — extends ADR 0007.
+- **Anonymous link survives; identity is opt-in via claim** (no mandatory login, no silent tokens). — #11, #13.
+- **The free artifact is a live interactive page, not a PDF/PNG** (reverses the shipped on-device handout). — #8, reversals.
+- **Practice-grain consent, practitioner-proxy → client-controlled on claim, inherit-on-claim, spanning identity.** — #16, #17 — extends the consent model.
+- **Per-artifact pricing with a free floor** — #4 — extends ADR 0007.
+- **Plan-level, paid-only edit-lock** — extends ADR 0016.
 
 ---
 
@@ -222,15 +317,24 @@ These are hard-to-reverse, surprising-without-context decisions and warrant thei
 
 | # | Decision | Rejected alternative | Why |
 |---|---|---|---|
-| D1 | One plan = source of truth; artifacts are live renderings | Artifacts hold their own content copy | Avoids snapshot machinery; keeps one mutable plan |
-| D2 | `plan_artifacts` thin, singleton per `(plan_id, kind)` | Many rows per kind / content on the row | Singleton matches "one format = one output"; content stays on `plans`/`exercises` |
-| D3 | All types always offered (render-on-demand) | Opt-in per-plan type enablement | New kinds light up everywhere automatically; no per-plan migration |
-| D4 | Per-type pricing, free floor (PDF free) | Flat per-plan price; or PDF paid | Free PDF is a deliberate funnel/loss-leader |
-| D5 | Publish = multi-select gate, nothing pre-checked | Pre-check all; or one-artifact-at-a-time only | Never charge by surprise; still allows publish-all in one pass |
-| D6 | Publish = one-time enablement; then always live | Re-publish to push each edit (re-charge) | Edits flow live; publishing is enablement, not refresh |
-| D7 | Freshness client-side via Download | Server-side frozen snapshots per send | No snapshot storage; freeze happens in recipient's hands |
-| D8 | Plan-level lock, paid-only | Per-artifact lock + snapshots; or drop lock | Shared content → one lock; nothing to abuse until a credit is spent |
-| D9 | Consent applies to every artifact (PDF too) | PDF always line-only | Parity; identifiable frames must respect the same gate everywhere |
-| D10 | Per-artifact analytics | Player-only; or plan-level rollup only | Compare engagement per format; generalizes Wave 17 |
-| D11 | Claim into My Workouts; web + app; link + email | App-only; or anon-link only | Maximum reach into app-less clients; builds on `plan_invitations` |
-| D12 | Roadmap: reel, poster, calendar, AI reel | Player + PDF only | Model must stretch to materialised + non-page formats |
+| 1 | One plan = source of truth; artifacts are live renderings | Artifacts hold content copies | Avoids snapshot machinery |
+| 2 | `plan_artifacts` thin, singleton per `(plan_id, kind)` | Many rows / content on row | One format = one output |
+| 3 | All types always offered (render-on-demand) | Per-plan opt-in enablement | New kinds light up everywhere |
+| 4 | Per-type pricing, free floor | Flat per-plan price | Free overview is the funnel |
+| 5 | Publish = multi-select gate, nothing pre-checked | Pre-check all / one-at-a-time | Never charge by surprise |
+| 6 | Publish = one-time enablement; then live | Re-publish to push edits | Edits flow live, no re-charge |
+| 7 | Freshness client-side (Download/Print) | Server-side snapshots | No snapshot storage |
+| 8 | Free artifact = live page, not PDF | Ship the PDF handout | A PDF is dead; artifact must be interactive |
+| 9 | Page carries claim + QR + version stamp + print | Bare static export | Funnel + paper→digital bridge |
+| 10 | Full consent uniformly on the page | Line-only / higher print bar | Don't nanny users |
+| 11 | Anonymous link survives; claim is opt-in | Mandatory login on links | Protects adherence + POPIA moat |
+| 12 | Magic-link claim auth; escalating-but-not-modal chip | Password wall / pre-checked | Lowest friction for patients (R-01) |
+| 13 | Claimed plans stay live-linked | Snapshot on claim | Linkage is the point (updates, future comms) |
+| 14 | Claim = primary rail-filler; typed email = fallback, deleted on verify | Email-send path is the rail | WhatsApp dominates; claim fills the rail; POPIA minimization |
+| 15 | Close loop by claimed plan, not address | Match by email | Addresses are fuzzy; the plan is exact |
+| 16 | Practice-grain consent; client-controlled post-claim w/ transparency | Per-practitioner grain / silent opt-out | Matches tenancy; data-subject autonomy + clinical visibility |
+| 17 | Inherit consent on claim; spanning consumer identity | Reset to default | Continuity; links cross-practice client-rows |
+| 18 | Per-artifact analytics; named adherence claim-forward only | Back-attribute pre-claim sessions | Don't de-anonymize past anonymous activity |
+| 19 | My Workouts = one badged list | Two sections / segmented tabs | Compact, unified provenance+kind |
+| 20 | Thumbnail-led cards + kind glyph badge | Per-kind colour-coding | Single-coral brand |
+| 21 | Publish gate = checklist + running total | Card grid / stepper | Functional, clear cost |
