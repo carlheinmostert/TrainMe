@@ -1430,6 +1430,109 @@ class ApiClient {
     }
   }
 
+  // ==========================================================================
+  // Artifact-system Wave 5 — managed email + verified-claim supersession
+  // ==========================================================================
+
+  /// `set_client_email(p_client_id, p_email)` — Wave 5 (2026-05-26).
+  ///
+  /// Writes the practitioner-typed transient email into `clients.email`
+  /// and clears `clients.email_verified_at` (the typed value is by
+  /// definition unverified — ADR 0024). Passing an empty / whitespace-only
+  /// string clears both columns.
+  ///
+  /// Returns the raw jsonb the RPC produces:
+  ///
+  ///   * `{ok: true, cleared: <bool>, noop?: true}` on success
+  ///   * `{ok: false, reason: 'invalid_email'}` on a syntactic miss
+  ///   * `{ok: false, reason: 'forbidden'}` when the caller isn't a
+  ///     member of the client's practice
+  ///   * `{ok: false, reason: 'unauthenticated'}` defensive
+  ///
+  /// The verified-email refusal happens upstream — the send-artifact-email
+  /// edge function skips this call when `clients.email_verified_at IS NOT
+  /// NULL`. Calling this directly on a verified row will clear the
+  /// verified stamp, which is intentional: the typed-write path is
+  /// supposed to be a no-op once a verified email exists, so direct
+  /// callers should not invoke it in that state.
+  Future<Map<String, dynamic>> setClientEmail({
+    required String clientId,
+    required String email,
+  }) async {
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'set_client_email',
+        params: <String, dynamic>{
+          'p_client_id': clientId,
+          'p_email': email,
+        },
+      ),
+    );
+    if (result is Map) {
+      return Map<String, dynamic>.from(result);
+    }
+    // Defensive — older PostgREST clients sometimes hand back a plain
+    // string for scalar jsonb returns; the contract is a Map, so collapse
+    // anything else to a generic failure.
+    return <String, dynamic>{
+      'ok': false,
+      'reason': 'unexpected_response',
+      'raw': result,
+    };
+  }
+
+  /// Invokes the `send-artifact-email` Supabase Edge Function (Wave 5).
+  ///
+  /// Server-side responsibilities:
+  ///   * Verifies the caller's JWT.
+  ///   * Confirms the caller is a member of [planId]'s practice.
+  ///   * Confirms [planId.client_id] matches [clientId].
+  ///   * Sends a branded email via Resend's HTTP API with a link to the
+  ///     workout handout at `https://session.homefit.studio/h/{planId}`.
+  ///   * Stamps [to] into `clients.email` via `set_client_email` UNLESS
+  ///     the existing `email_verified_at` is non-null (ADR 0024).
+  ///
+  /// Returns the raw jsonb body the function emits:
+  ///
+  ///   * `{ok: true, message_id: '...', email_stamped: bool,
+  ///      verified_email_preserved: bool}` on success
+  ///   * `{ok: false, reason: '...', detail?: '...'}` on any error
+  ///
+  /// Callers should branch on `ok` (the share sheet renders a success
+  /// chip on true, a coral-bordered error chip with the reason on false).
+  Future<Map<String, dynamic>> sendArtifactEmail({
+    required String planId,
+    required String clientId,
+    required String to,
+    String? message,
+  }) async {
+    final body = <String, dynamic>{
+      'plan_id': planId,
+      'client_id': clientId,
+      'to': to,
+    };
+    if (message != null && message.trim().isNotEmpty) {
+      body['message'] = message.trim();
+    }
+
+    final response = await _guardAuth(
+      () => raw.functions.invoke(
+        'send-artifact-email',
+        body: body,
+      ),
+    );
+
+    final data = response.data;
+    if (data is Map) {
+      return Map<String, dynamic>.from(data);
+    }
+    return <String, dynamic>{
+      'ok': false,
+      'reason': 'unexpected_response',
+      'raw': data,
+    };
+  }
+
   /// Safe Mode v2 (2026-05-23) — `set_client_face_embedding(p_client_id,
   /// p_embedding, p_model_version)`. Persists the MobileFaceNet embedding
   /// (raw bytes, 512-D float32 little-endian = 2048 bytes) into
