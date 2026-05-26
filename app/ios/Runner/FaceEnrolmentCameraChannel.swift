@@ -833,25 +833,29 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
         }
 
         // VNFaceObservation.yaw / .pitch / .roll are NSNumber? in radians
-        // on iOS 14+. Nil means Vision couldn't compute that axis on
-        // this frame; we skip the whole emission rather than default to
-        // zero (per feedback_no_silent_fallbacks). Yaw + pitch are both
-        // required because the prompt walker gates on both.
-        guard let yawNS = obs.yaw, let pitchNS = obs.pitch else {
-            let yawStr = obs.yaw.map { String(format: "%.3f", $0.doubleValue) } ?? "nil"
-            let pitchStr = obs.pitch.map { String(format: "%.3f", $0.doubleValue) } ?? "nil"
+        // on iOS 14+. M38c (2026-05-26) — relaxed gate from "both yaw +
+        // pitch required" to "yaw required, pitch best-effort". Console.app
+        // showed Vision returns pitch=nil on every streamed-buffer frame
+        // on Carl's iPhone (and per Apple's documented behaviour, this
+        // is unreliable in general — ARKit + TrueDepth is the supported
+        // pose API for pitch). Yaw is the prompt-walker's primary axis;
+        // pitch is now optional with a null sentinel forwarded to Dart.
+        // The kPromptSequence drops `slightUp` in lockstep so no bucket
+        // depends on pitch — the prompt walker is yaw-only, mirroring
+        // M37's original Option-1 decision but with CONTINUOUS yaw from
+        // Vision instead of Apple's 45°-quantized AVMetadataFaceObject.
+        guard let yawNS = obs.yaw else {
             NSLog(
-                "[FaceEnrolment-vision] frame#\(frameIdx) face=YES POSE_NIL yaw=\(yawStr) pitch=\(pitchStr) orient=\(orientation)"
+                "[FaceEnrolment-vision] frame#\(frameIdx) face=YES YAW_NIL orient=\(orientation)"
             )
-            emitHeartbeat(reason: "pose_nil")
+            emitHeartbeat(reason: "yaw_nil")
             return
         }
-
         let yawRad = yawNS.doubleValue
-        let pitchRad = pitchNS.doubleValue
+        let pitchRad = obs.pitch?.doubleValue
         let rollRad = obs.roll?.doubleValue
         let rawYawDeg = yawRad * 180.0 / .pi
-        let rawPitchDeg = pitchRad * 180.0 / .pi
+        let rawPitchDeg = pitchRad.map { $0 * 180.0 / .pi }
         let rawRollDeg = rollRad.map { $0 * 180.0 / .pi }
 
         // Front-camera mirror inversion — see top-of-file comment.
@@ -883,35 +887,40 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
         var payload: [String: Any] = [
             "faceID": faceID,
             "yawDeg": yawDeg,
-            "pitchDeg": pitchDeg,
             "boundsX": Double(bounds.origin.x),
             "boundsY": Double(bounds.origin.y),
             "boundsWidth": Double(bounds.size.width),
             "boundsHeight": Double(bounds.size.height),
             "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
         ]
+        // M38c — pitch is best-effort; omit the key entirely (rather
+        // than send NSNull) when Vision didn't compute it, so the
+        // Dart-side parser sees null and the prompt walker can decide
+        // how to handle that (current policy: yaw-only, ignore pitch).
+        if let pitchDeg = pitchDeg {
+            payload["pitchDeg"] = pitchDeg
+        }
         if let rollDeg = rollDeg {
             payload["rollDeg"] = rollDeg
         }
 
-        if let rollDeg = rollDeg {
-            NSLog(String(
-                format:
-                    "[FaceEnrolment-vision] frame#%llu face=YES yaw=%.3frad/%.1f° pitch=%.3frad/%.1f° roll=%.3frad/%.1f° (user-perspective: yawDeg=%.1f pitchDeg=%.1f rollDeg=%.1f) orient=%@",
-                frameIdx, yawRad, rawYawDeg, pitchRad, rawPitchDeg,
-                rollRad ?? .nan, rollDeg,
-                yawDeg, pitchDeg, rollDeg,
-                String(describing: orientation)
-            ))
-        } else {
-            NSLog(String(
-                format:
-                    "[FaceEnrolment-vision] frame#%llu face=YES yaw=%.3frad/%.1f° pitch=%.3frad/%.1f° roll=nil (user-perspective: yawDeg=%.1f pitchDeg=%.1f) orient=%@",
-                frameIdx, yawRad, rawYawDeg, pitchRad, rawPitchDeg,
-                yawDeg, pitchDeg,
-                String(describing: orientation)
-            ))
-        }
+        // M38c — pitch/roll are best-effort; format with %@ wrappers
+        // that fall back to "nil" when Vision didn't compute the axis.
+        let pitchLogRad = pitchRad.map { String(format: "%.3f", $0) } ?? "nil"
+        let pitchLogDeg = rawPitchDeg.map { String(format: "%.1f", $0) } ?? "nil"
+        let rollLogRad = rollRad.map { String(format: "%.3f", $0) } ?? "nil"
+        let rollLogDeg = rollDeg.map { String(format: "%.1f", $0) } ?? "nil"
+        let pitchUserDeg = pitchDeg.map { String(format: "%.1f", $0) } ?? "nil"
+        let rollUserDeg = rollDeg.map { String(format: "%.1f", $0) } ?? "nil"
+        NSLog(
+            "[FaceEnrolment-vision] frame#\(frameIdx) face=YES " +
+            "yaw=\(String(format: "%.3f", yawRad))rad/\(String(format: "%.1f", rawYawDeg))° " +
+            "pitch=\(pitchLogRad)rad/\(pitchLogDeg)° " +
+            "roll=\(rollLogRad)rad/\(rollLogDeg)° " +
+            "(user-perspective: yawDeg=\(String(format: "%.1f", yawDeg)) " +
+            "pitchDeg=\(pitchUserDeg) rollDeg=\(rollUserDeg)) " +
+            "orient=\(orientation)"
+        )
 
         DispatchQueue.main.async { [weak poseStreamHandler] in
             poseStreamHandler?.send(payload)

@@ -262,24 +262,27 @@ const int kPoseBucketCount = 6;
 
 /// Ordered sequence of explicit pose prompts.
 ///
-/// Phase 2 (2026-05-26): restored the 6-prompt sweep with a final
-/// "lift your chin" prompt that fills the `slightUp` bucket, now that
-/// the Vision-on-CMSampleBuffer pose source emits pitch reliably (the
-/// prior AVCaptureMetadataOutput source didn't expose pitch, forcing
-/// yaw-only buckets). Sequence covers 5 distinct yaw angles + the
-/// chin-up angle — strictly more variety than the M37 yaw-only fallback,
-/// and aligns with MobileFaceNet's robustness to small pitch changes.
+/// M38c (2026-05-26) — yaw-only sweep. Phase 2 (above this comment in
+/// git history) restored a 6-prompt sweep with a "lift your chin" pitch
+/// prompt, on the assumption that the Vision-on-CMSampleBuffer rebuild
+/// would yield reliable pitch. Console.app telemetry on iPhone 17 Pro
+/// running iOS 18+ proved otherwise: `VNFaceObservation.pitch` is nil
+/// on every streamed-buffer frame (Apple's documented limitation —
+/// ARKit + TrueDepth is the supported path for pitch). Sequence reverts
+/// to yaw-only (M37 shape) but with CONTINUOUS yaw from Vision rather
+/// than Apple's 45°-quantized `AVMetadataFaceObject` — so prompts can
+/// be spaced at 30° increments without overlap. slightUp is retired
+/// in lockstep; the prompt walker no longer depends on pitch values.
 ///
 /// Order chosen so adjacent prompts require modest head movements
-/// (front → right → left → up), keeping the sweep snappy without
-/// forcing the practitioner to swing through extremes.
+/// (front → right → left → smile-front), keeping the sweep snappy.
 const List<PoseBucket> kPromptSequence = <PoseBucket>[
   PoseBucket.front,        // 1. Look straight ahead
   PoseBucket.frontRight,   // 2. Turn slightly to your right (~+30 deg yaw)
   PoseBucket.right,        // 3. Turn further to your right (~+60 deg yaw)
   PoseBucket.frontLeft,    // 4. Turn slightly to your left (~-30 deg yaw)
   PoseBucket.left,         // 5. Turn further to your left (~-60 deg yaw)
-  PoseBucket.slightUp,     // 6. Lift your chin slightly (~+20 deg pitch)
+  PoseBucket.front,        // 6. Look back at the camera with a slight smile
 ];
 
 /// Per-prompt instruction copy. Indexed by prompt position (0..5).
@@ -291,19 +294,19 @@ const List<String> kPromptInstructions = <String>[
   'Turn further to your right',
   'Turn slightly to your left',
   'Turn further to your left',
-  'Lift your chin slightly',
+  'Look at the camera with a slight smile',
 ];
 
 /// Per-prompt arrow/direction icon hint. UI maps to a Material icon.
-/// Values: 'straight', 'right', 'left', 'up', 'down', 'smile'. The
-/// screen falls back to `straight` when an unknown value is supplied.
+/// Values: 'straight', 'right', 'left', 'smile'. (M38c — 'up' / 'down'
+/// retired with the pitch axis.)
 const List<String> kPromptDirections = <String>[
   'straight',
   'right',
   'right',
   'left',
   'left',
-  'up',
+  'smile',
 ];
 
 /// Soft-hint copy surfaced after [kStallSoftHintAfter] elapses without
@@ -314,7 +317,7 @@ const List<String> kPromptStallHints = <String>[
   'Turn further — about half-way to your shoulder',
   'Turn a little further to the left',
   'Turn further — about half-way to your shoulder',
-  'Lift your chin a little more — keep eyes on the camera',
+  'Hold steadier and give a small smile',
 ];
 
 /// Hard minimum prompts that must be completed for a valid enrolment.
@@ -1010,22 +1013,29 @@ class FaceEnrolmentService extends ChangeNotifier {
     }
     final yawDeg = event.yawDeg;
     final pitchDeg = event.pitchDeg;
-    if (yawDeg == null || pitchDeg == null) {
-      // Vision didn't compute one of the axes this frame — skip rather
-      // than default to zero (per `feedback_no_silent_fallbacks`). The
-      // next event retries. The native side already nil-skips emission
-      // when either yaw or pitch came back nil, so reaching this branch
-      // means a defensive miss against malformed payloads.
+    if (yawDeg == null) {
+      // Vision didn't compute yaw this frame — skip. We DO require yaw
+      // since every bucket discriminates on it; pitch on the other hand
+      // is best-effort (Apple's `VNFaceObservation.pitch` is documented
+      // as unreliable and Console.app telemetry on iPhone 17 Pro running
+      // iOS 18+ shows it's nil on every streamed-buffer frame). M38c
+      // dropped pitch from the prompt sequence in lockstep — every
+      // remaining bucket has pitch=0, so substituting 0 here when
+      // Vision returned nil is correct, not a silent fallback per
+      // `feedback_no_silent_fallbacks` (a silent fallback would
+      // affect ACCEPTANCE; here it preserves the existing yaw-only
+      // intent across all prompts).
       _poseNilCount += 1;
       if (_kDiagLogs) {
         debugPrint(
-          '[FaceEnrolment] pose event with nil axis — yaw=$yawDeg pitch=$pitchDeg (skipping)',
+          '[FaceEnrolment] pose event with nil yaw — pitch=$pitchDeg (skipping)',
         );
       }
       notifyListeners();
       return;
     }
-    final candidatePose = (yaw: yawDeg, pitch: pitchDeg);
+    final pitchForBucketMath = pitchDeg ?? 0.0;
+    final candidatePose = (yaw: yawDeg, pitch: pitchForBucketMath);
     _lastObservedPose = candidatePose;
 
     final targetBucket = kPromptSequence[_currentPromptIndex];
@@ -1045,7 +1055,7 @@ class FaceEnrolmentService extends ChangeNotifier {
           '[FaceEnrolment] pose REJECT prompt=$_currentPromptIndex '
           'bucket=$targetBucket '
           'measured_yaw=${yawDeg.toStringAsFixed(1)} '
-          'measured_pitch=${pitchDeg.toStringAsFixed(1)} '
+          'measured_pitch=${pitchDeg?.toStringAsFixed(1) ?? "nil"} '
           'target_yaw=${targetCentre.yaw.toStringAsFixed(1)} '
           'target_pitch=${targetCentre.pitch.toStringAsFixed(1)} '
           'delta=${dToTarget.toStringAsFixed(1)} tol=${promptAcceptTolerance.toStringAsFixed(1)}',
