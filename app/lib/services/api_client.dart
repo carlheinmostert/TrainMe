@@ -568,6 +568,149 @@ class ApiClient {
         : const <String, dynamic>{};
   }
 
+  /// `publish_plan_artifacts(p_practice_id, p_plan_id, p_kinds)` — Wave 3
+  /// (artifact-system, 2026-05-26). Multi-kind atomic publish: sums the
+  /// per-kind prices (free + paid), calls `consume_credit` once for the
+  /// paid total, then upserts one `plan_artifacts` row per kind plus
+  /// matching `plan_issuances` audit rows, all in one transaction.
+  ///
+  /// Kinds that already have a `published_at IS NOT NULL` row in
+  /// `plan_artifacts` are silently dropped from the publish set — re-
+  /// ticking a Live row is a no-op and NEVER triggers a re-charge. The
+  /// response's `published` array carries only newly-stamped kinds.
+  ///
+  /// On insufficient credits the RPC returns `{ok: false, reason:
+  /// 'insufficient_credits', balance: N}` — the same shape that
+  /// `consume_credit` uses. Server validation failures
+  /// (caller-not-member, unknown kind, kind-not-shippable) raise
+  /// PostgrestException; the caller's catch upstream maps them to the
+  /// existing publish failure UX.
+  Future<PublishPlanArtifactsResponse> publishPlanArtifacts({
+    required String practiceId,
+    required String planId,
+    required List<String> kinds,
+  }) async {
+    if (kinds.isEmpty) {
+      throw ArgumentError.value(
+        kinds,
+        'kinds',
+        'publishPlanArtifacts requires at least one kind',
+      );
+    }
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'publish_plan_artifacts',
+        params: {
+          'p_practice_id': practiceId,
+          'p_plan_id': planId,
+          'p_kinds': kinds,
+        },
+      ),
+    );
+    final map = result is Map
+        ? Map<String, dynamic>.from(result)
+        : const <String, dynamic>{};
+    final ok = map['ok'] == true;
+    final publishedRaw = map['published'];
+    final published = publishedRaw is List
+        ? publishedRaw.whereType<String>().toList(growable: false)
+        : const <String>[];
+    final paidSumRaw = map['paid_sum'];
+    final paidSum = paidSumRaw is num
+        ? paidSumRaw.toDouble()
+        : (paidSumRaw is String ? (double.tryParse(paidSumRaw) ?? 0.0) : 0.0);
+    final reason = map['reason'] is String ? map['reason'] as String : null;
+    final balanceRaw = map['balance'];
+    final int? balance = balanceRaw is int
+        ? balanceRaw
+        : (balanceRaw is num ? balanceRaw.toInt() : null);
+    return PublishPlanArtifactsResponse(
+      ok: ok,
+      published: published,
+      paidSum: paidSum,
+      reason: reason,
+      balance: balance,
+    );
+  }
+
+  /// `list_plan_artifact_statuses(p_plan_id)` — Wave 3 (artifact-system,
+  /// 2026-05-26). Enumerated reader for the `plan_artifacts` rows of a
+  /// single plan. Used by the Studio AppBar artifact-status row and the
+  /// Publish-gate sheet's "Live" rendering. Returns an empty list for
+  /// brand-new sessions / plan-not-found — never throws on that path.
+  Future<List<PlanArtifactStatus>> listPlanArtifactStatuses({
+    required String planId,
+  }) async {
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'list_plan_artifact_statuses',
+        params: {'p_plan_id': planId},
+      ),
+    );
+    if (result is! List) return const [];
+    final out = <PlanArtifactStatus>[];
+    for (final row in result) {
+      if (row is! Map) continue;
+      final kind = row['kind'];
+      final status = row['status'];
+      final generated = row['generated_at'];
+      if (kind is! String || status is! String || generated is! String) {
+        continue;
+      }
+      final generatedAt = DateTime.tryParse(generated);
+      if (generatedAt == null) continue;
+      final publishedRaw = row['published_at'];
+      final publishedAt = publishedRaw is String
+          ? DateTime.tryParse(publishedRaw)
+          : null;
+      final firstOpenedRaw = row['first_opened_at'];
+      final firstOpenedAt = firstOpenedRaw is String
+          ? DateTime.tryParse(firstOpenedRaw)
+          : null;
+      final chargedRaw = row['credits_charged'];
+      final credits = chargedRaw is num
+          ? chargedRaw.toDouble()
+          : (chargedRaw is String
+              ? (double.tryParse(chargedRaw) ?? 0.0)
+              : 0.0);
+      out.add(
+        PlanArtifactStatus(
+          kind: kind,
+          status: status,
+          generatedAt: generatedAt,
+          publishedAt: publishedAt,
+          creditsCharged: credits,
+          firstOpenedAt: firstOpenedAt,
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// `plan_has_paid_artifact(p_plan_id)` — Wave 3 (ADR 0028). Returns
+  /// true iff this plan has at least one `plan_artifacts` row with
+  /// `credits_charged > 0`. Drives the Flutter Studio edit-lock check:
+  /// free-only plans NEVER lock per the locked decision in ADR 0028.
+  /// On any failure (network, RPC error) returns false — the safe
+  /// default is "no paid artifact present", which keeps free-plan edits
+  /// open. The 14-day grace clock is the authoritative server-side
+  /// backstop via `consume_credit` so a false-negative here can't unlock
+  /// edits that the server still considers locked.
+  Future<bool> planHasPaidArtifact({required String planId}) async {
+    try {
+      final result = await _guardAuth(
+        () => raw.rpc(
+          'plan_has_paid_artifact',
+          params: {'p_plan_id': planId},
+        ),
+      );
+      return result == true;
+    } catch (e) {
+      debugPrint('ApiClient.planHasPaidArtifact failed for $planId: $e');
+      return false;
+    }
+  }
+
   /// `preview_publish_cost(p_session_id)` — self-trainer wave PR #6
   /// (2026-05-25). Side-effect-free RPC the Studio workflow pill uses to
   /// surface the credit-cost label ("Publish · Free / 1 credit / 2
@@ -2784,6 +2927,177 @@ class PlanArtifact {
     this.generatedAt,
     this.metadata = const {},
   });
+}
+
+/// Server-side artifact-kind identifiers. Wave 3 (artifact-system, 2026-05-26)
+/// — string ids match the server-side enum in `publish_plan_artifacts` and
+/// the `plan_artifacts.kind` CHECK constraint. The registry (Soon vs
+/// shippable + price tier) lives in [ArtifactKindRegistry] so the Publish
+/// gate and the Studio status row read from one source.
+abstract class ArtifactKind {
+  static const planUrl = 'plan_url';
+  static const handout = 'handout';
+  static const poster = 'poster';
+  static const reel = 'reel';
+  static const aiReel = 'ai_reel';
+  static const calendar = 'calendar';
+}
+
+/// Pricing tier for an artifact kind. Drives the Publish gate's right-hand
+/// column rendering. `free` is the 0-credit handout/poster/calendar family;
+/// `paid` are kinds whose `_artifact_kind_price` returns > 0 (plan_url
+/// today; reel/ai_reel will join once they ship); `premiumTbd` is the
+/// honest placeholder for premium kinds whose price isn't pinned yet.
+enum ArtifactPriceTier { free, paid, premiumTbd }
+
+/// Static registry describing each artifact kind for the Publish gate
+/// and Studio status row. Mirrors the server-side `_artifact_kind_price`
+/// helper — when a new kind is added there, append a [ArtifactKindSpec]
+/// here. The mobile UI shows `shippable=false` rows as muted "Soon"
+/// entries per the Publish-gate mockup.
+@immutable
+class ArtifactKindSpec {
+  final String kind;
+  final String label;
+  final String description;
+  final ArtifactPriceTier priceTier;
+
+  /// True when the kind is wired end-to-end. Soon rows render but cannot
+  /// be checked. Wave 3 ships `plan_url` + `handout` as shippable.
+  final bool shippable;
+
+  const ArtifactKindSpec({
+    required this.kind,
+    required this.label,
+    required this.description,
+    required this.priceTier,
+    required this.shippable,
+  });
+}
+
+abstract class ArtifactKindRegistry {
+  /// Order matches the Publish-gate mockup's visual order: workout
+  /// handout first (the free anchor), workout player (the paid anchor),
+  /// then registered-but-unshipped kinds in increasing premium order.
+  /// Practitioners scan top-to-bottom so the shippable kinds lead.
+  static const List<ArtifactKindSpec> all = [
+    ArtifactKindSpec(
+      kind: ArtifactKind.handout,
+      label: 'Workout handout',
+      description: 'Printable page — exercises, reps, hold, notes.',
+      priceTier: ArtifactPriceTier.free,
+      shippable: true,
+    ),
+    ArtifactKindSpec(
+      kind: ArtifactKind.planUrl,
+      label: 'Workout player',
+      description: 'Shareable link — clients press play and follow along.',
+      priceTier: ArtifactPriceTier.paid,
+      shippable: true,
+    ),
+    ArtifactKindSpec(
+      kind: ArtifactKind.poster,
+      label: 'Poster',
+      description: 'Single shareable image — WhatsApp unfurl, social.',
+      priceTier: ArtifactPriceTier.free,
+      shippable: false,
+    ),
+    ArtifactKindSpec(
+      kind: ArtifactKind.reel,
+      label: 'Reel',
+      description: 'Stitched vertical highlight — share on TikTok / Reels.',
+      priceTier: ArtifactPriceTier.premiumTbd,
+      shippable: false,
+    ),
+  ];
+
+  /// Lookup by kind string. Returns null for unknown kinds — used by the
+  /// status row to silently ignore plan_artifacts rows whose kind isn't
+  /// registered on this client (forward-compat with a future server
+  /// shipping a kind the app doesn't know yet).
+  static ArtifactKindSpec? specFor(String kind) {
+    for (final s in all) {
+      if (s.kind == kind) return s;
+    }
+    return null;
+  }
+
+  /// Filtered view of kinds whose [ArtifactKindSpec.shippable] is true.
+  /// Currently `[handout, plan_url]`; future waves flip more entries.
+  static List<ArtifactKindSpec> get shippable =>
+      all.where((s) => s.shippable).toList(growable: false);
+}
+
+/// Per-kind status row in [ListPlanArtifactStatusesResponse] / on the
+/// Studio status row. A single plan can have at most one entry per kind
+/// (enforced by the `plan_artifacts_plan_kind_unique` constraint). Rows
+/// where [publishedAt] is null have been pre-staged but not actually
+/// published yet — for v1 of the publish RPC this is impossible (it
+/// stamps published_at in the same transaction), but the column is
+/// nullable so future render-async kinds (reel transcode) can land in
+/// `status='pending'` first.
+@immutable
+class PlanArtifactStatus {
+  final String kind;
+  final String status; // pending | ready | failed
+  final DateTime generatedAt;
+  final DateTime? publishedAt;
+  final double creditsCharged;
+  final DateTime? firstOpenedAt;
+
+  const PlanArtifactStatus({
+    required this.kind,
+    required this.status,
+    required this.generatedAt,
+    required this.publishedAt,
+    required this.creditsCharged,
+    required this.firstOpenedAt,
+  });
+
+  /// True when the artifact has been published (i.e. the practitioner
+  /// committed it on the gate, the server stamped published_at, and the
+  /// audit row landed). The status row's "Live" / "Published" pills
+  /// only render for entries where this is true.
+  bool get isPublished => publishedAt != null;
+
+  /// True when a credit was actually charged. Drives the coral
+  /// "Published" state on the status row (vs sage "Live" for free
+  /// kinds). Matches the server-side predicate in `plan_has_paid_artifact`.
+  bool get wasPaid => creditsCharged > 0;
+}
+
+/// Result envelope from [ApiClient.publishPlanArtifacts]. Mirrors the
+/// jsonb shape returned by `publish_plan_artifacts`:
+///
+///   - ok=true success path: `{ ok: true, published: [...], paid_sum: N }`
+///   - already-published: `{ ok: true, published: [], reason: "already_published" }`
+///   - insufficient credits: `{ ok: false, reason: "insufficient_credits", balance: N }`
+///
+/// Callers should check [ok] first, then [reason] for the not-ok branch.
+/// On success [published] lists the kinds that were newly stamped (kinds
+/// re-ticked that were already Live are NOT included — they're no-ops by
+/// design, never re-charged per locked decision #6).
+@immutable
+class PublishPlanArtifactsResponse {
+  final bool ok;
+  final List<String> published;
+  final double paidSum;
+  final String? reason; // 'already_published' | 'insufficient_credits' | null
+  final int? balance; // populated on insufficient_credits
+
+  const PublishPlanArtifactsResponse({
+    required this.ok,
+    required this.published,
+    required this.paidSum,
+    this.reason,
+    this.balance,
+  });
+
+  /// True iff the publish succeeded AND at least one kind was newly
+  /// stamped. A re-publish of already-Live kinds returns `ok=true` with
+  /// `published=[]` — that's a no-op the UI should treat as success
+  /// without firing the "Published ✓" toast.
+  bool get mintedAnything => ok && published.isNotEmpty;
 }
 
 @immutable
