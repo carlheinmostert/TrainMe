@@ -1,18 +1,24 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/conversion_service.dart';
+import '../services/face_embedding_service.dart';
+import '../services/safe_mode.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/self_face_consent_sheet.dart';
 import '../widgets/undo_snackbar.dart';
+import 'face_enrolment_screen.dart';
 
 /// Safe Mode Transparency — Phase A (2026-05-22)
 ///
@@ -56,6 +62,12 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
   bool _saving = false;
   bool _loading = true;
   String? _error;
+
+  /// M22 (2026-05-26) — true while the multi-ref enrolment sweep is in
+  /// flight or its post-flight RPC chain (register_self_face +
+  /// set_client_safe_mode_consent) is running. Locks the "Set up" /
+  /// "Re-enrol" button to prevent overlapping enrolments.
+  bool _enrollingFace = false;
 
   @override
   void initState() {
@@ -302,6 +314,185 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     }
   }
 
+  /// M22 (2026-05-26) — Self-trainer face enrolment entry point.
+  ///
+  /// Composes four steps the brief asked for, in order:
+  ///   1. Ensure the Self-client row exists via `ensureSelfClient`
+  ///      (idempotent JIT-heal; handles soft-deleted + missing).
+  ///   2. Pre-grant `safe_mode_face_recognition` on the Self-client so
+  ///      `FaceEnrolmentScreen.push` resolves the mode to
+  ///      `embeddingOnly` (sweep without rewriting the avatar — the
+  ///      practitioner's avatar is owned by Public Profile, not the
+  ///      sweep).
+  ///   3. Force the sticky camera-direction pref to "front" before
+  ///      pushing so the practitioner sees the selfie camera on first
+  ///      open. Per PR #491, the screen reads this on init; rear was
+  ///      the default for practitioner-enrolling-client which is the
+  ///      wrong default for self-enrolment.
+  ///   4. After the sweep returns true, pull the frontal embedding
+  ///      from the in-memory cache primed by
+  ///      [FaceEnrolmentService.commit]'s step 5, decode the 2048-byte
+  ///      payload into 512 floats, and call `register_self_face` so
+  ///      the practitioners row gets the consent stamp.
+  ///
+  /// On any failure, surfaces the error inline (no silent fallback per
+  /// `feedback_no_silent_fallbacks`) and refreshes the profile so the
+  /// section reflects partial state if step 4 landed before step 5
+  /// errored.
+  Future<void> _runSelfFaceEnrolment() async {
+    if (_enrollingFace) return;
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    if (practiceId == null) {
+      setState(() => _error = 'No active practice. Pick one in Settings.');
+      return;
+    }
+
+    setState(() {
+      _enrollingFace = true;
+      _error = null;
+    });
+
+    try {
+      // Step 1 — ensure Self-client exists (idempotent).
+      final selfClientId = await ApiClient.instance.ensureSelfClient(
+        practiceId: practiceId,
+      );
+
+      // Step 2 — pre-grant face-rec consent so the mode resolver picks
+      // embeddingOnly (sweep without avatar rewrite). The flip is
+      // idempotent on the server side; calling it on an already-true
+      // value is a no-op.
+      final consentOk = await ApiClient.instance.setClientSafeModeConsent(
+        clientId: selfClientId,
+        allowed: true,
+      );
+      if (!consentOk) {
+        if (!mounted) return;
+        setState(() {
+          _enrollingFace = false;
+          _error =
+              "Couldn't enable face recognition on your Self-client. "
+              'Check your connection and try again.';
+        });
+        return;
+      }
+
+      // Step 3 — sticky camera-direction = front. Without this the
+      // sweep opens on the rear camera (practitioner-enrolling-client
+      // default per PR #491) and the user has to manually flip.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          'face_enrolment_camera_direction',
+          'front',
+        );
+      } catch (_) {
+        // Best-effort — the toggle inside the screen is still available
+        // if the pref write fails.
+      }
+
+      // Re-fetch the cached Self-client (the consent flip happens
+      // server-side; we need the live snapshot for FaceEnrolmentScreen).
+      final cached = await SyncService.instance.storage.getCachedSelfClient(
+        AuthService.instance.currentUserId!,
+      );
+      if (cached == null) {
+        if (!mounted) return;
+        setState(() {
+          _enrollingFace = false;
+          _error =
+              "Self-client cache miss after creation. Pull to refresh "
+              'on Home and try again.';
+        });
+        return;
+      }
+      // Force consent flags ON in the in-memory copy so the mode
+      // resolver picks embeddingOnly even if the cache hasn't yet
+      // re-pulled from cloud.
+      final selfClient = cached.toPracticeClient().copyWith(
+            safeModeFaceRecognitionAllowed: true,
+          );
+
+      if (!mounted) return;
+      final ok = await FaceEnrolmentScreen.push(
+        context,
+        client: selfClient,
+      );
+      if (!ok) {
+        if (!mounted) return;
+        setState(() => _enrollingFace = false);
+        return;
+      }
+
+      // Step 4 — pull frontal embedding from FaceEmbeddingService's
+      // in-memory cache (primed by FaceEnrolmentService.commit step
+      // 5). Convert the 2048-byte Uint8List to 512 floats for the
+      // register_self_face RPC.
+      final bytes = FaceEmbeddingService.instance.getEmbedding(selfClient.id);
+      if (bytes == null) {
+        if (!mounted) return;
+        setState(() {
+          _enrollingFace = false;
+          _error =
+              'Enrolment completed but the frontal embedding cache is '
+              'empty. Tap Re-enrol to retry.';
+        });
+        return;
+      }
+      if (bytes.length != kFaceEmbeddingBytes) {
+        if (!mounted) return;
+        setState(() {
+          _enrollingFace = false;
+          _error =
+              'Embedding size mismatch: got ${bytes.length} bytes, '
+              'expected $kFaceEmbeddingBytes. Tap Re-enrol to retry.';
+        });
+        return;
+      }
+      final floats = _decodeEmbeddingBytes(bytes);
+
+      await ApiClient.instance.registerSelfFace(
+        embedding: floats,
+        consentedAt: DateTime.now().toUtc(),
+      );
+
+      // Reset the ConversionService cache so subsequent captures see
+      // the freshly-registered embedding via the RPC.
+      ConversionService.instance.resetSelfFaceEmbeddingCache();
+
+      if (!mounted) return;
+      // Refresh the profile snapshot so the section flips to "Enrolled".
+      await _load();
+      if (!mounted) return;
+      setState(() => _enrollingFace = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Face recognition enrolled'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _enrollingFace = false;
+        _error = 'Enrolment failed: $e';
+      });
+    }
+  }
+
+  /// Decode 2048 bytes of little-endian Float32 into 512 doubles. Mirrors
+  /// the MobileFaceNet native pipeline's output format (`[Float]`
+  /// little-endian on iOS / ARM64). Pure helper — no side effects.
+  List<double> _decodeEmbeddingBytes(Uint8List bytes) {
+    final view = ByteData.sublistView(bytes);
+    final out = List<double>.filled(kSelfFaceEmbeddingFloats, 0.0);
+    for (var i = 0; i < kSelfFaceEmbeddingFloats; i++) {
+      out[i] = view.getFloat32(i * 4, Endian.little);
+    }
+    return out;
+  }
+
   /// Download the public avatar to a stable temp file. Returns the
   /// local path or null on any failure. Best-effort.
   Future<String?> _downloadAvatarToTemp(String avatarUrl) async {
@@ -403,18 +594,28 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     autofillHints: const [AutofillHints.familyName],
                     textCapitalization: TextCapitalization.words,
                   ),
-                  // Self-trainer wave PR #4 (2026-05-25) — face verification
-                  // section. Only meaningful once an avatar exists (no point
-                  // offering self-verification when there's no selfie to
-                  // embed from).
+                  // M22 (2026-05-26) — Public Profile is now the canonical
+                  // home for Self-trainer face enrolment. Replaces the
+                  // single-photo `_FaceVerificationSection` from PR #4
+                  // with a multi-ref enrolment-sweep entry point. The
+                  // existing per-client consent toggle on the consent
+                  // sheet stays for OTHER clients but becomes
+                  // status-only for the Self-client (Public Profile is
+                  // the toggle source).
+                  //
+                  // Section is only meaningful once an avatar exists —
+                  // we need a stable practitioner identity before
+                  // enrolling biometric fingerprints. The avatar block
+                  // above is the gate.
                   if (_profile?.avatarUrl != null &&
                       _profile!.avatarUrl!.isNotEmpty) ...[
                     const SizedBox(height: 28),
-                    _FaceVerificationSection(
+                    _SelfFaceEnrolmentSection(
                       profile: _profile!,
-                      onToggleOn: _turnOnFaceVerification,
+                      onSetUp: _runSelfFaceEnrolment,
                       onTurnOff: _turnOffFaceVerification,
                       enabled: !_saving,
+                      enrolling: _enrollingFace,
                     ),
                   ],
                   if (_error != null) ...[
@@ -739,26 +940,40 @@ class FirstTimeDisclosureCard {
   }
 }
 
-/// Self-trainer wave PR #4 — Settings → Public profile "Face
-/// verification" row. Mirrors the brief's spec:
-///   - consent stamped → row reads "Face verification: ON" + "Stop
-///     using face verification" affordance.
-///   - no consent yet → row reads "Face verification: OFF" + "Turn on"
-///     affordance.
+/// M22 (2026-05-26) — "Face recognition for Self-trainer" section.
 ///
-/// [carl-review:] — copy is the starting draft from
-/// `docs/sub-agent-briefs/04-self-trainer-consent.md` § 4.
-class _FaceVerificationSection extends StatelessWidget {
+/// Successor to PR #4's `_FaceVerificationSection`. Two key changes:
+///   1. CTA now launches the multi-ref enrolment sweep
+///      (FaceEnrolmentScreen) instead of single-photo
+///      SelfFaceConsentSheet. Public Profile is the canonical home
+///      for Self-trainer enrolment per Carl's Option 1 signoff —
+///      the per-client consent toggle on the consent sheet still
+///      works for OTHER clients but is status-only for the
+///      Self-client.
+///   2. Status text + copy reframed around "enrolment" not "consent
+///      toggle". The act of running the sweep IS the consent grant.
+///
+/// Renders one of two states:
+///   - `hasFaceVerification = false` → "Enrol your face …" + "Set up"
+///     button.
+///   - `hasFaceVerification = true`  → "Enrolled · self-captures are
+///     free to publish" + "Re-enrol" outline button + "Remove
+///     enrolment" text button.
+///
+/// [carl-review:] — copy is the starting draft from the M22 brief.
+class _SelfFaceEnrolmentSection extends StatelessWidget {
   final PractitionerProfile profile;
-  final Future<void> Function() onToggleOn;
+  final Future<void> Function() onSetUp;
   final Future<void> Function() onTurnOff;
   final bool enabled;
+  final bool enrolling;
 
-  const _FaceVerificationSection({
+  const _SelfFaceEnrolmentSection({
     required this.profile,
-    required this.onToggleOn,
+    required this.onSetUp,
     required this.onTurnOff,
     required this.enabled,
+    required this.enrolling,
   });
 
   @override
@@ -777,15 +992,15 @@ class _FaceVerificationSection extends StatelessWidget {
           Row(
             children: [
               Icon(
-                isOn ? Icons.verified_user_outlined : Icons.lock_outline,
+                isOn ? Icons.verified_user_outlined : Icons.shield_outlined,
                 size: 18,
                 color: isOn ? AppColors.primary : AppColors.textSecondaryOnDark,
               ),
               const SizedBox(width: 8),
-              Text(
-                // [carl-review:] — verbatim from brief.
-                isOn ? 'Face verification: ON' : 'Face verification: OFF',
-                style: const TextStyle(
+              const Text(
+                // [carl-review:] — section title from M22 brief.
+                'Face recognition for Self-trainer',
+                style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -794,56 +1009,114 @@ class _FaceVerificationSection extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
-            // [carl-review:] — verbatim from brief.
+            // [carl-review:] — body copy from M22 brief.
             isOn
-                ? 'Captures of you are free to publish.'
-                : 'Turn it on to make captures of yourself free.',
+                ? 'Enrolled. Self-captures are confirmed as you, which '
+                      'unlocks the free Publish path.'
+                : 'Enrol your face for self-verification. 5-6 pose-gated '
+                      'frames, ~30 seconds. Lets the app confirm '
+                      'self-captures are you, which unlocks the free '
+                      'Publish path.',
             style: const TextStyle(
               fontFamily: 'Inter',
               fontSize: 13,
-              height: 1.4,
+              height: 1.45,
               color: AppColors.textSecondaryOnDark,
             ),
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              onPressed: enabled
-                  ? () {
-                      if (isOn) {
-                        onTurnOff();
-                      } else {
-                        onToggleOn();
-                      }
-                    }
-                  : null,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                  side: BorderSide(
-                    color: isOn ? AppColors.error : AppColors.primary,
+          const SizedBox(height: 14),
+          if (!isOn)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: (enabled && !enrolling) ? onSetUp : null,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                    side: const BorderSide(color: AppColors.primary),
                   ),
                 ),
+                child: enrolling
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primary,
+                        ),
+                      )
+                    : const Text(
+                        'Set up',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
               ),
-              child: Text(
-                // [carl-review:] — verbatim from brief.
-                isOn ? 'Stop using face verification' : 'Turn on',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: isOn ? AppColors.error : AppColors.primary,
+            )
+          else
+            Row(
+              children: [
+                TextButton(
+                  onPressed: (enabled && !enrolling) ? onSetUp : null,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                      side: const BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                  child: enrolling
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : const Text(
+                          'Re-enrol',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
+                        ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: (enabled && !enrolling) ? onTurnOff : null,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                  ),
+                  child: const Text(
+                    'Remove enrolment',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.error,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
         ],
       ),
     );

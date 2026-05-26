@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../services/api_client.dart';
 import '../services/homefit_haptics.dart';
 import '../services/loud_swallow.dart';
+import '../services/safe_mode_debug_hud_preference.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 
@@ -108,12 +109,36 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
 
   bool _running = false;
 
+  /// M19 (2026-05-26) — Safe Mode debug HUD toggle, moved from
+  /// Settings → About into this screen so all per-device diagnostic
+  /// toggles cluster behind the single 7-tap easter egg. null = still
+  /// loading from SharedPreferences; UI shows disabled toggle until
+  /// the pref resolves.
+  bool? _safeModeDebugHudEnabled;
+
   @override
   void initState() {
     super.initState();
     // Kick the probes off immediately. Each probe is independently
     // time-bounded so one slow RPC can't block the others.
     _runAll();
+    unawaited(_loadSafeModeDebugHudPref());
+  }
+
+  Future<void> _loadSafeModeDebugHudPref() async {
+    try {
+      final enabled = await SafeModeDebugHudPreference.isEnabled();
+      if (!mounted) return;
+      setState(() => _safeModeDebugHudEnabled = enabled);
+    } catch (_) {
+      // Best-effort; the toggle stays disabled if the pref read flakes.
+    }
+  }
+
+  Future<void> _toggleSafeModeDebugHud(bool value) async {
+    HapticFeedback.selectionClick();
+    setState(() => _safeModeDebugHudEnabled = value);
+    await SafeModeDebugHudPreference.setEnabled(value);
   }
 
   Future<void> _runAll() async {
@@ -320,10 +345,32 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
             ),
             const SizedBox(height: 24),
             _MetaCard(
+              userId: signedIn?.id,
               practiceId: AuthService.instance.currentPracticeId.value,
               pendingCount: SyncService.instance.pendingOpCount.value,
               offline: SyncService.instance.offline.value,
               sha: AppConfig.buildSha,
+            ),
+            const SizedBox(height: 24),
+            // M19 (2026-05-26) — Safe Mode HUD per-device toggle, folded
+            // into Diagnostics so the Settings screen chrome stays free
+            // of debug surface area in normal use.
+            _ActionGroup(
+              title: 'Debug toggles',
+              children: [
+                _ToggleRow(
+                  icon: Icons.bug_report_outlined,
+                  label: 'Show Safe Mode hint overlay',
+                  subtitle:
+                      'Diagnostic HUD on the camera viewfinder. '
+                      'Shows GPS + polygon-match data so a Safe '
+                      'Mode regression can be triaged in-app.',
+                  value: _safeModeDebugHudEnabled ?? false,
+                  onChanged: _safeModeDebugHudEnabled == null
+                      ? null
+                      : _toggleSafeModeDebugHud,
+                ),
+              ],
             ),
             const SizedBox(height: 24),
             // Wave 15 — manual drain escape hatch. Today's only fix for
@@ -752,11 +799,13 @@ class _Divider extends StatelessWidget {
 }
 
 class _MetaCard extends StatelessWidget {
+  final String? userId;
   final String? practiceId;
   final int pendingCount;
   final bool offline;
   final String sha;
   const _MetaCard({
+    required this.userId,
     required this.practiceId,
     required this.pendingCount,
     required this.offline,
@@ -786,6 +835,10 @@ class _MetaCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
+          // M19 (2026-05-26) — User ID + Practice ID + Build SHA rows
+          // migrated from the inline `_DiagnosticsPanel` widget in
+          // Settings → About. Each is tap-to-copy via [_MetaRow].
+          _MetaRow(label: 'User ID', value: userId ?? '—'),
           _MetaRow(label: 'Build SHA', value: sha),
           _MetaRow(
             label: 'Practice',
@@ -816,35 +869,65 @@ class _MetaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondaryOnDark,
+    // M19 (2026-05-26) — rows tap-to-copy when value is non-placeholder.
+    // Mirrors the prior `_DiagRow` behaviour from the inline Settings
+    // panel so support handoffs (Carl asks user for "your User ID")
+    // remain one tap.
+    final copyable = value.isNotEmpty && value != '—' && value != '(none)';
+    return InkWell(
+      onTap: copyable
+          ? () async {
+              await Clipboard.setData(ClipboardData(text: value));
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context)
+                ..clearSnackBars()
+                ..showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '$label copied',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: AppColors.textOnDark,
+                      ),
+                    ),
+                    backgroundColor: AppColors.surfaceRaised,
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+            }
+          : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 120,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondaryOnDark,
+                ),
               ),
             ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontFamily: 'JetBrainsMono',
-                fontFamilyFallback: ['Menlo', 'Courier'],
-                fontSize: 12,
-                color: AppColors.textOnDark,
+            Expanded(
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontFamilyFallback: ['Menlo', 'Courier'],
+                  fontSize: 12,
+                  color: AppColors.textOnDark,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -951,6 +1034,75 @@ class _ActionRow extends StatelessWidget {
               Icons.chevron_right_rounded,
               color: AppColors.textSecondaryOnDark,
               size: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// M19 (2026-05-26) — toggle-row twin of [_ActionRow] for per-device
+/// debug preferences. Same label + subtitle + leading-icon rhythm but
+/// the trailing widget is a [Switch.adaptive] bound to a bool. A null
+/// `onChanged` keeps the toggle disabled (e.g. while the underlying
+/// pref is still loading).
+class _ToggleRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  const _ToggleRow({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onChanged == null ? null : () => onChanged!(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textOnDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12,
+                      color: AppColors.textSecondaryOnDark,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Switch.adaptive(
+              value: value,
+              onChanged: onChanged,
+              activeThumbColor: AppColors.primary,
             ),
           ],
         ),
