@@ -262,32 +262,24 @@ const int kPoseBucketCount = 6;
 
 /// Ordered sequence of explicit pose prompts.
 ///
-/// M37 (2026-05-26): pivoted to YAW-ONLY prompts when the underlying
-/// pose source switched from VNDetectFaceLandmarksRequest (which
-/// returned nil yaw + nil pitch for every frame on Carl's iPhone) to
-/// `AVCaptureMetadataOutput` (which exposes yaw + roll from the ISP
-/// but NOT pitch). Option 1 from the brief — drop pitch-based prompts
-/// entirely. The 6 prompts now sweep yaw across `[-60, -30, 0, +30, +60]`
-/// with a final "smile" prompt that reuses the front bucket.
+/// Phase 2 (2026-05-26): restored the 6-prompt sweep with a final
+/// "lift your chin" prompt that fills the `slightUp` bucket, now that
+/// the Vision-on-CMSampleBuffer pose source emits pitch reliably (the
+/// prior AVCaptureMetadataOutput source didn't expose pitch, forcing
+/// yaw-only buckets). Sequence covers 5 distinct yaw angles + the
+/// chin-up angle — strictly more variety than the M37 yaw-only fallback,
+/// and aligns with MobileFaceNet's robustness to small pitch changes.
 ///
-/// Order chosen so adjacent prompts require small head movements
-/// (front → right → left → smile), keeping the sweep snappy.
-///
-/// IMPORTANT: the 6th prompt ("smile") reuses the front bucket so it
-/// must be accepted AFTER the initial front prompt has already filled
-/// the bucket; the service tracks prompt completion separately from
-/// bucket fill state. The 4th prompt (slight up) is retired with the
-/// pitch axis — pose-bucket coverage is now 5 distinct yaw angles
-/// plus the smile retry, which is comparable variety for downstream
-/// matching since MobileFaceNet templates are dominated by yaw
-/// rotation anyway.
+/// Order chosen so adjacent prompts require modest head movements
+/// (front → right → left → up), keeping the sweep snappy without
+/// forcing the practitioner to swing through extremes.
 const List<PoseBucket> kPromptSequence = <PoseBucket>[
   PoseBucket.front,        // 1. Look straight ahead
-  PoseBucket.frontRight,   // 2. Turn slightly to your right (~+30 deg)
-  PoseBucket.right,        // 3. Turn further to your right (~+60 deg)
-  PoseBucket.frontLeft,    // 4. Turn slightly to your left (~-30 deg)
-  PoseBucket.left,         // 5. Turn further to your left (~-60 deg)
-  PoseBucket.front,        // 6. Look back at the camera with a slight smile
+  PoseBucket.frontRight,   // 2. Turn slightly to your right (~+30 deg yaw)
+  PoseBucket.right,        // 3. Turn further to your right (~+60 deg yaw)
+  PoseBucket.frontLeft,    // 4. Turn slightly to your left (~-30 deg yaw)
+  PoseBucket.left,         // 5. Turn further to your left (~-60 deg yaw)
+  PoseBucket.slightUp,     // 6. Lift your chin slightly (~+20 deg pitch)
 ];
 
 /// Per-prompt instruction copy. Indexed by prompt position (0..5).
@@ -299,19 +291,19 @@ const List<String> kPromptInstructions = <String>[
   'Turn further to your right',
   'Turn slightly to your left',
   'Turn further to your left',
-  'Look at the camera with a slight smile',
+  'Lift your chin slightly',
 ];
 
 /// Per-prompt arrow/direction icon hint. UI maps to a Material icon.
-/// Values: 'straight', 'right', 'left', 'smile'. (M37 — 'up' and
-/// 'down' retired with the pitch axis.)
+/// Values: 'straight', 'right', 'left', 'up', 'down', 'smile'. The
+/// screen falls back to `straight` when an unknown value is supplied.
 const List<String> kPromptDirections = <String>[
   'straight',
   'right',
   'right',
   'left',
   'left',
-  'smile',
+  'up',
 ];
 
 /// Soft-hint copy surfaced after [kStallSoftHintAfter] elapses without
@@ -322,7 +314,7 @@ const List<String> kPromptStallHints = <String>[
   'Turn further — about half-way to your shoulder',
   'Turn a little further to the left',
   'Turn further — about half-way to your shoulder',
-  'Hold steadier and give a small smile',
+  'Lift your chin a little more — keep eyes on the camera',
 ];
 
 /// Hard minimum prompts that must be completed for a valid enrolment.
@@ -965,9 +957,9 @@ class FaceEnrolmentService extends ChangeNotifier {
     });
   }
 
-  /// M37 — handle one live pose event. Fast-path: yaw distance check
-  /// against the current prompt's target bucket; only fire
-  /// captureFrameAndEmbed when we're within tolerance + idle.
+  /// Phase 2 — handle one live pose event. Fast-path: yaw + pitch
+  /// distance check against the current prompt's target bucket; only
+  /// fire captureFrameAndEmbed when we're within tolerance + idle.
   Future<void> _onPoseEvent(FaceEnrolmentPoseEvent event) async {
     if (_cancelled) return;
     if (_currentPromptIndex < 0 ||
@@ -975,15 +967,21 @@ class FaceEnrolmentService extends ChangeNotifier {
       return;
     }
     final yawDeg = event.yawDeg;
-    if (yawDeg == null) {
-      // ISP didn't compute yaw this frame — silently skip; the next
-      // event retries.
+    final pitchDeg = event.pitchDeg;
+    if (yawDeg == null || pitchDeg == null) {
+      // Vision didn't compute one of the axes this frame — skip rather
+      // than default to zero (per `feedback_no_silent_fallbacks`). The
+      // next event retries. The native side already nil-skips emission
+      // when either yaw or pitch came back nil, so reaching this branch
+      // means a defensive miss against malformed payloads.
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEnrolment] pose event with nil axis — yaw=$yawDeg pitch=$pitchDeg (skipping)',
+        );
+      }
       return;
     }
-    // M37 — pitch is not exposed by AVCaptureMetadataOutput. We pin
-    // pitch to 0 so the existing 2D bucket math (Manhattan-sum) keeps
-    // working without re-plumbing every consumer of `_lastObservedPose`.
-    final candidatePose = (yaw: yawDeg, pitch: 0.0);
+    final candidatePose = (yaw: yawDeg, pitch: pitchDeg);
     _lastObservedPose = candidatePose;
 
     final targetBucket = kPromptSequence[_currentPromptIndex];
@@ -1001,8 +999,11 @@ class FaceEnrolmentService extends ChangeNotifier {
       if (_kDiagLogs) {
         debugPrint(
           '[FaceEnrolment] pose REJECT prompt=$_currentPromptIndex '
-          'bucket=$targetBucket measured_yaw=${yawDeg.toStringAsFixed(1)} '
+          'bucket=$targetBucket '
+          'measured_yaw=${yawDeg.toStringAsFixed(1)} '
+          'measured_pitch=${pitchDeg.toStringAsFixed(1)} '
           'target_yaw=${targetCentre.yaw.toStringAsFixed(1)} '
+          'target_pitch=${targetCentre.pitch.toStringAsFixed(1)} '
           'delta=${dToTarget.toStringAsFixed(1)} tol=${promptAcceptTolerance.toStringAsFixed(1)}',
         );
       }

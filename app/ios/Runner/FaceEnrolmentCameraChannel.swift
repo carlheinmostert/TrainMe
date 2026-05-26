@@ -1,28 +1,56 @@
 import Flutter
 import UIKit
 import AVFoundation
+import Vision
 import os.log
 
-// MARK: - M37 — Real-time AVCaptureMetadataOutput face tracking
+// MARK: - Vision streamed-yaw face enrolment (Phase 2)
 //
-// Replaces the still-image `VNDetectFaceLandmarksRequest` pose detection
-// that the Wave-D + Phase 2 enrolment flow relied on. Diagnostic logs on
-// Carl's iPhone confirmed VNFaceObservation.yaw / .pitch returned nil for
-// EVERY captured frame (even straight-ahead, even with revision 3), which
-// silently rejected the entire sweep at the per-prompt tolerance check.
+// Pose is computed by `VNDetectFaceLandmarksRequest` (revision 3) on
+// CMSampleBuffer at 10 Hz. AVCaptureMetadataOutput is retained for
+// cheap face-presence + bounding box only, no longer the pose source.
+//
+// Lineage:
+//   - Wave-D / Phase 2 (legacy) ran VNDetectFaceLandmarksRequest on
+//     STILL JPEGs that had already been re-encoded through CGImage.
+//     On Carl's iPhone every observation returned nil yaw + nil pitch
+//     so the per-prompt tolerance gate rejected every frame — Vision
+//     declines to compute angles on losslessly-resampled-and-recolored
+//     UIImages even when the face is plainly in-frame.
+//   - M37 swapped to AVCaptureMetadataOutput which returns yaw + roll
+//     from the ISP reliably across off-axis angles. Two problems: the
+//     yaw is QUANTIZED to 45-degree steps (`yawAngle` returns 0, 45,
+//     90, ...) and `pitch` is not exposed at all. The prompt sweep
+//     landed within 20-degree tolerance windows but with coarse
+//     staircased values that snap rather than glide, and "look up"
+//     prompts had no signal at all.
+//   - M38 (POC) added a side-by-side Vision diagnostic on the streamed
+//     CMSampleBuffer to test the hypothesis that Vision works fine on
+//     raw camera buffers — the still-JPEG path was the problem, not
+//     Vision itself. The diagnostic logged yaw + pitch continuously
+//     to NSLog without routing into the pose stream.
+//   - Phase 2 (this commit) promotes the streamed Vision pose to the
+//     authoritative event source. AVCaptureMetadataOutput stops
+//     emitting pose; it stays wired only for the cheap face-presence
+//     bounding-box update used by `captureFrameAndEmbed`. Pitch is
+//     restored so the prompt sequence can include "lift your chin".
 //
 // This channel owns an `AVCaptureSession` configured for the front
 // (or back) camera with TWO outputs:
 //
-//   1. `AVCaptureMetadataOutput` with `.face` metadata type — the ISP
-//      streams `AVMetadataFaceObject` instances with `yaw` + `rollAngle`
-//      computed by silicon, at ~30 fps. Reliable across off-axis angles
-//      that VNDetectFaceLandmarksRequest returns nil for.
+//   1. `AVCaptureMetadataOutput` with `.face` metadata type — used only
+//      for cheap face-presence detection. The largest face's bounding
+//      box is cached so `captureFrameAndEmbed` can crop the JPG before
+//      running MobileFaceNet. No pose data is read from this output.
 //
 //   2. `AVCaptureVideoDataOutput` — silent stream of `CMSampleBuffer`
-//      frames at the same ~30 fps. We keep a tiny ring buffer of the
-//      last few frames so the on-demand `captureFrameAndEmbed` channel
-//      call can pull a fresh frame, decode it, and run MobileFaceNet.
+//      frames at ~30 fps. Two consumers:
+//        a. Tiny ring buffer of the last few frames so on-demand
+//           `captureFrameAndEmbed` can pull a fresh frame, decode it,
+//           and run MobileFaceNet.
+//        b. `VNDetectFaceLandmarksRequest` (revision 3) running on
+//           every Nth frame (~10 Hz at 30 FPS) on the same outputQueue
+//           to derive `yaw`, `pitch`, `roll` from the largest face.
 //      No `AVCapturePhotoOutput` — that triggers iOS's shutter sound +
 //      mid-frame interruption which we explicitly do not want for the
 //      sweep cadence.
@@ -40,39 +68,41 @@ import os.log
 //         face bounds + the source frame path.
 //
 //   * EventChannel `homefit/face-enrolment-pose-stream` — emits the most
-//     recent face's yaw + rollAngle + faceID + bounds + timestamp at the
-//     same cadence iOS delivers metadata (typically ~10-30 Hz depending
-//     on subject distance + lighting). Multi-face frames are filtered
-//     down to the largest bounding box so a bystander wandering past
-//     doesn't whipsaw the prompt walker.
+//     recent face's yawDeg + pitchDeg + rollDeg + faceID + bounds +
+//     timestamp at ~10 Hz (the Vision throttle cadence). Multi-face
+//     frames are filtered down to the first observation Vision returns,
+//     and the metadata-output side independently picks the largest
+//     bounding box so a bystander wandering past doesn't whipsaw the
+//     prompt walker.
 //
-// Pose units: `AVMetadataFaceObject.yawAngle` is the rotation around the
-// vertical axis in DEGREES (positive = head turned to the device's right,
-// negative = device's left). `rollAngle` is the rotation around the
-// view-normal axis in DEGREES (positive = head tilted to the right
-// shoulder). PITCH IS NOT EXPOSED by AVCaptureMetadataOutput — the
-// device's ISP doesn't compute it because most consumer photo-management
-// use cases (tagging, focus assist) only need yaw + roll. The M37 brief
-// chooses option 1 (drop pitch-based prompts entirely) so the Dart side
-// only acts on yaw values from this channel.
+// Pose units: Vision emits yaw / pitch / roll in RADIANS (NSNumber?).
+// We convert to DEGREES at the emission point so the Dart side stays
+// in degrees throughout (matching the existing PoseBucket centres).
+// Yaw bounded [-π/2, π/2] → [-90°, +90°]. Pitch bounded [-π/2, π/2]
+// → [-90°, +90°]. Roll bounded [-π, π] → [-180°, +180°]. Any axis
+// Vision couldn't compute on a given frame is omitted from the
+// payload — the Dart side already nil-skips, per `feedback_no_silent_fallbacks`.
 //
-// FRONT-CAMERA MIRROR INVERSION: yawAngle is reported from the SENSOR's
-// perspective, not the user's. With the front camera, the sensor sees the
+// FRONT-CAMERA MIRROR INVERSION: Vision reports angles from the SENSOR's
+// perspective, not the user's. With the front camera the sensor sees the
 // user mirrored — when the user turns their head to THEIR right, the
 // sensor measures yaw as NEGATIVE (because from the sensor's perspective
 // the user just turned to the sensor's left). The prompt walker on the
 // Dart side encodes targets in USER-PERSPECTIVE ("turn right" → +60), so
-// we invert yaw before emitting when the front camera is active. This
-// gives the Dart side a consistent semantic regardless of camera choice.
-// Back-camera (rare in enrolment) needs no inversion — sensor and user
-// share the same chirality.
+// we negate yaw + roll before emitting when the front camera is active.
+// PITCH is NOT mirrored — flipping the front camera around the vertical
+// axis doesn't swap up/down. Back camera (rare in enrolment) needs no
+// inversion — sensor and user share the same chirality.
 //
 // Preview surface: a separate `FlutterPlatformViewFactory` registered
 // under view-type `homefit/face_enrolment_camera_preview` (see bottom
 // of file). Mirrors the AvatarCameraPreviewFactory pattern.
 //
 // Diagnostics: os_log against subsystem `studio.homefit.app` and
-// category `face.enrolment.camera`. Filter on these in Console.app.
+// category `face.enrolment.camera`. Vision pose results also log to
+// NSLog under the `[FaceEnrolment-vision]` prefix (retained from the
+// M38 POC) so the first real-device run produces a clear behavioural
+// record. Filter on either in Console.app.
 
 @available(iOS 14.0, *)
 final class FaceEnrolmentCameraChannel: NSObject {
@@ -133,6 +163,27 @@ final class FaceEnrolmentCameraChannel: NSObject {
     /// detected since session start.
     private var latestFaceBoundsNormalized: CGRect?
     private let latestFaceLock = NSLock()
+
+    // MARK: Vision-on-CMSampleBuffer pose source
+
+    /// Reused across frames so CoreML model load happens once.
+    /// Configured the first time a frame is processed.
+    private var visionFaceRequest: VNDetectFaceLandmarksRequest?
+
+    /// Frame counter — every Nth frame is fed to Vision. With 30 FPS
+    /// capture and `kVisionEveryNthFrame = 3` we run at ~10 Hz, matching
+    /// Apple's own sample-code throttle. Higher rates thermal-throttle
+    /// the front camera during a 30s enrolment sweep.
+    private var videoFrameCounter: UInt64 = 0
+    private static let kVisionEveryNthFrame: UInt64 = 3
+
+    /// Synthetic faceID counter for the pose event payload. Vision's
+    /// `VNFaceObservation` doesn't carry a tracking ID the way
+    /// AVMetadataFaceObject does, so we mint one ourselves. The Dart
+    /// side mostly uses this for diagnostics; the largest-face pick is
+    /// already bystander-resilient and doesn't need stable IDs.
+    /// Bumped once per emitted pose event.
+    private var syntheticFaceIDCounter: Int = 0
 
     init(messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
@@ -640,19 +691,24 @@ final class FaceEnrolmentCameraChannel: NSObject {
 
 @available(iOS 14.0, *)
 extension FaceEnrolmentCameraChannel: AVCaptureMetadataOutputObjectsDelegate {
+    /// Cheap face-presence + bounding-box update only — POSE is sourced
+    /// from Vision on the streamed CMSampleBuffer (see
+    /// `runVisionPose(...)`). We keep this delegate wired because the
+    /// ISP face metadata is essentially free (silicon-derived) and the
+    /// bounding box it returns is in the metadata coordinate space that
+    /// aligns with the captureFrameAndEmbed crop path. No pose event is
+    /// emitted from here.
     func metadataOutput(
         _ output: AVCaptureMetadataOutput,
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
         // Filter to faces. AVMetadataObjectType.face produces
-        // AVMetadataFaceObject instances which carry yawAngle + rollAngle.
+        // AVMetadataFaceObject instances; we only read `.bounds` here.
         let faces = metadataObjects.compactMap { $0 as? AVMetadataFaceObject }
         guard !faces.isEmpty else {
             // No face this frame — clear the cached bounds so a stale
             // box doesn't leak into the next captureFrameAndEmbed call.
-            // The pose stream stays silent (no event emitted) since
-            // there's no pose to publish.
             clearLatestFace()
             return
         }
@@ -662,49 +718,6 @@ extension FaceEnrolmentCameraChannel: AVCaptureMetadataOutputObjectsDelegate {
                 (rhs.bounds.width * rhs.bounds.height)
         }!
         setLatestFace(largest.bounds)
-
-        // Emit the pose event. yawAngle + rollAngle are non-optional
-        // CGFloat on AVMetadataFaceObject — there's no nil sentinel like
-        // VNFaceObservation. The "hasYawAngle" / "hasRollAngle" boolean
-        // properties tell us whether the ISP actually computed them this
-        // frame; we omit the fields from the event when they didn't.
-        var payload: [String: Any] = [
-            "faceID": Int(largest.faceID),
-            "boundsX": Double(largest.bounds.origin.x),
-            "boundsY": Double(largest.bounds.origin.y),
-            "boundsWidth": Double(largest.bounds.width),
-            "boundsHeight": Double(largest.bounds.height),
-            "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
-        ]
-        if largest.hasYawAngle {
-            // Front-camera mirror inversion — see comment block at top of
-            // file. Flip the sign so positive yaw consistently means
-            // "user turned their head to their right" regardless of which
-            // physical camera the session is using. AVMetadataFaceObject
-            // reports yaw in degrees in the range (-180, 180]; negation
-            // preserves the range. We also normalise into the same range
-            // after negation in case the ISP ever returns -180 exactly.
-            let rawYaw = Double(largest.yawAngle)
-            let mirroredYaw = (currentPosition == .front) ? -rawYaw : rawYaw
-            payload["yawDeg"] = mirroredYaw
-        }
-        if largest.hasRollAngle {
-            // Roll also mirrors with the camera. Negation here keeps
-            // "positive roll = head tilted toward user's right shoulder"
-            // consistent between front and back cameras. Dart side does
-            // not currently consume roll for pose-walker logic but the
-            // event payload is documented as user-perspective so we keep
-            // both axes in the same frame.
-            let rawRoll = Double(largest.rollAngle)
-            let mirroredRoll = (currentPosition == .front) ? -rawRoll : rawRoll
-            payload["rollDeg"] = mirroredRoll
-        }
-        // M37: pitch is not available via AVCaptureMetadataOutput. Dart
-        // side accepts payloads without a pitch field — option 1 from
-        // the brief (yaw-only prompt walker).
-        DispatchQueue.main.async { [weak poseStreamHandler] in
-            poseStreamHandler?.send(payload)
-        }
     }
 }
 
@@ -720,6 +733,195 @@ extension FaceEnrolmentCameraChannel: AVCaptureVideoDataOutputSampleBufferDelega
         // Ring-buffer the latest sample. The captureFrameAndEmbed path
         // pulls from this ring on demand — we don't decode every frame.
         appendSample(sampleBuffer)
+
+        // Run Vision face landmarks on every Nth frame to derive
+        // continuous yaw + pitch from the streamed CMSampleBuffer.
+        // Synchronous on outputQueue — fine at 10 Hz; would thermal
+        // throttle at 30. The Phase 1 POC validated that Vision on
+        // the streamed buffer (NOT the still-JPEG path that previously
+        // returned nil) returns continuous, non-nil yaw + pitch.
+        videoFrameCounter &+= 1
+        let frameIdx = videoFrameCounter
+        if frameIdx % Self.kVisionEveryNthFrame == 0 {
+            runVisionPose(
+                sampleBuffer: sampleBuffer,
+                connection: connection,
+                frameIdx: frameIdx
+            )
+        }
+    }
+
+    /// Build (or reuse) the Vision request, run it against the given
+    /// `CMSampleBuffer`, log the result (NSLog `[FaceEnrolment-vision]`
+    /// retained from the M38 POC for first-device-run validation), and
+    /// emit the pose to the `homefit/face-enrolment-pose-stream`
+    /// EventChannel.
+    ///
+    /// Frames where Vision returned no observation or where either yaw
+    /// or pitch came back nil emit NO event (we skip the frame). The
+    /// Dart side already nil-guards per `feedback_no_silent_fallbacks`
+    /// — and per the same rule, we never substitute a zero for a nil
+    /// axis. Roll is best-effort; we include it when present but its
+    /// absence does NOT block emission since the prompt walker only
+    /// gates on yaw + pitch.
+    private func runVisionPose(
+        sampleBuffer: CMSampleBuffer,
+        connection: AVCaptureConnection,
+        frameIdx: UInt64
+    ) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            NSLog("[FaceEnrolment-vision] frame#\(frameIdx) NO_PIXEL_BUFFER")
+            return
+        }
+
+        // Build the Vision request once and reuse. revision 3 is the
+        // latest available on iOS 14+; the legacy still-image path used
+        // the same revision and STILL got nil yaw — Phase 1 confirmed
+        // the revision wasn't the problem, the still-image input was.
+        if visionFaceRequest == nil {
+            let req = VNDetectFaceLandmarksRequest()
+            req.revision = VNDetectFaceLandmarksRequestRevision3
+            visionFaceRequest = req
+        }
+        guard let request = visionFaceRequest else { return }
+
+        let orientation = visionOrientation(for: connection)
+        let handler = VNImageRequestHandler(
+            cvPixelBuffer: pixelBuffer,
+            orientation: orientation,
+            options: [:]
+        )
+        do {
+            try handler.perform([request])
+        } catch {
+            NSLog(
+                "[FaceEnrolment-vision] frame#\(frameIdx) perform_threw=\(error.localizedDescription)"
+            )
+            return
+        }
+
+        let results = request.results ?? []
+        guard let obs = results.first else {
+            NSLog("[FaceEnrolment-vision] frame#\(frameIdx) face=NO")
+            return
+        }
+
+        // VNFaceObservation.yaw / .pitch / .roll are NSNumber? in radians
+        // on iOS 14+. Nil means Vision couldn't compute that axis on
+        // this frame; we skip the whole emission rather than default to
+        // zero (per feedback_no_silent_fallbacks). Yaw + pitch are both
+        // required because the prompt walker gates on both.
+        guard let yawNS = obs.yaw, let pitchNS = obs.pitch else {
+            let yawStr = obs.yaw.map { String(format: "%.3f", $0.doubleValue) } ?? "nil"
+            let pitchStr = obs.pitch.map { String(format: "%.3f", $0.doubleValue) } ?? "nil"
+            NSLog(
+                "[FaceEnrolment-vision] frame#\(frameIdx) face=YES POSE_NIL yaw=\(yawStr) pitch=\(pitchStr) orient=\(orientation)"
+            )
+            return
+        }
+
+        let yawRad = yawNS.doubleValue
+        let pitchRad = pitchNS.doubleValue
+        let rollRad = obs.roll?.doubleValue
+        let rawYawDeg = yawRad * 180.0 / .pi
+        let rawPitchDeg = pitchRad * 180.0 / .pi
+        let rawRollDeg = rollRad.map { $0 * 180.0 / .pi }
+
+        // Front-camera mirror inversion — see top-of-file comment.
+        // Negate yaw + roll so positive values mean "user turned
+        // their head/tilted toward their RIGHT" regardless of which
+        // physical camera is active. Pitch is NOT mirrored — flipping
+        // the camera around the vertical axis doesn't swap up/down.
+        let yawDeg = (currentPosition == .front) ? -rawYawDeg : rawYawDeg
+        let pitchDeg = rawPitchDeg
+        let rollDeg = rawRollDeg.map { (currentPosition == .front) ? -$0 : $0 }
+
+        // Synthetic face ID — Vision doesn't carry a tracking ID.
+        // Bumped per emitted event so the Dart side sees a monotonic
+        // counter. Wraparound is fine; Dart consumes it for diag only.
+        syntheticFaceIDCounter &+= 1
+        let faceID = syntheticFaceIDCounter
+
+        // boundingBox is normalised lower-left-origin in Vision's
+        // coordinate space (Vision flips Y relative to UIKit). The
+        // metadata-output bounding box that captureFrameAndEmbed uses
+        // for cropping is independently maintained on top-left-origin
+        // — these two bounds rectangles serve different consumers and
+        // we don't try to reconcile them here. The pose event payload
+        // documents Vision's lower-left-origin convention so the Dart
+        // side can interpret correctly if it ever consumes bounds for
+        // hit-testing.
+        let bounds = obs.boundingBox
+
+        var payload: [String: Any] = [
+            "faceID": faceID,
+            "yawDeg": yawDeg,
+            "pitchDeg": pitchDeg,
+            "boundsX": Double(bounds.origin.x),
+            "boundsY": Double(bounds.origin.y),
+            "boundsWidth": Double(bounds.size.width),
+            "boundsHeight": Double(bounds.size.height),
+            "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
+        ]
+        if let rollDeg = rollDeg {
+            payload["rollDeg"] = rollDeg
+        }
+
+        if let rollDeg = rollDeg {
+            NSLog(String(
+                format:
+                    "[FaceEnrolment-vision] frame#%llu face=YES yaw=%.3frad/%.1f° pitch=%.3frad/%.1f° roll=%.3frad/%.1f° (user-perspective: yawDeg=%.1f pitchDeg=%.1f rollDeg=%.1f) orient=%@",
+                frameIdx, yawRad, rawYawDeg, pitchRad, rawPitchDeg,
+                rollRad ?? .nan, rollDeg,
+                yawDeg, pitchDeg, rollDeg,
+                String(describing: orientation)
+            ))
+        } else {
+            NSLog(String(
+                format:
+                    "[FaceEnrolment-vision] frame#%llu face=YES yaw=%.3frad/%.1f° pitch=%.3frad/%.1f° roll=nil (user-perspective: yawDeg=%.1f pitchDeg=%.1f) orient=%@",
+                frameIdx, yawRad, rawYawDeg, pitchRad, rawPitchDeg,
+                yawDeg, pitchDeg,
+                String(describing: orientation)
+            ))
+        }
+
+        DispatchQueue.main.async { [weak poseStreamHandler] in
+            poseStreamHandler?.send(payload)
+        }
+    }
+
+    /// Resolve the `CGImagePropertyOrientation` to feed Vision so the
+    /// pixel buffer matches Vision's "upright" coordinate convention.
+    /// AVCaptureVideoDataOutput delivers raw sensor pixels — for the
+    /// front camera in portrait that's the sensor's native landscape
+    /// orientation rotated 90 degrees clockwise from "upright", AND
+    /// optionally horizontally mirrored if `isVideoMirrored` is true.
+    ///
+    /// We deliberately query the connection rather than hard-coding
+    /// `.leftMirrored` so the POC log shows which orientation was
+    /// actually picked. If the streamed Vision yaw values look wrong
+    /// we know which dimension to flip in the follow-up wave.
+    private func visionOrientation(
+        for connection: AVCaptureConnection
+    ) -> CGImagePropertyOrientation {
+        let videoOrientation: AVCaptureVideoOrientation =
+            connection.isVideoOrientationSupported
+                ? connection.videoOrientation
+                : .portrait
+        let mirrored = connection.isVideoMirrored
+        switch videoOrientation {
+        case .portrait:
+            return mirrored ? .leftMirrored : .right
+        case .portraitUpsideDown:
+            return mirrored ? .rightMirrored : .left
+        case .landscapeRight:
+            return mirrored ? .downMirrored : .up
+        case .landscapeLeft:
+            return mirrored ? .upMirrored : .down
+        @unknown default:
+            return .right
+        }
     }
 }
 
