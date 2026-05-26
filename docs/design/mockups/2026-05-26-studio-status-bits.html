@@ -343,17 +343,45 @@
       width: 660px;
       max-width: 100%;
     }
-    /* one row = one artifact kind, contains pair-header + the two thumbs */
+    /* one row = one artifact kind, contains pair-header + the two thumbs.
+       Now a <details> element so each pair collapses to its summary header
+       and the practitioner expands the artifact kind they want to inspect. */
     .pair-row {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+      display: block;
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      background: var(--surface-base);
+      overflow: hidden;
+    }
+    .pair-row[open] { background: var(--surface-bg); }
+    .pair-row > .pair-content {
+      padding: 12px 14px 16px;
+      border-top: 1px solid var(--surface-border);
     }
     .pair-header {
       display: flex; align-items: center; gap: 9px;
       font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
       color: var(--ink-secondary);
+      padding: 11px 14px;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
     }
+    .pair-header::-webkit-details-marker { display: none; }
+    .pair-header::after {
+      content: "";
+      margin-left: auto;
+      width: 9px; height: 9px;
+      border-right: 1.6px solid var(--ink-muted);
+      border-bottom: 1.6px solid var(--ink-muted);
+      transform: rotate(-45deg);
+      transition: transform 0.18s ease;
+      flex-shrink: 0;
+    }
+    .pair-row[open] > .pair-header::after {
+      transform: rotate(45deg);
+    }
+    .pair-row[open] > .pair-header { color: var(--ink-primary); }
     .pair-header svg { width: 13px; height: 13px; color: var(--ink-primary); flex-shrink: 0; }
     .pair-header .ak-name { color: var(--ink-primary); }
     .pair-header .ak-tag { color: var(--ink-muted); font-weight: 500; letter-spacing: 0.4px; text-transform: none; font-size: 10px; }
@@ -1125,17 +1153,20 @@
       <b>homefit is never white-labeled away</b>. The QR still carries <code>?ref={practitioner_code}</code>
       as link attribution; its destination is always the recipient's plan, never a signup page.
     </p>
+    <p class="section-sub" style="margin-top:-4px;color:var(--ink-muted);font-size:11.5px;">
+      Tap a row to expand its default-vs-skin pair. All rows are collapsed by default to keep the page compact.
+    </p>
 
     <div class="layout">
       <div class="artifact-grid">
 
         <!-- ============ PAIR 1 — Handout ============ -->
-        <div class="pair-row">
-          <div class="pair-header">
+        <details class="pair-row">
+          <summary class="pair-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
             <span class="ak-name">Workout handout</span>
             <span class="ak-tag">· seal in the page footer</span>
-          </div>
+          </summary>
           <div class="pair-grid">
 
             <!-- DEFAULT — homefit coral -->
@@ -1217,15 +1248,15 @@
 
           </div>
           <p class="artifact-caption"><b>Page footer.</b> Skin paints the under-title accent rule + practitioner lockup in the header; the homefit seal in the footer stays coral on both sides. Print-safe light surface — the seal survives a black-and-white photocopy because it's anchored on shape (matrix glyph), not colour alone.</p>
-        </div>
+        </details>
 
         <!-- ============ PAIR 2 — Player ============ -->
-        <div class="pair-row">
-          <div class="pair-header">
+        <details class="pair-row">
+          <summary class="pair-header">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             <span class="ak-name">Workout player</span>
             <span class="ak-tag">· seal in the bottom-left corner during workout</span>
-          </div>
+          </summary>
           <div class="pair-grid">
 
             <!-- DEFAULT -->
@@ -1294,15 +1325,15 @@
 
           </div>
           <p class="artifact-caption"><b>Bottom-left corner chip during workout.</b> The skinned right tile recolours the progress pills (the artifact's primary motion accent) and the ambient radial glow, plus drops a top-right practitioner chip. The homefit seal stays in the same coral, same position — practitioner and platform read as separate, complementary marks.</p>
-        </div>
+        </details>
 
         <!-- ============ PAIR 3 — Poster ============ -->
-        <div class="pair-row">
-          <div class="pair-header">
+        <details class="pair-row">
+          <summary class="pair-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="M4 16l5-4 4 3 3-2 4 3"/></svg>
             <span class="ak-name">Poster</span>
             <span class="ak-tag">· roadmap · seal in the bottom-right of the rendered image</span>
-          </div>
+          </summary>
           <div class="pair-grid">
 
             <!-- DEFAULT -->
@@ -1370,15 +1401,15 @@
 
           </div>
           <p class="artifact-caption"><b>Bottom-right corner of the rendered image.</b> Skin owns the practitioner lockup at top-left + the title under-rule + the ambient red tint-glow on the left half. The coral seal + QR remain part of the rendered pixels (not a CSS overlay) so they survive screenshot and WhatsApp re-compression.</p>
-        </div>
+        </details>
 
         <!-- ============ PAIR 4 — Reel ============ -->
-        <div class="pair-row">
-          <div class="pair-header">
+        <details class="pair-row">
+          <summary class="pair-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16M15 4v16M4 9h5M15 9h5M4 15h5M15 15h5"/></svg>
             <span class="ak-name">Reel</span>
             <span class="ak-tag">· roadmap · seal on the end card (last 1.5 s)</span>
-          </div>
+          </summary>
           <div class="pair-grid">
 
             <!-- DEFAULT -->
@@ -1434,7 +1465,7 @@
 
           </div>
           <p class="artifact-caption"><b>Full-frame end card on the final 1.5 seconds.</b> Skin stacks the practitioner lockup above the homefit seal — they read as a sequence (practitioner first, platform credibility second), never overlapping. Most players pause on the last frame, so the QR has time to scan.</p>
-        </div>
+        </details>
 
       </div>
 

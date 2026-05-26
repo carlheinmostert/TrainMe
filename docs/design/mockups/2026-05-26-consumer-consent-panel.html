@@ -47,7 +47,7 @@
       border-radius: 18px;
       overflow: hidden;
       width: 380px;
-      height: 760px;
+      min-height: 760px;
       position: relative;
       display: flex;
       flex-direction: column;
@@ -83,7 +83,6 @@
     /* ===== page content ===== */
     .page {
       flex: 1;
-      overflow-y: auto;
       padding: 18px 16px 28px;
       display: flex; flex-direction: column; gap: 14px;
     }
@@ -396,6 +395,22 @@
                 <div class="pill"></div>
               </div>
 
+              <!-- Face fingerprint — ON -->
+              <div class="toggle-row">
+                <div class="toggle-glyph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <circle cx="12" cy="11" r="3"/>
+                    <path d="M9 15.5c1 1 5 1 6 0"/>
+                    <path d="M4 7V5h2M20 7V5h-2M4 17v2h2M20 17v2h-2"/>
+                  </svg>
+                </div>
+                <div class="toggle-body">
+                  <div class="toggle-name">Face fingerprint</div>
+                  <div class="toggle-desc">Tell you apart from others on screen</div>
+                </div>
+                <div class="pill is-on"></div>
+              </div>
+
               <!-- Analytics — ON -->
               <div class="toggle-row">
                 <div class="toggle-glyph">
@@ -475,6 +490,22 @@
                 <div class="pill is-on"></div>
               </div>
 
+              <!-- Face fingerprint — OFF -->
+              <div class="toggle-row">
+                <div class="toggle-glyph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <circle cx="12" cy="11" r="3"/>
+                    <path d="M9 15.5c1 1 5 1 6 0"/>
+                    <path d="M4 7V5h2M20 7V5h-2M4 17v2h2M20 17v2h-2"/>
+                  </svg>
+                </div>
+                <div class="toggle-body">
+                  <div class="toggle-name">Face fingerprint</div>
+                  <div class="toggle-desc">Tell you apart from others on screen</div>
+                </div>
+                <div class="pill"></div>
+              </div>
+
               <div class="toggle-row">
                 <div class="toggle-glyph">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 20h16"/><path d="M7 16v-4M12 16V8M17 16v-7"/></svg>
@@ -549,6 +580,22 @@
                 <div class="toggle-body">
                   <div class="toggle-name">Profile photo</div>
                   <div class="toggle-desc">Your face as a small avatar</div>
+                </div>
+                <div class="pill"></div>
+              </div>
+
+              <!-- Face fingerprint — OFF -->
+              <div class="toggle-row">
+                <div class="toggle-glyph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <circle cx="12" cy="11" r="3"/>
+                    <path d="M9 15.5c1 1 5 1 6 0"/>
+                    <path d="M4 7V5h2M20 7V5h-2M4 17v2h2M20 17v2h-2"/>
+                  </svg>
+                </div>
+                <div class="toggle-body">
+                  <div class="toggle-name">Face fingerprint</div>
+                  <div class="toggle-desc">Tell you apart from others on screen</div>
                 </div>
                 <div class="pill"></div>
               </div>
@@ -634,7 +681,7 @@
 
       <div class="leg-card">
         <p class="leg-h">Why this shape</p>
-        <p class="note"><b>One card per practice, five toggles each.</b> The five rows are the consent matrix: line (locked), B&amp;W, original, profile photo, workout stats. Same five everywhere — only the values differ. Predictable shape across cards is what makes the "more open here, stricter there" pattern legible.</p>
+        <p class="note"><b>One card per practice, six toggles each.</b> The six rows are the consent matrix: line drawing (locked), B&amp;W, original, profile photo, face fingerprint, workout stats. Same six everywhere — only the values differ. Predictable shape across cards is what makes the "more open here, stricter there" pattern legible.</p>
         <p class="note"><b>Plan count anchors the relationship.</b> "1 plan from this practice" / "2 plans" grounds the abstract toggle row in the concrete artifacts it affects. "Strictest setting" on Tariro's card reads as a gentle tell that this is the most-locked-down practice — without ever pricing the consumer's choice.</p>
         <p class="note"><b>"Stop all stats" master at the foot.</b> One-tap to flip Workout stats OFF across every practice. The relationship structure stays intact; the leverage is over the analytics surface only — the place where over-sharing is most invisible and easiest to fix in one motion.</p>
         <p class="note"><b>No "delete relationship" button.</b> Leaving a practice is a real-world conversation, not a UI primitive. The footer says so explicitly so the consumer doesn't hunt for a kill switch that would corrupt the practitioner's records.</p>
