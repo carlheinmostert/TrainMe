@@ -2461,8 +2461,15 @@ class ApiClient {
   /// DEFINER + membership-checked. Returns a jsonb snapshot:
   /// {active, in_grace, trial, days_until_lapse, next_renewal_at}.
   ///
-  /// Failure modes return a [BrandSkinState.inactive] snapshot so the
-  /// Studio banner stays hidden rather than painting a misleading state.
+  /// Silent-fallback by design (see `feedback_no_silent_fallbacks.md`):
+  /// failure modes return [BrandSkinState.inactive] rather than throwing.
+  /// The Studio lapse banner mounts on every Studio screen and must not
+  /// paint a misleading "you're about to lapse" warning from a network
+  /// blip. The banner is informational only — silent on error is the
+  /// correct safe default for THIS specific surface. Callers that need
+  /// to surface state to the user (e.g. a portal landing page) should
+  /// NOT use this method; they should call the RPC directly + handle
+  /// the error case in UI.
   Future<BrandSkinState> getBrandSkinState({
     required String practiceId,
   }) async {

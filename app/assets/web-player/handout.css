@@ -61,9 +61,11 @@
                                                   --practice-brand-* values
                                                   (declared in JS as inline
                                                   style on <body>).
-     * data-skin="<practice-id>"               — purely informational; lets
+     * data-skin-practice="<practice-id>"      — purely informational; lets
                                                   the QA inspect which skin
-                                                  is active.
+                                                  is active. (Matches the
+                                                  attribute name set by
+                                                  applySkin() in handout.js.)
 
    Forbidden from this block: any rule that re-points
    --seal-coral / --seal-coral-light / --seal-tint-border. The footer mark

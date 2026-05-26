@@ -234,11 +234,16 @@ Deno.serve(async (req) => {
       tagline: practice.tagline,
     });
   } catch (e) {
+    // Review-followup 2026-05-26 (sev2): Resend's error body can contain
+    // upstream info (rate-limit reasons, account state, recipient validation
+    // hints) we don't want to leak to the caller. Log server-side, return
+    // only the bare reason — the share sheet's `_humanize` already maps
+    // `send_failed` to a friendly user message.
+    console.error('send-artifact-email: Resend send failed:', e);
     return jsonResponse(
       {
         ok: false,
         reason: 'send_failed',
-        detail: String((e as Error)?.message ?? e),
       },
       502,
     );
