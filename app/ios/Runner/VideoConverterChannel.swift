@@ -907,7 +907,11 @@ class VideoConverterChannel {
                 }
             }
             let requestedSlotCount = (args["expectedSlotCount"] as? Int) ?? 6
-            let clampedSlotCount = max(3, min(8, requestedSlotCount))
+            // M30 (2026-05-26): allow slot-count=1 for the per-prompt
+            // single-frame tick model. Previous floor was 3 (Wave-D batch
+            // model). Anything in [1, 8] is now honoured; the embedding fn
+            // gates accepted-frame count against clampedSlotCount directly.
+            let clampedSlotCount = max(1, min(8, requestedSlotCount))
             processingQueue.async {
                 if #available(iOS 15.0, *) {
                     let outcome = Self.generateFaceEmbeddingsFromFrames(
@@ -3256,8 +3260,12 @@ class VideoConverterChannel {
             ))
         }
 
-        if accepted.count < 3 {
-            return .notEnoughFrames(accepted: accepted.count, needed: 3)
+        // M30 (2026-05-26): gate accepted frames against the CALLER's
+        // requested slot count, not a hardcoded 3. The per-prompt sweep
+        // sends 1 frame at a time + expects 1 embedding back; the legacy
+        // Wave-D batch path still calls with 3-8 and gets the same gate.
+        if accepted.count < expectedSlotCount {
+            return .notEnoughFrames(accepted: accepted.count, needed: expectedSlotCount)
         }
 
         // -----------------------------------------------------------------
