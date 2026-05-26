@@ -14,6 +14,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:raidme/services/conversion_service.dart' show kSafeModeV2SoloFloor;
 import 'package:raidme/services/safe_mode_match_diagnostic.dart';
 
 void main() {
@@ -163,6 +164,24 @@ void main() {
       expect(result.bestSim, -2.0);
       expect(result.branch, 'unknown');
       expect(result.referenceCount, 0);
+    });
+  });
+
+  group('kSafeModeMatchDiagnosticDefaultThreshold', () {
+    test('stays in lock-step with kSafeModeV2SoloFloor', () {
+      // Drift detector. The diagnostic's default threshold mirrors the
+      // production solo-floor — we hold it as a local constant rather
+      // than an import (to avoid a circular dependency with
+      // conversion_service.dart), so a refactor that changes one MUST
+      // change the other. This test fails loud if they drift.
+      expect(
+        kSafeModeMatchDiagnosticDefaultThreshold,
+        equals(kSafeModeV2SoloFloor),
+        reason:
+            'Default diagnostic threshold has drifted from the '
+            'production solo-floor — update both in lock-step or the '
+            'diagnostic will lie about what the matcher would do.',
+      );
     });
   });
 

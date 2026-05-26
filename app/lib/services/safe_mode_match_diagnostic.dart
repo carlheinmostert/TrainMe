@@ -3,7 +3,17 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'conversion_service.dart' show kSafeModeV2SoloFloor;
+/// Default solo-floor passed to the native diagnostic when the caller
+/// doesn't supply one. Kept in sync with `kSafeModeV2SoloFloor` in
+/// `conversion_service.dart` — held as a local constant rather than an
+/// import to keep this file free of a circular dependency (the
+/// conversion service imports US to wire the log-toggle hook).
+///
+/// If `kSafeModeV2SoloFloor` ever changes in `conversion_service.dart`
+/// this default must move in lock-step. The unit test
+/// `safe_mode_match_diagnostic_test.dart` asserts the value to catch
+/// drift.
+const double kSafeModeMatchDiagnosticDefaultThreshold = 0.10;
 
 /// Per-face record returned from a [SafeModeMatchDiagnostic] probe.
 ///
@@ -120,7 +130,7 @@ class SafeModeMatchDiagnostic {
   static Future<SafeModeDiagResult> run({
     required String srcPath,
     required List<Uint8List> subjectEmbeddings,
-    double threshold = kSafeModeV2SoloFloor,
+    double threshold = kSafeModeMatchDiagnosticDefaultThreshold,
   }) async {
     final raw = await _channel
         .invokeMethod<Map<dynamic, dynamic>>(
