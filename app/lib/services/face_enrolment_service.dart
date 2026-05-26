@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../config.dart';
 import 'api_client.dart';
 import 'face_embedding_service.dart';
+import 'face_enrolment_camera.dart';
 import 'safe_mode.dart' show kSafeModeAlgorithmVersion;
 import 'sync_service.dart';
 
@@ -249,33 +250,34 @@ const double kQualityThreshold = 60.0;
 /// mockup signoff on open question 1.
 const int kPoseBucketCount = 6;
 
-/// Ordered sequence of explicit pose prompts (M30 redesign, 2026-05-26).
+/// Ordered sequence of explicit pose prompts.
 ///
-/// Replaces the silent autostart-and-let-the-user-discover-the-poses
-/// behaviour that left practitioners stuck on the initial "Look at the
-/// camera" prompt with 0 of 6 captured. The new flow walks the user
-/// through six distinct head positions in a fixed order; each prompt
-/// stays active until a matching-bucket frame is accepted, then the
-/// flow advances.
+/// M37 (2026-05-26): pivoted to YAW-ONLY prompts when the underlying
+/// pose source switched from VNDetectFaceLandmarksRequest (which
+/// returned nil yaw + nil pitch for every frame on Carl's iPhone) to
+/// `AVCaptureMetadataOutput` (which exposes yaw + roll from the ISP
+/// but NOT pitch). Option 1 from the brief — drop pitch-based prompts
+/// entirely. The 6 prompts now sweep yaw across `[-60, -30, 0, +30, +60]`
+/// with a final "smile" prompt that reuses the front bucket.
 ///
 /// Order chosen so adjacent prompts require small head movements
-/// (front → right → left → up → down → smile), keeping the sweep
-/// snappy. The `slightUp` bucket doubles as both the up-tilt prompt
-/// and the down-tilt prompt — we ask the user to dip slightly so
-/// Vision sees the chin (the down-tilt is gated by the same pose
-/// uniqueness math, accepted under the front bucket if pitch < -10).
+/// (front → right → left → smile), keeping the sweep snappy.
 ///
-/// IMPORTANT: in this flow the 6th prompt ("smile") reuses the front
-/// bucket so it must be accepted AFTER the initial front prompt has
-/// already filled it; the service tracks prompt completion separately
-/// from bucket fill state.
+/// IMPORTANT: the 6th prompt ("smile") reuses the front bucket so it
+/// must be accepted AFTER the initial front prompt has already filled
+/// the bucket; the service tracks prompt completion separately from
+/// bucket fill state. The 4th prompt (slight up) is retired with the
+/// pitch axis — pose-bucket coverage is now 5 distinct yaw angles
+/// plus the smile retry, which is comparable variety for downstream
+/// matching since MobileFaceNet templates are dominated by yaw
+/// rotation anyway.
 const List<PoseBucket> kPromptSequence = <PoseBucket>[
   PoseBucket.front,        // 1. Look straight ahead
-  PoseBucket.right,        // 2. Turn slowly to your right
-  PoseBucket.left,         // 3. Turn slowly to your left
-  PoseBucket.slightUp,     // 4. Tilt head up slightly
-  PoseBucket.frontRight,   // 5. Tilt head down slightly (uses chin-down + offset bucket)
-  PoseBucket.frontLeft,    // 6. Look straight ahead with a slight smile
+  PoseBucket.frontRight,   // 2. Turn slightly to your right (~+30 deg)
+  PoseBucket.right,        // 3. Turn further to your right (~+60 deg)
+  PoseBucket.frontLeft,    // 4. Turn slightly to your left (~-30 deg)
+  PoseBucket.left,         // 5. Turn further to your left (~-60 deg)
+  PoseBucket.front,        // 6. Look back at the camera with a slight smile
 ];
 
 /// Per-prompt instruction copy. Indexed by prompt position (0..5).
@@ -283,21 +285,22 @@ const List<PoseBucket> kPromptSequence = <PoseBucket>[
 /// Self-trainer + per-client enrolment flow is English-only for MVP.
 const List<String> kPromptInstructions = <String>[
   'Look straight ahead',
-  'Turn slowly to your right',
-  'Turn slowly to your left',
-  'Tilt head up slightly',
-  'Tilt head down slightly',
-  'Look straight ahead with a slight smile',
+  'Turn slightly to your right',
+  'Turn further to your right',
+  'Turn slightly to your left',
+  'Turn further to your left',
+  'Look at the camera with a slight smile',
 ];
 
 /// Per-prompt arrow/direction icon hint. UI maps to a Material icon.
-/// Values: 'straight', 'right', 'left', 'up', 'down', 'smile'.
+/// Values: 'straight', 'right', 'left', 'smile'. (M37 — 'up' and
+/// 'down' retired with the pitch axis.)
 const List<String> kPromptDirections = <String>[
   'straight',
   'right',
+  'right',
   'left',
-  'up',
-  'down',
+  'left',
   'smile',
 ];
 
@@ -306,9 +309,9 @@ const List<String> kPromptDirections = <String>[
 const List<String> kPromptStallHints = <String>[
   'Hold steadier — look right at the lens',
   'Turn a little further to the right',
+  'Turn further — about half-way to your shoulder',
   'Turn a little further to the left',
-  'Tilt up just a bit more',
-  'Tilt down just a bit more',
+  'Turn further — about half-way to your shoulder',
   'Hold steadier and give a small smile',
 ];
 
@@ -646,7 +649,32 @@ class FaceEnrolmentService extends ChangeNotifier {
   Directory? _frameDir;
 
   /// Periodic timer driving frame capture during the sweep.
+  /// M37: legacy timer-driven path; the pose-stream path uses
+  /// [_poseSub] instead. Kept so the still-image sweep ([startSweep])
+  /// continues to compile for back-compat with any caller that hasn't
+  /// migrated yet.
   Timer? _captureTimer;
+
+  /// M37 — live pose subscription powering the prompt walker. Bound
+  /// in [startPoseGatedSweep], cancelled on every terminal transition.
+  StreamSubscription<FaceEnrolmentPoseEvent>? _poseSub;
+
+  /// M37 — most-recent pose event observed (regardless of accept).
+  /// Drives the hint-text "closest unfilled bucket" computation + the
+  /// stall flag updates. Updated on every pose stream event.
+  // ignore: unused_field
+  ({double yaw, double pitch})? _lastObservedPose;
+
+  /// M37 — guard against re-entrant `captureFrameAndEmbed` calls.
+  /// Each native call takes ~50-150ms; a second pose event landing
+  /// while we're still in flight must not double-fire.
+  bool _embedInFlight = false;
+
+  /// M37 — periodic ticker that updates the stall flags every ~500ms
+  /// even when no pose events arrive (e.g. user covers the camera).
+  /// The pose event itself also calls [_updateStallFlags] but events
+  /// can dry up entirely if the face leaves the frame.
+  Timer? _stallTimer;
 
 
   /// Single broadcast stream for error events. UI subscribes from
@@ -818,24 +846,38 @@ class FaceEnrolmentService extends ChangeNotifier {
     await _runEmbedding();
   }
 
-  /// Phase 2 — pose-gated sweep replacing the legacy timer-driven
-  /// [startSweep]. Captures frames continuously and runs each through
-  /// the existing native batch-of-1 path for pose + embedding; in
-  /// Dart we accept iff:
+  /// Real-time pose-gated sweep (M37, 2026-05-26).
   ///
-  ///   1. The candidate pose is at least [kPoseDistanceThresholdDeg]
-  ///      from every already-accepted slot's pose (Manhattan sum).
-  ///   2. The candidate's composite quality score >= [kQualityThreshold].
+  /// The Wave-D timer-driven path took a still every ~333ms, shipped
+  /// it through the still-image VNDetectFaceLandmarksRequest pipeline,
+  /// and accepted/rejected based on the returned yaw + pitch. Console
+  /// logs on Carl's iPhone showed VNFaceObservation returned nil
+  /// pose for EVERY frame — yaw + pitch never came back — so the
+  /// sweep silently rejected everything below the per-prompt
+  /// tolerance.
   ///
-  /// Accepted candidates are stamped with their bucket + score and
-  /// stored in [_accumulatedSlots]. The sweep ends when every bucket
-  /// is filled, OR when [timeout] elapses with no progress, OR when
-  /// the practitioner calls [requestSweepFinish] (Done tap).
+  /// M37 replaces that with a live pose subscription off
+  /// [FaceEnrolmentCameraChannel] which streams `AVMetadataFaceObject`
+  /// yaw values (computed by silicon, reliable across off-axis
+  /// angles). On each pose event:
   ///
-  /// After the sweep, transitions to confirming with the accumulated
-  /// slots so the UI can render the manual-avatar-selection grid (in
-  /// [FaceEnrolmentMode.full]) or fall through to commit (in
-  /// [FaceEnrolmentMode.embeddingOnly]).
+  ///   1. Translate the yaw degrees into our 2D pose tuple
+  ///      `(yaw, pitch)` — pitch is forced to 0 because the metadata
+  ///      output doesn't expose it. The bucket math still works
+  ///      because the yaw-only prompts only depend on yaw.
+  ///   2. Resolve the closest-unfilled-bucket hint.
+  ///   3. If the pose is within [promptAcceptTolerance] of the
+  ///      CURRENT prompt's target bucket AND no embedding is in flight,
+  ///      call [FaceEnrolmentCameraChannel.captureFrameAndEmbed] to
+  ///      pull the most-recent frame from the native ring buffer and
+  ///      run MobileFaceNet on the face crop.
+  ///   4. Score the captured embedding via the existing
+  ///      [QualityScorer] and accept iff above [kQualityThreshold].
+  ///   5. On accept: stamp the slot, fire a haptic, advance to the
+  ///      next prompt.
+  ///
+  /// The sweep ends when every prompt has been completed (or skipped),
+  /// OR when [timeout] elapses, OR on practitioner cancel.
   Future<void> startPoseGatedSweep({
     Duration timeout = const Duration(seconds: 180),
   }) async {
@@ -847,13 +889,6 @@ class FaceEnrolmentService extends ChangeNotifier {
       }
       return;
     }
-    if (_frameProducer == null) {
-      _emitError(const FaceEnrolmentError(
-        type: FaceEnrolmentErrorType.camera,
-        message: "Camera not ready — try again.",
-      ));
-      return;
-    }
     _cancelled = false;
     _capturedFramePaths.clear();
     _filledBuckets.clear();
@@ -863,6 +898,8 @@ class FaceEnrolmentService extends ChangeNotifier {
     _skippedPromptCount = 0;
     _showStallHint = false;
     _showSkipPrompt = false;
+    _embedInFlight = false;
+    _lastObservedPose = null;
 
     try {
       final tempDir = await getTemporaryDirectory();
@@ -881,31 +918,223 @@ class FaceEnrolmentService extends ChangeNotifier {
     _advanceToPrompt(0);
     notifyListeners();
 
-    final sweepStart = DateTime.now();
+    // Subscribe to the live pose stream. Native session must already
+    // be running (the screen calls FaceEnrolmentCameraChannel.start in
+    // its initState before pushing this service into sweep).
+    _poseSub?.cancel();
+    _poseSub = FaceEnrolmentCameraChannel.instance.poseStream.listen(
+      _onPoseEvent,
+      onError: (Object e, StackTrace st) {
+        if (_kDiagLogs) {
+          debugPrint('[FaceEnrolment] pose stream error: $e');
+        }
+      },
+    );
 
-    // Tick at ~3Hz — the per-candidate native call is ~150-300ms on
-    // A17 so faster cadence would queue up; slower than 3Hz makes the
-    // ring feel sluggish.
-    const tickInterval = Duration(milliseconds: 333);
-
-    while (!_cancelled &&
-        _currentPromptIndex < kPromptSequence.length &&
-        DateTime.now().difference(sweepStart) < timeout) {
-      await _runPoseGatedTick();
+    // Periodic stall-flag updater. Pose events also call
+    // _updateStallFlags but events can stop arriving entirely if the
+    // user covers the camera — the timer makes sure the soft-hint +
+    // skip-pose CTA still surface in that case.
+    _stallTimer?.cancel();
+    _stallTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (_cancelled) return;
       _updateStallFlags();
       notifyListeners();
-      await Future<void>.delayed(tickInterval);
-    }
+    });
 
-    if (_cancelled) {
-      await _teardownFrames();
-      _setState(FaceEnrolmentState.cancelled);
+    // Watchdog: if no prompt has been completed within [timeout], fail
+    // with notEnoughAngles. We don't await here — the watchdog runs
+    // independently of the pose-event-driven advancement.
+    Timer(timeout, () {
+      if (_cancelled) return;
+      if (_currentPromptIndex >= kPromptSequence.length) return;
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] sweep timeout — finishing with what we have');
+      }
+      unawaited(_finishPoseGatedSweep());
+    });
+  }
+
+  /// M37 — handle one live pose event. Fast-path: yaw distance check
+  /// against the current prompt's target bucket; only fire
+  /// captureFrameAndEmbed when we're within tolerance + idle.
+  Future<void> _onPoseEvent(FaceEnrolmentPoseEvent event) async {
+    if (_cancelled) return;
+    if (_currentPromptIndex < 0 ||
+        _currentPromptIndex >= kPromptSequence.length) {
+      return;
+    }
+    final yawDeg = event.yawDeg;
+    if (yawDeg == null) {
+      // ISP didn't compute yaw this frame — silently skip; the next
+      // event retries.
+      return;
+    }
+    // M37 — pitch is not exposed by AVCaptureMetadataOutput. We pin
+    // pitch to 0 so the existing 2D bucket math (Manhattan-sum) keeps
+    // working without re-plumbing every consumer of `_lastObservedPose`.
+    final candidatePose = (yaw: yawDeg, pitch: 0.0);
+    _lastObservedPose = candidatePose;
+
+    final targetBucket = kPromptSequence[_currentPromptIndex];
+    final targetCentre = targetBucket.centerDeg;
+    final dToTarget = poseDistance(candidatePose, targetCentre);
+    const double promptAcceptTolerance = 20.0;
+
+    // Update the stall flags + hint bucket every pose event so the UI
+    // reflects how close the user is to the target.
+    _updateStallFlags();
+    _currentTargetBucket = targetBucket;
+    notifyListeners();
+
+    if (dToTarget > promptAcceptTolerance) {
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEnrolment] pose REJECT prompt=$_currentPromptIndex '
+          'bucket=$targetBucket measured_yaw=${yawDeg.toStringAsFixed(1)} '
+          'target_yaw=${targetCentre.yaw.toStringAsFixed(1)} '
+          'delta=${dToTarget.toStringAsFixed(1)} tol=${promptAcceptTolerance.toStringAsFixed(1)}',
+        );
+      }
       return;
     }
 
-    // Sweep ended — by completion, timeout, or all-prompts-skipped.
-    // Decide whether to confirm or surface notEnoughAngles.
-    await _finishPoseGatedSweep();
+    // Within tolerance — try to grab + embed. Guard against re-entrant
+    // calls; native captureFrameAndEmbed takes ~50-150ms and a second
+    // event firing while we're in flight would double-fire.
+    if (_embedInFlight) return;
+    _embedInFlight = true;
+    try {
+      await _captureAndAccept(
+        candidatePose: candidatePose,
+        targetBucket: targetBucket,
+      );
+    } finally {
+      _embedInFlight = false;
+    }
+  }
+
+  /// M37 — pull the most-recent frame from the native ring buffer +
+  /// score it. On accept: stamp the slot, advance the prompt, fire a
+  /// haptic.
+  Future<void> _captureAndAccept({
+    required ({double yaw, double pitch}) candidatePose,
+    required PoseBucket targetBucket,
+  }) async {
+    final frameDir = _frameDir;
+    if (frameDir == null) return;
+    final outPath = p.join(
+      frameDir.path,
+      'f_${DateTime.now().microsecondsSinceEpoch}.jpg',
+    );
+
+    FaceEnrolmentEmbeddingResult result;
+    try {
+      result = await FaceEnrolmentCameraChannel.instance
+          .captureFrameAndEmbed(outPath: outPath)
+          .timeout(const Duration(seconds: 4));
+    } on PlatformException catch (e) {
+      // NO_FRAME / NO_FACE are transient — silently skip + try again
+      // on the next pose event. EMBEDDING_FAILED is harder; we log it
+      // but don't fail the whole sweep on a single bad frame.
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] captureFrameAndEmbed failed: ${e.code} ${e.message}');
+      }
+      return;
+    } on TimeoutException catch (_) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] captureFrameAndEmbed timed out');
+      }
+      return;
+    } catch (e) {
+      if (_kDiagLogs) {
+        debugPrint('[FaceEnrolment] captureFrameAndEmbed unexpected: $e');
+      }
+      return;
+    }
+
+    _capturedFramePaths.add(result.framePath);
+
+    if (_cancelled) return;
+    if (_currentPromptIndex >= kPromptSequence.length) return;
+    // Defence: bucket may have advanced while we were awaiting; bail
+    // if so to avoid double-stamping.
+    if (kPromptSequence[_currentPromptIndex] != targetBucket) return;
+
+    final existingPoses = _accumulatedSlots
+        .map((s) => (
+              yaw: s.poseYaw ?? 0.0,
+              pitch: s.posePitch ?? 0.0,
+            ))
+        .toList(growable: false);
+
+    // Quality scoring. Decoding the frame is the expensive step
+    // (~10-30ms on a downscaled crop); we do it once and reuse.
+    final scoreComponents = await _scoreCandidate(
+      framePath: result.framePath,
+      visionConfidence: 0.95, // Metadata output detected a face — high confidence by definition.
+      candidatePose: candidatePose,
+      existingPoses: existingPoses,
+      embeddingBytes: result.embedding,
+    );
+    final composite = scoreComponents.composite;
+
+    if (composite < kQualityThreshold) {
+      if (_kDiagLogs) {
+        debugPrint(
+          '[FaceEnrolment] REJECT bucket=$targetBucket '
+          'score=${composite.toStringAsFixed(1)} '
+          'sh=${scoreComponents.sharpness.toStringAsFixed(2)} '
+          'li=${scoreComponents.lighting.toStringAsFixed(2)}',
+        );
+      }
+      // Quality below floor — keep the frame on disk for diagnostics
+      // but don't stamp the slot. The next pose event retries.
+      return;
+    }
+
+    // Accept — stamp the slot for the CURRENT prompt's bucket, mark
+    // the bucket filled, advance to the next prompt.
+    final slot = FaceEnrolmentSlot(
+      slotIndex: _accumulatedSlots.length,
+      embedding: result.embedding,
+      isFrontalPick: false,
+      poseYaw: candidatePose.yaw,
+      posePitch: candidatePose.pitch,
+      bucket: targetBucket,
+      qualityScore: composite,
+      sourceFramePath: result.framePath,
+    );
+    _accumulatedSlots.add(slot);
+    _filledBuckets.add(targetBucket);
+    _lastAcceptedScore = composite;
+
+    _updateFrontalPick();
+
+    _progress = (_currentPromptIndex + 1) / kPromptSequence.length;
+
+    if (_kDiagLogs) {
+      debugPrint(
+        '[FaceEnrolment] ACCEPT prompt=$_currentPromptIndex '
+        'bucket=$targetBucket score=${composite.toStringAsFixed(1)} '
+        'progress=${_accumulatedSlots.length}/${kPromptSequence.length}',
+      );
+    }
+
+    // M36 — haptic on accept so the user KNOWS to look back at the
+    // screen for the next prompt. When turning the head left/right
+    // they physically can't see the screen during the move.
+    HapticFeedback.mediumImpact();
+
+    final wasLastPrompt = _currentPromptIndex + 1 >= kPromptSequence.length;
+    _advanceToPrompt(_currentPromptIndex + 1);
+    notifyListeners();
+
+    if (wasLastPrompt) {
+      // All prompts done — wrap up immediately rather than waiting on
+      // the watchdog or another pose event.
+      await _finishPoseGatedSweep();
+    }
   }
 
   /// M30 — Advance to the prompt at [index]. Resets the stall flags
@@ -991,6 +1220,12 @@ class FaceEnrolmentService extends ChangeNotifier {
     _showSkipPrompt = false;
     _instructionText = null;
     _progress = 0.0;
+    _embedInFlight = false;
+    _lastObservedPose = null;
+    await _poseSub?.cancel();
+    _poseSub = null;
+    _stallTimer?.cancel();
+    _stallTimer = null;
     await _teardownFrames();
     _setState(FaceEnrolmentState.idle);
     notifyListeners();
@@ -1007,194 +1242,12 @@ class FaceEnrolmentService extends ChangeNotifier {
     requestSkipCurrentPrompt();
   }
 
-  /// One pose-gated tick: capture a frame, run it through native for
-  /// pose + embedding, decide accept/reject in Dart against the
-  /// CURRENT prompt's target bucket (M30 — only frames matching the
-  /// active prompt advance the flow).
-  Future<void> _runPoseGatedTick() async {
-    final producer = _frameProducer;
-    if (producer == null) return;
-    if (_currentPromptIndex < 0 ||
-        _currentPromptIndex >= kPromptSequence.length) {
-      return;
-    }
-    final targetBucket = kPromptSequence[_currentPromptIndex];
-
-    String? framePath;
-    try {
-      framePath = await producer();
-    } catch (e) {
-      if (_kDiagLogs) {
-        debugPrint('[FaceEnrolment] tick frame capture failed: $e');
-      }
-      return;
-    }
-    if (framePath == null) return;
-    _capturedFramePaths.add(framePath);
-
-    try {
-      final dynamic resp =
-          await videoChannel.invokeMethod<Map<dynamic, dynamic>>(
-        'generateFaceEmbeddingsFromFrames',
-        <String, dynamic>{
-          'framePaths': <String>[framePath],
-          'expectedSlotCount': 1,
-        },
-      ).timeout(const Duration(seconds: 5));
-
-      if (resp == null) return;
-      final map = Map<String, dynamic>.from(resp as Map);
-      final embsRaw = (map['embeddings'] as List<dynamic>?) ?? const [];
-      final yawsRaw = (map['posesYaw'] as List<dynamic>?) ?? const [];
-      final pitchesRaw = (map['posesPitch'] as List<dynamic>?) ?? const [];
-      final confidencesRaw =
-          (map['confidences'] as List<dynamic>?) ?? const [];
-
-      if (embsRaw.isEmpty) {
-        // No face detected in the frame — silently skip; the next tick
-        // retries.
-        if (_kDiagLogs) {
-          debugPrint(
-            '[FaceEnrolment] tick NO_FACE — Vision returned no embedding '
-            'for the captured frame. Likely causes: face out of frame, '
-            'too dark, camera covered, or selfie cam not active.',
-          );
-        }
-        return;
-      }
-
-      final rawEmb = embsRaw.first;
-      final Uint8List embeddingBytes = rawEmb is Uint8List
-          ? rawEmb
-          : Uint8List.fromList((rawEmb as List<int>));
-
-      // Native returns pose in RADIANS today (Wave-D contract). Convert
-      // to degrees so all Dart-side math uses the same units as the
-      // bucket-centre constants.
-      final double yawDeg = yawsRaw.isNotEmpty
-          ? _radiansToDegreesIfNeeded((yawsRaw.first as num).toDouble())
-          : 0.0;
-      final double pitchDeg = pitchesRaw.isNotEmpty
-          ? _radiansToDegreesIfNeeded((pitchesRaw.first as num).toDouble())
-          : 0.0;
-      final visionConfidence = confidencesRaw.isNotEmpty
-          ? (confidencesRaw.first as num).toDouble().clamp(0.0, 1.0)
-          : 0.85; // Reasonable default for batches Vision actually returned a face on.
-
-      final candidatePose = (yaw: yawDeg, pitch: pitchDeg);
-
-      // M30 — accept only frames within ±20 deg Manhattan-sum of the
-      // CURRENT prompt's target bucket centre. Silently skip everything
-      // else so the user is naturally nudged toward the requested pose.
-      final targetCentre = targetBucket.centerDeg;
-      final dToTarget = poseDistance(candidatePose, targetCentre);
-      const double promptAcceptTolerance = 20.0;
-      if (dToTarget > promptAcceptTolerance) {
-        if (_kDiagLogs) {
-          debugPrint(
-            '[FaceEnrolment] tick POSE_REJECT prompt=$_currentPromptIndex '
-            'bucket=$targetBucket '
-            'measured=(yaw=${yawDeg.toStringAsFixed(1)}, pitch=${pitchDeg.toStringAsFixed(1)}) '
-            'target=(yaw=${targetCentre.yaw.toStringAsFixed(1)}, pitch=${targetCentre.pitch.toStringAsFixed(1)}) '
-            'delta=${dToTarget.toStringAsFixed(1)} tolerance=${promptAcceptTolerance.toStringAsFixed(1)}',
-          );
-        }
-        return;
-      }
-
-      final existingPoses = _accumulatedSlots
-          .map((s) => (
-                yaw: s.poseYaw ?? 0.0,
-                pitch: s.posePitch ?? 0.0,
-              ))
-          .toList(growable: false);
-
-      // Quality scoring. Decode the frame for sharpness + lighting
-      // calculations — cheap (~10-30ms for a medium-resolution still
-      // off the camera plugin).
-      final scoreComponents = await _scoreCandidate(
-        framePath: framePath,
-        visionConfidence: visionConfidence,
-        candidatePose: candidatePose,
-        existingPoses: existingPoses,
-        embeddingBytes: embeddingBytes,
-      );
-      final composite = scoreComponents.composite;
-
-      if (composite < kQualityThreshold) {
-        // Quality below floor — silently skip. The per-prompt soft
-        // hint surfaces after 5s of no accept, replacing the legacy
-        // rose-toast that dumped raw scores in the user's face.
-        if (_kDiagLogs) {
-          debugPrint(
-            '[FaceEnrolment] tick REJECTED bucket=$targetBucket '
-            'score=${composite.toStringAsFixed(1)} '
-            'vc=${scoreComponents.visionConfidence.toStringAsFixed(2)} '
-            'sh=${scoreComponents.sharpness.toStringAsFixed(2)} '
-            'li=${scoreComponents.lighting.toStringAsFixed(2)}',
-          );
-        }
-        return;
-      }
-
-      // Accept — stamp the slot for the CURRENT prompt's bucket,
-      // mark the bucket filled, advance to the next prompt.
-      final slot = FaceEnrolmentSlot(
-        slotIndex: _accumulatedSlots.length,
-        embedding: embeddingBytes,
-        isFrontalPick: false,
-        poseYaw: yawDeg,
-        posePitch: pitchDeg,
-        bucket: targetBucket,
-        qualityScore: composite,
-        sourceFramePath: framePath,
-      );
-      _accumulatedSlots.add(slot);
-      _filledBuckets.add(targetBucket);
-      _lastAcceptedScore = composite;
-
-      // Re-evaluate the frontal pick over the running accumulator.
-      _updateFrontalPick();
-
-      // Drive the visible progress bar off the prompt progress so the
-      // legacy ring painter still animates linearly. Counts COMPLETED
-      // prompts (next index after advance) — divides over the full
-      // sequence length so finish = 1.0.
-      _progress = (_currentPromptIndex + 1) / kPromptSequence.length;
-
-      if (_kDiagLogs) {
-        debugPrint(
-          '[FaceEnrolment] tick ACCEPTED prompt=$_currentPromptIndex '
-          'bucket=$targetBucket score=${composite.toStringAsFixed(1)} '
-          'progress=${_accumulatedSlots.length}/${kPromptSequence.length}',
-        );
-      }
-
-      // M36 (2026-05-26): haptic on accept so the user KNOWS to look back
-      // at the screen for the next prompt. When turning the head left/right
-      // they physically can't see the screen during the move; the haptic
-      // is the "got it, look here" signal. Medium impact = distinct + not
-      // jarring. Fire BEFORE the advance so it pairs with the dot fill.
-      HapticFeedback.mediumImpact();
-
-      // Advance to the next prompt (or finish if we just accepted the
-      // last one). The while-loop in startPoseGatedSweep will exit on
-      // next iteration when _currentPromptIndex hits sequence length.
-      _advanceToPrompt(_currentPromptIndex + 1);
-    } on PlatformException catch (e) {
-      if (_kDiagLogs) {
-        debugPrint('[FaceEnrolment] tick native failed: ${e.code} ${e.message}');
-      }
-    } on TimeoutException catch (_) {
-      if (_kDiagLogs) {
-        debugPrint('[FaceEnrolment] tick native timed out');
-      }
-    } catch (e) {
-      if (_kDiagLogs) {
-        debugPrint('[FaceEnrolment] tick error: $e');
-      }
-    }
-  }
+  // M37 — _runPoseGatedTick (timer-driven still-image path) retired.
+  // The live pose stream + on-demand captureFrameAndEmbed in
+  // [_onPoseEvent] + [_captureAndAccept] replaces it. Removed entirely
+  // rather than left as dead code — the still-image VNDetectFaceLandmarks
+  // returned nil pose for every frame on Carl's iPhone and silently
+  // rejected the whole sweep, which is exactly what M37 fixes.
 
   /// Update the [_isFrontalPick] flag across [_accumulatedSlots] so
   /// exactly one slot — the one whose pose is closest to (0, 0) — is
@@ -1223,12 +1276,20 @@ class FaceEnrolmentService extends ChangeNotifier {
   // prompt. Stall hints surface in the UI via [showStallHint] +
   // [kPromptStallHints].
 
-  /// Wrap-up after the pose-gated sweep loop exits. M30 — surfaces
-  /// notEnoughAngles when we couldn't gather [kMinPromptsForValidEnrolment]
-  /// successful captures (skipped prompts don't count). Otherwise
-  /// transitions to confirming for the manual-avatar grid (or directly
-  /// to commit in embeddingOnly mode).
+  /// Wrap-up after the pose-gated sweep ends (all prompts done, all
+  /// skipped, timeout, or cancel). Tears down the live pose
+  /// subscription + stall timer (M37). Then:
+  ///   - If too few slots accepted → surface notEnoughAngles.
+  ///   - Else → transition to confirming for the manual-avatar grid
+  ///     (full mode) or fall through to commit (embeddingOnly).
   Future<void> _finishPoseGatedSweep() async {
+    // Tear down the live subs FIRST so a late pose event can't
+    // double-fire a slot acceptance after we've decided to finish.
+    await _poseSub?.cancel();
+    _poseSub = null;
+    _stallTimer?.cancel();
+    _stallTimer = null;
+
     final captured = _accumulatedSlots.length;
     if (captured < kMinPromptsForValidEnrolment) {
       _emitError(FaceEnrolmentError(
@@ -1247,16 +1308,10 @@ class FaceEnrolmentService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Best-effort radians→degrees conversion. Phase 2 wants pose in
-  /// degrees end-to-end (matches [PoseBucket.centerDeg] math + the
-  /// human-readable grammar in the grid). Native today returns
-  /// radians for the batch path, so we coerce here. The heuristic:
-  /// any value with |x| > 3.5 is already in degrees (radians cap at
-  /// pi/2 ~= 1.57); anything else assumed radians and multiplied.
-  double _radiansToDegreesIfNeeded(double v) {
-    if (v.abs() > 3.5) return v;
-    return v * (180.0 / math.pi);
-  }
+  // M37 — _radiansToDegreesIfNeeded retired. The pose stream now ships
+  // degrees directly off AVCaptureMetadataOutput; the legacy still-image
+  // path that depended on the radians→degrees coercion (_runPoseGatedTick)
+  // is gone.
 
   /// Score all five components of a candidate frame and return them
   /// as a single record. Decoding the frame is the expensive step
@@ -1331,6 +1386,12 @@ class FaceEnrolmentService extends ChangeNotifier {
     _cancelled = true;
     _captureTimer?.cancel();
     _captureTimer = null;
+    // M37 — tear down the live pose sub + stall timer so a late event
+    // can't mutate state after cancel.
+    _poseSub?.cancel();
+    _poseSub = null;
+    _stallTimer?.cancel();
+    _stallTimer = null;
     if (_kDiagLogs) {
       debugPrint('[FaceEnrolment] cancel requested at state=$_state');
     }
@@ -1823,6 +1884,11 @@ class FaceEnrolmentService extends ChangeNotifier {
     // so the next start (after a Retry) sees a clean slate.
     _captureTimer?.cancel();
     _captureTimer = null;
+    // M37 — tear down the live pose sub + stall timer too.
+    _poseSub?.cancel();
+    _poseSub = null;
+    _stallTimer?.cancel();
+    _stallTimer = null;
     // Don't await teardown — error UI pops 4s later; if we leak a few
     // frames in the meantime that's acceptable.
     unawaited(_teardownFrames());
@@ -1838,6 +1904,8 @@ class FaceEnrolmentService extends ChangeNotifier {
   @override
   void dispose() {
     _captureTimer?.cancel();
+    _poseSub?.cancel();
+    _stallTimer?.cancel();
     _errorController.close();
     _rejectionController.close();
     // Don't await — dispose is sync. Best-effort cleanup.

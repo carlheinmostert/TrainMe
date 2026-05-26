@@ -31,6 +31,12 @@ import AVFoundation
   // compute for the self-verification flow. See HomefitFaceEmbeddingChannel.
   private var faceEmbedding: HomefitFaceEmbeddingChannel?
 
+  // M37 (2026-05-26) — real-time AVCaptureMetadataOutput face tracking for
+  // the Safe Mode v2 enrolment sweep. Replaces the still-image
+  // VNDetectFaceLandmarksRequest pose detection that returned nil for
+  // every frame on Carl's iPhone. See FaceEnrolmentCameraChannel.swift.
+  private var faceEnrolmentCamera: FaceEnrolmentCameraChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -304,6 +310,21 @@ import AVFoundation
     // image-path → [Float] surface for the Settings selfie flow.
     if #available(iOS 11.0, *) {
       faceEmbedding = HomefitFaceEmbeddingChannel(messenger: messenger)
+    }
+
+    // M37 — real-time face tracking via AVCaptureMetadataOutput. Owns its
+    // own AVCaptureSession with metadata + video data outputs; emits
+    // pose events on the homefit/face-enrolment-pose-stream EventChannel
+    // and exposes captureFrameAndEmbed via the homefit/face-enrolment-camera
+    // MethodChannel. Preview surface is the PlatformView under view-id
+    // homefit/face_enrolment_camera_preview.
+    if #available(iOS 14.0, *) {
+      faceEnrolmentCamera = FaceEnrolmentCameraChannel(messenger: messenger)
+      let previewFactory = FaceEnrolmentCameraPreviewFactory(messenger: messenger)
+      registrar.register(
+        previewFactory,
+        withId: "homefit/face_enrolment_camera_preview"
+      )
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
