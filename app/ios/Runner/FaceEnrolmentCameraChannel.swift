@@ -4,7 +4,26 @@ import AVFoundation
 import Vision
 import os.log
 
-// MARK: - Vision streamed-yaw face enrolment (Phase 2)
+// MARK: - Vision streamed-yaw face enrolment (Phase 2) — FALLBACK PATH
+//
+// FALLBACK pose source for face enrolment on devices WITHOUT TrueDepth
+// (the iPhone SE family). The PRIMARY path on TrueDepth-capable devices
+// (iPhone X+) is `FaceEnrolmentARKitChannel.swift` (M40, 2026-05-26),
+// which provides continuous 6-DoF head pose via ARFaceAnchor.transform.
+// AppDelegate's capability check picks one channel or the other based on
+// `ARFaceTrackingConfiguration.isSupported`; both channels expose the
+// IDENTICAL Method + EventChannel + PlatformView surface so the Dart
+// `FaceEnrolmentCameraChannel` wrapper is agnostic to which native
+// implementation is bound.
+//
+// Why a fallback even exists: on iOS 18+ the Vision yaw on
+// VNDetectFaceLandmarksRequest is QUANTIZED to 45° steps on real
+// hardware (verified on Carl's iPhone 17 Pro). This channel still
+// works for a coarse sweep — the M37 prompt walker accepts within ±20°
+// tolerance, so the 0 / ±45 / ±90 step grid hits at least three
+// distinct yaw buckets — but the user-perceived precision is much worse
+// than ARKit's continuous pose. Non-TrueDepth devices accept the
+// limitation; TrueDepth devices get the ARKit primary instead.
 //
 // Pose is computed by `VNDetectFaceLandmarksRequest` (revision 3) on
 // CMSampleBuffer at 10 Hz. AVCaptureMetadataOutput is retained for
