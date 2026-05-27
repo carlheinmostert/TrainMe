@@ -90,7 +90,7 @@ script tag in all four pages.
       + print button are hidden, exercise list lays out for paper.
       Cancel the dialog.
 
-## Round 2 fix (this PR) — defensive watchdog + reason chip
+## Round 2 fix (PR #553) — defensive watchdog + reason chip
 
 The first-round fix in PR #550 added `<script src="/config.js">` to
 handout.html, which addresses the api.js module-load throw — but only
@@ -122,3 +122,56 @@ throw) can never hang the loading dot:
       error flow plus the new diagnostic surface — Carl reports a
       bug with a screenshot and the reason chip carries the failure
       mode.
+
+## Round 3 fix (this PR) — root cause (URL cache-busting via `?v={sha}`)
+
+Round 1 (PR #550) fixed the server-side bug — handout.html was loading
+api.js before config.js. Round 2 (PR #553) added a defensive watchdog
+inside handout.js so the page never hangs indefinitely even if a stale
+cached asset returns. Round 3 (this PR) addresses the ROOT CAUSE: iOS
+WKWebView's persistent HTTP cache was serving the pre-PR-#550 cached
+`handout.html` across app restarts, so practitioners were still seeing
+the broken page even after the server fix shipped. The mobile app now
+appends `?v={shortSha}` to the handout URL so every new build forces a
+fresh fetch of all handout assets.
+
+- [ ] 14. Install the post-fix staging build on Carl's iPhone CHM
+      (`install-device.sh staging`). Open Clients → tap a client with
+      a published plan that has the handout artifact → expand the
+      accordion → tap the handout card. The full-screen WebView opens.
+      Confirm via the AppBar long-press peek (or by sniffing the URL
+      via Safari Web Inspector → Develop menu → iPhone CHM) that the
+      URL is `https://staging.session.homefit.studio/h/<planId>?v=<sha>`
+      where `<sha>` matches the build chip in the lobby footer.
+
+- [ ] 15. Force-kill the mobile app, relaunch. Open the same handout
+      again. The URL still has the same `?v=<sha>` (build SHA doesn't
+      change between launches of the same build) AND the page renders
+      cleanly within ~1s. No "Loading your plan…" hang, no watchdog
+      fallback chip — fast happy path.
+
+- [ ] 16. On the desktop browser, open
+      `https://staging.session.homefit.studio/h/<planId>?v=abc123` (any
+      arbitrary value for the v param). The handout still loads
+      correctly — the v parameter is ignored by the handout.js path
+      regex; it's only there to bust the HTTP cache.
+
+- [ ] 17. Open the handout in Safari on iPhone CHM via the share URL
+      (the `/p/<planId>` link copied from Studio toolbar, then change
+      `p` to `h` in the address bar). The page renders cleanly. The
+      `?v=` param is mobile-only — the canonical share URL still has
+      no version suffix (URLs shared via WhatsApp / SMS must stay
+      stable across builds).
+
+## What's NOT in this PR
+
+- The `/p/{planId}` (workout-plan) URL stays UNCHANGED. That URL is
+  the canonical share URL persisted in `plans.plan_url` and copied
+  to clipboard / sent through the share sheet — adding a build-SHA
+  cache-buster there would change what's shared on every build,
+  breaking URL stability for clients. The iOS app itself never opens
+  `/p/{planId}` in a WebView (only Share.share-s it out), so there
+  is no WKWebView cache to bust on that path.
+- The existing `?v=<plan.version>` cache-bust inside `lobby.js` (web
+  player, 2026-05-17) covers per-exercise thumb URLs and is at a
+  different layer; this PR doesn't touch it.
