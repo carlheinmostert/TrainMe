@@ -222,7 +222,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   Future<void> _startNewSession() async {
     HapticFeedback.selectionClick();
     final now = DateTime.now();
-    final title = formatSessionTitle(_client.name, now);
+    final title = formatSessionTitle(now);
     final session = Session.create(
       clientName: _client.name,
       clientId: _client.id,

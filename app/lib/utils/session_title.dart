@@ -1,21 +1,10 @@
-/// Default session-title formatter for new sessions created from the
-/// Clients-as-Home spine.
+/// Session-title formatting helpers.
 ///
 /// Format: `{DD Mon YYYY HH:MM}` — e.g. `19 Apr 2026 17:09`.
 ///
 /// Reverted from the earlier `{ClientName} · {datetime}` format: since
 /// sessions now live under their client's page, the client context is
-/// implicit in the navigation. Repeating the client name in every
-/// session title was redundant noise.
-///
-/// [clientName] is retained in the parameter list for API compatibility
-/// with existing callers but is intentionally unused. Later cleanup can
-/// drop the parameter.
-///
-/// Used by:
-/// - `ClientSessionsScreen._startNewSession` when minting a session.
-/// - `Session.clientName` backing store still carries the raw client
-///   name so legacy session-filtering by name resolves correctly.
+/// implicit in the navigation.
 library;
 
 const List<String> _kMonths = <String>[
@@ -24,12 +13,7 @@ const List<String> _kMonths = <String>[
 ];
 
 /// Format a `{DD Mon YYYY HH:MM}` session title.
-///
-/// Takes [clientName] for API compatibility with the earlier
-/// `{clientName} · {datetime}` variant; the parameter is currently
-/// ignored — callers can drop it on the next clean-up pass.
-// ignore: unused_element_parameter
-String formatSessionTitle(String clientName, DateTime dt) {
+String formatSessionTitle(DateTime dt) {
   return formatSessionTimestamp(dt);
 }
 
