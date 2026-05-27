@@ -373,7 +373,8 @@
   /**
    * Build one bundle as a session-accordion row.
    *
-   * Markup (2026-05-27 redesign — replaces the fanned-deck-per-bundle):
+   * Markup (2026-05-27 afternoon iteration — replaces the chevron-only
+   * tap zone with two stacked action buttons):
    *   <article class="me-session-row" data-has-artifacts="true|false">
    *     <div class="me-session-peek"></div>             // depth cue
    *     <div class="me-session-card">                   // body row
@@ -384,10 +385,14 @@
    *           <p class="me-session-sub">...</p>
    *           <div class="me-session-provenance">...</div>
    *         </div>
-   *         <button class="me-session-chev-hit"         // 44pt hit zone
-   *                 aria-label="Expand artifacts">
-   *           <span class="me-session-chev">v</span>
-   *         </button>
+   *         <div class="me-action-stack">              // two pill buttons
+   *           <button class="me-action-btn is-studio">  // top: Studio
+   *             <svg>pencil</svg><span>...</span>       //      pencil + ›
+   *           </button>
+   *           <button class="me-action-btn is-artifacts"> // bottom: expand
+   *             <svg>stacked cards</svg><span>...</span>  //   layers + ▾
+   *           </button>
+   *         </div>
    *       </div>
    *     </div>
    *     <div class="me-session-artifact-stack">         // accordion target
@@ -400,12 +405,16 @@
    *   </article>
    *
    * Behaviour:
-   *   - Tapping the chevron hit zone toggles `.is-expanded` on the row.
-   *     The accordion expansion is CSS-driven (grid-template-rows
-   *     0fr -> 1fr) per the mockup so the height animates cleanly.
+   *   - Tap on the Studio button (top) fires a deep-link to the iOS app
+   *     for owner bundles (`studio.homefit.app://template?session_id=`).
+   *     For non-owner bundles on /me the Studio button is HIDDEN — the
+   *     consumer has nothing to open in Studio.
+   *   - Tap on the Artifacts button (bottom) toggles `.is-expanded` on
+   *     the row. The accordion expansion is CSS-driven (grid-template-rows
+   *     0fr -> 1fr) so the height animates cleanly.
    *   - The session card body is non-interactive on web — there's no
-   *     Studio target on /me (consumer surface). On mobile the card
-   *     body opens Studio; on web only the chevron is interactive.
+   *     Studio target on /me (consumer surface). The Studio button
+   *     covers the practitioner-side "Use as template" affordance.
    *   - Accordion is mutually exclusive across the list (single open).
    *   - "Use as template" CTA lives INSIDE the expanded area for
    *     owner bundles — per the redesigned spec.
@@ -460,20 +469,54 @@
 
     $cardBody.appendChild($meta);
 
-    // Chevron — 44pt hit zone with a coral 24pt down-glyph that rotates
-    // 180deg via CSS on .is-expanded. Apple HIG minimum hit area.
-    const $chev = document.createElement('button');
-    $chev.type = 'button';
-    $chev.className = 'me-session-chev-hit';
-    $chev.setAttribute('aria-label', 'Expand artifacts');
-    $chev.setAttribute('aria-expanded', 'false');
-    $chev.innerHTML = ''
-      + '<span class="me-session-chev" aria-hidden="true">'
-      +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
-      +     '<polyline points="6 9 12 15 18 9"></polyline>'
-      +   '</svg>'
-      + '</span>';
-    $cardBody.appendChild($chev);
+    // ------- Two stacked action buttons (2026-05-27 afternoon iteration)
+    // Top: Studio (pencil + chevron-right) — owner-only on /me; the
+    //      non-owner consumer has nothing to open in Studio.
+    // Bottom: Artifacts (stacked-cards + chevron-down) — toggles expand.
+    //         Hidden when the row has no artifacts (handled via CSS on
+    //         data-has-artifacts="false").
+    const isOwner = !!(
+      consumerUserId
+      && bundle.practitionerUserId
+      && consumerUserId === bundle.practitionerUserId
+    );
+
+    const $actionStack = document.createElement('div');
+    $actionStack.className = 'me-action-stack';
+
+    let $studioBtn = null;
+    if (isOwner) {
+      $studioBtn = document.createElement('button');
+      $studioBtn.type = 'button';
+      $studioBtn.className = 'me-action-btn is-studio';
+      $studioBtn.setAttribute('aria-label', 'Open in Studio');
+      $studioBtn.setAttribute('title', 'Open in Studio');
+      // Pencil + chevron-right arrow (U+203A).
+      $studioBtn.innerHTML = ''
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        +   '<path d="M12 20h9" />'
+        +   '<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />'
+        + '</svg>'
+        + '<span class="me-action-arrow" aria-hidden="true">›</span>';
+      $actionStack.appendChild($studioBtn);
+    }
+
+    const $artifactsBtn = document.createElement('button');
+    $artifactsBtn.type = 'button';
+    $artifactsBtn.className = 'me-action-btn is-artifacts';
+    $artifactsBtn.setAttribute('aria-label', 'Show published artifacts');
+    $artifactsBtn.setAttribute('aria-expanded', 'false');
+    $artifactsBtn.setAttribute('title', 'Show published artifacts');
+    // Stacked-cards glyph + chevron-down arrow (U+25BE).
+    $artifactsBtn.innerHTML = ''
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      +   '<rect x="3" y="8" width="14" height="11" rx="2" />'
+      +   '<path d="M7 8V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2" />'
+      + '</svg>'
+      + '<span class="me-action-arrow" aria-hidden="true">▾</span>';
+    $actionStack.appendChild($artifactsBtn);
+
+    $cardBody.appendChild($actionStack);
 
     $card.appendChild($cardBody);
     $row.appendChild($card);
@@ -487,12 +530,6 @@
     const $inner = document.createElement('div');
     $inner.className = 'me-session-artifact-inner';
 
-    const isOwner = !!(
-      consumerUserId
-      && bundle.practitionerUserId
-      && consumerUserId === bundle.practitionerUserId
-    );
-
     bundle.artifacts.forEach((row, idx) => {
       const $art = buildArtifactCard(row, bundle, idx === 0);
       if ($art) $inner.appendChild($art);
@@ -505,7 +542,7 @@
     $stack.appendChild($inner);
     $row.appendChild($stack);
 
-    bindAccordionToggle($row, $chev);
+    bindActionButtons($row, $studioBtn, $artifactsBtn, bundle);
 
     return $row;
   }
@@ -626,13 +663,31 @@
   }
 
   /**
-   * Chevron-tap handler. Toggles .is-expanded on the parent .me-session-row
-   * and updates aria-expanded on the chevron button. Accordion is
-   * mutually exclusive across the list: opening row B auto-collapses
-   * any other expanded row.
+   * Wire the two stacked action buttons (2026-05-27 afternoon iteration).
+   *
+   * Studio button (top, owner-only) — fires the same deep-link the
+   * legacy "Use as template" CTA used: opens the iOS app at
+   * `studio.homefit.app://template?session_id={planId}`. Click is
+   * `stopPropagation`'d so the card body doesn't double-fire (the card
+   * body itself is non-interactive on /me, but the propagation guard
+   * keeps the future surface contract consistent with the mobile twin).
+   *
+   * Artifacts button (bottom) — toggles `.is-expanded` on the parent
+   * .me-session-row. Accordion is mutually exclusive across the list:
+   * opening row B auto-collapses any other expanded row.
    */
-  function bindAccordionToggle($row, $chev) {
-    $chev.addEventListener('click', (event) => {
+  function bindActionButtons($row, $studioBtn, $artifactsBtn, bundle) {
+    if ($studioBtn) {
+      $studioBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.location.href =
+          'studio.homefit.app://template?session_id=' +
+          encodeURIComponent(bundle.planId);
+      });
+    }
+
+    $artifactsBtn.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
       const wasExpanded = $row.classList.contains('is-expanded');
@@ -640,21 +695,21 @@
       document.querySelectorAll('.me-session-row.is-expanded').forEach((r) => {
         if (r !== $row) {
           r.classList.remove('is-expanded');
-          const innerChev = r.querySelector('.me-session-chev-hit');
-          if (innerChev) {
-            innerChev.setAttribute('aria-expanded', 'false');
-            innerChev.setAttribute('aria-label', 'Expand artifacts');
+          const innerBtn = r.querySelector('.me-action-btn.is-artifacts');
+          if (innerBtn) {
+            innerBtn.setAttribute('aria-expanded', 'false');
+            innerBtn.setAttribute('aria-label', 'Show published artifacts');
           }
         }
       });
       if (wasExpanded) {
         $row.classList.remove('is-expanded');
-        $chev.setAttribute('aria-expanded', 'false');
-        $chev.setAttribute('aria-label', 'Expand artifacts');
+        $artifactsBtn.setAttribute('aria-expanded', 'false');
+        $artifactsBtn.setAttribute('aria-label', 'Show published artifacts');
       } else {
         $row.classList.add('is-expanded');
-        $chev.setAttribute('aria-expanded', 'true');
-        $chev.setAttribute('aria-label', 'Collapse artifacts');
+        $artifactsBtn.setAttribute('aria-expanded', 'true');
+        $artifactsBtn.setAttribute('aria-label', 'Hide published artifacts');
       }
     });
   }
