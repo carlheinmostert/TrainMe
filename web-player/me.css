@@ -418,7 +418,271 @@ html, body {
 .me-plans-list {
   display: flex;
   flex-direction: column;
+  /* Wave 6 — bundles need a generous gap so adjacent decks don't visually
+     run into each other when a bundle's back card tilts down into the
+     next bundle's top edge. 28px clears the deepest back card (pos 3 at
+     dy=+16px). */
+  gap: 28px;
+}
+
+/* ============================================================
+ * Wave 6 (artifact-system, 2026-05-27) — Bundle deck on /me
+ *
+ * The /me deck stacks vertically (smaller card heights ~110px) and
+ * uses positive dy values to fan DOWN (the front card sits on top
+ * visually with back cards leaning down + right). This is the
+ * opposite of the Studio deck which fans UP. The visual vocabulary
+ * is shared but the orientation differs because /me's bundles sit
+ * in a long scrolling list and we want adjacent bundles to interlock
+ * neatly downward.
+ *
+ * Pose params (from brief):
+ *   pos1 (front)  — translate(0,0),     rotate(0deg),    scale(1.00)
+ *   pos2 (back-1) — translate(+8,+8),   rotate(1.5deg),  scale(0.97),  opacity 0.78
+ *   pos3 (back-2) — translate(+16,+16), rotate(3deg),    scale(0.94),  opacity 0.55
+ * ============================================================ */
+
+.me-bundle {
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 14px 14px 14px 14px;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  /* Allow back cards to peek outside the bundle box without clipping. */
+  overflow: visible;
+  position: relative;
+}
+
+.me-bundle-deck {
+  position: relative;
+  height: 110px;
+  /* Pad-right by 24px so the back cards' +16px translate sits inside
+     the deck zone — the bundle's outer card already provides padding;
+     this keeps cards visible at their final positions. */
+  margin-right: 16px;
+}
+
+.me-bundle-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 16px;
+  height: 100px;
+  background: var(--surface-raised);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  /* Spring transition — matches the Studio deck spec. */
+  transition:
+    transform 720ms cubic-bezier(0.34, 1.18, 0.64, 1),
+    opacity 720ms cubic-bezier(0.34, 1.18, 0.64, 1),
+    box-shadow 720ms cubic-bezier(0.34, 1.18, 0.64, 1);
+  transform-origin: top left;
+  /* Button reset for back cards that get rendered as <button>. */
+  font: inherit;
+  text-align: left;
+}
+
+.me-bundle-card:focus-visible {
+  outline: 2px solid var(--brand-default);
+  outline-offset: 2px;
+}
+
+/* Position 1 — front card. */
+.me-bundle-pos-1 {
+  transform: translate(0, 0) rotate(0deg) scale(1);
+  opacity: 1;
+  z-index: 3;
+  border-color: var(--brand-tint-border);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+  /* Breathing pulse — applied only to the front card. */
+  animation: me-bundle-breathe 3.6s ease-in-out infinite;
+}
+
+/* Position 2 — one card behind the front. */
+.me-bundle-pos-2 {
+  transform: translate(8px, 8px) rotate(1.5deg) scale(0.97);
+  opacity: 0.78;
+  z-index: 2;
+}
+
+/* Position 3 — two cards behind the front. */
+.me-bundle-pos-3 {
+  transform: translate(16px, 16px) rotate(3deg) scale(0.94);
+  opacity: 0.55;
+  z-index: 1;
+}
+
+@keyframes me-bundle-breathe {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate(0, -2px) rotate(0deg) scale(1.012);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .me-bundle-card { transition: none; }
+  .me-bundle-pos-1 { animation: none; }
+}
+
+.me-bundle-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.me-bundle-card-glyph {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--brand-default);
+}
+
+.me-bundle-card-glyph.is-handout {
+  color: var(--brand-light);
+}
+
+.me-bundle-card-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+
+.me-bundle-card-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.1px;
+  color: var(--ink-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.me-bundle-card-pill {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.25px;
+  color: var(--ink-muted);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  flex-shrink: 0;
+}
+
+/* Bundle meta: title, sub, provenance, CTA. */
+.me-bundle-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.me-bundle-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.1px;
+  color: var(--ink-primary);
+  margin: 0;
+}
+
+.me-bundle-sub {
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  margin: 2px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.me-bundle-sub .me-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ink-disabled);
+  flex-shrink: 0;
+}
+
+.me-bundle-provenance {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Owner-only CTA — "Use as template for a client" deep-link to the
+   mobile app. Coral-bordered to read as a clear next-action. */
+.me-bundle-cta {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--brand-tint-bg);
+  border: 1px solid var(--brand-tint-border);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--brand-default);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.1px;
+  cursor: pointer;
+  transition: background 120ms ease-out, border-color 120ms ease-out;
+}
+
+.me-bundle-cta:hover {
+  background: rgba(255, 107, 53, 0.18);
+  border-color: rgba(255, 107, 53, 0.45);
+}
+
+.me-bundle-cta:focus-visible {
+  outline: 2px solid var(--brand-default);
+  outline-offset: 2px;
+}
+
+.me-bundle-cta-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-default);
+  flex-shrink: 0;
+}
+
+.me-bundle-cta-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.me-bundle-cta-label {
+  flex: 1;
+  min-width: 0;
 }
 
 .me-plan-card {

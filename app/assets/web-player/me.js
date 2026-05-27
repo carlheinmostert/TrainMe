@@ -1,5 +1,5 @@
 /**
- * me.js — consumer-side /me account page (Wave 2)
+ * me.js — consumer-side /me account page
  * =====================================================================
  *
  * Two states orchestrated from one file:
@@ -9,8 +9,16 @@
  *      sign-in click-through pre-stamps the redirect with that planId
  *      so the post-magic-link callback can call claim_plan(planId).
  *
- *   2. Signed-in — My Workouts list. Calls list_my_plans + lays out one
- *      card per (plan × published-artifact-kind) row.
+ *   2. Signed-in — My Workouts list. Calls list_my_plans and groups the
+ *      response into bundles (one bundle per plan_id) rendered as fanned
+ *      card decks. Wave 6 (artifact-system, 2026-05-27) — the flat list
+ *      retired; sibling artifacts (plan_url + handout for the same plan)
+ *      collapse into one deck the consumer can flip through.
+ *
+ *      For owner bundles (viewer's user-id matches the bundle's
+ *      practitioner_user_id), a "Use as template for a client" CTA
+ *      renders below the deck and fires the
+ *      `studio.homefit.app://template?session_id={planId}` deep-link.
  *
  * Flow:
  *
@@ -24,6 +32,8 @@
  *
  * Data-access: ALL Supabase I/O goes through window.HomefitApi.
  * Per feedback_no_direct_db_access.md.
+ *
+ * No share button anywhere — re-distribution flows through Studio only.
  */
 
 (function () {
@@ -55,7 +65,6 @@
         // refresh the URL so a reload doesn't re-attempt.
         if (claimPlanId) {
           await attemptClaim(claimPlanId);
-          // Strip the ?claim= so a refresh doesn't double-fire.
           try {
             const url = new URL(window.location.href);
             url.searchParams.delete('claim');
@@ -94,10 +103,8 @@
     const $form   = document.getElementById('me-claim-form');
     const $email  = document.getElementById('me-email');
     const $btn    = document.getElementById('me-claim-submit');
-    const $status = document.getElementById('me-claim-status');
     if (!$form || !$email || !$btn) return;
 
-    // Prevent re-binding on a state toggle.
     if ($form.dataset.bound === '1') return;
     $form.dataset.bound = '1';
 
@@ -159,7 +166,6 @@
     const $resend = document.getElementById('me-sent-resend');
     if ($resend) {
       $resend.addEventListener('click', () => {
-        // Re-show the claim form. Keep the URL ?claim=<planId> if present.
         const params = new URLSearchParams(window.location.search || '');
         const claimPlanId = params.get('claim');
         renderClaimState(claimPlanId);
@@ -173,11 +179,6 @@
     if (!planId) return;
     const result = await window.HomefitApi.claimPlan(planId);
     if (!result || !result.ok) {
-      // Quiet failure — the My Workouts list will simply not have this
-      // plan if the claim failed. We log so the cause is visible in
-      // devtools without surfacing a misleading error to the consumer
-      // (the most common cause is `no_client_link` for a legacy / self-
-      // trainer plan, which is genuinely not claimable).
       try { console.warn('[me] claim failed:', result); } catch (_) {}
     }
   }
@@ -200,7 +201,9 @@
       return;
     }
 
+    const consumerUserId = result.consumer_user_id || null;
     const plans = Array.isArray(result.plans) ? result.plans : [];
+
     // Best-effort fetch of relationships purely for the settings sub-label.
     const relResult = await window.HomefitApi.getMyRelationships();
     const practitionerCount = (relResult && Array.isArray(relResult.relationships))
@@ -220,9 +223,15 @@
     const $list = document.getElementById('me-plans-list');
     if (!$list) return;
     $list.innerHTML = '';
-    plans.forEach((row) => {
-      const $card = buildPlanCard(row);
-      if ($card) $list.appendChild($card);
+
+    // Bundle by plan_id. Each plan can have multiple artifact rows
+    // (plan_url + handout today; reel/poster/etc. in the future); we
+    // collapse them into one deck per plan. Recency = newest of any
+    // sibling artifact's published_at.
+    const bundles = groupByPlanId(plans);
+    bundles.forEach((bundle) => {
+      const $bundle = buildPlanBundle(bundle, consumerUserId);
+      if ($bundle) $list.appendChild($bundle);
     });
   }
 
@@ -239,7 +248,6 @@
       $signout.dataset.bound = '1';
       $signout.addEventListener('click', async () => {
         await window.HomefitApi.signOutConsumer();
-        // After sign-out land back on the claim/sign-in form.
         const params = new URLSearchParams(window.location.search || '');
         const claimPlanId = params.get('claim');
         renderClaimState(claimPlanId);
@@ -258,21 +266,16 @@
   }
 
   function updateAvatar(plans, relResult) {
-    // Best-effort: use the email from any plan row to derive initials.
-    // The consumer's own email isn't returned by the RPCs; we fall back
-    // to "ME" if nothing else is available.
     const $av = document.getElementById('me-avatar');
     if (!$av) return;
     let initials = 'ME';
     let title    = 'Signed in';
     try {
-      // Pull the email out of the cached session blob if present.
       const raw = localStorage.getItem('homefit.consumer.session.v1');
       if (raw) {
         const blob = JSON.parse(raw);
         const at = blob && blob.access_token;
         if (at && typeof at === 'string') {
-          // JWT payload is the middle segment.
           const parts = at.split('.');
           if (parts.length === 3) {
             const json = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
@@ -300,98 +303,220 @@
     $av.setAttribute('aria-label', 'Signed in: ' + title);
   }
 
-  function buildPlanCard(row) {
-    if (!row || !row.plan_id || !row.kind) return null;
-    const kind = String(row.kind);
-    // Only the kinds the consumer can actually open today. Wave 1+2 ship
-    // plan_url + handout; future kinds (reel etc.) become tap-targets once
-    // their player surfaces exist.
-    const kindLabel = kindToLabel(kind);
-    if (!kindLabel) return null;
+  // ===========================  Bundle grouping  =========================
 
-    const href = kindToHref(kind, row.plan_id);
-    const $card = document.createElement('a');
-    $card.className = 'me-plan-card';
-    $card.href = href;
-    $card.setAttribute('role', 'link');
+  /**
+   * Collapse the flat (plan × kind) row list into one bundle per plan_id.
+   * Each bundle preserves the order of its artifact rows as they came
+   * back from the RPC (the RPC sorts by published_at desc, so the most
+   * recent artifact for that plan lands at the front of the deck).
+   *
+   * Returns an array of objects:
+   *   { planId, planTitle, practitionerUserId, practitionerEmail,
+   *     practiceName, practiceBrandColor, exerciseCount,
+   *     mostRecentPublishedAt, claimedAt, artifacts: [row, row, ...] }
+   *
+   * Recency ordering across bundles: newest bundle first (by the most
+   * recent of any of its artifacts' published_at).
+   */
+  function groupByPlanId(rows) {
+    const byPlan = new Map();
+    rows.forEach((row) => {
+      if (!row || !row.plan_id) return;
+      const id = String(row.plan_id);
+      let bundle = byPlan.get(id);
+      if (!bundle) {
+        bundle = {
+          planId:              id,
+          planTitle:           row.plan_title || 'Workout plan',
+          practitionerUserId:  row.practitioner_user_id || null,
+          practitionerEmail:   row.practitioner_email || null,
+          practiceName:        row.practice_name || null,
+          practiceBrandColor:  row.practice_brand_color || null,
+          exerciseCount:       Number(row.exercise_count) || 0,
+          mostRecentPublishedAt: null,
+          claimedAt:           row.claimed_at || null,
+          artifacts:           [],
+        };
+        byPlan.set(id, bundle);
+      }
+      bundle.artifacts.push(row);
+      // Track the newest published_at across this plan's siblings.
+      const pubRaw = row.published_at;
+      if (pubRaw) {
+        const pubTime = new Date(pubRaw).getTime();
+        if (!bundle.mostRecentPublishedAt
+            || pubTime > new Date(bundle.mostRecentPublishedAt).getTime()) {
+          bundle.mostRecentPublishedAt = pubRaw;
+        }
+      }
+    });
+    // Order bundles newest-first by mostRecentPublishedAt, then by
+    // claimedAt as a stable tiebreak when both are populated.
+    return Array.from(byPlan.values()).sort((a, b) => {
+      const ta = a.mostRecentPublishedAt ? new Date(a.mostRecentPublishedAt).getTime() : 0;
+      const tb = b.mostRecentPublishedAt ? new Date(b.mostRecentPublishedAt).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      const ca = a.claimedAt ? new Date(a.claimedAt).getTime() : 0;
+      const cb = b.claimedAt ? new Date(b.claimedAt).getTime() : 0;
+      return cb - ca;
+    });
+  }
 
-    const $top = document.createElement('div');
-    $top.className = 'me-card-top';
+  // ===========================  Bundle rendering  ========================
 
-    const $glyph = document.createElement('div');
-    $glyph.className = 'me-kind-glyph' + (kind === 'handout' ? ' is-handout' : '');
-    $glyph.innerHTML = kindToGlyphSvg(kind);
-    $top.appendChild($glyph);
+  /**
+   * Build one bundle: a fanned card deck of up to 3 visible artifacts
+   * (DOM-lean — additional cards behind are not rendered). Tapping a
+   * back card rotates it to the front. The front card is an `<a>` link
+   * to the artifact's player; back cards have role="button" and rotate
+   * to the front on tap.
+   *
+   * For owner bundles (the viewer is the practitioner who minted the
+   * artifact), a "Use as template for a client" CTA renders below the
+   * deck. It fires the studio.homefit.app://template?session_id=X
+   * deep-link.
+   */
+  function buildPlanBundle(bundle, consumerUserId) {
+    if (!bundle || !bundle.artifacts.length) return null;
 
+    const $wrap = document.createElement('article');
+    $wrap.className = 'me-bundle';
+
+    // Mount the deck — separate from the meta block so the fan can
+    // overflow vertically without pushing the title/sub down.
+    const $deck = document.createElement('div');
+    $deck.className = 'me-bundle-deck';
+    $deck.setAttribute('aria-label', bundle.planTitle);
+
+    // Render up to 3 cards. The CSS layout pins each by .me-bundle-pos-{n}.
+    const visible = bundle.artifacts.slice(0, 3);
+    visible.forEach((row, idx) => {
+      const $card = buildBundleCard(row, bundle, idx);
+      if ($card) $deck.appendChild($card);
+    });
+    $wrap.appendChild($deck);
+
+    // Meta block — title, sub-line, provenance, and (owner-only)
+    // template CTA.
     const $meta = document.createElement('div');
-    $meta.className = 'me-card-meta';
-
-    const $kind = document.createElement('p');
-    $kind.className = 'me-card-kind';
-    $kind.textContent = kindLabel;
-    $meta.appendChild($kind);
+    $meta.className = 'me-bundle-meta';
 
     const $title = document.createElement('h3');
-    $title.className = 'me-card-title';
-    $title.textContent = row.plan_title || 'Workout plan';
+    $title.className = 'me-bundle-title';
+    $title.textContent = bundle.planTitle;
     $meta.appendChild($title);
 
     const $sub = document.createElement('p');
-    $sub.className = 'me-card-sub';
-    $sub.innerHTML = buildSubLine(row);
+    $sub.className = 'me-bundle-sub';
+    $sub.innerHTML = buildBundleSubLine(bundle);
     $meta.appendChild($sub);
 
-    $top.appendChild($meta);
+    const $prov = buildBundleProvenance(bundle);
+    if ($prov) $meta.appendChild($prov);
 
-    const $chev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    $chev.setAttribute('class', 'me-chev');
-    $chev.setAttribute('viewBox', '0 0 24 24');
-    $chev.setAttribute('fill', 'none');
-    $chev.setAttribute('stroke', 'currentColor');
-    $chev.setAttribute('stroke-width', '2');
-    $chev.setAttribute('stroke-linecap', 'round');
-    $chev.setAttribute('stroke-linejoin', 'round');
-    $chev.setAttribute('aria-hidden', 'true');
-    $chev.innerHTML = '<polyline points="9 6 15 12 9 18" />';
-    $top.appendChild($chev);
+    // Owner detection: render the "Use as template" CTA when the
+    // viewer's consumer user id matches the bundle's practitioner_user_id.
+    // The brief specifies firing the deep-link only — no in-app handler
+    // wiring in this PR.
+    const isOwner = !!(
+      consumerUserId
+      && bundle.practitionerUserId
+      && consumerUserId === bundle.practitionerUserId
+    );
+    if (isOwner) {
+      $meta.appendChild(buildTemplateCta(bundle));
+    }
+
+    $wrap.appendChild($meta);
+
+    // Wire the click-to-rotate behavior. Each card has a data-idx; the
+    // front card is whichever .me-bundle-pos-1 currently is. Rebinding
+    // is cheap; deck holds at most 3 cards.
+    bindDeckRotation($deck, bundle);
+
+    return $wrap;
+  }
+
+  function buildBundleCard(row, bundle, position) {
+    const kind = String(row.kind);
+    const label = kindToLabel(kind);
+    if (!label) return null;
+    const isFront = position === 0;
+
+    // Front card is an anchor (the consumer's tap = open the artifact).
+    // Back cards are buttons (tap = rotate to front, no navigation).
+    const $card = document.createElement(isFront ? 'a' : 'button');
+    $card.className = 'me-bundle-card me-bundle-pos-' + (position + 1);
+    $card.setAttribute('data-kind', kind);
+    if (isFront) {
+      $card.setAttribute('href', kindToHref(kind, bundle.planId));
+      $card.setAttribute('role', 'link');
+    } else {
+      $card.setAttribute('type', 'button');
+      $card.setAttribute('aria-label', label + ' — bring to front');
+    }
+
+    // Top row: glyph + label + kind pill.
+    const $top = document.createElement('div');
+    $top.className = 'me-bundle-card-top';
+
+    const $glyph = document.createElement('div');
+    $glyph.className = 'me-bundle-card-glyph' + (kind === 'handout' ? ' is-handout' : '');
+    $glyph.innerHTML = kindToGlyphSvg(kind);
+    $top.appendChild($glyph);
+
+    const $label = document.createElement('span');
+    $label.className = 'me-bundle-card-label';
+    $label.textContent = label;
+    $top.appendChild($label);
+
+    const $pill = document.createElement('span');
+    $pill.className = 'me-bundle-card-pill';
+    $pill.textContent = relativeTime(new Date(row.published_at || row.last_published_at || row.claimed_at || Date.now()));
+    $top.appendChild($pill);
 
     $card.appendChild($top);
-
-    const $prov = buildProvenance(row);
-    if ($prov) $card.appendChild($prov);
-
     return $card;
   }
 
-  function buildSubLine(row) {
+  function buildBundleSubLine(bundle) {
     const parts = [];
-    const exerciseCount = Number(row.exercise_count);
-    if (Number.isFinite(exerciseCount) && exerciseCount > 0) {
-      parts.push(exerciseCount + ' exercise' + (exerciseCount === 1 ? '' : 's'));
+    if (bundle.exerciseCount > 0) {
+      parts.push(bundle.exerciseCount + ' exercise' + (bundle.exerciseCount === 1 ? '' : 's'));
     }
-    const updated = row.published_at || row.last_published_at || null;
-    if (updated) {
-      parts.push('updated ' + relativeTime(new Date(updated)));
-    } else if (row.claimed_at) {
-      parts.push('saved ' + relativeTime(new Date(row.claimed_at)));
+    if (bundle.mostRecentPublishedAt) {
+      parts.push('updated ' + relativeTime(new Date(bundle.mostRecentPublishedAt)));
+    } else if (bundle.claimedAt) {
+      parts.push('saved ' + relativeTime(new Date(bundle.claimedAt)));
     }
-    return parts.map((p, i) => i === 0 ? escapeHtml(p) : '<span class="me-dot"></span>' + escapeHtml(p)).join('');
+    // List the included artifact kinds — gives the consumer a hint
+    // about how many cards are stacked.
+    const kindList = bundle.artifacts
+      .map((a) => kindToLabel(a.kind))
+      .filter(Boolean);
+    if (kindList.length > 1) {
+      parts.push(kindList.length + ' formats');
+    }
+    return parts
+      .map((p, i) => i === 0 ? escapeHtml(p) : '<span class="me-dot"></span>' + escapeHtml(p))
+      .join('');
   }
 
-  function buildProvenance(row) {
-    if (!row.practitioner_email && !row.practice_name) return null;
+  function buildBundleProvenance(bundle) {
+    if (!bundle.practitionerEmail && !bundle.practiceName) return null;
     const $prov = document.createElement('div');
-    $prov.className = 'me-provenance';
+    $prov.className = 'me-bundle-provenance';
 
     const $av = document.createElement('div');
     $av.className = 'me-prov-avatar';
-    $av.textContent = emailInitials(row.practitioner_email);
+    $av.textContent = emailInitials(bundle.practitionerEmail);
     $prov.appendChild($av);
 
     const $text = document.createElement('div');
     $text.className = 'me-prov-text';
-    const who = practitionerDisplayName(row.practitioner_email);
-    const practice = row.practice_name || '';
+    const who = practitionerDisplayName(bundle.practitionerEmail);
+    const practice = bundle.practiceName || '';
     const html = [
       'from ',
       who ? '<span class="me-prov-who">' + escapeHtml(who) + '</span>' : '',
@@ -408,13 +533,81 @@
     return $prov;
   }
 
+  function buildTemplateCta(bundle) {
+    const $cta = document.createElement('a');
+    $cta.className = 'me-bundle-cta';
+    $cta.href = 'studio.homefit.app://template?session_id=' + encodeURIComponent(bundle.planId);
+    $cta.setAttribute('role', 'link');
+
+    const $icon = document.createElement('span');
+    $icon.className = 'me-bundle-cta-icon';
+    $icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="3" y="3" width="18" height="18" rx="2"></rect>'
+      + '<path d="M8 12h8M12 8v8"></path>'
+      + '</svg>';
+    $cta.appendChild($icon);
+
+    const $label = document.createElement('span');
+    $label.className = 'me-bundle-cta-label';
+    $label.textContent = 'Use as template for a client';
+    $cta.appendChild($label);
+
+    return $cta;
+  }
+
+  /**
+   * Click handler: tapping a back card promotes it to position 1 by
+   * cycling the DOM class names. The front card is always
+   * `.me-bundle-pos-1`. We re-key positions in source order, then move
+   * the tapped index to the front and shift the rest behind it.
+   */
+  function bindDeckRotation($deck, bundle) {
+    $deck.addEventListener('click', (event) => {
+      const $card = event.target.closest && event.target.closest('.me-bundle-card');
+      if (!$card) return;
+      // Anchor clicks on the front card navigate; everything else is a
+      // back card and we intercept to rotate. The href on back cards is
+      // not set, but we belt-and-brace against future changes.
+      const isAnchor = $card.tagName.toLowerCase() === 'a';
+      const posClass = Array.from($card.classList).find((c) => c.indexOf('me-bundle-pos-') === 0);
+      if (!posClass) return;
+      const pos = Number(posClass.replace('me-bundle-pos-', ''));
+      if (pos === 1 && isAnchor) {
+        // Front card — let the link navigate normally.
+        return;
+      }
+      event.preventDefault();
+      rotateDeck($deck, bundle, $card);
+    });
+  }
+
+  function rotateDeck($deck, bundle, $tapped) {
+    const tappedKind = $tapped.getAttribute('data-kind');
+    if (!tappedKind) return;
+    // Re-order the bundle's artifacts so the tapped one is at index 0,
+    // then re-render. We rebuild the children rather than try to chase
+    // CSS-only class swaps — the swap path tangles with the anchor-vs-
+    // button element type difference (front card is <a>, back are
+    // <button>).
+    const reordered = [
+      bundle.artifacts.find((a) => a.kind === tappedKind),
+      ...bundle.artifacts.filter((a) => a.kind !== tappedKind),
+    ].filter(Boolean);
+    bundle.artifacts = reordered;
+    // Strip + rebuild the deck.
+    while ($deck.firstChild) $deck.removeChild($deck.firstChild);
+    reordered.slice(0, 3).forEach((row, idx) => {
+      const $card = buildBundleCard(row, bundle, idx);
+      if ($card) $deck.appendChild($card);
+    });
+  }
+
+  // ===========================  Per-kind helpers  ========================
+
   function kindToLabel(kind) {
     switch (kind) {
       case 'plan_url': return 'Workout player';
       case 'handout':  return 'Workout handout';
-      // Roadmap kinds — surface them generically so future migrations
-      // don't need a JS bump to land. The href will fall back to a
-      // disabled card if no route exists yet.
       case 'poster':   return 'Workout poster';
       case 'reel':     return 'Workout reel';
       case 'ai_reel':  return 'AI reel';
@@ -427,7 +620,7 @@
     switch (kind) {
       case 'plan_url': return '/p/' + encodeURIComponent(planId);
       case 'handout':  return '/h/' + encodeURIComponent(planId);
-      default:         return '/h/' + encodeURIComponent(planId); // Sensible fallback
+      default:         return '/h/' + encodeURIComponent(planId);
     }
   }
 
@@ -464,8 +657,6 @@
   }
 
   function practitionerDisplayName(email) {
-    // No display_name in the RPC today — best-effort from the email local
-    // part. e.g. "margaret.vorster@cape.health" -> "Margaret Vorster".
     if (!email || typeof email !== 'string') return 'your practitioner';
     const local = email.split('@')[0] || '';
     const tokens = local.split(/[._\-+]/).filter(Boolean);
