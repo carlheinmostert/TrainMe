@@ -89,3 +89,36 @@ script tag in all four pages.
       against `@media print` styles — claim chip + treatment toggle
       + print button are hidden, exercise list lays out for paper.
       Cancel the dialog.
+
+## Round 2 fix (this PR) — defensive watchdog + reason chip
+
+The first-round fix in PR #550 added `<script src="/config.js">` to
+handout.html, which addresses the api.js module-load throw — but only
+on fresh page loads. Carl reported a still-stuck loading state after
+force-quitting the iPhone app, suggesting the iOS WKWebView's
+per-app HTTP cache was serving the pre-PR-#550 cached `handout.html`
+(force-quit does not clear WKWebView's `WKWebsiteDataStore`). This
+PR layers three defences so a stale cache (or any future render-time
+throw) can never hang the loading dot:
+
+- [ ] 11. **Pre-flight HomefitApi check.** On a fresh `/h/<planId>`
+      load (with the new bundle), open DevTools first. Add the line
+      `delete window.HomefitApi` to the console **before** the page
+      navigates. Refresh. The error card appears almost immediately
+      (no 15-second wait), with a small monospace reason chip
+      reading "Page failed to initialise. Please reload." A red
+      console.error from `[handout]` describes the stale-cache cause.
+
+- [ ] 12. **Load watchdog.** On a fresh `/h/<planId>` load, open
+      DevTools → Network → throttling, set to "Offline". Hard-refresh
+      the page. Within 15 seconds the error card appears with a
+      reason chip "Load took too long. Please check your connection
+      and try again." Set throttling back to "Online".
+
+- [ ] 13. **Reason chip on `Plan not found`.** Navigate directly to
+      `https://staging.session.homefit.studio/h/00000000-0000-0000-0000-000000000000`
+      (a known-invalid plan UUID). The error card appears with a
+      reason chip "Plan not found". This is the existing happy-path
+      error flow plus the new diagnostic surface — Carl reports a
+      bug with a screenshot and the reason chip carries the failure
+      mode.
