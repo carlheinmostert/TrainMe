@@ -62,7 +62,28 @@ class _HandoutWebViewScreenState extends State<HandoutWebViewScreen> {
   }
 
   void _boot() {
-    final url = '${AppConfig.webPlayerOrigin}/h/${widget.planId}';
+    // Cache-bust the URL with the short git SHA so each new mobile build
+    // forces iOS WKWebView to refetch handout.html / handout.js / handout.css
+    // from the network. Without this, the WKWebView persistent HTTP cache
+    // can serve a pre-PR-#550 cached `handout.html` (the broken one that got
+    // stuck on "Loading your plan") across app restarts — even after the
+    // server fix shipped. PR #553 added a defensive watchdog inside
+    // handout.js so the page never hangs forever; this changes the request
+    // URL itself so the browser fetches the post-fix asset.
+    //
+    // Pattern mirrors the existing `?v=<plan.version>` thumbnail cache-bust
+    // inside lobby.js (added 2026-05-17) — same mechanic at a different
+    // layer. The handout.js regex `/^\/h\/([A-Za-z0-9_-]+)\/?$/` extracts
+    // only the planId from the pathname, so the query string never confuses
+    // routing on the page side.
+    //
+    // No `?` literal can appear in [AppConfig.webPlayerOrigin] or the planId
+    // by construction, so a plain `?v=...` append is safe. Belt-and-braces
+    // we still branch on whether the URL already has a query string, in case
+    // the URL shape evolves later.
+    final base = '${AppConfig.webPlayerOrigin}/h/${widget.planId}';
+    final sep = base.contains('?') ? '&' : '?';
+    final url = '$base${sep}v=${AppConfig.buildSha}';
     final PlatformWebViewControllerCreationParams params = Platform.isIOS
         ? WebKitWebViewControllerCreationParams(
             allowsInlineMediaPlayback: true,
