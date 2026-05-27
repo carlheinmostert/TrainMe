@@ -19,9 +19,39 @@
 
   // ===========================  Bootstrap  ===============================
 
+  // Hard-cap the time `loadHandout` is allowed to spin before we surface
+  // the error card. Two failure modes this catches that PR #550 alone
+  // didn't address:
+  //   1. Stale WKWebView HTTP cache serving a pre-PR-#550 handout.html
+  //      (missing `<script src="/config.js">`). api.js then throws at
+  //      module load, `window.HomefitApi` never exports, and handout.js
+  //      reaches the missing-API branch below — which DID call
+  //      showError(), but in some browsers the api.js throw at module
+  //      time aborts the entire <script> tag chain before handout.js
+  //      gets a chance to run. Force-quitting the app doesn't clear
+  //      WKWebView's WKWebsiteDataStore cache (per-app, NOT per-launch).
+  //   2. A future RPC change that returns a payload shape `render()`
+  //      can't traverse without throwing AFTER the loading dot has
+  //      gone visible. The .catch chain still fires, but if a render
+  //      function throws ASYNCHRONOUSLY (e.g. an image onerror handler
+  //      that retries) the loading dot is never hidden.
+  // The watchdog flips `_loadComplete` true on either render() or
+  // showError(); if it fires before that, it forces showError() with a
+  // visible reason chip so the user sees what failed.
+  const LOAD_WATCHDOG_MS = 15000;
+  let _loadComplete = false;
+  const _watchdog = setTimeout(() => {
+    if (_loadComplete) return;
+    _loadComplete = true;
+    try { console.error('[handout] load watchdog fired — forcing error state'); } catch (_) {}
+    showError('Load took too long. Please check your connection and try again.');
+  }, LOAD_WATCHDOG_MS);
+
   const planId = extractPlanIdFromPath();
   if (!planId) {
-    showError();
+    _loadComplete = true;
+    clearTimeout(_watchdog);
+    showError('Invalid plan link.');
     return;
   }
 
@@ -35,10 +65,36 @@
     treatment: 'line', // 'line' | 'bw' | 'original'
   };
 
+  // Pre-flight: api.js + config.js must have loaded successfully. If
+  // either failed at module time (e.g. stale cached handout.html without
+  // the config.js script tag), `window.HomefitApi` is undefined.
+  // Surface immediately instead of waiting for loadHandout's first
+  // network call. The watchdog above is the secondary safety net.
+  if (!window.HomefitApi || typeof window.HomefitApi.getPlanFull !== 'function') {
+    _loadComplete = true;
+    clearTimeout(_watchdog);
+    try {
+      console.error(
+        '[handout] window.HomefitApi missing — '
+        + 'api.js failed at module load. Likely cause: stale cached '
+        + 'handout.html missing <script src="/config.js"> (PR #550). '
+        + 'Hard-refresh / clear app cache to recover.'
+      );
+    } catch (_) {}
+    showError('Page failed to initialise. Please reload.');
+    return;
+  }
+
   // Kick off the load.
-  loadHandout(planId).catch((err) => {
+  loadHandout(planId).then(() => {
+    _loadComplete = true;
+    clearTimeout(_watchdog);
+  }).catch((err) => {
+    _loadComplete = true;
+    clearTimeout(_watchdog);
     try { console.error('[handout] load failed:', err); } catch (_) {}
-    showError();
+    const reason = err && err.message ? String(err.message) : '';
+    showError(reason || null);
   });
 
   // ===========================  Plan loading  ============================
@@ -289,22 +345,50 @@
   function render() {
     const $page = document.getElementById('handout-page');
     const $loading = document.getElementById('handout-loading');
-    if (!$page || !$loading) return;
+    // Defensive: if either chrome anchor is missing the document is
+    // either pre-Wave-1 or DOM-tampered. Bail to error so the loading
+    // spinner doesn't hang forever waiting for a render that can't
+    // mount.
+    if (!$page || !$loading) {
+      throw new Error('Page DOM not ready — handout chrome elements missing.');
+    }
 
-    renderHeader();
-    renderTreatmentToggle();
-    renderExerciseList();
-    renderSealVersion();
-    bindEvents();
+    // Each render sub-call is wrapped in try/catch so a single bad row
+    // doesn't blackhole the whole page. Without this, a thrown render
+    // function would bubble up to loadHandout's caller chain, hit the
+    // outer .catch, and call showError — which DOES hide the spinner,
+    // so the user sees the error card. BUT the inline try/catch lets
+    // partial render still succeed (e.g. header + treatment toggle
+    // render even if the exercise list trips on one row), giving the
+    // user something usable instead of a hard fail.
+    try { renderHeader(); }
+      catch (e) { try { console.warn('[handout] renderHeader failed:', e); } catch(_){} }
+    try { renderTreatmentToggle(); }
+      catch (e) { try { console.warn('[handout] renderTreatmentToggle failed:', e); } catch(_){} }
+    try { renderExerciseList(); }
+      catch (e) { try { console.warn('[handout] renderExerciseList failed:', e); } catch(_){} }
+    try { renderSealVersion(); }
+      catch (e) { try { console.warn('[handout] renderSealVersion failed:', e); } catch(_){} }
+    try { bindEvents(); }
+      catch (e) { try { console.warn('[handout] bindEvents failed:', e); } catch(_){} }
 
+    // ALWAYS hide loading + show page once we've attempted render. The
+    // partial-render policy above means even a half-mounted page is more
+    // useful than a stuck spinner. The original implementation here
+    // depended on every sub-call returning cleanly — a single throw
+    // anywhere up the chain (e.g. a bad exercise row) and the spinner
+    // hung forever waiting for the line below to execute. That's the
+    // failure mode this PR closes.
     $loading.hidden = true;
     $page.hidden = false;
 
     // Update <title> + OG fallback so the bare URL (when bots don't hit
     // middleware) still shows the right copy on share. Bot user-agents
     // get the rewritten OG block from web-player/middleware.js.
-    const title = state.plan.title || 'Your workout handout';
-    document.title = title + ' — homefit.studio';
+    try {
+      const title = (state.plan && state.plan.title) || 'Your workout handout';
+      document.title = title + ' — homefit.studio';
+    } catch (_) { /* title is cosmetic — never block render on it */ }
   }
 
   function renderHeader() {
@@ -657,13 +741,40 @@
 
   // ===========================  Helpers  =================================
 
-  function showError() {
+  /**
+   * showError — fall-back UI when loading fails or the plan can't be
+   * fetched. Hides the loading + page chrome, shows the error card.
+   * The optional `reason` text is appended to the error card's `<p>` so
+   * a stuck user sees what actually went wrong (and, more importantly,
+   * a Carl-side bug report carries the failure message in the screenshot).
+   * Defensive: if `reason` is null/undefined the card renders unchanged.
+   */
+  function showError(reason) {
     const $loading = document.getElementById('handout-loading');
     const $page = document.getElementById('handout-page');
     const $err = document.getElementById('handout-error');
     if ($loading) $loading.hidden = true;
     if ($page) $page.hidden = true;
-    if ($err) $err.hidden = false;
+    if ($err) {
+      $err.hidden = false;
+      // Append the reason as a small chip so the failure is observable
+      // without DevTools. Only render when we have a non-empty reason —
+      // a blank chip would just add visual noise.
+      if (reason && typeof reason === 'string' && reason.length > 0) {
+        // Remove a prior reason chip first so a second showError() call
+        // (defensive) doesn't stack chips.
+        const existing = $err.querySelector('.handout-error-reason');
+        if (existing) existing.remove();
+        const $chip = document.createElement('p');
+        $chip.className = 'handout-error-reason';
+        $chip.textContent = reason;
+        $chip.style.fontSize = '11px';
+        $chip.style.opacity = '0.6';
+        $chip.style.marginTop = '12px';
+        $chip.style.fontFamily = 'monospace';
+        $err.appendChild($chip);
+      }
+    }
   }
 
   function escapeHtml(str) {
