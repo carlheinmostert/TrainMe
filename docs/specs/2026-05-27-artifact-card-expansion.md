@@ -260,6 +260,69 @@ to stack depth (card 1: -180%, card 2: -280%, card 3: -380%, card 4: -480%)
 so deeper cards travel farther. This reinforces the "deck of cards
 underneath" mental model.
 
+## Iteration log — 2026-05-27 evening
+
+After PR #551 (`5095231`) shipped the iteration, Carl device-QA'd again and
+surfaced three further refinements. The following supersede where they
+conflict.
+
+### Button positioning — Studio centered in card, Artifacts at bottom
+
+The two stacked action buttons were too close together (~4dp apart at the
+right of the card-body row), and the visual hierarchy didn't reflect their
+priority. Resolution:
+
+- **Studio button**: positioned at the vertical centre of the ENTIRE session
+  card (not just the card-body row). Floats over the filmstrip area giving
+  it primary-action prominence. Backdrop-blur ensures readability against
+  filmstrip imagery.
+- **Artifact button**: docked at the bottom-right of the card, just above
+  the bottom edge. Chevron-down naturally points to where the artifact
+  stack will emerge below.
+
+Both buttons are absolutely-positioned overlays on the card. The card body
+beneath them stays tappable (action-stack has `pointer-events: none`; each
+button re-enables it). Vertical separation between the buttons is now
+proportional to card height (~80-100dp).
+
+### Artifacts button always visible + empty-state slider
+
+The artifact button is now visible on EVERY session card, including
+unpublished ones with zero artifacts. Tapping it on a no-artifacts session
+reveals an empty-state slider below the card with onboarding copy:
+
+> **No artifacts yet.** Publish this session to mint a workout plan or
+> handout. Both will appear here.
+
+Visual treatment: same accordion expansion mechanism as the artifact stack
+(grid-template-rows 0fr → 1fr), but the inner content is a single banner
+card instead of a stack. The leading rail is text-dim grey (not coral) to
+differentiate from the real artifact accordion. Auto-dismisses after 3.5
+seconds, or collapses immediately if any other card is tapped.
+
+This restores discoverability — practitioners learn the artifact concept
+through inline guidance instead of stumbling into it after first publish.
+
+### Collapse animation mirrors expand
+
+The original collapse was abrupt — all cards retreated simultaneously while
+the expand was a slow staggered deal-out. Resolution: state-dependent
+transition delays so collapse is the time-reverse of expand:
+
+| Element | Expand delay | Collapse delay | Effect |
+| --- | --- | --- | --- |
+| Card 1 (top) | 80ms | 640ms | Top card arrives first, leaves last |
+| Card 2 | 220ms | 500ms | |
+| Card 3 | 360ms | 360ms | (middle stays symmetric) |
+| Card 4 | 500ms | 220ms | |
+| Card 5 (bottom) | 640ms | 80ms | Bottom card arrives last, leaves first |
+| Container shrink | 0ms | 800ms | Container collapses AFTER cards retreat |
+| Rail recede | 60ms | 600ms | Rail fades mid-collapse |
+| Peek slide-back | 0ms | 1100ms | Peek arrives last on collapse, mirroring its "lift first" role on expand |
+
+Total collapse duration: ~1.46s (same as expand). The visual sense is "the
+deck restacks in the order it dealt, but in reverse."
+
 ### Companion artefacts (updated)
 
 
