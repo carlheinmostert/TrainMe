@@ -18,9 +18,11 @@ import '../utils/session_title.dart';
 import '../widgets/client_avatar_glyph.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
-import '../widgets/session_card.dart';
+import '../widgets/session_artifact_accordion.dart';
 import 'face_enrolment_screen.dart';
+import 'handout_web_view_screen.dart';
 import 'session_shell_screen.dart';
+import 'unified_preview_screen.dart';
 
 /// One client's page. Lists every local session that belongs to this
 /// client and exposes "New Session" as the primary CTA.
@@ -69,17 +71,35 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   bool _loading = true;
   String? _loadError;
 
-  /// Kept for legacy wiring — Wave 18 moved publish to the Studio
-  /// toolbar. No publish paths currently flip this set from
-  /// ClientSessionsScreen, but the card still accepts the flag so a
-  /// future parallel-publish UI has a home.
-  final Set<String> _publishingIds = <String>{};
-
   /// Wave 17 — in-memory cache of plan analytics summaries, keyed by
   /// plan id (session.id). Cloud-only; fetched on demand for each
   /// published session. Not persisted to SQLite.
   final Map<String, PlanAnalyticsSummary?> _analyticsCache = {};
   bool _analyticsFetched = false;
+
+  /// 2026-05-27 (artifact-card accordion) — per-session
+  /// `plan_artifacts` rows. Populated by [_fetchArtifactStatuses] after
+  /// [_loadSessions] resolves. Drives the SessionArtifactAccordion's
+  /// peek + chevron rendering. Null entry = "not loaded yet" (the
+  /// accordion paints WITHOUT the depth cue during that window);
+  /// empty list = "loaded, none published yet" (same render).
+  final Map<String, List<PlanArtifactStatus>> _artifactStatuses = {};
+
+  /// 2026-05-27 — true if at least one round of artifact-status fetches
+  /// has fired. Avoids re-fetching on every [_loadSessions] call (the
+  /// stream-triggered reloads land frequently during conversion).
+  bool _artifactsFetched = false;
+
+  /// 2026-05-27 — practice brand color (from `practices.brand_color`)
+  /// when the active subscription is `brand_skin` (resolved via
+  /// [ApiClient.practiceHasActiveBrandSkin]). Null = use homefit coral.
+  /// Resolved once per screen mount; flows into the front artifact
+  /// card's accent border / pill bg / glyph fg.
+  Color? _brandAccent;
+
+  /// 2026-05-27 — id of the currently-expanded session, or null when
+  /// the accordion is collapsed. Single-expanded across the list.
+  String? _expandedSessionId;
 
   /// True while a rename RPC is in-flight. Disables the save path so
   /// double-taps don't produce duplicate calls.
@@ -236,6 +256,12 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         _loading = true;
       });
     }
+    // 2026-05-27 — drop the artifact-fetch guard so a fresh publish
+    // landing via _openSession() -> _loadSessions() picks up the new
+    // plan_artifacts rows on the next paint. The fetch itself is cheap
+    // (one RPC per published session) and only fires while the screen
+    // is mounted.
+    _artifactsFetched = false;
 
     try {
       final userId = AuthService.instance.currentUserId;
@@ -257,6 +283,13 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       });
       // Wave 17 — kick off analytics fetch for published sessions.
       _fetchAnalytics();
+      // 2026-05-27 — kick off artifact-status fetch for published
+      // sessions so the SessionArtifactAccordion can paint peek +
+      // chevron from first frame after load. Fire-and-forget; per
+      // session entries stream in via [_artifactStatuses] state
+      // mutations.
+      _fetchArtifactStatuses();
+      _resolveBrandAccent();
     } catch (e) {
       final text = e.toString();
       final truncated = text.substring(0, min(200, text.length));
@@ -285,6 +318,142 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         _analyticsCache[session.id] = summary;
       });
     }
+  }
+
+  /// 2026-05-27 (artifact-card accordion) — fetch per-session
+  /// `plan_artifacts` rows so the SessionArtifactAccordion can render
+  /// the peek + chevron without flicker. Fire-and-forget; failures
+  /// leave the accordion painting the no-peek default (which is the
+  /// graceful state for un-published / network-error rows).
+  Future<void> _fetchArtifactStatuses() async {
+    if (_artifactsFetched) return;
+    _artifactsFetched = true;
+    final published = _sessions.where((s) => s.isPublished).toList();
+    if (published.isEmpty) return;
+    for (final session in published) {
+      try {
+        final rows = await ApiClient.instance.listPlanArtifactStatuses(
+          planId: session.id,
+        );
+        if (!mounted) return;
+        setState(() {
+          _artifactStatuses[session.id] = rows;
+        });
+      } catch (e) {
+        // Stay graceful — un-loaded rows render as no-peek cards. The
+        // accordion never throws on a missing entry.
+        debugPrint('ClientSessions artifact statuses failed for ${session.id}: $e');
+      }
+    }
+  }
+
+  /// 2026-05-27 — resolve the practice's brand color for the
+  /// SessionArtifactAccordion's front-card chrome. Two-step (mirrors
+  /// `StudioModeScreen._refreshBrandAccent`):
+  ///   1. Check `practice_has_active_brand_skin`.
+  ///   2. Look up the brand_color hex from the cached membership list.
+  /// Null result = use homefit coral. Per `feedback_no_silent_fallbacks`
+  /// — coral default on missing brand is the documented behavior, not
+  /// a silent degradation.
+  Future<void> _resolveBrandAccent() async {
+    if (_brandAccent != null) return;
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    if (practiceId == null || practiceId.isEmpty) return;
+    try {
+      final hasSkin = await ApiClient.instance.practiceHasActiveBrandSkin(
+        practiceId: practiceId,
+      );
+      if (!mounted || !hasSkin) return;
+      final memberships = await ApiClient.instance.listMyPractices();
+      if (!mounted) return;
+      PracticeMembership? match;
+      for (final m in memberships) {
+        if (m.id == practiceId) {
+          match = m;
+          break;
+        }
+      }
+      final hex = match?.brandColor;
+      if (hex == null || hex.isEmpty) return;
+      final parsed = _parseHexColor(hex);
+      if (parsed == null) return;
+      setState(() {
+        _brandAccent = parsed;
+      });
+    } catch (e) {
+      debugPrint('ClientSessions brand accent resolve failed: $e');
+    }
+  }
+
+  /// Parse a `#AABBCC` hex string to a [Color]. Returns null on any
+  /// malformed input so the caller silently falls through to the homefit
+  /// coral default.
+  static Color? _parseHexColor(String hex) {
+    final cleaned = hex.startsWith('#') ? hex.substring(1) : hex;
+    if (cleaned.length != 6) return null;
+    final value = int.tryParse(cleaned, radix: 16);
+    if (value == null) return null;
+    return Color(0xFF000000 | value);
+  }
+
+  /// 2026-05-27 — chevron-tap handler. Toggles the expanded session id
+  /// so the accordion is mutually exclusive across the list (tapping
+  /// session B while A is expanded collapses A and expands B).
+  void _onToggleExpanded(String sessionId) {
+    setState(() {
+      _expandedSessionId =
+          _expandedSessionId == sessionId ? null : sessionId;
+    });
+  }
+
+  /// 2026-05-27 — open the workout-plan artifact (in-app preview deck).
+  /// Mirrors `StudioModeScreen._openPreview`.
+  void _openPlanPreview(Session session) {
+    HapticFeedback.selectionClick();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UnifiedPreviewScreen(
+          session: session,
+          storage: widget.storage,
+        ),
+      ),
+    );
+  }
+
+  /// 2026-05-27 — open the handout artifact (full-screen WebView at
+  /// `/h/{planId}`). Mirrors `StudioModeScreen._openHandoutWebView`.
+  void _openHandout(Session session) {
+    HapticFeedback.selectionClick();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HandoutWebViewScreen(planId: session.id),
+      ),
+    );
+  }
+
+  /// 2026-05-27 — show a "Coming soon" SnackBar for artifact kinds
+  /// whose play surfaces haven't shipped yet. Per PR #548's locked
+  /// behaviour — no modals (R-01).
+  void _showArtifactKindComingSoon(String kind) {
+    HapticFeedback.selectionClick();
+    final label = ArtifactKindRegistry.specFor(kind)?.label ?? kind;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            '$label — coming soon.',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   // ---------------------------------------------------------------------------
@@ -1073,9 +1242,18 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         itemBuilder: (context, visualIndex) {
           final dataIndex = _sessions.length - 1 - visualIndex;
           final session = _sessions[dataIndex];
-          return SessionCard(
+          // 2026-05-27 (artifact-card accordion) — SessionArtifactAccordion
+          // wraps the SessionCard with a peek + chevron + inline artifact
+          // stack expansion. Replaces the prior fanned-deck-above-the-
+          // exercise-list approach (PR #548 / dc518d3). When the session
+          // has no published artifacts the wrapper renders the
+          // SessionCard exactly as before — no peek, no chevron.
+          return SessionArtifactAccordion(
+            key: ValueKey('session-accordion-${session.id}'),
             session: session,
-            isPublishing: _publishingIds.contains(session.id),
+            artifactStatuses: _artifactStatuses[session.id],
+            expanded: _expandedSessionId == session.id,
+            onToggleExpanded: () => _onToggleExpanded(session.id),
             onOpen: () => _openSession(session),
             onDelete: () => _deleteSession(session),
             // Wave 38 — inline rename writes through SyncService.
@@ -1095,6 +1273,10 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
             // stats row. The previous `_PlanAnalyticsRow` widget is
             // retired with this commit.
             analyticsSummary: _analyticsCache[session.id],
+            brandAccent: _brandAccent,
+            onPlayPlanUrl: () => _openPlanPreview(session),
+            onPlayHandout: () => _openHandout(session),
+            onPlayOther: _showArtifactKindComingSoon,
           );
         },
       ),
