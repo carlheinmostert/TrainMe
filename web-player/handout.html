@@ -152,6 +152,13 @@
     </footer>
   </main>
 
+  <!-- Runtime config — MUST load before api.js. Generated at build time by
+       web-player/build.sh from Vercel-injected env vars; sets
+       window.HOMEFIT_CONFIG with supabaseUrl + supabaseAnonKey. Without
+       it, api.js's strict-fail bootstrap throws at module load and
+       window.HomefitApi never gets exported, leaving handout.js without
+       a data-access surface. -->
+  <script src="/config.js"></script>
   <script src="/api.js"></script>
   <script src="/handout.js"></script>
 </body>
