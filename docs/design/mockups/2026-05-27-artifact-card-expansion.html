@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Artifact card expansion — mockup</title>
+<style>
+:root {
+  --bg: #0F1117;
+  --surface: #161A22;
+  --surface-2: #1E2330;
+  --surface-3: #252B3B;
+  --text: #F5F6FA;
+  --text-dim: #8A93A8;
+  --coral: #FF6B35;
+  --coral-dim: rgba(255, 107, 53, 0.55);
+  --sage: #86EFAC;
+  --hairline: rgba(255, 255, 255, 0.06);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; }
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px 80px;
+  gap: 24px;
+}
+h1 { font-family: 'Montserrat', Inter, sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -0.01em; margin: 0; }
+h2 { font-family: 'Montserrat', Inter, sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); margin: 0 0 12px; }
+p.note { color: var(--text-dim); font-size: 13px; line-height: 1.55; max-width: 560px; text-align: center; margin: 0; }
+
+/* phone frame */
+.phone {
+  width: 380px;
+  max-width: 100%;
+  background: var(--bg);
+  border-radius: 36px;
+  border: 1px solid var(--hairline);
+  padding: 20px 16px;
+  box-shadow: var(--shadow-2);
+}
+
+.screen-title { font-family: 'Montserrat', Inter, sans-serif; font-weight: 700; font-size: 18px; margin: 4px 0 4px; }
+.screen-sub { color: var(--text-dim); font-size: 12px; margin-bottom: 16px; }
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* one session card "row" — the peek is a sibling of .card, both inside .row */
+.row {
+  position: relative;
+  isolation: isolate; /* contain z-index */
+}
+
+/* peek card behind */
+.peek {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+  border-radius: 14px;
+  transform: translate(4px, 5px);
+  z-index: 0;
+  opacity: 0.92;
+  border: 1px solid var(--hairline);
+  transition: transform 220ms cubic-bezier(.2,.9,.25,1.2), opacity 180ms;
+  pointer-events: none;
+}
+.row[data-has-artifacts="false"] .peek { display: none; }
+.row.expanded .peek {
+  /* peek "lifts" upward + slides forward during expansion */
+  transform: translate(0, -6px) scale(0.98);
+  opacity: 0;
+}
+
+/* the actual session card */
+.card {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  border-radius: 14px;
+  border: 1px solid var(--hairline);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.card:active { transform: scale(0.995); }
+
+/* filmstrip across top of card */
+.filmstrip {
+  height: 84px;
+  background:
+    linear-gradient(rgba(0,0,0,0.30), rgba(0,0,0,0.30)),
+    linear-gradient(90deg, #2a2f3d 0%, #1d212c 25%, #2a2f3d 50%, #1d212c 75%, #2a2f3d 100%);
+  position: relative;
+  display: flex;
+}
+.filmstrip .frame { flex: 1; border-right: 1px solid rgba(0,0,0,0.4); filter: grayscale(1) contrast(1.05) brightness(0.65); }
+.filmstrip .frame:last-child { border-right: 0; }
+
+.card-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.count-glyph {
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 30px;
+  color: var(--coral);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  min-width: 36px;
+  text-align: left;
+}
+.card-meta { flex: 1; }
+.card-title { font-weight: 600; font-size: 15px; color: var(--text); margin: 0 0 4px; }
+.card-sub { color: var(--text-dim); font-size: 12px; }
+/* chevron: 24pt visible glyph wrapped in a 44pt invisible tap target
+   (Apple HIG minimum). The tap target is the ONLY expand affordance —
+   tapping anywhere else on the card body opens Studio. */
+.chev-hit {
+  width: 44px; height: 44px;
+  margin: -10px -8px -10px 0;  /* extend hit area beyond the card padding */
+  display: grid; place-items: center;
+  cursor: pointer;
+  border-radius: 22px;
+  transition: background 140ms ease;
+  position: relative;
+  z-index: 3;
+}
+.chev-hit:hover { background: rgba(255, 107, 53, 0.08); }
+.chev-hit:active { background: rgba(255, 107, 53, 0.16); }
+.chev {
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  color: var(--coral);
+  transition: transform 280ms cubic-bezier(.2,.9,.25,1.2);
+  font-size: 14px;
+  pointer-events: none;
+}
+.row.expanded .chev { transform: rotate(180deg); }
+/* hide the chevron entirely when there are no artifacts — card just opens Studio */
+.row[data-has-artifacts="false"] .chev-hit { display: none; }
+
+/* artifact stack — appears below the session card when row is expanded
+   Full-width: NO horizontal inset. The parent-child relationship is shown
+   via the coral hairline rail on the left side instead. */
+.artifact-stack {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms cubic-bezier(.2,.9,.25,1.2);
+  position: relative;
+}
+.row.expanded .artifact-stack { grid-template-rows: 1fr; }
+
+.artifact-stack-inner {
+  overflow: hidden;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+/* the coral hairline rail — a single continuous vertical line sitting
+   flush with the LEFT EDGE of the artifact cards (overlapping the cards
+   themselves). Emerges from the bottom-left of the session card and
+   runs down through the entire artifact stack. The cards have extra
+   left-padding so their content is not obscured by the rail. */
+.artifact-stack-inner::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--coral);
+  border-radius: 0 0 1.5px 1.5px;
+  transform-origin: top;
+  transform: scaleY(0);
+  transition: transform 380ms cubic-bezier(.2,.9,.25,1.2) 30ms; /* small delay so rail draws after siblings push down */
+  opacity: 0.95;
+  z-index: 2;
+}
+.row.expanded .artifact-stack-inner::before { transform: scaleY(1); }
+.artifact-card {
+  background: var(--surface-2);
+  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  /* extra left padding so the coral rail doesn't obscure card content */
+  padding: 12px 14px 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  transform: translateY(-8px);
+  opacity: 0;
+  transition: transform 320ms cubic-bezier(.2,.9,.25,1.2), opacity 220ms ease;
+  cursor: pointer;
+}
+.row.expanded .artifact-card { transform: translateY(0); opacity: 1; }
+.row.expanded .artifact-card:nth-child(1) { transition-delay: 50ms; }
+.row.expanded .artifact-card:nth-child(2) { transition-delay: 110ms; }
+.row.expanded .artifact-card:nth-child(3) { transition-delay: 170ms; }
+.row.expanded .artifact-card:nth-child(4) { transition-delay: 230ms; }
+
+/* front-most artifact card gets coral accent (or brand-skin) */
+.artifact-card.is-front {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 1px var(--coral) inset, 0 2px 8px rgba(255, 107, 53, 0.18);
+}
+.artifact-card.is-front .pill {
+  background: var(--coral);
+  color: #1c0a02;
+}
+
+.artifact-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2a2f3d, #1d212c);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.artifact-thumb.workout { background: linear-gradient(90deg, #2a2f3d 0%, #1d212c 25%, #2a2f3d 50%, #1d212c 75%, #2a2f3d 100%); }
+.artifact-thumb.handout {
+  background: var(--surface-3);
+  position: relative;
+}
+.artifact-thumb.handout::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  background: repeating-linear-gradient(0deg, var(--text-dim) 0 1.5px, transparent 1.5px 5px);
+  border-top: 3px solid var(--coral);
+}
+.artifact-meta { flex: 1; }
+.artifact-title { font-weight: 600; font-size: 14px; margin: 0 0 3px; }
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--surface-3);
+  color: var(--text-dim);
+}
+
+.legend {
+  max-width: 560px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+.legend strong { color: var(--text); font-weight: 600; }
+.legend code { background: var(--surface); padding: 2px 6px; border-radius: 4px; font-size: 11px; color: var(--coral); font-family: 'JetBrains Mono', monospace; }
+
+.surface-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.surfaces {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+@media (max-width: 880px) { .surfaces { flex-direction: column; } }
+
+#studio-banner {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translate(-50%, 24px);
+  background: var(--coral);
+  color: #1c0a02;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  transition: transform 240ms cubic-bezier(.2,.9,.25,1.2), opacity 200ms;
+  z-index: 100;
+}
+#studio-banner.visible { transform: translate(-50%, 0); opacity: 1; }
+</style>
+</head>
+<body>
+
+<h1>Artifact card expansion — accordion</h1>
+<p class="note">
+Replaces PR #548's fanned-deck-above-exercise-list. The session card on
+<strong style="color:var(--text)">ClientSessionsScreen</strong>,
+<strong style="color:var(--text)">My Workouts (mobile)</strong>, and
+<strong style="color:var(--text)">/me (web)</strong> gains a subtle peek
+when artifacts exist. Tap to expand the artifact stack inline; tap again or
+tap another card to collapse. Click any card below to play with it.
+</p>
+
+<div class="surfaces">
+
+<div class="phone">
+  <span class="surface-tag">ClientSessionsScreen · My Workouts · /me</span>
+  <div class="screen-title">Mary's sessions</div>
+  <div class="screen-sub">3 sessions · 2 published</div>
+
+  <div class="session-list">
+
+    <!-- session 1: 3 artifacts, expanded by default in this preview -->
+    <div class="row expanded" data-has-artifacts="true">
+      <div class="peek"></div>
+      <div class="card" onclick="enterStudio(this.parentElement)">
+        <div class="filmstrip">
+          <div class="frame"></div><div class="frame"></div><div class="frame"></div><div class="frame"></div>
+        </div>
+        <div class="card-body">
+          <div class="count-glyph">8</div>
+          <div class="card-meta">
+            <p class="card-title">Mon 26 May · 09:30</p>
+            <p class="card-sub">Hip mobility · 8 exercises</p>
+          </div>
+          <div class="chev-hit" onclick="event.stopPropagation(); toggle(this.closest('.row'))"><div class="chev">&#9662;</div></div>
+        </div>
+      </div>
+      <div class="artifact-stack">
+        <div class="artifact-stack-inner">
+          <div class="artifact-card is-front">
+            <div class="artifact-thumb workout"></div>
+            <div class="artifact-meta">
+              <p class="artifact-title">Workout plan</p>
+              <span class="pill">Plan</span>
+            </div>
+          </div>
+          <div class="artifact-card">
+            <div class="artifact-thumb handout"></div>
+            <div class="artifact-meta">
+              <p class="artifact-title">Take-home handout</p>
+              <span class="pill">Handout</span>
+            </div>
+          </div>
+          <div class="artifact-card">
+            <div class="artifact-thumb">&#9836;</div>
+            <div class="artifact-meta">
+              <p class="artifact-title">Class video</p>
+              <span class="pill">Coming soon</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- session 2: 1 artifact, peek visible, collapsed -->
+    <div class="row" data-has-artifacts="true">
+      <div class="peek"></div>
+      <div class="card" onclick="enterStudio(this.parentElement)">
+        <div class="filmstrip">
+          <div class="frame"></div><div class="frame"></div><div class="frame"></div><div class="frame"></div>
+        </div>
+        <div class="card-body">
+          <div class="count-glyph">5</div>
+          <div class="card-meta">
+            <p class="card-title">Thu 22 May · 14:00</p>
+            <p class="card-sub">Shoulder · 5 exercises</p>
+          </div>
+          <div class="chev-hit" onclick="event.stopPropagation(); toggle(this.closest('.row'))"><div class="chev">&#9662;</div></div>
+        </div>
+      </div>
+      <div class="artifact-stack">
+        <div class="artifact-stack-inner">
+          <div class="artifact-card is-front">
+            <div class="artifact-thumb workout"></div>
+            <div class="artifact-meta">
+              <p class="artifact-title">Workout plan</p>
+              <span class="pill">Plan</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- session 3: no artifacts, no peek, normal card -->
+    <div class="row" data-has-artifacts="false">
+      <div class="peek"></div>
+      <div class="card" onclick="enterStudio(this.parentElement)">
+        <div class="filmstrip">
+          <div class="frame"></div><div class="frame"></div><div class="frame"></div><div class="frame"></div>
+        </div>
+        <div class="card-body">
+          <div class="count-glyph">12</div>
+          <div class="card-meta">
+            <p class="card-title">Tue 20 May · 08:00</p>
+            <p class="card-sub">Lower back · 12 exercises · not yet published</p>
+          </div>
+          <div class="chev" style="visibility:hidden">&#9662;</div>
+        </div>
+      </div>
+      <div class="artifact-stack"><div class="artifact-stack-inner"></div></div>
+    </div>
+
+  </div>
+</div>
+
+</div>
+
+<div class="legend">
+<h2>Behaviour summary</h2>
+<ul>
+<li><strong>Rest state</strong> — When a session has at least 1 artifact, a <code>4px × 5px</code> offset peek card sits behind. Count-independent.</li>
+<li><strong>Tap session card</strong> — peek lifts up + fades; siblings push down (<code>140ms ease-out</code>); artifact cards stagger in (<code>50ms × n</code> delay, spring landing <code>320ms cubic-bezier(.2,.9,.25,1.2)</code>).</li>
+<li><strong>Front artifact card</strong> — coral border + accent (or practice brand color when brand-skin subscribed). Other artifact cards stay neutral.</li>
+<li><strong>Accordion</strong> — tapping a second session collapses the first. Only one expanded at a time.</li>
+<li><strong>Tap artifact</strong> — workout plan opens in-app preview deck; handout opens full-screen WebView at <code>session.homefit.studio/h/{planId}</code>; future kinds show "coming soon" toast (NOT a modal — R-01).</li>
+<li><strong>Reduced motion</strong> — peek lift becomes instant; stagger collapses to a single transition.</li>
+<li><strong>Zero artifacts</strong> — no peek, no chevron, card looks exactly as it does today. No accidental "Coming soon" affordance on unpublished sessions.</li>
+</ul>
+</div>
+
+<div id="studio-banner"></div>
+
+<script>
+function toggle(row) {
+  const wasExpanded = row.classList.contains('expanded');
+  document.querySelectorAll('.row.expanded').forEach(r => r.classList.remove('expanded'));
+  if (!wasExpanded && row.dataset.hasArtifacts === 'true') {
+    row.classList.add('expanded');
+  }
+}
+
+function enterStudio(row) {
+  /* In the real app, this navigates the practitioner into Studio mode
+     for this session. In the mockup we flash a banner so we can see the
+     two tap zones are wired separately. */
+  const title = row.querySelector('.card-title')?.textContent || 'session';
+  const banner = document.getElementById('studio-banner');
+  banner.textContent = `(mockup) Tap card body → enter Studio for: ${title}`;
+  banner.classList.add('visible');
+  clearTimeout(window.__studioBannerTimer);
+  window.__studioBannerTimer = setTimeout(() => banner.classList.remove('visible'), 1800);
+}
+</script>
+
+</body>
+</html>
