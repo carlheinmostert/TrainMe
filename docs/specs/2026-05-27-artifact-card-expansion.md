@@ -193,7 +193,75 @@ Net: the artifact-card visual layer survives. The container/layout above it is r
 - Should the expanded state survive scroll? If the practitioner scrolls past the expanded session, on scroll-back the session is still expanded — or should scroll-out auto-collapse? Default: state survives scroll.
 - Should the chevron tap zone show a hover/press background on web (where there's no touch but there's a cursor) at all, or stay pristine? Default: show the same coral tint on web for cursor users.
 
-## Companion artefacts
+## Iteration log — 2026-05-27 afternoon
+
+After PR #549 (`273d774`) shipped the initial accordion implementation, Carl
+device-QA'd on iPhone CHM and surfaced four refinements. The following
+supersede earlier sections where they conflict.
+
+### Rail visibility — inset 10dp gutter
+
+The original spec had artifact cards full-width and flush with the session
+card's left edge. On device the rail was obscured by the card chrome (visible
+only as a 1-pixel sliver). Resolution: artifact cards are now inset 10dp from
+the session card's left edge. The rail lives in the resulting 13dp gutter
+(10dp visible space + 3dp rail width), fully exposed and unobscured. The
+cards are still substantial — this is a meaningfully smaller inset than the
+16-20dp child-card pattern that was originally rejected.
+
+### Tap-affordance — two stacked action buttons
+
+The single chevron-only tap zone made the card body feel like a passive
+toggle rather than a tappable Studio entry. Resolution: two small stacked
+action buttons on the right end of the card-body row, each with an icon
+and a directional arrow:
+
+- **Top button — Studio entry**: pencil glyph + chevron-right (`›`). Always
+  visible on every session card. Tap fires the same enterStudio action as
+  the card body. Existing "tap card body to enter Studio" behaviour is
+  preserved (the button is an additional explicit affordance, not a
+  replacement).
+- **Bottom button — Artifacts expand**: stacked-cards glyph + chevron-down
+  (`▾`). Visible only when the session has at least one artifact. Chevron
+  rotates 180° on expand. Tap toggles the artifact stack.
+
+The single-chevron expand affordance from earlier in this spec is REPLACED
+by the bottom button described above. Hit-zone extension via negative margin
+gives each button a 44pt-equivalent vertical hit area. Per-button hover and
+active states give visual feedback distinct from each other.
+
+Order matters: Studio on top (primary action, mirrors the card body
+gesture), Artifacts on bottom (down-chevron naturally points to where the
+artifact stack will appear below the card).
+
+### Animation — slowed for "deal of cards" rhythm
+
+Earlier timings (140ms sibling push-down, 320ms artifact stagger, 50ms
+per-card delay) felt too fast on device — cards just appeared rather than
+seeming to slide out from behind the session card. Resolution: new timings
+that give the eye time to read the "shuffling" motion.
+
+| Phase | New duration | Was | Notes |
+| --- | --- | --- | --- |
+| Sibling cards push down | 200ms | 140ms | ease-out |
+| Peek card lift + fade | 380ms | 220ms | snappy spring |
+| Container grow | 540ms | 360ms | snappy spring |
+| Artifact card slide | 820ms each | 320ms | snappy spring `cubic-bezier(.2,.85,.25,1.18)` |
+| Per-card stagger | 140ms | 50ms | Cards land 80 / 220 / 360 / 500 / 640ms after expand starts |
+| Coral rail draw | 640ms | 380ms | 60ms head-start delay (was 30ms) |
+| Chevron rotate | 280ms | 280ms | unchanged |
+
+Total time for the last (4th) card to land: ~1.46s. Reduced-motion override
+unchanged — all motion becomes instant except the chevron rotate.
+
+The cards are clipped behind the session card via `overflow: hidden` on the
+artifact-stack-inner container, with starting translateY values proportional
+to stack depth (card 1: -180%, card 2: -280%, card 3: -380%, card 4: -480%)
+so deeper cards travel farther. This reinforces the "deck of cards
+underneath" mental model.
+
+### Companion artefacts (updated)
+
 
 - **Interactive mockup**: `docs/design/mockups/2026-05-27-artifact-card-expansion.html`
 - **Stack file pointer**: `docs/test-scripts/2026-05-27-stack.md` (the queue Carl drives from)
