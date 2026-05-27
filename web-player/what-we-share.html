@@ -239,6 +239,10 @@
   </div>
 </div>
 
+<!-- Runtime config — MUST load before api.js. See handout.html for the
+     same wiring rationale (api.js's strict-fail bootstrap requires
+     window.HOMEFIT_CONFIG to be populated before the IIFE runs). -->
+<script src="config.js"></script>
 <script src="api.js"></script>
 <script src="what-we-share.js"></script>
 </body>
