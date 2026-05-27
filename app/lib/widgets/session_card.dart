@@ -114,6 +114,18 @@ class SessionCard extends StatefulWidget {
   /// [sourceTag] is [WorkoutSourceTag.sharedByPractitioner].
   final String? sharedByEmail;
 
+  /// Optional trailing widget that REPLACES the default chevron-right
+  /// glyph in the card body row. Provided by
+  /// [SessionArtifactAccordion] (2026-05-27) so the accordion can mount
+  /// its own coral expand-chevron + 44pt invisible tap target on
+  /// sessions that have published artifacts. When null the card renders
+  /// the legacy static `chevron_right` glyph.
+  ///
+  /// The Dismissible / soft-delete / inline-rename / lock-row /
+  /// filmstrip / analytics rendering are all unaffected — this is a
+  /// surgical opt-in for surfaces that need a tappable trailing control.
+  final Widget? trailingOverride;
+
   const SessionCard({
     super.key,
     required this.session,
@@ -124,6 +136,7 @@ class SessionCard extends StatefulWidget {
     this.analyticsSummary,
     this.sourceTag,
     this.sharedByEmail,
+    this.trailingOverride,
   });
 
   @override
@@ -483,11 +496,20 @@ class _SessionCardState extends State<SessionCard> {
                       // Studio toolbar. The card now ends with the
                       // chevron only so the row reads as a pure
                       // navigation affordance.
-                      const Icon(
-                        Icons.chevron_right,
-                        color: AppColors.grey500,
-                        size: 22,
-                      ),
+                      //
+                      // 2026-05-27 (artifact-card accordion) — surfaces
+                      // that need a tappable trailing control (the
+                      // accordion expand-chevron on
+                      // ClientSessionsScreen / MyWorkouts / `/me`) pass
+                      // their own widget via [trailingOverride]. The
+                      // default is the static chevron-right used by
+                      // every other caller.
+                      widget.trailingOverride ??
+                          const Icon(
+                            Icons.chevron_right,
+                            color: AppColors.grey500,
+                            size: 22,
+                          ),
                     ],
                   ),
                 ),

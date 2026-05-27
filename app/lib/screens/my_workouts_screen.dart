@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../models/workout_source_tag.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../theme.dart';
-import '../widgets/session_card.dart';
+import '../widgets/session_artifact_accordion.dart';
+import 'handout_web_view_screen.dart';
+import 'unified_preview_screen.dart';
 
 // `ExerciseCapture` and `ExerciseRemoval` flow through ConversionService
 // streams — the model import is load-bearing for the typed handler.
@@ -77,6 +80,20 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
   List<Session> _sessions = const [];
 
   bool _loading = true;
+
+  /// 2026-05-27 (artifact-card accordion) — per-session
+  /// `plan_artifacts` rows. See identical comment in
+  /// `client_sessions_screen.dart`.
+  final Map<String, List<PlanArtifactStatus>> _artifactStatuses = {};
+  bool _artifactsFetched = false;
+
+  /// 2026-05-27 — practice brand color for the accordion's front-card
+  /// chrome when the practice has an active brand-skin subscription.
+  Color? _brandAccent;
+
+  /// 2026-05-27 — id of the currently-expanded session, or null.
+  /// Single-expanded across the list.
+  String? _expandedSessionId;
 
   /// R2-M5 — mirror the ClientSessions pattern. Subscribe to the
   /// conversion + removal streams so the My Workouts list refreshes
@@ -173,6 +190,126 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
       _sessions = filtered;
       _loading = false;
     });
+    // 2026-05-27 — fire artifact-status + brand-accent fetches so the
+    // SessionArtifactAccordion can paint peek + chevron from first frame.
+    _artifactsFetched = false;
+    unawaited(_fetchArtifactStatuses());
+    unawaited(_resolveBrandAccent());
+  }
+
+  /// 2026-05-27 (artifact-card accordion) — fetch per-session
+  /// `plan_artifacts` rows. See identical method in
+  /// `client_sessions_screen.dart` for full commentary.
+  Future<void> _fetchArtifactStatuses() async {
+    if (_artifactsFetched) return;
+    _artifactsFetched = true;
+    final published = _sessions.where((s) => s.isPublished).toList();
+    if (published.isEmpty) return;
+    for (final session in published) {
+      try {
+        final rows = await ApiClient.instance.listPlanArtifactStatuses(
+          planId: session.id,
+        );
+        if (!mounted) return;
+        setState(() {
+          _artifactStatuses[session.id] = rows;
+        });
+      } catch (e) {
+        debugPrint('MyWorkouts artifact statuses failed for ${session.id}: $e');
+      }
+    }
+  }
+
+  /// 2026-05-27 — resolve the practice brand color (see twin in
+  /// `client_sessions_screen.dart`).
+  Future<void> _resolveBrandAccent() async {
+    if (_brandAccent != null) return;
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    if (practiceId == null || practiceId.isEmpty) return;
+    try {
+      final hasSkin = await ApiClient.instance.practiceHasActiveBrandSkin(
+        practiceId: practiceId,
+      );
+      if (!mounted || !hasSkin) return;
+      final memberships = await ApiClient.instance.listMyPractices();
+      if (!mounted) return;
+      PracticeMembership? match;
+      for (final m in memberships) {
+        if (m.id == practiceId) {
+          match = m;
+          break;
+        }
+      }
+      final hex = match?.brandColor;
+      if (hex == null || hex.isEmpty) return;
+      final parsed = _parseHexColor(hex);
+      if (parsed == null) return;
+      setState(() {
+        _brandAccent = parsed;
+      });
+    } catch (e) {
+      debugPrint('MyWorkouts brand accent resolve failed: $e');
+    }
+  }
+
+  /// `#AABBCC` -> Color, returns null on malformed input.
+  static Color? _parseHexColor(String hex) {
+    final cleaned = hex.startsWith('#') ? hex.substring(1) : hex;
+    if (cleaned.length != 6) return null;
+    final value = int.tryParse(cleaned, radix: 16);
+    if (value == null) return null;
+    return Color(0xFF000000 | value);
+  }
+
+  /// 2026-05-27 — toggle expanded state, single-expanded discipline.
+  void _onToggleExpanded(String sessionId) {
+    setState(() {
+      _expandedSessionId =
+          _expandedSessionId == sessionId ? null : sessionId;
+    });
+  }
+
+  /// 2026-05-27 — workout-plan artifact tap.
+  void _openPlanPreview(Session session) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UnifiedPreviewScreen(
+          session: session,
+          storage: widget.storage,
+        ),
+      ),
+    );
+  }
+
+  /// 2026-05-27 — handout artifact tap.
+  void _openHandout(Session session) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HandoutWebViewScreen(planId: session.id),
+      ),
+    );
+  }
+
+  /// 2026-05-27 — coming-soon stub (R-01 — SnackBar, no modal).
+  void _showArtifactKindComingSoon(String kind) {
+    final label = ArtifactKindRegistry.specFor(kind)?.label ?? kind;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            '$label — coming soon.',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   @override
@@ -191,10 +328,16 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
         itemCount: _sessions.length,
         itemBuilder: (context, i) {
           final session = _sessions[i];
-          return SessionCard(
-            key: ValueKey('self-capture-${session.id}'),
+          // 2026-05-27 (artifact-card accordion) — SessionArtifactAccordion
+          // wraps the SessionCard with a peek + chevron + inline artifact
+          // stack expansion. See `client_sessions_screen.dart` for the
+          // full migration commentary.
+          return SessionArtifactAccordion(
+            key: ValueKey('self-capture-accordion-${session.id}'),
             session: session,
-            isPublishing: false,
+            artifactStatuses: _artifactStatuses[session.id],
+            expanded: _expandedSessionId == session.id,
+            onToggleExpanded: () => _onToggleExpanded(session.id),
             onOpen: () => widget.onTapSession(session),
             onDelete: () => _deleteSession(session),
             // M29 (2026-05-26) — every My Workouts row is a self-capture
@@ -213,6 +356,10 @@ class _MyWorkoutsScreenState extends State<MyWorkoutsScreen> {
                     .toList(growable: false);
               });
             },
+            brandAccent: _brandAccent,
+            onPlayPlanUrl: () => _openPlanPreview(session),
+            onPlayHandout: () => _openHandout(session),
+            onPlayOther: _showArtifactKindComingSoon,
           );
         },
       ),

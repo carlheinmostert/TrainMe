@@ -10,14 +10,19 @@
  *      so the post-magic-link callback can call claim_plan(planId).
  *
  *   2. Signed-in — My Workouts list. Calls list_my_plans and groups the
- *      response into bundles (one bundle per plan_id) rendered as fanned
- *      card decks. Wave 6 (artifact-system, 2026-05-27) — the flat list
- *      retired; sibling artifacts (plan_url + handout for the same plan)
- *      collapse into one deck the consumer can flip through.
+ *      response into bundles (one bundle per plan_id) rendered as a
+ *      vertical session accordion. 2026-05-27 (artifact-card accordion)
+ *      — replaces the fanned-deck-per-bundle UI from PR #548 with a
+ *      session card + peek + tappable chevron + inline expand pattern
+ *      that mirrors mobile's ClientSessionsScreen / My Workouts
+ *      (R-10 parity). Sibling artifacts (plan_url + handout for the
+ *      same plan) collapse into one accordion the consumer expands
+ *      to browse formats.
  *
  *      For owner bundles (viewer's user-id matches the bundle's
  *      practitioner_user_id), a "Use as template for a client" CTA
- *      renders below the deck and fires the
+ *      renders INSIDE the expanded artifact area (not on the collapsed
+ *      session card) and fires the
  *      `studio.homefit.app://template?session_id={planId}` deep-link.
  *
  * Flow:
@@ -363,120 +368,185 @@
     });
   }
 
-  // ===========================  Bundle rendering  ========================
+  // ===========================  Accordion rendering  =====================
 
   /**
-   * Build one bundle: a fanned card deck of up to 3 visible artifacts
-   * (DOM-lean — additional cards behind are not rendered). Tapping a
-   * back card rotates it to the front. The front card is an `<a>` link
-   * to the artifact's player; back cards have role="button" and rotate
-   * to the front on tap.
+   * Build one bundle as a session-accordion row.
    *
-   * For owner bundles (the viewer is the practitioner who minted the
-   * artifact), a "Use as template for a client" CTA renders below the
-   * deck. It fires the studio.homefit.app://template?session_id=X
-   * deep-link.
+   * Markup (2026-05-27 redesign — replaces the fanned-deck-per-bundle):
+   *   <article class="me-session-row" data-has-artifacts="true|false">
+   *     <div class="me-session-peek"></div>             // depth cue
+   *     <div class="me-session-card">                   // body row
+   *       <div class="me-session-card-body">
+   *         <div class="me-session-glyph">N</div>       // exercise count
+   *         <div class="me-session-meta">
+   *           <h3 class="me-session-title">...</h3>
+   *           <p class="me-session-sub">...</p>
+   *           <div class="me-session-provenance">...</div>
+   *         </div>
+   *         <button class="me-session-chev-hit"         // 44pt hit zone
+   *                 aria-label="Expand artifacts">
+   *           <span class="me-session-chev">v</span>
+   *         </button>
+   *       </div>
+   *     </div>
+   *     <div class="me-session-artifact-stack">         // accordion target
+   *       <div class="me-session-artifact-inner">
+   *         <a class="me-artifact-card is-front" ...>...</a>
+   *         <a class="me-artifact-card" ...>...</a>
+   *         <a class="me-session-template-cta" ...>...</a>   // owner-only
+   *       </div>
+   *     </div>
+   *   </article>
+   *
+   * Behaviour:
+   *   - Tapping the chevron hit zone toggles `.is-expanded` on the row.
+   *     The accordion expansion is CSS-driven (grid-template-rows
+   *     0fr -> 1fr) per the mockup so the height animates cleanly.
+   *   - The session card body is non-interactive on web — there's no
+   *     Studio target on /me (consumer surface). On mobile the card
+   *     body opens Studio; on web only the chevron is interactive.
+   *   - Accordion is mutually exclusive across the list (single open).
+   *   - "Use as template" CTA lives INSIDE the expanded area for
+   *     owner bundles — per the redesigned spec.
    */
   function buildPlanBundle(bundle, consumerUserId) {
     if (!bundle || !bundle.artifacts.length) return null;
 
-    const $wrap = document.createElement('article');
-    $wrap.className = 'me-bundle';
+    const $row = document.createElement('article');
+    $row.className = 'me-session-row';
+    $row.setAttribute('data-has-artifacts', 'true');
 
-    // Mount the deck — separate from the meta block so the fan can
-    // overflow vertically without pushing the title/sub down.
-    const $deck = document.createElement('div');
-    $deck.className = 'me-bundle-deck';
-    $deck.setAttribute('aria-label', bundle.planTitle);
+    // Peek card — drawn behind the session card, 4px right + 5px down
+    // via CSS. Lifts upward + fades on .is-expanded.
+    const $peek = document.createElement('div');
+    $peek.className = 'me-session-peek';
+    $peek.setAttribute('aria-hidden', 'true');
+    $row.appendChild($peek);
 
-    // Render up to 3 cards. The CSS layout pins each by .me-bundle-pos-{n}.
-    const visible = bundle.artifacts.slice(0, 3);
-    visible.forEach((row, idx) => {
-      const $card = buildBundleCard(row, bundle, idx);
-      if ($card) $deck.appendChild($card);
-    });
-    $wrap.appendChild($deck);
+    // Session card body.
+    const $card = document.createElement('div');
+    $card.className = 'me-session-card';
 
-    // Meta block — title, sub-line, provenance, and (owner-only)
-    // template CTA.
+    const $cardBody = document.createElement('div');
+    $cardBody.className = 'me-session-card-body';
+
+    // Exercise-count glyph (mirrors mobile's _LeadingCountGlyph). When
+    // the count is 0 the glyph is suppressed so the row reads clean.
+    if (bundle.exerciseCount > 0) {
+      const $glyph = document.createElement('div');
+      $glyph.className = 'me-session-glyph';
+      $glyph.textContent = bundle.exerciseCount > 99
+        ? '99+'
+        : String(bundle.exerciseCount);
+      $cardBody.appendChild($glyph);
+    }
+
     const $meta = document.createElement('div');
-    $meta.className = 'me-bundle-meta';
+    $meta.className = 'me-session-meta';
 
     const $title = document.createElement('h3');
-    $title.className = 'me-bundle-title';
+    $title.className = 'me-session-title';
     $title.textContent = bundle.planTitle;
     $meta.appendChild($title);
 
     const $sub = document.createElement('p');
-    $sub.className = 'me-bundle-sub';
+    $sub.className = 'me-session-sub';
     $sub.innerHTML = buildBundleSubLine(bundle);
     $meta.appendChild($sub);
 
     const $prov = buildBundleProvenance(bundle);
     if ($prov) $meta.appendChild($prov);
 
-    // Owner detection: render the "Use as template" CTA when the
-    // viewer's consumer user id matches the bundle's practitioner_user_id.
-    // The brief specifies firing the deep-link only — no in-app handler
-    // wiring in this PR.
+    $cardBody.appendChild($meta);
+
+    // Chevron — 44pt hit zone with a coral 24pt down-glyph that rotates
+    // 180deg via CSS on .is-expanded. Apple HIG minimum hit area.
+    const $chev = document.createElement('button');
+    $chev.type = 'button';
+    $chev.className = 'me-session-chev-hit';
+    $chev.setAttribute('aria-label', 'Expand artifacts');
+    $chev.setAttribute('aria-expanded', 'false');
+    $chev.innerHTML = ''
+      + '<span class="me-session-chev" aria-hidden="true">'
+      +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
+      +     '<polyline points="6 9 12 15 18 9"></polyline>'
+      +   '</svg>'
+      + '</span>';
+    $cardBody.appendChild($chev);
+
+    $card.appendChild($cardBody);
+    $row.appendChild($card);
+
+    // Accordion stack — CSS grid template animates 0fr <-> 1fr. The
+    // inner element draws the coral rail (::before pseudo) + the
+    // artifact cards.
+    const $stack = document.createElement('div');
+    $stack.className = 'me-session-artifact-stack';
+
+    const $inner = document.createElement('div');
+    $inner.className = 'me-session-artifact-inner';
+
     const isOwner = !!(
       consumerUserId
       && bundle.practitionerUserId
       && consumerUserId === bundle.practitionerUserId
     );
+
+    bundle.artifacts.forEach((row, idx) => {
+      const $art = buildArtifactCard(row, bundle, idx === 0);
+      if ($art) $inner.appendChild($art);
+    });
+
     if (isOwner) {
-      $meta.appendChild(buildTemplateCta(bundle));
+      $inner.appendChild(buildTemplateCta(bundle));
     }
 
-    $wrap.appendChild($meta);
+    $stack.appendChild($inner);
+    $row.appendChild($stack);
 
-    // Wire the click-to-rotate behavior. Each card has a data-idx; the
-    // front card is whichever .me-bundle-pos-1 currently is. Rebinding
-    // is cheap; deck holds at most 3 cards.
-    bindDeckRotation($deck, bundle);
+    bindAccordionToggle($row, $chev);
 
-    return $wrap;
+    return $row;
   }
 
-  function buildBundleCard(row, bundle, position) {
+  /**
+   * Build one artifact card inside the expanded accordion area. The
+   * front card (idx === 0) gets the coral accent border + accent-tinted
+   * kind pill. Every card is an anchor element — tapping IS the
+   * navigation. There are no "back cards" to rotate any more (replaced
+   * by the chevron expand/collapse).
+   */
+  function buildArtifactCard(row, bundle, isFront) {
     const kind = String(row.kind);
     const label = kindToLabel(kind);
     if (!label) return null;
-    const isFront = position === 0;
 
-    // Front card is an anchor (the consumer's tap = open the artifact).
-    // Back cards are buttons (tap = rotate to front, no navigation).
-    const $card = document.createElement(isFront ? 'a' : 'button');
-    $card.className = 'me-bundle-card me-bundle-pos-' + (position + 1);
+    const $card = document.createElement('a');
+    $card.className = 'me-artifact-card' + (isFront ? ' is-front' : '');
     $card.setAttribute('data-kind', kind);
-    if (isFront) {
-      $card.setAttribute('href', kindToHref(kind, bundle.planId));
-      $card.setAttribute('role', 'link');
-    } else {
-      $card.setAttribute('type', 'button');
-      $card.setAttribute('aria-label', label + ' — bring to front');
-    }
-
-    // Top row: glyph + label + kind pill.
-    const $top = document.createElement('div');
-    $top.className = 'me-bundle-card-top';
+    $card.setAttribute('href', kindToHref(kind, bundle.planId));
+    $card.setAttribute('role', 'link');
 
     const $glyph = document.createElement('div');
-    $glyph.className = 'me-bundle-card-glyph' + (kind === 'handout' ? ' is-handout' : '');
+    $glyph.className = 'me-artifact-card-glyph' + (kind === 'handout' ? ' is-handout' : '');
     $glyph.innerHTML = kindToGlyphSvg(kind);
-    $top.appendChild($glyph);
+    $card.appendChild($glyph);
 
-    const $label = document.createElement('span');
-    $label.className = 'me-bundle-card-label';
+    const $meta = document.createElement('div');
+    $meta.className = 'me-artifact-card-meta';
+
+    const $label = document.createElement('p');
+    $label.className = 'me-artifact-card-label';
     $label.textContent = label;
-    $top.appendChild($label);
+    $meta.appendChild($label);
 
     const $pill = document.createElement('span');
-    $pill.className = 'me-bundle-card-pill';
+    $pill.className = 'me-artifact-card-pill';
     $pill.textContent = relativeTime(new Date(row.published_at || row.last_published_at || row.claimed_at || Date.now()));
-    $top.appendChild($pill);
+    $meta.appendChild($pill);
 
-    $card.appendChild($top);
+    $card.appendChild($meta);
     return $card;
   }
 
@@ -490,8 +560,8 @@
     } else if (bundle.claimedAt) {
       parts.push('saved ' + relativeTime(new Date(bundle.claimedAt)));
     }
-    // List the included artifact kinds — gives the consumer a hint
-    // about how many cards are stacked.
+    // List the included artifact kinds so the consumer can tell how many
+    // formats are stacked behind the chevron.
     const kindList = bundle.artifacts
       .map((a) => kindToLabel(a.kind))
       .filter(Boolean);
@@ -506,7 +576,7 @@
   function buildBundleProvenance(bundle) {
     if (!bundle.practitionerEmail && !bundle.practiceName) return null;
     const $prov = document.createElement('div');
-    $prov.className = 'me-bundle-provenance';
+    $prov.className = 'me-session-provenance';
 
     const $av = document.createElement('div');
     $av.className = 'me-prov-avatar';
@@ -535,12 +605,12 @@
 
   function buildTemplateCta(bundle) {
     const $cta = document.createElement('a');
-    $cta.className = 'me-bundle-cta';
+    $cta.className = 'me-session-template-cta';
     $cta.href = 'studio.homefit.app://template?session_id=' + encodeURIComponent(bundle.planId);
     $cta.setAttribute('role', 'link');
 
     const $icon = document.createElement('span');
-    $icon.className = 'me-bundle-cta-icon';
+    $icon.className = 'me-session-template-cta-icon';
     $icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
       + '<rect x="3" y="3" width="18" height="18" rx="2"></rect>'
       + '<path d="M8 12h8M12 8v8"></path>'
@@ -548,7 +618,7 @@
     $cta.appendChild($icon);
 
     const $label = document.createElement('span');
-    $label.className = 'me-bundle-cta-label';
+    $label.className = 'me-session-template-cta-label';
     $label.textContent = 'Use as template for a client';
     $cta.appendChild($label);
 
@@ -556,49 +626,36 @@
   }
 
   /**
-   * Click handler: tapping a back card promotes it to position 1 by
-   * cycling the DOM class names. The front card is always
-   * `.me-bundle-pos-1`. We re-key positions in source order, then move
-   * the tapped index to the front and shift the rest behind it.
+   * Chevron-tap handler. Toggles .is-expanded on the parent .me-session-row
+   * and updates aria-expanded on the chevron button. Accordion is
+   * mutually exclusive across the list: opening row B auto-collapses
+   * any other expanded row.
    */
-  function bindDeckRotation($deck, bundle) {
-    $deck.addEventListener('click', (event) => {
-      const $card = event.target.closest && event.target.closest('.me-bundle-card');
-      if (!$card) return;
-      // Anchor clicks on the front card navigate; everything else is a
-      // back card and we intercept to rotate. The href on back cards is
-      // not set, but we belt-and-brace against future changes.
-      const isAnchor = $card.tagName.toLowerCase() === 'a';
-      const posClass = Array.from($card.classList).find((c) => c.indexOf('me-bundle-pos-') === 0);
-      if (!posClass) return;
-      const pos = Number(posClass.replace('me-bundle-pos-', ''));
-      if (pos === 1 && isAnchor) {
-        // Front card — let the link navigate normally.
-        return;
-      }
+  function bindAccordionToggle($row, $chev) {
+    $chev.addEventListener('click', (event) => {
       event.preventDefault();
-      rotateDeck($deck, bundle, $card);
-    });
-  }
-
-  function rotateDeck($deck, bundle, $tapped) {
-    const tappedKind = $tapped.getAttribute('data-kind');
-    if (!tappedKind) return;
-    // Re-order the bundle's artifacts so the tapped one is at index 0,
-    // then re-render. We rebuild the children rather than try to chase
-    // CSS-only class swaps — the swap path tangles with the anchor-vs-
-    // button element type difference (front card is <a>, back are
-    // <button>).
-    const reordered = [
-      bundle.artifacts.find((a) => a.kind === tappedKind),
-      ...bundle.artifacts.filter((a) => a.kind !== tappedKind),
-    ].filter(Boolean);
-    bundle.artifacts = reordered;
-    // Strip + rebuild the deck.
-    while ($deck.firstChild) $deck.removeChild($deck.firstChild);
-    reordered.slice(0, 3).forEach((row, idx) => {
-      const $card = buildBundleCard(row, bundle, idx);
-      if ($card) $deck.appendChild($card);
+      event.stopPropagation();
+      const wasExpanded = $row.classList.contains('is-expanded');
+      // Collapse every other expanded row first (single-open accordion).
+      document.querySelectorAll('.me-session-row.is-expanded').forEach((r) => {
+        if (r !== $row) {
+          r.classList.remove('is-expanded');
+          const innerChev = r.querySelector('.me-session-chev-hit');
+          if (innerChev) {
+            innerChev.setAttribute('aria-expanded', 'false');
+            innerChev.setAttribute('aria-label', 'Expand artifacts');
+          }
+        }
+      });
+      if (wasExpanded) {
+        $row.classList.remove('is-expanded');
+        $chev.setAttribute('aria-expanded', 'false');
+        $chev.setAttribute('aria-label', 'Expand artifacts');
+      } else {
+        $row.classList.add('is-expanded');
+        $chev.setAttribute('aria-expanded', 'true');
+        $chev.setAttribute('aria-label', 'Collapse artifacts');
+      }
     });
   }
 

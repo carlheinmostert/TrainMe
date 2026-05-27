@@ -3,8 +3,9 @@
 // =============================================================================
 //
 // Full-screen WKWebView that loads the published workout-handout artifact
-// at `<webPlayerOrigin>/h/{planId}`. Mounted from the ArtifactDeck's
-// tap-front action when the artifact kind is `handout`.
+// at `<webPlayerOrigin>/h/{planId}`. Mounted from the
+// SessionArtifactAccordion's `onPlayHandout` callback when the
+// artifact kind is `handout` on ClientSessionsScreen / MyWorkouts.
 //
 // This is a thin viewer — the entire handout page is rendered server-
 // side at `web-player/handout.{html,js,css}`. The Flutter side just

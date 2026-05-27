@@ -418,132 +418,293 @@ html, body {
 .me-plans-list {
   display: flex;
   flex-direction: column;
-  /* Wave 6 — bundles need a generous gap so adjacent decks don't visually
-     run into each other when a bundle's back card tilts down into the
-     next bundle's top edge. 28px clears the deepest back card (pos 3 at
-     dy=+16px). */
-  gap: 28px;
+  /* 2026-05-27 (artifact-card accordion) — gap shrinks back to the
+     12px session-list spacing now that the fanned-deck back cards no
+     longer leak vertically into the next row's top edge. The peek
+     card behind sits flush with the parent row, so 12px clears it. */
+  gap: 12px;
 }
 
 /* ============================================================
- * Wave 6 (artifact-system, 2026-05-27) — Bundle deck on /me
+ * Artifact-card accordion on /me (2026-05-27)
  *
- * The /me deck stacks vertically (smaller card heights ~110px) and
- * uses positive dy values to fan DOWN (the front card sits on top
- * visually with back cards leaning down + right). This is the
- * opposite of the Studio deck which fans UP. The visual vocabulary
- * is shared but the orientation differs because /me's bundles sit
- * in a long scrolling list and we want adjacent bundles to interlock
- * neatly downward.
+ * Replaces the fanned-deck-per-bundle from PR #548. Each bundle is
+ * now a vertical session-card row with:
+ *   - peek card behind (4px right + 5px down offset)
+ *   - tappable coral chevron (44pt hit zone)
+ *   - inline expand-accordion below the card
  *
- * Pose params (from brief):
- *   pos1 (front)  — translate(0,0),     rotate(0deg),    scale(1.00)
- *   pos2 (back-1) — translate(+8,+8),   rotate(1.5deg),  scale(0.97),  opacity 0.78
- *   pos3 (back-2) — translate(+16,+16), rotate(3deg),    scale(0.94),  opacity 0.55
+ * Single-open across the list (JS enforces). Coral rail draws on the
+ * left edge of the artifact stack. Front artifact card uses the coral
+ * accent border. Animations:
+ *   - sibling push-down: 140ms ease-out via grid-template-rows tween.
+ *   - peek lift + fade:  220ms snappy spring.
+ *   - rail draw:         380ms snappy spring (scaleY 0 -> 1) + 30ms delay.
+ *   - artifact stagger:  320ms snappy spring with 50ms + 60ms*n delay.
+ *   - chevron rotate:    280ms snappy spring (0 -> 180deg).
+ * `prefers-reduced-motion`: peek/rail/stagger become instant.
  * ============================================================ */
 
-.me-bundle {
-  background: var(--surface-base);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  padding: 14px 14px 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  /* Allow back cards to peek outside the bundle box without clipping. */
-  overflow: visible;
+.me-session-row {
   position: relative;
+  isolation: isolate;
 }
 
-.me-bundle-deck {
-  position: relative;
-  height: 110px;
-  /* Pad-right by 24px so the back cards' +16px translate sits inside
-     the deck zone — the bundle's outer card already provides padding;
-     this keeps cards visible at their final positions. */
-  margin-right: 16px;
-}
-
-.me-bundle-card {
+/* Peek card behind the session card. 4px right + 5px down per spec.
+   Slightly tinted (surface-raised) so the back-edge reads. Hidden via
+   `display:none` when the row has no artifacts. */
+.me-session-peek {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 16px;
-  height: 100px;
+  inset: 0;
   background: var(--surface-raised);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  text-decoration: none;
-  color: inherit;
-  cursor: pointer;
-  /* Spring transition — matches the Studio deck spec. */
+  transform: translate(4px, 5px);
+  opacity: 0.92;
+  z-index: 0;
+  pointer-events: none;
   transition:
-    transform 720ms cubic-bezier(0.34, 1.18, 0.64, 1),
-    opacity 720ms cubic-bezier(0.34, 1.18, 0.64, 1),
-    box-shadow 720ms cubic-bezier(0.34, 1.18, 0.64, 1);
-  transform-origin: top left;
-  /* Button reset for back cards that get rendered as <button>. */
-  font: inherit;
-  text-align: left;
+    transform 220ms cubic-bezier(0.2, 0.9, 0.25, 1.2),
+    opacity 180ms ease-out;
+}
+.me-session-row[data-has-artifacts="false"] .me-session-peek {
+  display: none;
+}
+.me-session-row.is-expanded .me-session-peek {
+  /* Lift upward + scale down + fade out on expand. */
+  transform: translate(0, -6px) scale(0.98);
+  opacity: 0;
 }
 
-.me-bundle-card:focus-visible {
+/* The actual session card body. */
+.me-session-card {
+  position: relative;
+  z-index: 1;
+  background: var(--surface-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.me-session-card-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 16px;
+}
+
+/* Exercise-count glyph — coral mono-numeric, tabular figures. Mirrors
+   mobile's _LeadingCountGlyph. */
+.me-session-glyph {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: -1.5px;
+  color: var(--brand-default);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  min-width: 36px;
+  text-align: left;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.me-session-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.me-session-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.1px;
+  color: var(--ink-primary);
+  margin: 0 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.me-session-sub {
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.me-session-sub .me-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ink-disabled);
+  flex-shrink: 0;
+}
+
+/* Provenance "from <name> . <practice>" block inside the meta column.
+   Replaces the .me-bundle-provenance pill — visually integrated into
+   the session card rather than a separate block. */
+.me-session-provenance {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-secondary);
+}
+
+/* Chevron — 44pt hit zone wrapping a 24pt visible coral glyph.
+   The visible glyph rotates 180deg on .is-expanded. */
+.me-session-chev-hit {
+  width: 44px;
+  height: 44px;
+  margin: -10px -8px -10px 0;  /* extend hit area beyond the card padding */
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  transition: background 140ms ease-out;
+  position: relative;
+  z-index: 3;
+  color: var(--brand-default);
+  flex-shrink: 0;
+}
+.me-session-chev-hit:hover {
+  background: rgba(255, 107, 53, 0.08);
+}
+.me-session-chev-hit:active {
+  background: rgba(255, 107, 53, 0.16);
+}
+.me-session-chev-hit:focus-visible {
   outline: 2px solid var(--brand-default);
   outline-offset: 2px;
 }
-
-/* Position 1 — front card. */
-.me-bundle-pos-1 {
-  transform: translate(0, 0) rotate(0deg) scale(1);
-  opacity: 1;
-  z-index: 3;
-  border-color: var(--brand-tint-border);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
-  /* Breathing pulse — applied only to the front card. */
-  animation: me-bundle-breathe 3.6s ease-in-out infinite;
+.me-session-chev {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  transition: transform 280ms cubic-bezier(0.2, 0.9, 0.25, 1.2);
+  pointer-events: none;
+}
+.me-session-chev svg {
+  width: 24px;
+  height: 24px;
+}
+.me-session-row.is-expanded .me-session-chev {
+  transform: rotate(180deg);
+}
+.me-session-row[data-has-artifacts="false"] .me-session-chev-hit {
+  display: none;
 }
 
-/* Position 2 — one card behind the front. */
-.me-bundle-pos-2 {
-  transform: translate(8px, 8px) rotate(1.5deg) scale(0.97);
-  opacity: 0.78;
+/* Accordion target — CSS grid template animates from 0fr to 1fr,
+   producing a smooth height tween for the artifact stack. */
+.me-session-artifact-stack {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms cubic-bezier(0.2, 0.9, 0.25, 1.2);
+  position: relative;
+}
+.me-session-row.is-expanded .me-session-artifact-stack {
+  grid-template-rows: 1fr;
+}
+
+.me-session-artifact-inner {
+  overflow: hidden;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+/* Coral hairline rail — 3px wide, sits flush at the LEFT edge of the
+   artifact stack, drawn via ::before. ScaleY 0 -> 1 from the top, with
+   a 30ms delay so siblings push down before the rail draws. */
+.me-session-artifact-inner::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--brand-default);
+  border-radius: 0 0 1.5px 1.5px;
+  transform-origin: top;
+  transform: scaleY(0);
+  transition: transform 380ms cubic-bezier(0.2, 0.9, 0.25, 1.2) 30ms;
+  opacity: 0.95;
   z-index: 2;
 }
-
-/* Position 3 — two cards behind the front. */
-.me-bundle-pos-3 {
-  transform: translate(16px, 16px) rotate(3deg) scale(0.94);
-  opacity: 0.55;
-  z-index: 1;
+.me-session-row.is-expanded .me-session-artifact-inner::before {
+  transform: scaleY(1);
 }
 
-@keyframes me-bundle-breathe {
-  0%, 100% {
-    transform: translate(0, 0) rotate(0deg) scale(1);
-  }
-  50% {
-    transform: translate(0, -2px) rotate(0deg) scale(1.012);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .me-bundle-card { transition: none; }
-  .me-bundle-pos-1 { animation: none; }
-}
-
-.me-bundle-card-top {
+/* Artifact card — full-width, content has extra left-padding so the
+   rail at x=0 doesn't obscure the glyph. */
+.me-artifact-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px 12px 20px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transform: translateY(-8px);
+  opacity: 0;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.9, 0.25, 1.2),
+    opacity 220ms ease-out,
+    border-color 140ms ease-out,
+    box-shadow 140ms ease-out;
+  position: relative;
+}
+.me-session-row.is-expanded .me-artifact-card {
+  transform: translateY(0);
+  opacity: 1;
+}
+/* Per-card stagger — 50ms initial + 60ms per nth-child(n). The
+   selector caps at nth-child(8): more than 8 artifact kinds is far
+   outside the current product surface (4 today, plus the template-cta
+   anchor; ceiling of 8 keeps the rule short). */
+.me-session-row.is-expanded .me-artifact-card:nth-child(1) { transition-delay: 50ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(2) { transition-delay: 110ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(3) { transition-delay: 170ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(4) { transition-delay: 230ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(5) { transition-delay: 290ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(6) { transition-delay: 350ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(7) { transition-delay: 410ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(8) { transition-delay: 470ms; }
+
+.me-artifact-card:hover {
+  border-color: rgba(255, 255, 255, 0.10);
+}
+.me-artifact-card:focus-visible {
+  outline: 2px solid var(--brand-default);
+  outline-offset: 2px;
+}
+.me-artifact-card.is-front {
+  border-color: var(--brand-default);
+  box-shadow: 0 0 0 1px var(--brand-default) inset, 0 2px 8px rgba(255, 107, 53, 0.18);
+}
+.me-artifact-card.is-front .me-artifact-card-pill {
+  background: var(--brand-default);
+  color: #1c0a02;
+  border-color: transparent;
 }
 
-.me-bundle-card-glyph {
-  width: 30px;
-  height: 30px;
+.me-artifact-card-glyph {
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   background: var(--brand-tint-bg);
   border: 1px solid var(--brand-tint-border);
@@ -553,95 +714,50 @@ html, body {
   flex-shrink: 0;
   color: var(--brand-default);
 }
-
-.me-bundle-card-glyph.is-handout {
+.me-artifact-card-glyph.is-handout {
   color: var(--brand-light);
 }
-
-.me-bundle-card-glyph svg {
-  width: 15px;
-  height: 15px;
+.me-artifact-card-glyph svg {
+  width: 22px;
+  height: 22px;
 }
-
-.me-bundle-card-label {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: -0.1px;
-  color: var(--ink-primary);
+.me-artifact-card-meta {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-
-.me-bundle-card-pill {
+.me-artifact-card-label {
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.25px;
-  color: var(--ink-muted);
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--surface-base);
-  border: 1px solid var(--surface-border);
-  flex-shrink: 0;
-}
-
-/* Bundle meta: title, sub, provenance, CTA. */
-.me-bundle-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.me-bundle-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: -0.1px;
+  font-size: 14px;
   color: var(--ink-primary);
-  margin: 0;
+  margin: 0 0 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-
-.me-bundle-sub {
-  font-size: 11.5px;
-  color: var(--ink-secondary);
-  margin: 2px 0 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.me-bundle-sub .me-dot {
-  width: 3px;
-  height: 3px;
+.me-artifact-card-pill {
+  display: inline-block;
+  padding: 2px 8px;
   border-radius: 999px;
-  background: var(--ink-disabled);
-  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  background: var(--surface-base);
+  color: var(--ink-muted);
+  border: 1px solid var(--surface-border);
 }
 
-.me-bundle-provenance {
-  margin-top: 8px;
-  padding: 8px 10px;
-  background: var(--brand-tint-bg);
-  border: 1px solid var(--brand-tint-border);
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Owner-only CTA — "Use as template for a client" deep-link to the
-   mobile app. Coral-bordered to read as a clear next-action. */
-.me-bundle-cta {
-  margin-top: 10px;
+/* Owner-only "Use as template" CTA — lives INSIDE the expanded
+   artifact area per the redesigned spec (not below the session card).
+   Uses the same coral-tinted chrome the legacy bundle CTA had. */
+.me-session-template-cta {
+  margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 10px 12px 10px 20px;
   background: var(--brand-tint-bg);
   border: 1px solid var(--brand-tint-border);
   border-radius: var(--radius-sm);
@@ -653,19 +769,23 @@ html, body {
   letter-spacing: -0.1px;
   cursor: pointer;
   transition: background 120ms ease-out, border-color 120ms ease-out;
+  /* Share the stagger animation — treated as just another card. */
+  transform: translateY(-8px);
+  opacity: 0;
 }
-
-.me-bundle-cta:hover {
+.me-session-row.is-expanded .me-session-template-cta {
+  transform: translateY(0);
+  opacity: 1;
+}
+.me-session-template-cta:hover {
   background: rgba(255, 107, 53, 0.18);
   border-color: rgba(255, 107, 53, 0.45);
 }
-
-.me-bundle-cta:focus-visible {
+.me-session-template-cta:focus-visible {
   outline: 2px solid var(--brand-default);
   outline-offset: 2px;
 }
-
-.me-bundle-cta-icon {
+.me-session-template-cta-icon {
   width: 20px;
   height: 20px;
   display: inline-flex;
@@ -674,122 +794,35 @@ html, body {
   color: var(--brand-default);
   flex-shrink: 0;
 }
-
-.me-bundle-cta-icon svg {
+.me-session-template-cta-icon svg {
   width: 16px;
   height: 16px;
 }
-
-.me-bundle-cta-label {
+.me-session-template-cta-label {
   flex: 1;
   min-width: 0;
 }
 
-.me-plan-card {
-  background: var(--surface-base);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  cursor: pointer;
-  text-decoration: none;
-  color: inherit;
-  transition: transform 120ms ease-out, border-color 120ms ease-out;
+/* prefers-reduced-motion overrides per spec:
+     - peek lift / rail draw / artifact stagger become instant (0ms).
+     - sibling push-down becomes 0ms.
+     - chevron rotation stays (~140ms) because it's a directional cue. */
+@media (prefers-reduced-motion: reduce) {
+  .me-session-peek { transition: none; }
+  .me-session-artifact-stack { transition: none; }
+  .me-session-artifact-inner::before { transition: none; }
+  .me-artifact-card { transition: none; }
+  .me-session-template-cta { transition: none; }
+  .me-session-chev { transition: transform 140ms ease-out; }
 }
 
-.me-plan-card:hover {
-  transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.10);
-}
-
-.me-plan-card .me-card-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-}
-
-.me-kind-glyph {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  border: 1px solid var(--surface-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--brand-default);
-}
-
-.me-kind-glyph.is-handout { color: var(--brand-light); }
-
-.me-kind-glyph svg {
-  width: 18px;
-  height: 18px;
-}
-
-.me-card-meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.me-card-kind {
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 10.5px;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  margin: 0 0 2px;
-}
-
-.me-card-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: -0.1px;
-  color: var(--ink-primary);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.me-card-sub {
-  font-size: 11.5px;
-  color: var(--ink-secondary);
-  margin: 4px 0 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.me-card-sub .me-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--ink-disabled);
-  flex-shrink: 0;
-}
-
-.me-chev {
-  width: 16px;
-  height: 16px;
-  color: var(--ink-muted);
-  flex-shrink: 0;
-}
-
-.me-provenance {
-  background: var(--brand-tint-bg);
-  border-top: 1px solid var(--brand-tint-border);
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+/* The .me-prov-avatar / .me-prov-text / .me-live-dot rules below are
+   shared with the new session-accordion provenance markup (rendered
+   inside .me-session-provenance by buildBundleProvenance). The
+   pre-2026-05-27 selectors .me-plan-card / .me-card-top / .me-kind-glyph
+   / .me-card-meta / .me-card-kind / .me-card-title / .me-card-sub /
+   .me-chev / .me-provenance were removed when the fanned-deck /
+   flat-card UI was retired in favour of the accordion. */
 
 .me-prov-avatar {
   width: 20px;

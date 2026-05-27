@@ -45,9 +45,7 @@ import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
 import '../widgets/paste_bottom_sheet.dart';
 import '../widgets/preset_chip_row.dart';
-import '../widgets/artifact_deck.dart';
 import '../widgets/artifact_share_sheet.dart';
-import 'handout_web_view_screen.dart';
 import '../widgets/publish_gate_sheet.dart';
 import '../widgets/publish_progress_sheet.dart';
 import '../widgets/safe_mode_icon.dart';
@@ -322,14 +320,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// opening the gate.
   List<String>? _lastPublishKinds;
 
-  /// Wave 6 (artifact-system, 2026-05-27) — practice's brand color, used
-  /// by the ArtifactDeck's front-card chrome when the practice has an
-  /// active brand-skin subscription (ADR-0029). Null = use the homefit
-  /// coral default. Resolved once per Studio open from
-  /// [ApiClient.listMyPractices]'s cached membership row. Per
-  /// `feedback_no_silent_fallbacks` — defaulting to coral here is the
-  /// documented behavior for missing-brand state, not a silent degrade.
-  Color? _brandAccent;
+  // 2026-05-27 (artifact-card accordion) — `_brandAccent` and its
+  // `_refreshBrandAccent` resolver have been removed from Studio along
+  // with the fanned ArtifactDeck. The brand-skin lookup now happens on
+  // ClientSessionsScreen / MyWorkoutsScreen, where the SessionArtifact-
+  // Accordion's front-card chrome consumes it.
 
   /// Periodic re-fetch of `_planAnalytics` while the Studio screen is
   /// mounted. Events land server-side as the client opens / completes
@@ -371,10 +366,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // the AppBar status row paints from first frame, and resolve the
     // paid-artifact flag for the ADR 0028 edit-lock check.
     unawaited(_refreshArtifactStatuses());
-    // Wave 6 (artifact-system) — resolve the practice's brand color
-    // alongside, so the ArtifactDeck's front-card chrome reads the
-    // brand accent when the brand-skin subscription is active.
-    unawaited(_refreshBrandAccent());
+    // 2026-05-27 — the prior `_refreshBrandAccent` call for the
+    // ArtifactDeck has been removed; the brand-accent resolve now
+    // lives on the surfaces that mount the SessionArtifactAccordion.
     // Lazy line-drawing prefetch — pulls public media-bucket files for
     // any exercise on this session that's cloud-only (fresh sandbox /
     // app reinstall). Fire-and-forget; per-card spinner overlays
@@ -681,69 +675,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
   }
 
-  /// Wave 6 (artifact-system, 2026-05-27) — resolve the practice's
-  /// brand color for the ArtifactDeck's front-card chrome.
-  ///
-  /// Two-step:
-  ///   1. Check `practice_has_active_brand_skin` — fast yes/no.
-  ///   2. If active, look up `brandColor` from the cached membership
-  ///      list. The brand color is a hex string ("#AABBCC"); parse on
-  ///      the spot. Invalid hex = silent fall-through to coral default
-  ///      (per `feedback_no_silent_fallbacks`: missing data on a
-  ///      cosmetic field is not a load-bearing degradation; coral is
-  ///      the documented default state).
-  ///
-  /// One-shot per Studio open. The brand-skin state changes slowly
-  /// (day-level) — re-fetching on every artifact refresh is wasteful.
-  Future<void> _refreshBrandAccent() async {
-    // `Session.practiceId` is in-memory only — SQLite drops it (see
-    // `gotcha_session_practice_id_local_only.md`). Fall back to the
-    // signed-in user's current practice when the session field is null.
-    final practiceId = _session.practiceId
-        ?? AuthService.instance.currentPracticeId.value;
-    if (practiceId == null || practiceId.isEmpty) return;
-    try {
-      final hasSkin = await ApiClient.instance.practiceHasActiveBrandSkin(
-        practiceId: practiceId,
-      );
-      if (!mounted) return;
-      if (!hasSkin) {
-        if (_brandAccent != null) {
-          setState(() => _brandAccent = null);
-        }
-        return;
-      }
-      // Active skin — pull the brand color from cached memberships.
-      final memberships = await ApiClient.instance.listMyPractices();
-      if (!mounted) return;
-      final match = memberships.firstWhere(
-        (m) => m.id == practiceId,
-        orElse: () => const PracticeMembership(
-          id: '',
-          name: '',
-          role: PracticeRole.practitioner,
-        ),
-      );
-      final hex = match.brandColor;
-      if (hex == null || hex.isEmpty) return;
-      final parsed = _parseHexColor(hex);
-      if (parsed == null) return;
-      setState(() => _brandAccent = parsed);
-    } catch (e) {
-      debugPrint('StudioModeScreen._refreshBrandAccent failed: $e');
-    }
-  }
-
-  /// Parse a "#AABBCC" or "AABBCC" hex string into a [Color]. Returns
-  /// null on any malformed input — caller falls back to the default.
-  Color? _parseHexColor(String hex) {
-    var trimmed = hex.trim();
-    if (trimmed.startsWith('#')) trimmed = trimmed.substring(1);
-    if (trimmed.length != 6) return null;
-    final value = int.tryParse(trimmed, radix: 16);
-    if (value == null) return null;
-    return Color(0xFF000000 | value);
-  }
+  // 2026-05-27 (artifact-card accordion) — `_refreshBrandAccent` and
+  // `_parseHexColor` removed alongside the fanned ArtifactDeck. The
+  // resolver now lives on ClientSessionsScreen + MyWorkoutsScreen,
+  // which mount the SessionArtifactAccordion whose front-card chrome
+  // consumes the brand color.
 
   /// Wave 35 — drop the Preview-handoff focus marker on the next user
   /// interaction (any field edit, save, or scroll). No-op when the
@@ -2463,23 +2399,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         ),
       );
     }
-    // Wave 6 (artifact-system, 2026-05-27) — replaces the prior
-    // [ArtifactStatusRow] compact-pill bar with a fanned ArtifactDeck.
-    // The deck renders one card per actually-published artifact (no
-    // "not yet" placeholders); the front card breathes and is tappable
-    // to "play" the artifact. Back cards rotate to the front on tap.
-    // Brand-skin aware via [_brandAccent] (ADR-0029). Renders nothing
-    // until the first publish lands — sessions with zero artifacts
-    // collapse to SizedBox.shrink and the exercise list sits flush.
-    final deck = ArtifactDeck(
-      statuses: _artifactStatuses,
-      brandAccent: _brandAccent,
-      onPlayPlanUrl: _openPreview,
-      onPlayHandout: _openHandoutWebView,
-      onPlayOther: _showArtifactKindComingSoon,
-    );
-    // Wave 38 — 12pt breather above the first card. The list's own
-    // padding (bottom: 8) already cushions below.
+    // 2026-05-27 (artifact-card accordion) — the fanned ArtifactDeck
+    // above the exercise list has been removed. Artifact browsing now
+    // lives on ClientSessionsScreen / MyWorkoutsScreen / `/me` via the
+    // per-session accordion (see `session_artifact_accordion.dart`).
+    // Studio is the editing surface only.
+    //
+    // `_artifactStatuses` + `_planHasPaidArtifact` are still cached on
+    // this screen because the publish-gate edit-lock check
+    // (`_planHasPaidArtifact`) and the post-publish status refresh both
+    // depend on them. Only the deck render is gone.
+    //
+    // Wave 38 — the list's own padding (bottom: 8) cushions below.
     //
     // Wave 39 (Item 5) — wrap the list in a LayoutBuilder + Stack so
     // the reachability drop-pill can sit bottom-right, above the
@@ -2489,49 +2420,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return Column(
       mainAxisSize: MainAxisSize.max,
       children: [
-        deck,
         Expanded(child: _buildExerciseListPanel()),
       ],
     );
   }
 
-  /// Wave 6 — open the workout handout WebView at
-  /// `<webPlayerOrigin>/h/{planId}`. Called from the ArtifactDeck's
-  /// tap-front when the front card's kind is `handout`. The published
-  /// handout is rendered server-side at `web-player/handout.html`.
-  void _openHandoutWebView() {
-    HapticFeedback.selectionClick();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => HandoutWebViewScreen(planId: _session.id),
-      ),
-    );
-  }
-
-  /// Wave 6 — show a "Coming soon" SnackBar for artifact kinds whose
-  /// play surfaces haven't shipped yet (poster, reel, ai_reel, calendar).
-  /// Stubbed so the deck doesn't error on a tap, per the brief.
-  void _showArtifactKindComingSoon(String kind) {
-    HapticFeedback.selectionClick();
-    final label = ArtifactKindRegistry.specFor(kind)?.label ?? kind;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            '$label — coming soon.',
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 14,
-              color: AppColors.textOnDark,
-            ),
-          ),
-          backgroundColor: AppColors.surfaceRaised,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-  }
+  // 2026-05-27 (artifact-card accordion) — `_openHandoutWebView` and
+  // `_showArtifactKindComingSoon` removed alongside the fanned deck.
+  // The browsing surfaces (ClientSessionsScreen / MyWorkoutsScreen /
+  // `/me`) own these tap routes now via SessionArtifactAccordion.
 
   /// Wave 3 — split out the legacy `_buildBody`'s LayoutBuilder + Stack
   /// for the exercise list so the artifact-status row can sit above it
