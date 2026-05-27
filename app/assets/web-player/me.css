@@ -489,7 +489,11 @@ html, body {
   opacity: 0;
 }
 
-/* The actual session card body. */
+/* The actual session card body. 2026-05-27 evening iteration — the card
+   no longer clips overflow because the absolutely-positioned action
+   stack (Studio + Artifact buttons) anchors to the card's right edge
+   with `pointer-events: none` on the wrapper so the card body remains
+   tappable through the gap between the two buttons. */
 .me-session-card {
   position: relative;
   z-index: 1;
@@ -503,7 +507,11 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 14px 14px 16px;
+  /* Reserve room on the right edge so the meta column doesn't run under
+     the absolutely-positioned action buttons (which sit at right:10px
+     with widths ~85-110px). 64px on the right is enough breathing room
+     for the largest button (Studio: pencil + chevron + padding). */
+  padding: 14px 64px 14px 16px;
 }
 
 /* Exercise-count glyph — coral mono-numeric, tabular figures. Mirrors
@@ -569,50 +577,60 @@ html, body {
   color: var(--ink-secondary);
 }
 
-/* Action stack — two small pill buttons stacked vertically on the right
-   end of the card-body row. Replaces the legacy single chevron hit zone
-   per the 2026-05-27 afternoon iteration. The Studio button is always
-   visible; the Artifacts button only renders when the row has artifacts.
+/* Action stack — two absolutely-positioned pill buttons painted OVER
+   the entire session card (2026-05-27 evening iteration). The Studio
+   button is vertically centered on the whole card; the Artifact button
+   is docked at the bottom-right with a ~12px bottom inset.
 
-   Negative margin extends the combined hit area vertically into the
-   card-body padding so each ~36pt visible button reaches Apple HIG's
-   44pt minimum tap target. */
+   The wrapper has `pointer-events: none` so the gap BETWEEN the two
+   buttons remains tappable on the card body underneath; each button
+   re-enables pointer events via `pointer-events: auto`. Both buttons
+   are ALWAYS visible — tapping the Artifact button on a row with zero
+   published artifacts reveals an empty-state slider with onboarding
+   copy instead of expanding the accordion.
+
+   Vertical separation between the two buttons is now proportional to
+   the card height (~80-100dp on a typical filmstrip card). */
 .me-action-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: -8px -6px -8px 0;
-  position: relative;
+  position: absolute;
+  right: 10px;
+  top: 0;
+  bottom: 0;
+  width: auto;
+  pointer-events: none;
   z-index: 3;
-  flex-shrink: 0;
 }
 
 /* One coral pill action button. Icon (svg, 18x18) + arrow glyph (text,
-   14px). Coral-tinted bg, coral border, coral fg. Hover brightens; press
-   scales to 0.96. */
+   14px). Coral-tinted bg + border + fg with backdrop-blur so the button
+   stays legible over filmstrip imagery. Heavier bg tint
+   (rgba(255,107,53,0.18)) matches the mockup's evening-iteration spec.
+   Hover brightens; press scales to 0.96. */
 .me-action-btn {
+  position: absolute;
+  right: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: rgba(255, 107, 53, 0.10);
+  background: rgba(255, 107, 53, 0.18);
   border: 1px solid rgba(255, 107, 53, 0.45);
   color: var(--brand-default);
   cursor: pointer;
+  pointer-events: auto;
   transition:
     background 140ms ease-out,
     border-color 140ms ease-out,
     transform 100ms ease-out;
   min-width: 60px;
   font-family: var(--font-body);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .me-action-btn:hover {
-  background: rgba(255, 107, 53, 0.22);
+  background: rgba(255, 107, 53, 0.32);
   border-color: var(--brand-default);
-}
-.me-action-btn:active {
-  transform: scale(0.96);
 }
 .me-action-btn:focus-visible {
   outline: 2px solid var(--brand-default);
@@ -633,9 +651,23 @@ html, body {
   display: inline-block;
 }
 
-/* Artifacts button hides when the row has no published artifacts. */
-.me-session-row[data-has-artifacts="false"] .me-action-btn.is-artifacts {
-  display: none;
+/* Studio button — vertically centered against the WHOLE session card.
+   Combined translateY(-50%) with the active scale so press states don't
+   stomp the centering. */
+.me-action-btn.is-studio {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.me-action-btn.is-studio:active {
+  transform: translateY(-50%) scale(0.96);
+}
+
+/* Artifact button — docked at the bottom-right of the card. */
+.me-action-btn.is-artifacts {
+  bottom: 12px;
+}
+.me-action-btn.is-artifacts:active {
+  transform: scale(0.96);
 }
 
 /* The Artifacts button's down-arrow rotates 180° on the expanded state. */
@@ -749,6 +781,52 @@ html, body {
 .me-session-row.is-expanded .me-artifact-card:nth-child(6) { transition-delay: 780ms; }
 .me-session-row.is-expanded .me-artifact-card:nth-child(7) { transition-delay: 920ms; }
 .me-session-row.is-expanded .me-artifact-card:nth-child(8) { transition-delay: 1060ms; }
+
+/* Collapse stagger — REVERSED (2026-05-27 evening iteration). Bottom
+   card retreats first, top card last. Visual sense: the deck restacks
+   in the order it laid out, but in reverse. The transition-delay is
+   applied on the non-expanded state of the row so it only fires during
+   the collapse transition. Up to 5 cards mirror exactly per spec; cards
+   6-8 chain past 80ms in reverse order so the rhythm continues. */
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(1) { transition-delay: 640ms; }
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(2) { transition-delay: 500ms; }
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(3) { transition-delay: 360ms; }
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(4) { transition-delay: 220ms; }
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(5) { transition-delay: 80ms; }
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(6) { transition-delay: 0ms; }
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(7) { transition-delay: 0ms; }
+.me-session-row:not(.is-expanded) .me-artifact-card:nth-child(8) { transition-delay: 0ms; }
+
+/* Container shrink waits for cards to finish retreating (800ms delay
+   per spec). The grow direction (.is-expanded) gets zero delay so the
+   expand starts immediately and the cards land into the growing
+   container. */
+.me-session-row:not(.is-expanded) .me-session-artifact-stack {
+  transition-delay: 800ms;
+}
+.me-session-row.is-expanded .me-session-artifact-stack {
+  transition-delay: 0ms;
+}
+
+/* Rail recedes mid-collapse, after most cards have left (600ms delay).
+   Combined with the 640ms transform duration the rail finishes its
+   scaleY(0) tween at the same moment the container shrink begins. */
+.me-session-row:not(.is-expanded) .me-session-artifact-inner::before {
+  transition: transform 640ms cubic-bezier(0.2, 0.9, 0.25, 1.2) 600ms;
+}
+
+/* Peek slides back in toward the end of the collapse (1100ms delay),
+   mirroring its "lift first" role on expand. */
+.me-session-row:not(.is-expanded) .me-session-peek {
+  transition:
+    transform 380ms cubic-bezier(0.2, 0.9, 0.25, 1.2) 1100ms,
+    opacity 300ms ease-out 1100ms;
+}
+.me-session-row.is-expanded .me-session-peek {
+  transition:
+    transform 380ms cubic-bezier(0.2, 0.9, 0.25, 1.2),
+    opacity 300ms ease-out;
+}
 
 .me-artifact-card:hover {
   border-color: rgba(255, 255, 255, 0.10);
@@ -874,6 +952,72 @@ html, body {
   min-width: 0;
 }
 
+/* Empty-state slider (2026-05-27 evening iteration) — appears below the
+   session card when the consumer/practitioner taps the Artifact button
+   on a row with zero published artifacts. Same accordion mechanism as
+   the real stack (grid-template-rows 0fr -> 1fr); the leading rail is
+   text-dim grey (not coral) to differentiate from the real artifact
+   accordion. Auto-dismisses after 3.5 seconds via JS, or collapses if
+   another row is interacted with. */
+.me-session-empty-state {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 360ms cubic-bezier(0.2, 0.9, 0.25, 1.2);
+  position: relative;
+}
+.me-session-row.is-empty-revealed .me-session-empty-state {
+  grid-template-rows: 1fr;
+}
+.me-session-empty-state-inner {
+  overflow: hidden;
+  padding-top: 10px;
+  padding-left: 13px;
+  position: relative;
+}
+.me-session-empty-state-inner::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--ink-secondary, #8A93A8);
+  border-radius: 0 0 1.5px 1.5px;
+  opacity: 0.5;
+}
+.me-session-empty-state-banner {
+  background: rgba(138, 147, 168, 0.10);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: var(--ink-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.me-session-empty-state-banner-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(138, 147, 168, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ink-secondary);
+}
+.me-session-empty-state-banner-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.me-session-empty-state-banner strong {
+  color: var(--ink-primary);
+  font-weight: 600;
+}
+
 /* prefers-reduced-motion overrides per spec:
      - peek lift / rail draw / artifact stagger become instant (0ms).
      - container grow becomes 0ms (snap).
@@ -882,11 +1026,17 @@ html, body {
      - action-button arrow rotation stays (~140ms) because it's a
        directional cue, not decoration. */
 @media (prefers-reduced-motion: reduce) {
-  .me-session-peek { transition: none; }
-  .me-session-artifact-stack { transition: none; }
-  .me-session-artifact-inner::before { transition: none; }
+  .me-session-peek,
+  .me-session-row:not(.is-expanded) .me-session-peek,
+  .me-session-row.is-expanded .me-session-peek { transition: none; }
+  .me-session-artifact-stack,
+  .me-session-row:not(.is-expanded) .me-session-artifact-stack,
+  .me-session-row.is-expanded .me-session-artifact-stack { transition: none; }
+  .me-session-artifact-inner::before,
+  .me-session-row:not(.is-expanded) .me-session-artifact-inner::before { transition: none; }
   .me-artifact-card { transition: none; }
   .me-session-template-cta { transition: none; }
+  .me-session-empty-state { transition: none; }
   .me-action-btn .me-action-arrow {
     transition: transform 140ms ease-out;
   }

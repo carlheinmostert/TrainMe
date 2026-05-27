@@ -212,3 +212,94 @@ following on mobile + web after the wave merges to staging.
 - [ ] 45. Soft-delete swipe still fires on the session card with
       the new action stack mounted in the trailing slot (regression
       check for item 9).
+
+## Wave 3 — evening iteration (2026-05-27 evening)
+
+Three further refinements on top of Waves 1 + 2: absolute-positioned
+action buttons over the entire card, always-visible Artifact button
+with an empty-state slider, and a collapse animation that mirrors the
+expand stagger. Spec section: "Iteration log — 2026-05-27 evening".
+
+### Button positioning — Studio centered, Artifact docked
+
+- [ ] 46. On ClientSessionsScreen, look at any session card with a
+      filmstrip background. The Studio button (pencil + `›`) is
+      vertically centered against the WHOLE card (not flush with the
+      bottom-right corner). It floats over the filmstrip imagery with
+      a subtle backdrop blur so the coral chrome stays readable.
+- [ ] 47. The Artifact button (stacked-cards + `▾`) sits at the
+      bottom-right of the same card with a ~12dp inset from the bottom
+      edge. Vertical separation between the Studio button and the
+      Artifact button is roughly 80-100dp (not the prior ~4dp gap).
+- [ ] 48. Tap a point in the gap BETWEEN the two buttons (e.g. on
+      the analytics line or the lock-state row). The session opens in
+      Studio — the gap is still a tappable region of the card body,
+      not a black hole.
+- [ ] 49. Buttons remain visible while scrolling the list. No part of
+      either button gets clipped by the card border or the next row
+      below.
+
+### Artifact button always visible + empty-state slider
+
+- [ ] 50. Look at an UNPUBLISHED session (draft, no artifacts yet).
+      The Artifact button is STILL visible — same coral pill, same
+      down-arrow. Wave 1's "hide artifact button when no artifacts"
+      rule is retired.
+- [ ] 51. Tap the Artifact button on the unpublished session. Instead
+      of expanding an empty accordion, an inline banner drops down
+      below the card: a text-dim grey rail on the left + a soft
+      grey-tinted card with the copy "No artifacts yet. Publish this
+      session to mint a workout plan or handout. Both will appear
+      here." The "No artifacts yet." prefix is bold + white; the rest
+      of the copy is text-dim.
+- [ ] 52. Wait 3.5 seconds without touching anything. The empty-state
+      slider auto-dismisses cleanly (slides back up).
+- [ ] 53. Re-open the empty-state slider, then tap any OTHER card
+      (artifact-bearing or not). The slider closes immediately — only
+      one slider OR one accordion can be open at a time.
+- [ ] 54. Re-open the empty-state slider, then tap the same Artifact
+      button again. The slider toggles closed (no need to wait for
+      the auto-dismiss).
+
+### Collapse animation mirrors expand
+
+- [ ] 55. Expand a session with 3 or more artifacts. Watch the
+      sequence: cards stagger in top-first (card 1 lands first, card
+      3 last). Total time from tap to last card landing is ~1.46s.
+- [ ] 56. With the same session expanded, tap the Artifact button to
+      collapse. The animation REVERSES: the bottom card retreats
+      first, the top card last. The container then shrinks AFTER the
+      cards have left. The peek card slides back in at the very end.
+      Total collapse duration matches expand (~1.46s).
+- [ ] 57. Mid-collapse interrupt: expand session A, then immediately
+      tap session B's Artifact button (within the first second).
+      Session A starts collapsing, session B starts expanding. The
+      sequence does not lock up or visibly stutter.
+- [ ] 58. Reduce-motion check: enable iOS Settings → Accessibility →
+      Motion → Reduce Motion. Expand and then collapse a session.
+      Both transitions are now instant — no card stagger, no delayed
+      container shrink, no peek slide-back. The button arrow rotation
+      still animates (140ms cue).
+
+### Web `/me` parity for the evening iteration
+
+- [ ] 59. On `/me` as an OWNER: the Studio button is vertically
+      centered on the card. The Artifact button is at the bottom-right.
+      Same backdrop-blurred coral chrome.
+- [ ] 60. On `/me` as ANY signed-in consumer: the Artifact button is
+      ALWAYS visible, including on bundles with no artifacts. Tapping
+      it on an empty bundle reveals the same empty-state slider with
+      the same onboarding copy.
+- [ ] 61. Web `/me` collapse animation reverses the expand stagger
+      (item 56 equivalent) — bottom card retreats first, peek returns
+      last. Side-by-side comparison with mobile: rhythm matches.
+
+### Regression — preserved from Wave 1 + Wave 2
+
+- [ ] 62. Studio still works on the card body (tap any non-button
+      region of the card → Studio opens).
+- [ ] 63. /me still has no Share button anywhere.
+- [ ] 64. Brand-skin practice: front artifact card still uses brand
+      color; rail stays coral.
+- [ ] 65. Soft-delete swipe still works on the session card with the
+      action overlay painted on top.

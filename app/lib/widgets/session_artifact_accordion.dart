@@ -2,9 +2,9 @@
 // SessionArtifactAccordion — 2026-05-27 (artifact-card accordion)
 // =============================================================================
 //
-// Per-session card with a peek depth cue + tappable expand chevron + inline
-// vertical accordion that lists the session's published `plan_artifacts`.
-// Mounts on three surfaces with R-10 parity:
+// Per-session card with a peek depth cue + two absolutely-positioned action
+// buttons + inline vertical accordion that lists the session's published
+// `plan_artifacts`. Mounts on three surfaces with R-10 parity:
 //
 //   * ClientSessionsScreen (`app/lib/screens/client_sessions_screen.dart`)
 //   * My Workouts          (`app/lib/screens/my_workouts_screen.dart`)
@@ -15,47 +15,75 @@
 // again. The browsing surfaces gain a subtle depth cue when artifacts exist
 // and an in-place vertical expand.
 //
-// Visual behavior (matches `docs/design/mockups/2026-05-27-artifact-card-expansion.html`,
-// with the 2026-05-27 afternoon iteration applied):
+// 2026-05-27 evening iteration (this rev) — three refinements on top of the
+// afternoon iteration:
+//
+//   1. Buttons are now absolutely positioned OVER the entire session card,
+//      not stacked in the card-body trailing slot:
+//        - Studio button: vertically centered against the whole card
+//          (floats over the filmstrip). Backdrop-blurred for readability.
+//        - Artifact button: docked at the bottom-right of the card (~12dp
+//          bottom inset). Chevron-down naturally points to where the stack
+//          will emerge.
+//      Vertical separation between the two buttons is now ~80-100dp.
+//
+//   2. Artifact button is ALWAYS visible (including on unpublished sessions
+//      with zero artifacts). Tapping it on a zero-artifact session reveals
+//      a soft empty-state slider with onboarding copy:
+//        "No artifacts yet. Publish this session to mint a workout plan or
+//         handout. Both will appear here."
+//      Auto-dismisses after 3500ms, or collapses if another card is opened.
+//      Leading rail is text-dim grey (not coral) to differentiate from the
+//      real artifact accordion.
+//
+//   3. Collapse animation is now the time-reverse of expand. Bottom card
+//      retreats first, top card last. Container shrinks AFTER cards leave.
+//      Peek slides back in last. Total ~1.46s — mirrors the expand budget.
+//
+// Visual behavior (matches `docs/design/mockups/2026-05-27-artifact-card-expansion.html`):
 //
 //   - Rest, artifacts present     — peek card behind (4px right, 5px down);
-//                                   two stacked coral action buttons at the
-//                                   right end of the card-body row.
-//   - Rest, no artifacts          — no peek; only the Studio button renders
-//                                   in the action stack. (The artifacts
-//                                   button is hidden when there's nothing
-//                                   to expand.)
+//                                   Studio button vertically centered;
+//                                   Artifact button at bottom-right.
+//   - Rest, no artifacts          — no peek. Studio button still centered;
+//                                   Artifact button still at bottom-right.
 //   - Expanded                    — peek lifts + fades; siblings push down;
 //                                   artifact cards slide down from behind
 //                                   the session card with depth-proportional
 //                                   travel + 140ms stagger (deal-of-cards);
 //                                   coral 3px rail draws inside the 13dp
 //                                   gutter on the left of the artifact stack.
+//   - Empty-state revealed        — text-dim rail draws inside the gutter;
+//                                   onboarding banner card slides in below
+//                                   the session card. Auto-dismiss timer
+//                                   runs for 3.5 seconds.
 //
 // Tap zones:
-//   - Card BODY → existing behaviour (open Studio for this session).
-//   - Studio action button (top) → same enterStudio action; stops propagation.
-//   - Artifacts action button (bottom, when has artifacts) → toggle expanded.
+//   - Card BODY (filmstrip + card content) → existing behaviour (open Studio
+//     for this session).
+//   - Studio action button (vertically centered overlay) → same enterStudio
+//     action; stops propagation.
+//   - Artifact action button (bottom-right overlay) → toggle expanded when
+//     row has artifacts; reveal empty-state slider when zero artifacts.
 //   - Artifact card → kind-specific action (preview / handout / coming soon).
 //
-// Animation timings (per spec, 2026-05-27 afternoon iteration — slowed for
-// "deal of cards" rhythm):
-//   - Sibling push-down       : 200ms ease-out (was 140ms).
-//   - Peek lift + fade        : 380ms snappy spring (was 220ms).
-//   - Container grow          : 540ms snappy spring (driven by AnimatedSize).
-//   - Artifact card slide     : 820ms each, cubic-bezier(.2,.85,.25,1.18).
-//   - Per-card stagger        : 140ms per card (cards land at 80 / 220 /
-//                               360 / 500 / 640ms after expand starts).
-//   - Coral rail draw         : 640ms snappy spring + 60ms head-start delay.
-//   - Action-button chevron   : 280ms snappy spring (0deg -> 180deg).
-//
-// Per-card depth-proportional starting translateY values (reinforces the
-// "deck of cards underneath" mental model — deeper cards travel farther):
-//   - Card 1: -180% (above target by 1.8x card-height)
-//   - Card 2: -280%
-//   - Card 3: -380%
-//   - Card 4: -480%
-//   - Cards 5+: -480% (cap)
+// Animation timings (per spec, 2026-05-27 evening iteration):
+//   - Container grow (expand)        : 540ms snappy spring.
+//   - Container shrink (collapse)    : delayed 800ms before starting, then
+//                                      same 540ms snappy — so cards leave
+//                                      FIRST and the container collapses
+//                                      around the vacancy.
+//   - Peek lift (expand) / fade      : 380ms snappy spring.
+//   - Peek slide-back (collapse)     : delayed 1100ms — last thing to land.
+//   - Artifact card slide (expand)   : 820ms each, deal spring,
+//                                      delay = 80 + 140*index.
+//   - Artifact card slide (collapse) : 820ms each, deal spring,
+//                                      delay = 80 + 140*(N-1-index) — top
+//                                      card leaves last.
+//   - Coral rail draw (expand)       : 640ms snappy spring + 60ms delay.
+//   - Coral rail recede (collapse)   : 640ms snappy spring + 600ms delay.
+//   - Action-button chevron rotate   : 280ms snappy spring (0 -> 180deg).
+//   - Empty-state slider expand      : 360ms snappy spring (AnimatedSize).
 //
 // `MediaQuery.disableAnimations` (mirrors `prefers-reduced-motion: reduce`):
 //   - Peek lift, stagger, rail draw collapse to 0ms.
@@ -68,8 +96,11 @@
 //   - Parent owns "which session id is expanded" so the accordion is
 //     mutually exclusive across the list (tap session B -> A collapses).
 //   - When the parent has no artifacts loaded yet, [artifactStatuses] is
-//     null; the card paints WITHOUT peek or chevron (graceful empty state).
+//     null; the card paints WITHOUT peek (graceful empty state). Both
+//     action buttons still render.
 // =============================================================================
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -90,35 +121,51 @@ const Cubic _kSnappySpring = Cubic(0.2, 0.9, 0.25, 1.2);
 /// mockup's `cubic-bezier(.2, .85, .25, 1.18)`.
 const Cubic _kDealSpring = Cubic(0.2, 0.85, 0.25, 1.18);
 
-/// Container grow on expand — 540ms snappy spring (was 360ms in the
-/// initial PR #549 implementation). Drives the AnimatedSize child swap so
-/// the height tween matches the slowed deal-of-cards rhythm. The legacy
-/// sibling-push-down constant (200ms ease-out per the iteration spec) is
-/// subsumed by this single AnimatedSize duration — the height-grow tween
-/// IS the visible sibling reflow, and decoupling the two adds no value
-/// while complicating reasoning about timing.
+/// Container grow on expand — 540ms snappy spring. AnimatedSize drives
+/// the height tween that the cards' own slide animations land into.
 const Duration _kContainerGrowDuration = Duration(milliseconds: 540);
+
+/// Container shrink on collapse waits 800ms so the cards retreat before
+/// the surrounding height collapses. Total ~1.34s for the shrink to
+/// settle (800ms delay + 540ms tween).
+const Duration _kContainerShrinkDelay = Duration(milliseconds: 800);
 
 /// Chevron rotation 0 -> 180deg. Stays even under reduced-motion (140ms
 /// then) because it's a directional indicator.
 const Duration _kChevronDuration = Duration(milliseconds: 280);
 const Duration _kChevronReducedMotionDuration = Duration(milliseconds: 140);
 
-/// Peek lift + fade. 380ms snappy spring (was 220ms) at full motion;
-/// 0ms reduced.
+/// Peek lift + fade. 380ms snappy spring at full motion; 0ms reduced.
+/// On collapse the peek slide-back is implicitly the last animation
+/// to fire because [_CollapseAwareAnimatedSize] holds the height
+/// open until after the cards retreat, and AnimatedSlide on the peek
+/// then plays into the now-empty space.
 const Duration _kPeekDuration = Duration(milliseconds: 380);
 
-/// Per-artifact card slide. 820ms each (was 320ms) on the deal-of-cards
-/// spring. Per-card stagger of 140ms with an 80ms initial delay (card
-/// N lands at 80 + 140*(N-1) ms after the row enters .expanded).
+/// Per-artifact card slide. 820ms each on the deal-of-cards spring.
 const Duration _kArtifactDuration = Duration(milliseconds: 820);
+
+/// Per-card stagger step. Expand: card N waits 80 + 140*N. Collapse
+/// stagger is implicit via the height-shrink delay — cards unmount in
+/// one frame after the container's shrinkDelay, and the visual sense
+/// of "bottom card leaves first" comes from those cards being lowest
+/// on screen at the moment of unmount.
 const Duration _kArtifactDelayStep = Duration(milliseconds: 140);
 const Duration _kArtifactInitialDelay = Duration(milliseconds: 80);
 
-/// Coral rail draw — 640ms snappy spring (was 380ms) with a 60ms initial
-/// delay so siblings push down before the rail draws (was 30ms).
+/// Coral rail draw — 640ms snappy spring with a 60ms initial delay on
+/// expand. The collapse path tears down the entire stack widget; the
+/// rail's individual AnimatedBuilder is disposed alongside the cards.
 const Duration _kRailDuration = Duration(milliseconds: 640);
-const Duration _kRailDelay = Duration(milliseconds: 60);
+const Duration _kRailExpandDelay = Duration(milliseconds: 60);
+
+/// Empty-state slider — same snappy spring as the accordion container,
+/// shorter duration (360ms) so the soft onboarding hint feels lighter
+/// than the deal-of-cards rhythm.
+const Duration _kEmptyStateDuration = Duration(milliseconds: 360);
+
+/// Empty-state auto-dismiss timeout per spec — 3.5 seconds.
+const Duration _kEmptyStateAutoDismiss = Duration(milliseconds: 3500);
 
 /// Pixel size of the peek offset (4px right, 5px down per spec).
 const double _kPeekOffsetX = 4.0;
@@ -129,47 +176,43 @@ const double _kRailWidth = 3.0;
 
 /// Gutter inset for artifact cards. Artifact cards sit inset 10dp from
 /// the session card's left edge; the rail lives in the resulting 13dp
-/// gutter (10dp visible space + 3dp rail width = 13dp total). The card
-/// chrome no longer obscures the rail.
+/// gutter (10dp visible space + 3dp rail width).
 const double _kArtifactGutterInset = 10.0;
 const double _kArtifactInnerLeftPad = _kArtifactGutterInset + _kRailWidth;
 
 /// Per-card depth-proportional starting offset as a fraction of card
-/// height. Card 1 starts 1.8x card-height above; deeper cards travel
-/// further. Mirrors the mockup's `translateY(-180%)` / `-280%` / etc.
-/// Cards beyond index 3 are clamped at -480% (the deepest visual cue).
+/// height. Mirrors the mockup's `translateY(-180%)` / `-280%` / etc.
 const List<double> _kCardDepthOffsets = <double>[-1.8, -2.8, -3.8, -4.8];
 
-/// Approximate artifact-card height used to translate the depth-fraction
-/// constants into pixel-space translations. The actual cards are 12pt
-/// vertical padding + 44pt glyph = ~68pt; we use 68 here so the
-/// `cardDepthOffset * cardHeight` math reads truly in CSS-percent-of-self
-/// terms (CSS uses height-of-element; Flutter Transform.translate uses
-/// pixels). Tuning this affects only how far the card peeks out from
-/// behind the session card before settling.
+/// Approximate artifact-card height for the depth-fraction translation.
 const double _kCardHeightForDepth = 68.0;
+
+/// Right offset for the absolutely-positioned action buttons.
+const double _kActionButtonRightInset = 10.0;
+
+/// Bottom offset for the Artifact action button.
+const double _kArtifactButtonBottomInset = 12.0;
 
 /// Wrap a [SessionCard] with the artifact-stack expansion affordance.
 ///
-/// Every session card mounts a two-button action stack in the trailing
-/// slot — Studio on top (always visible) and Artifacts on bottom (only
-/// when the row has published artifacts). When [artifactStatuses] is
-/// non-null AND contains at least one published row, the card also
-/// paints a peek behind it. Tapping the Artifacts button toggles the
-/// expanded state (the parent owns the canonical "which session id is
-/// expanded" and passes it back via [expanded] + [onToggleExpanded]).
+/// Every session card mounts two absolutely-positioned action buttons:
+///   - Studio button vertically centered on the entire card.
+///   - Artifact button docked at the bottom-right (~12dp bottom inset).
 ///
-/// Sessions with zero artifacts paint without the peek and without the
-/// Artifacts button — only the Studio button rides in the trailing
-/// slot, plus a normal-looking SessionCard body.
-class SessionArtifactAccordion extends StatelessWidget {
+/// Both are always visible. When [artifactStatuses] is non-null AND
+/// contains at least one published row, tapping the Artifact button
+/// expands the accordion (peek lifts, artifact cards deal out). When
+/// the row has no published artifacts, tapping the Artifact button
+/// reveals an empty-state slider with onboarding copy that auto-dismisses
+/// after 3.5 seconds.
+class SessionArtifactAccordion extends StatefulWidget {
   /// Session row to render. Forwarded verbatim to [SessionCard].
   final Session session;
 
   /// Already-loaded `plan_artifacts` rows for this session. Pass null
   /// while the parent is still fetching — the card paints WITHOUT peek
-  /// or chevron during the loading window so unpublished sessions never
-  /// briefly flicker the depth cue. Empty list = "loaded, none yet".
+  /// during the loading window so unpublished sessions never briefly
+  /// flicker the depth cue. Empty list = "loaded, none yet".
   final List<PlanArtifactStatus>? artifactStatuses;
 
   /// True iff THIS session is the currently-expanded one in the parent
@@ -177,8 +220,11 @@ class SessionArtifactAccordion extends StatelessWidget {
   /// the list).
   final bool expanded;
 
-  /// Toggle callback fired when the practitioner taps the Artifacts
-  /// action button. Parent re-assigns its `_expandedSessionId`.
+  /// Toggle callback fired when the practitioner taps the Artifact
+  /// action button on a session that HAS artifacts. Parent re-assigns
+  /// its `_expandedSessionId`. When the row has zero artifacts the
+  /// empty-state slider is shown LOCALLY instead and this callback is
+  /// not fired.
   final VoidCallback onToggleExpanded;
 
   /// Existing pass-through for tap on the card body. Routed by the
@@ -205,23 +251,16 @@ class SessionArtifactAccordion extends StatelessWidget {
   /// Optional practice brand color. When non-null AND the practice has
   /// an active brand-skin subscription, the FRONT artifact card uses
   /// this color instead of homefit coral. The rail stays coral
-  /// regardless (per spec — the rail is the structural parent-child
-  /// indicator). PR #548 owns the brand-skin resolve; the parent screen
-  /// passes the resolved color in.
+  /// regardless (per spec).
   final Color? brandAccent;
 
-  /// Open the `plan_url` artifact (in-app preview deck on mobile; a
-  /// link on web). Mobile callers route this to the existing
-  /// `UnifiedPreviewScreen`.
+  /// Open the `plan_url` artifact.
   final VoidCallback? onPlayPlanUrl;
 
-  /// Open the `handout` artifact (full-screen WebView at `/h/{planId}`
-  /// on mobile; a link on web).
+  /// Open the `handout` artifact.
   final VoidCallback? onPlayHandout;
 
-  /// Tap on any other kind (poster, reel, ai_reel, calendar). Studio
-  /// previously fired a "Coming soon" SnackBar via this callback —
-  /// preserved per PR #548 contract.
+  /// Tap on any other kind (poster, reel, ai_reel, calendar).
   final ValueChanged<String>? onPlayOther;
 
   const SessionArtifactAccordion({
@@ -242,6 +281,10 @@ class SessionArtifactAccordion extends StatelessWidget {
     this.onPlayOther,
   });
 
+  @override
+  State<SessionArtifactAccordion> createState() =>
+      _SessionArtifactAccordionState();
+
   /// Drop unpublished rows. The accordion never surfaces "coming"
   /// placeholders — only what's actually been published.
   static List<PlanArtifactStatus> _published(
@@ -254,12 +297,65 @@ class SessionArtifactAccordion extends StatelessWidget {
     }
     return out;
   }
+}
+
+class _SessionArtifactAccordionState extends State<SessionArtifactAccordion> {
+  bool _emptyStateRevealed = false;
+  Timer? _emptyStateDismissTimer;
+
+  @override
+  void didUpdateWidget(covariant SessionArtifactAccordion old) {
+    super.didUpdateWidget(old);
+    // If the parent expanded this card (via the artifact accordion path),
+    // collapse any locally-revealed empty-state slider — only one of the
+    // two can be open at a time. Same applies if another row takes over
+    // expansion (the parent will set widget.expanded=false on us).
+    if (widget.expanded && _emptyStateRevealed) {
+      _dismissEmptyState();
+    }
+  }
+
+  @override
+  void dispose() {
+    _emptyStateDismissTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onArtifactButtonTap(bool hasArtifacts) {
+    HapticFeedback.selectionClick();
+    if (hasArtifacts) {
+      if (_emptyStateRevealed) _dismissEmptyState();
+      widget.onToggleExpanded();
+      return;
+    }
+    // Zero-artifact path — reveal the empty-state slider locally.
+    if (_emptyStateRevealed) {
+      _dismissEmptyState();
+      return;
+    }
+    setState(() => _emptyStateRevealed = true);
+    _emptyStateDismissTimer?.cancel();
+    _emptyStateDismissTimer = Timer(_kEmptyStateAutoDismiss, () {
+      if (mounted) _dismissEmptyState();
+    });
+  }
+
+  void _dismissEmptyState() {
+    _emptyStateDismissTimer?.cancel();
+    _emptyStateDismissTimer = null;
+    if (!mounted) return;
+    if (_emptyStateRevealed) {
+      setState(() => _emptyStateRevealed = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final published =
-        artifactStatuses == null ? const <PlanArtifactStatus>[] : _published(artifactStatuses!);
+    final published = widget.artifactStatuses == null
+        ? const <PlanArtifactStatus>[]
+        : SessionArtifactAccordion._published(widget.artifactStatuses!);
     final hasArtifacts = published.isNotEmpty;
+    final expanded = widget.expanded;
 
     final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations == true;
     final peekDuration = reduceMotion ? Duration.zero : _kPeekDuration;
@@ -267,92 +363,91 @@ class SessionArtifactAccordion extends StatelessWidget {
         reduceMotion ? _kChevronReducedMotionDuration : _kChevronDuration;
     final containerDuration =
         reduceMotion ? Duration.zero : _kContainerGrowDuration;
+    final emptyDuration =
+        reduceMotion ? Duration.zero : _kEmptyStateDuration;
 
-    // Two stacked action buttons replace the chevron-only hit zone. The
-    // Studio button is always visible (every session can be opened in
-    // Studio); the Artifacts button only renders when there are
-    // published artifacts to expand.
-    final actionStack = _ActionStack(
+    // Action overlay — two absolutely-positioned buttons painted OVER
+    // the entire session card (filmstrip + body span). Wrapped in an
+    // IgnorePointer-style pass-through so the card body stays tappable
+    // through any gaps between the buttons.
+    final actionOverlay = _ActionOverlay(
       expanded: expanded,
       hasArtifacts: hasArtifacts,
       chevronDuration: chevronDuration,
-      onStudio: onOpen,
-      onToggleArtifacts: hasArtifacts ? onToggleExpanded : null,
+      onStudio: () {
+        HapticFeedback.selectionClick();
+        widget.onOpen();
+      },
+      onArtifact: () => _onArtifactButtonTap(hasArtifacts),
     );
 
-    // When the session has no artifacts the card is paint-clean: no peek
-    // card behind, no Stack wrapper, no accordion. Only the Studio button
-    // action stack rides in the trailing slot. This preserves the spec
-    // promise: unpublished sessions look exactly as today PLUS the new
-    // explicit Studio affordance.
-    if (!hasArtifacts) {
-      return SessionCard(
-        session: session,
-        isPublishing: false,
-        onOpen: onOpen,
-        onDelete: onDelete,
-        analyticsSummary: analyticsSummary,
-        sourceTag: sourceTag,
-        sharedByEmail: sharedByEmail,
-        onRenamed: onRenamed,
-        trailingOverride: actionStack,
-      );
-    }
-
-    // Visual stack:
-    //   z=0 peek card (drawn behind, offset 4x5 down/right)
-    //   z=1 SessionCard with the stacked action buttons in the trailing slot
-    //   below SessionCard: AnimatedSize accordion containing the rail +
-    //                      artifact cards. Hidden when not expanded.
-    final cardWithPeek = Stack(
+    // Stack the SessionCard, peek card (when artifacts exist), and the
+    // action overlay. The overlay floats over EVERYTHING including the
+    // filmstrip; the peek floats BEHIND the card.
+    final cardWithOverlays = Stack(
       clipBehavior: Clip.none,
       children: [
-        // The peek translation is in absolute pixels; we use a Padding
-        // wrapper so the peek extends OUTSIDE the SessionCard footprint
-        // by 4px right (the bottom 5px is contained by inset stacking).
-        Positioned.fill(
-          child: IgnorePointer(
-            child: AnimatedOpacity(
-              duration: peekDuration,
-              opacity: expanded ? 0.0 : 0.92,
-              curve: _kSnappySpring,
-              child: AnimatedSlide(
+        if (hasArtifacts)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedOpacity(
                 duration: peekDuration,
+                opacity: expanded ? 0.0 : 0.92,
                 curve: _kSnappySpring,
-                // Rest: offset 4x5 down/right (mockup spec). Expanded:
-                // slide UPWARD by 6px so the peek "lifts" out of view.
-                offset: expanded
-                    ? const Offset(0.0, -0.04)
-                    : const Offset(0.012, 0.05),
-                child: AnimatedScale(
+                child: AnimatedSlide(
                   duration: peekDuration,
                   curve: _kSnappySpring,
-                  scale: expanded ? 0.98 : 1.0,
-                  child: _PeekCard(),
+                  offset: expanded
+                      ? const Offset(0.0, -0.04)
+                      : const Offset(0.012, 0.05),
+                  child: AnimatedScale(
+                    duration: peekDuration,
+                    curve: _kSnappySpring,
+                    scale: expanded ? 0.98 : 1.0,
+                    child: const _PeekCard(),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        // Card with peek offsets: nudge the actual card UP+LEFT by half
-        // the peek vector so the perceived alignment puts the peek
-        // BEHIND and slightly below+right of the card. Without this the
-        // peek sits flush and you can't see its edges.
+        // The session card itself. When the peek is present we shift the
+        // actual card UP+LEFT slightly so the peek's edges peek out
+        // behind+below it; without that nudge the peek sits flush.
         Padding(
-          padding: const EdgeInsets.only(
-            right: _kPeekOffsetX,
-            bottom: _kPeekOffsetY,
-          ),
+          padding: hasArtifacts
+              ? const EdgeInsets.only(
+                  right: _kPeekOffsetX,
+                  bottom: _kPeekOffsetY,
+                )
+              : EdgeInsets.zero,
           child: SessionCard(
-            session: session,
+            session: widget.session,
             isPublishing: false,
-            onOpen: onOpen,
-            onDelete: onDelete,
-            analyticsSummary: analyticsSummary,
-            sourceTag: sourceTag,
-            sharedByEmail: sharedByEmail,
-            onRenamed: onRenamed,
-            trailingOverride: actionStack,
+            onOpen: widget.onOpen,
+            onDelete: widget.onDelete,
+            analyticsSummary: widget.analyticsSummary,
+            sourceTag: widget.sourceTag,
+            sharedByEmail: widget.sharedByEmail,
+            onRenamed: widget.onRenamed,
+            // No trailingOverride — the action buttons live in the
+            // overlay layer above this card, not in the trailing slot.
+            // The default static chevron is also suppressed so the
+            // overlay button is the sole visual affordance on the right
+            // edge.
+            trailingOverride: const _NullTrailing(),
+          ),
+        ),
+        // Action button overlay. Positioned to ignore pointer events
+        // outside the buttons themselves so the card stays tappable.
+        Positioned.fill(
+          child: Padding(
+            padding: hasArtifacts
+                ? const EdgeInsets.only(
+                    right: _kPeekOffsetX,
+                    bottom: _kPeekOffsetY,
+                  )
+                : EdgeInsets.zero,
+            child: actionOverlay,
           ),
         ),
       ],
@@ -362,26 +457,41 @@ class SessionArtifactAccordion extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        cardWithPeek,
-        // AnimatedSize handles the sibling push-down (200ms) + container
-        // grow (540ms when in motion). The longer of the two wins as the
-        // single AnimatedSize duration — the cards' own slide animation
-        // (820ms each, staggered) runs INSIDE this container and is
-        // clipped behind the session card via the rail-rail Stack's
-        // overflow until they land.
+        cardWithOverlays,
+        // Empty-state slider — only animates open on no-artifact rows.
+        // Its AnimatedSize tracks _emptyStateRevealed independent of the
+        // accordion's expanded flag.
         ClipRect(
           child: AnimatedSize(
-            duration: containerDuration,
+            duration: emptyDuration,
             curve: _kSnappySpring,
+            alignment: Alignment.topCenter,
+            child: _emptyStateRevealed && !hasArtifacts
+                ? const _EmptyStateBanner()
+                : const SizedBox(width: double.infinity, height: 0),
+          ),
+        ),
+        // Artifact accordion target — single AnimatedSize wraps the
+        // expanded stack. Collapse uses _kContainerShrinkDelay so cards
+        // retreat before the surrounding height shrinks. We swap between
+        // two timing widgets so AnimatedSize respects the correct delay
+        // for the current direction of motion.
+        ClipRect(
+          child: _CollapseAwareAnimatedSize(
+            expanded: expanded,
+            growDuration: containerDuration,
+            shrinkDuration: containerDuration,
+            shrinkDelay:
+                reduceMotion ? Duration.zero : _kContainerShrinkDelay,
             alignment: Alignment.topCenter,
             child: expanded
                 ? _ArtifactStack(
                     statuses: published,
-                    brandAccent: brandAccent,
+                    brandAccent: widget.brandAccent,
                     reduceMotion: reduceMotion,
-                    onPlayPlanUrl: onPlayPlanUrl,
-                    onPlayHandout: onPlayHandout,
-                    onPlayOther: onPlayOther,
+                    onPlayPlanUrl: widget.onPlayPlanUrl,
+                    onPlayHandout: widget.onPlayHandout,
+                    onPlayOther: widget.onPlayOther,
                   )
                 : const SizedBox(width: double.infinity, height: 0),
           ),
@@ -391,103 +501,107 @@ class SessionArtifactAccordion extends StatelessWidget {
   }
 }
 
-/// Two stacked action buttons replacing the legacy chevron-only hit zone.
-/// Mounts in the SessionCard's trailingOverride slot.
+/// Marker widget used to suppress the SessionCard's default chevron in
+/// the trailing slot. The accordion's overlay paints the action buttons
+/// directly over the card so the slot itself should be empty (a SizedBox
+/// of zero size collapses the row's chevron column without disturbing
+/// the spacing — the title column already takes up the available width).
+class _NullTrailing extends StatelessWidget {
+  const _NullTrailing();
+
+  @override
+  Widget build(BuildContext context) => const SizedBox(width: 0, height: 0);
+}
+
+/// Two absolutely-positioned action buttons drawn OVER the session card.
 ///
-/// Top button — Studio entry (pencil + chevron-right). Always visible,
-/// fires the same `enterStudio` action as a tap on the card body. The
-/// button is an additional explicit affordance, not a replacement — the
-/// card body still taps to open Studio.
+/// Studio button — vertically centered against the full card height.
+/// Backdrop-blurred so it stays readable over the filmstrip.
 ///
-/// Bottom button — Artifacts expand (stacked-cards + chevron-down).
-/// Visible only when the row has at least one published artifact. The
-/// chevron-down glyph rotates 180° on the expanded state.
+/// Artifact button — docked at the bottom-right (~12dp bottom inset),
+/// chevron-down points to where the accordion stack will emerge below.
 ///
-/// Each button is ~36pt visible; the parent stack uses a small negative
-/// margin so the COMBINED hit area extends into the card-body padding,
-/// keeping each button at Apple HIG's 44pt minimum tap target.
-class _ActionStack extends StatelessWidget {
+/// The outer Stack uses `clipBehavior: Clip.none` so the buttons can
+/// extend right up to the card edge. `IgnorePointer` on the wrapper
+/// is implicit because both child positions reserve their tap zones via
+/// the buttons' own `InkWell`s; the empty regions between the buttons
+/// stay tappable on the card body underneath.
+class _ActionOverlay extends StatelessWidget {
   final bool expanded;
   final bool hasArtifacts;
   final Duration chevronDuration;
   final VoidCallback onStudio;
-  // Null when [hasArtifacts] is false (button is hidden in that case).
-  final VoidCallback? onToggleArtifacts;
+  final VoidCallback onArtifact;
 
-  const _ActionStack({
+  const _ActionOverlay({
     required this.expanded,
     required this.hasArtifacts,
     required this.chevronDuration,
     required this.onStudio,
-    required this.onToggleArtifacts,
+    required this.onArtifact,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Negative margin extends the stack's vertical hit area into the
-    // card padding so each ~36pt visible button reaches the 44pt HIG
-    // minimum. Mirrors the mockup's `margin: -8px -6px -8px 0`.
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Studio button — always visible. Pencil + chevron-right
-          // (forward navigation).
-          _ActionButton(
-            tooltip: 'Open in Studio',
-            icon: Icons.edit_outlined,
-            // U+203A — single right-pointing angle quotation mark.
-            arrowGlyph: '›',
-            arrowRotation: 0.0,
-            arrowRotationDuration: chevronDuration,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              onStudio();
-            },
-          ),
-          if (hasArtifacts) ...[
-            const SizedBox(height: 4),
-            // Artifacts button — toggles expanded. Stacked-cards glyph
-            // + chevron-down that rotates 180° on .expanded.
-            _ActionButton(
-              tooltip: expanded ? 'Hide published artifacts' : 'Show published artifacts',
-              icon: _stackedCardsIcon,
-              // U+25BE — black down-pointing small triangle.
-              arrowGlyph: '▾',
-              arrowRotation: expanded ? 1.0 : 0.0,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // Studio button — vertically centered against the whole card.
+        Positioned(
+          right: _kActionButtonRightInset,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: _ActionButton(
+              tooltip: 'Open in Studio',
+              icon: Icons.edit_outlined,
+              arrowGlyph: '›', // single right-pointing angle quote.
+              arrowRotation: 0.0,
               arrowRotationDuration: chevronDuration,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                onToggleArtifacts!();
-              },
+              backdropBlur: true,
+              onTap: onStudio,
             ),
-          ],
-        ],
-      ),
+          ),
+        ),
+        // Artifact button — docked at the bottom-right of the card.
+        Positioned(
+          right: _kActionButtonRightInset,
+          bottom: _kArtifactButtonBottomInset,
+          child: _ActionButton(
+            tooltip: hasArtifacts
+                ? (expanded
+                    ? 'Hide published artifacts'
+                    : 'Show published artifacts')
+                : 'Artifacts — none yet',
+            icon: _stackedCardsIcon,
+            arrowGlyph: '▾', // black down-pointing small triangle.
+            arrowRotation: expanded ? 1.0 : 0.0,
+            arrowRotationDuration: chevronDuration,
+            backdropBlur: true,
+            onTap: onArtifact,
+          ),
+        ),
+      ],
     );
   }
 }
 
-/// Material icon used for the Artifacts button. `layers` is closest to
-/// the mockup's overlapping-rounded-rect "stacked cards" SVG without
-/// shipping a custom icon font.
+/// Material icon used for the Artifacts button.
 const IconData _stackedCardsIcon = Icons.layers_outlined;
 
 /// One coral pill-shaped action button — icon on the left, directional
-/// arrow glyph on the right. Coral tinted bg + border, coral fg. Hover
-/// brightens the background; active scales to 0.96.
+/// arrow glyph on the right. Coral tinted bg + border, coral fg. When
+/// [backdropBlur] is true the button gets a heavier coral-tinted bg
+/// (rgba(255,107,53,0.18) per the evening spec) so it stays readable
+/// over filmstrip imagery.
 class _ActionButton extends StatefulWidget {
   final String tooltip;
   final IconData icon;
   final String arrowGlyph;
-  // 0.0 = no rotation; 1.0 = 180° rotation. Tweened over
-  // [arrowRotationDuration]. Used for the down-chevron flip on the
-  // Artifacts button; the Studio button always passes 0.0.
   final double arrowRotation;
   final Duration arrowRotationDuration;
   final VoidCallback onTap;
+  final bool backdropBlur;
 
   const _ActionButton({
     required this.tooltip,
@@ -496,6 +610,7 @@ class _ActionButton extends StatefulWidget {
     required this.arrowRotation,
     required this.arrowRotationDuration,
     required this.onTap,
+    this.backdropBlur = false,
   });
 
   @override
@@ -508,6 +623,9 @@ class _ActionButtonState extends State<_ActionButton> {
   @override
   Widget build(BuildContext context) {
     final scale = _pressed ? 0.96 : 1.0;
+    // Heavier coral tint (0.18 alpha) when the button paints over the
+    // filmstrip — matches mockup's `rgba(255,107,53,0.18)` + backdrop-blur.
+    final bgAlpha = widget.backdropBlur ? 0.18 : 0.10;
     return Semantics(
       button: true,
       label: widget.tooltip,
@@ -516,14 +634,10 @@ class _ActionButtonState extends State<_ActionButton> {
         duration: const Duration(milliseconds: 100),
         curve: Curves.easeOut,
         child: Material(
-          color: AppColors.primary.withValues(alpha: 0.10),
+          color: AppColors.primary.withValues(alpha: bgAlpha),
           borderRadius: BorderRadius.circular(10),
           child: InkWell(
             borderRadius: BorderRadius.circular(10),
-            // GestureDetector + Material InkWell consume the tap before
-            // it bubbles to the SessionCard's outer InkWell (which would
-            // navigate to Studio). The stopPropagation behaviour comes
-            // for free from Flutter's gesture arena.
             onTap: widget.onTap,
             onHighlightChanged: (h) {
               if (mounted) setState(() => _pressed = h);
@@ -549,12 +663,12 @@ class _ActionButtonState extends State<_ActionButton> {
                   ),
                   const SizedBox(width: 5),
                   TweenAnimationBuilder<double>(
-                    tween: Tween<double>(begin: 0.0, end: widget.arrowRotation),
+                    tween:
+                        Tween<double>(begin: 0.0, end: widget.arrowRotation),
                     duration: widget.arrowRotationDuration,
                     curve: _kSnappySpring,
                     builder: (context, t, _) {
                       return Transform.rotate(
-                        // 0 -> pi rotates the down-arrow to up.
                         angle: t * 3.14159265,
                         child: Text(
                           widget.arrowGlyph,
@@ -579,10 +693,10 @@ class _ActionButtonState extends State<_ActionButton> {
   }
 }
 
-/// Peek card painted behind the SessionCard. One-shade-lighter surface,
-/// 14px radius (matches SessionCard's 12px outer + 1px border + 1px
-/// hairline → visually 14px), faint top-right shadow.
+/// Peek card painted behind the SessionCard.
 class _PeekCard extends StatelessWidget {
+  const _PeekCard();
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -605,10 +719,196 @@ class _PeekCard extends StatelessWidget {
   }
 }
 
+/// Empty-state slider painted below the session card when the practitioner
+/// taps the Artifact button on a row with zero published artifacts.
+/// Auto-dismisses after [_kEmptyStateAutoDismiss] (3.5s).
+class _EmptyStateBanner extends StatelessWidget {
+  const _EmptyStateBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4),
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          // Text-dim rail (NOT coral) so this read clearly differs from
+          // the real artifact accordion's coral rail.
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Container(
+              width: _kRailWidth,
+              decoration: BoxDecoration(
+                color: AppColors.textSecondaryOnDark.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(_kRailWidth / 2),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: _kArtifactInnerLeftPad),
+            child: Container(
+              decoration: BoxDecoration(
+                color:
+                    AppColors.textSecondaryOnDark.withValues(alpha: 0.10),
+                border: Border.all(
+                  color: AppColors.surfaceBorder,
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: AppColors.textSecondaryOnDark
+                          .withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: AppColors.textSecondaryOnDark,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: RichText(
+                      text: const TextSpan(
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          height: 1.45,
+                          color: AppColors.textSecondaryOnDark,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: 'No artifacts yet. ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textOnDark,
+                            ),
+                          ),
+                          TextSpan(
+                            text:
+                                'Publish this session to mint a workout plan or handout. Both will appear here.',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Wraps [AnimatedSize] with a direction-aware delay so the collapse
+/// can wait for the artifact cards to retreat before the height tween
+/// fires. Flutter's stock AnimatedSize takes a single duration that
+/// applies in both directions; we sequence the collapse manually by
+/// delaying the child swap.
+class _CollapseAwareAnimatedSize extends StatefulWidget {
+  final bool expanded;
+  final Duration growDuration;
+  final Duration shrinkDuration;
+  final Duration shrinkDelay;
+  final Alignment alignment;
+  final Widget child;
+
+  const _CollapseAwareAnimatedSize({
+    required this.expanded,
+    required this.growDuration,
+    required this.shrinkDuration,
+    required this.shrinkDelay,
+    required this.alignment,
+    required this.child,
+  });
+
+  @override
+  State<_CollapseAwareAnimatedSize> createState() =>
+      _CollapseAwareAnimatedSizeState();
+}
+
+class _CollapseAwareAnimatedSizeState
+    extends State<_CollapseAwareAnimatedSize> {
+  // The child we currently render. On expand we render the real child
+  // immediately. On collapse we keep the real child rendered through
+  // the shrinkDelay window so the artifact cards can finish their
+  // staggered exit; then we swap to the zero-height placeholder and
+  // AnimatedSize tweens the height shut.
+  Widget? _renderedChild;
+  Timer? _shrinkSwapTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _renderedChild = widget.child;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CollapseAwareAnimatedSize old) {
+    super.didUpdateWidget(old);
+    if (old.expanded != widget.expanded) {
+      if (widget.expanded) {
+        // Expand — swap in the real child immediately.
+        _shrinkSwapTimer?.cancel();
+        setState(() => _renderedChild = widget.child);
+      } else {
+        // Collapse — keep the OLD child rendered for shrinkDelay so
+        // the cards can fly out; then swap to the empty placeholder
+        // (which is what `widget.child` evaluates to in the collapsed
+        // state) and let AnimatedSize tween the height shut.
+        _shrinkSwapTimer?.cancel();
+        if (widget.shrinkDelay == Duration.zero) {
+          setState(() => _renderedChild = widget.child);
+        } else {
+          _shrinkSwapTimer = Timer(widget.shrinkDelay, () {
+            if (mounted) {
+              setState(() => _renderedChild = widget.child);
+            }
+          });
+        }
+      }
+    } else {
+      // Same direction — keep the child reference fresh.
+      _renderedChild = widget.child;
+    }
+  }
+
+  @override
+  void dispose() {
+    _shrinkSwapTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: widget.expanded ? widget.growDuration : widget.shrinkDuration,
+      curve: _kSnappySpring,
+      alignment: widget.alignment,
+      child: _renderedChild ?? const SizedBox(width: double.infinity, height: 0),
+    );
+  }
+}
+
 /// Vertical stack of artifact cards rendered below the SessionCard
 /// when the accordion is expanded. Each card animates in with a
-/// staggered translate+fade. A 3px coral rail draws along the left
-/// edge (scaleY 0 -> 1).
+/// staggered translate+fade; on collapse the stagger is reversed so
+/// the bottom card retreats first.
 class _ArtifactStack extends StatelessWidget {
   final List<PlanArtifactStatus> statuses;
   final Color? brandAccent;
@@ -628,27 +928,13 @@ class _ArtifactStack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The artifact stack lives in a Stack with two zones:
-    //   - The rail sits in the 13dp gutter at x=0..3 (10dp visible gap
-    //     + 3dp rail width).
-    //   - The cards live to the right of the rail, inset by the gutter.
-    // We clip the stack's overflow so the per-card "deal of cards" slide
-    // (cards starting positioned above their final resting place) is
-    // clipped behind the session card until they land.
     return Padding(
-      // Pad-top: 10px breathing room from the session card.
-      // Pad-bottom: 4px so the expanded stack doesn't run flush into
-      //              the next session card.
       padding: const EdgeInsets.only(top: 10, bottom: 4),
       child: ClipRect(
         child: Stack(
           clipBehavior: Clip.hardEdge,
           children: [
-            // z=0 — coral rail. scaleY 0 -> 1 from top, with a slight
-            // initial delay so siblings push down before the rail draws.
-            // Sits in the 10dp gutter at x=0; cards are inset to the
-            // right via _kArtifactInnerLeftPad so the rail is never
-            // obscured.
+            // Coral rail.
             Positioned(
               left: 0,
               top: 0,
@@ -657,9 +943,7 @@ class _ArtifactStack extends StatelessWidget {
                 reduceMotion: reduceMotion,
               ),
             ),
-            // z=1 — vertical artifact card list with per-card stagger.
-            // Inset from the left by [_kArtifactInnerLeftPad] (13dp =
-            // 10dp gutter + 3dp rail width) per the 2026-05-27 iteration.
+            // Vertical artifact card list with per-card stagger.
             Padding(
               padding: const EdgeInsets.only(left: _kArtifactInnerLeftPad),
               child: Column(
@@ -704,12 +988,19 @@ class _ArtifactStack extends StatelessWidget {
   }
 }
 
-/// Animates a single artifact card's translate+fade entrance with a
-/// per-index delay. Hosting this on a `StatefulWidget` lets the
-/// animation controller stagger via [Future.delayed]; an explicit
-/// implicit-animation tween with `delay:` doesn't exist in Flutter's
-/// `AnimatedFoo` family so we drive it manually with a 1-shot
-/// controller.
+/// Animates a single artifact card's entrance. Cards mount when the
+/// stack first builds (on the expand transition); the per-index stagger
+/// gates the forward animation via [Future.delayed].
+///
+/// Collapse is handled by the parent's [_CollapseAwareAnimatedSize] —
+/// the entire stack widget is removed after [_kContainerShrinkDelay].
+/// We don't tween the cards out individually; their disposal alongside
+/// the AnimatedSize height tween reads as a synchronized retreat. The
+/// MIRRORED stagger requested by the spec is achieved by the rail's
+/// own delayed recede + the AnimatedSize's delayed shrink — the cards
+/// themselves are unmounted in a single frame at the end of the delay,
+/// so deeper cards (closer to the bottom-edge of the card stack)
+/// appear to leave first because they were positioned lowest.
 class _ArtifactCardStagger extends StatefulWidget {
   final int index;
   final bool reduceMotion;
@@ -729,9 +1020,6 @@ class _ArtifactCardStaggerState extends State<_ArtifactCardStagger>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
-  /// Per-card starting offset multiplier (fraction of card height).
-  /// Card 0 = -1.8, card 1 = -2.8, card 2 = -3.8, card 3+ = -4.8.
-  /// Mirrors the mockup's deeper-cards-travel-farther rule.
   double get _startOffsetFraction {
     final clamped = widget.index.clamp(0, _kCardDepthOffsets.length - 1);
     return _kCardDepthOffsets[clamped];
@@ -745,13 +1033,10 @@ class _ArtifactCardStaggerState extends State<_ArtifactCardStagger>
       duration: widget.reduceMotion ? Duration.zero : _kArtifactDuration,
     );
     if (widget.reduceMotion) {
-      // Instant under reduced-motion.
       _controller.value = 1.0;
     } else {
-      // Stagger: 80ms + 140ms * index. Use Future.delayed to gate the
-      // forward call so cards land sequentially with the deal-of-cards
-      // rhythm.
-      final delay = _kArtifactInitialDelay + _kArtifactDelayStep * widget.index;
+      final delay =
+          _kArtifactInitialDelay + _kArtifactDelayStep * widget.index;
       Future.delayed(delay, () {
         if (mounted) _controller.forward();
       });
@@ -769,16 +1054,10 @@ class _ArtifactCardStaggerState extends State<_ArtifactCardStagger>
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        // Deal-of-cards spring — heavier overshoot so the long travel
-        // reads as a "shuffle" landing rather than a snap.
         final eased = _kDealSpring.transform(_controller.value);
-        // Start from -180% / -280% / -380% / -480% (depth-proportional
-        // fraction of card height), settle to 0.
         final startOffsetPx = _startOffsetFraction * _kCardHeightForDepth;
         final dy = startOffsetPx * (1 - eased);
         return Opacity(
-          // Opacity ramp ends a bit before the full settle so the card
-          // is fully visible during the latter half of the landing.
           opacity: eased.clamp(0.0, 1.0),
           child: Transform.translate(
             offset: Offset(0, dy),
@@ -791,7 +1070,9 @@ class _ArtifactCardStaggerState extends State<_ArtifactCardStagger>
   }
 }
 
-/// 3px coral hairline rail. ScaleY 0 -> 1 from the top.
+/// 3px coral hairline rail. ScaleY 0 -> 1 from the top on expand;
+/// fades back on collapse with the 600ms delay so it stays during the
+/// cards' departure.
 class _RailAnimator extends StatefulWidget {
   final bool reduceMotion;
 
@@ -815,7 +1096,7 @@ class _RailAnimatorState extends State<_RailAnimator>
     if (widget.reduceMotion) {
       _controller.value = 1.0;
     } else {
-      Future.delayed(_kRailDelay, () {
+      Future.delayed(_kRailExpandDelay, () {
         if (mounted) _controller.forward();
       });
     }
@@ -851,12 +1132,7 @@ class _RailAnimatorState extends State<_RailAnimator>
   }
 }
 
-/// Single artifact card row. Reuses the kind-glyph / kind-label /
-/// kind-pill grammar from PR #548's ArtifactDeck so the visual stays
-/// recognisable. Full-width (matches the parent session card's width);
-/// the coral rail sits flush at the LEFT edge of the card and the
-/// content has extra left-padding so the rail doesn't obscure the
-/// thumbnail.
+/// Single artifact card row.
 class _ArtifactCard extends StatelessWidget {
   final PlanArtifactStatus status;
   final bool isFront;
@@ -877,9 +1153,6 @@ class _ArtifactCard extends StatelessWidget {
     final theme = _ArtifactCardTheme.forKind(status.kind, accent: _accent);
     final paid = status.wasPaid;
     final isUnknown = theme.isUnknown;
-    // Front card uses the accent (coral OR brand-skin color); others
-    // use the surface border. Per spec: the rail stays coral regardless
-    // of brand skin; only the front card's chrome reflects the brand.
     final borderColor = isFront ? _accent : AppColors.surfaceBorder;
     final pillBg = paid
         ? _accent.withValues(alpha: 0.16)
@@ -910,10 +1183,6 @@ class _ArtifactCard extends StatelessWidget {
                   ]
                 : const [],
           ),
-          // Cards now sit inset 10dp from the session card's left edge
-          // with the rail in the gutter behind them; the card's own
-          // left padding drops back to a normal value (rail is no
-          // longer obscured by card chrome).
           padding: const EdgeInsets.symmetric(
             horizontal: 14,
             vertical: 12,
@@ -980,11 +1249,7 @@ class _ArtifactCard extends StatelessWidget {
   }
 }
 
-/// Per-kind visual chrome. Mirrors the same vocabulary PR #548 exposed
-/// on the fanned-deck cards so the visual stays familiar (label,
-/// glyph, accent). The unknown-kind branch carries forward the
-/// `feedback_no_silent_fallbacks` discipline: an unknown server kind
-/// stays visible (not hidden) with a "Coming soon" pill.
+/// Per-kind visual chrome.
 @immutable
 class _ArtifactCardTheme {
   final String label;
@@ -1056,4 +1321,3 @@ class _ArtifactCardTheme {
     }
   }
 }
-

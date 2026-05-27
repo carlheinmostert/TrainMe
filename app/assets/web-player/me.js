@@ -420,11 +420,19 @@
    *     owner bundles — per the redesigned spec.
    */
   function buildPlanBundle(bundle, consumerUserId) {
-    if (!bundle || !bundle.artifacts.length) return null;
+    if (!bundle) return null;
+
+    // 2026-05-27 evening iteration — the Artifact button is now always
+    // visible, including on bundles with zero artifacts. The renderer
+    // still returns null if there's no bundle to anchor to (no plan,
+    // no provenance) but does NOT short-circuit on empty `.artifacts`.
+    // An empty list reveals the empty-state slider when tapped.
+    const artifacts = Array.isArray(bundle.artifacts) ? bundle.artifacts : [];
+    const hasArtifacts = artifacts.length > 0;
 
     const $row = document.createElement('article');
     $row.className = 'me-session-row';
-    $row.setAttribute('data-has-artifacts', 'true');
+    $row.setAttribute('data-has-artifacts', hasArtifacts ? 'true' : 'false');
 
     // Peek card — drawn behind the session card, 4px right + 5px down
     // via CSS. Lifts upward + fades on .is-expanded.
@@ -516,33 +524,61 @@
       + '<span class="me-action-arrow" aria-hidden="true">▾</span>';
     $actionStack.appendChild($artifactsBtn);
 
-    $cardBody.appendChild($actionStack);
-
+    // 2026-05-27 evening iteration — the action stack is no longer a
+    // child of the card body; it absolutely-positions OVER the entire
+    // session card (Studio button vertically centered, Artifact button
+    // bottom-right) and the card-body's right padding reserves room for
+    // it. Attaching to .me-session-card (the card root, which is
+    // position:relative) anchors the absolute coordinates correctly.
     $card.appendChild($cardBody);
+    $card.appendChild($actionStack);
     $row.appendChild($card);
+
+    // Empty-state slider — rendered as a sibling of the artifact stack.
+    // Only visible (.is-empty-revealed on the row) when the consumer
+    // taps the Artifact button on a bundle with zero published artifacts.
+    const $emptyState = document.createElement('div');
+    $emptyState.className = 'me-session-empty-state';
+    $emptyState.innerHTML = ''
+      + '<div class="me-session-empty-state-inner">'
+      +   '<div class="me-session-empty-state-banner">'
+      +     '<div class="me-session-empty-state-banner-icon" aria-hidden="true">'
+      +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+      +         '<circle cx="12" cy="12" r="10" />'
+      +         '<line x1="12" y1="16" x2="12" y2="12" />'
+      +         '<line x1="12" y1="8" x2="12.01" y2="8" />'
+      +       '</svg>'
+      +     '</div>'
+      +     '<div>'
+      +       '<strong>No artifacts yet.</strong> Publish this session to mint a workout plan or handout. Both will appear here.'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+    $row.appendChild($emptyState);
 
     // Accordion stack — CSS grid template animates 0fr <-> 1fr. The
     // inner element draws the coral rail (::before pseudo) + the
-    // artifact cards.
+    // artifact cards. Rendered AFTER the empty-state so the two
+    // sliders can coexist (only one is .is-revealed at a time).
     const $stack = document.createElement('div');
     $stack.className = 'me-session-artifact-stack';
 
     const $inner = document.createElement('div');
     $inner.className = 'me-session-artifact-inner';
 
-    bundle.artifacts.forEach((row, idx) => {
+    artifacts.forEach((row, idx) => {
       const $art = buildArtifactCard(row, bundle, idx === 0);
       if ($art) $inner.appendChild($art);
     });
 
-    if (isOwner) {
+    if (isOwner && hasArtifacts) {
       $inner.appendChild(buildTemplateCta(bundle));
     }
 
     $stack.appendChild($inner);
     $row.appendChild($stack);
 
-    bindActionButtons($row, $studioBtn, $artifactsBtn, bundle);
+    bindActionButtons($row, $studioBtn, $artifactsBtn, bundle, hasArtifacts);
 
     return $row;
   }
@@ -663,20 +699,23 @@
   }
 
   /**
-   * Wire the two stacked action buttons (2026-05-27 afternoon iteration).
+   * Wire the two absolutely-positioned action buttons (2026-05-27 evening
+   * iteration).
    *
-   * Studio button (top, owner-only) — fires the same deep-link the
-   * legacy "Use as template" CTA used: opens the iOS app at
-   * `studio.homefit.app://template?session_id={planId}`. Click is
-   * `stopPropagation`'d so the card body doesn't double-fire (the card
-   * body itself is non-interactive on /me, but the propagation guard
-   * keeps the future surface contract consistent with the mobile twin).
+   * Studio button (vertically centered, owner-only on /me) — fires the
+   * same deep-link the legacy "Use as template" CTA used: opens the iOS
+   * app at `studio.homefit.app://template?session_id={planId}`. Click is
+   * `stopPropagation`'d so the card body doesn't double-fire.
    *
-   * Artifacts button (bottom) — toggles `.is-expanded` on the parent
-   * .me-session-row. Accordion is mutually exclusive across the list:
-   * opening row B auto-collapses any other expanded row.
+   * Artifact button (bottom-right, always visible) — has two branches:
+   *   - hasArtifacts === true  : toggles `.is-expanded` on the parent
+   *     row. Accordion is mutually exclusive across the list (opening
+   *     row B auto-collapses any other expanded row).
+   *   - hasArtifacts === false : toggles `.is-empty-revealed` on the
+   *     parent row, surfacing the empty-state slider with onboarding
+   *     copy. Auto-dismisses after 3.5 seconds.
    */
-  function bindActionButtons($row, $studioBtn, $artifactsBtn, bundle) {
+  function bindActionButtons($row, $studioBtn, $artifactsBtn, bundle, hasArtifacts) {
     if ($studioBtn) {
       $studioBtn.addEventListener('click', (event) => {
         event.preventDefault();
@@ -687,31 +726,94 @@
       });
     }
 
+    if (!$artifactsBtn) return;
+
+    if (!hasArtifacts) {
+      // Update the aria-label so screen readers communicate the
+      // empty-state intent rather than "show published artifacts".
+      $artifactsBtn.setAttribute('aria-label', 'Artifacts — none yet');
+      $artifactsBtn.setAttribute('title', 'Artifacts — none yet');
+    }
+
     $artifactsBtn.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const wasExpanded = $row.classList.contains('is-expanded');
-      // Collapse every other expanded row first (single-open accordion).
-      document.querySelectorAll('.me-session-row.is-expanded').forEach((r) => {
-        if (r !== $row) {
-          r.classList.remove('is-expanded');
-          const innerBtn = r.querySelector('.me-action-btn.is-artifacts');
-          if (innerBtn) {
-            innerBtn.setAttribute('aria-expanded', 'false');
-            innerBtn.setAttribute('aria-label', 'Show published artifacts');
-          }
-        }
-      });
-      if (wasExpanded) {
-        $row.classList.remove('is-expanded');
-        $artifactsBtn.setAttribute('aria-expanded', 'false');
-        $artifactsBtn.setAttribute('aria-label', 'Show published artifacts');
+      if (hasArtifacts) {
+        onArtifactBtnTapWithArtifacts($row, $artifactsBtn);
       } else {
-        $row.classList.add('is-expanded');
-        $artifactsBtn.setAttribute('aria-expanded', 'true');
-        $artifactsBtn.setAttribute('aria-label', 'Hide published artifacts');
+        onArtifactBtnTapEmpty($row);
       }
     });
+  }
+
+  /**
+   * Artifact button on a row WITH published artifacts — standard accordion
+   * toggle. Collapses any other expanded row in the list first so only
+   * one accordion is open at a time.
+   */
+  function onArtifactBtnTapWithArtifacts($row, $artifactsBtn) {
+    const wasExpanded = $row.classList.contains('is-expanded');
+    // Clear any open empty-state slider on this row.
+    $row.classList.remove('is-empty-revealed');
+    if (window.__meEmptyTimer) {
+      clearTimeout(window.__meEmptyTimer);
+      window.__meEmptyTimer = null;
+    }
+    // Collapse every other expanded row + close any other empty-revealed row.
+    document.querySelectorAll('.me-session-row.is-expanded').forEach((r) => {
+      if (r !== $row) {
+        r.classList.remove('is-expanded');
+        const innerBtn = r.querySelector('.me-action-btn.is-artifacts');
+        if (innerBtn) {
+          innerBtn.setAttribute('aria-expanded', 'false');
+          innerBtn.setAttribute('aria-label', 'Show published artifacts');
+        }
+      }
+    });
+    document
+      .querySelectorAll('.me-session-row.is-empty-revealed')
+      .forEach((r) => r.classList.remove('is-empty-revealed'));
+
+    if (wasExpanded) {
+      $row.classList.remove('is-expanded');
+      $artifactsBtn.setAttribute('aria-expanded', 'false');
+      $artifactsBtn.setAttribute('aria-label', 'Show published artifacts');
+    } else {
+      $row.classList.add('is-expanded');
+      $artifactsBtn.setAttribute('aria-expanded', 'true');
+      $artifactsBtn.setAttribute('aria-label', 'Hide published artifacts');
+    }
+  }
+
+  /**
+   * Artifact button on a row WITHOUT artifacts — toggle the empty-state
+   * slider and set an auto-dismiss timer for 3.5 seconds.
+   */
+  function onArtifactBtnTapEmpty($row) {
+    const wasRevealed = $row.classList.contains('is-empty-revealed');
+    // Close any other revealed slider + collapse any open accordion.
+    document
+      .querySelectorAll('.me-session-row.is-empty-revealed')
+      .forEach((r) => r.classList.remove('is-empty-revealed'));
+    document.querySelectorAll('.me-session-row.is-expanded').forEach((r) => {
+      r.classList.remove('is-expanded');
+      const innerBtn = r.querySelector('.me-action-btn.is-artifacts');
+      if (innerBtn) {
+        innerBtn.setAttribute('aria-expanded', 'false');
+        innerBtn.setAttribute('aria-label', 'Show published artifacts');
+      }
+    });
+    if (window.__meEmptyTimer) {
+      clearTimeout(window.__meEmptyTimer);
+      window.__meEmptyTimer = null;
+    }
+    if (!wasRevealed) {
+      $row.classList.add('is-empty-revealed');
+      window.__meEmptyTimer = setTimeout(() => {
+        $row.classList.remove('is-empty-revealed');
+        window.__meEmptyTimer = null;
+      }, 3500);
+    }
   }
 
   // ===========================  Per-kind helpers  ========================
