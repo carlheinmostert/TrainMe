@@ -426,22 +426,33 @@ html, body {
 }
 
 /* ============================================================
- * Artifact-card accordion on /me (2026-05-27)
+ * Artifact-card accordion on /me (2026-05-27, iterated afternoon)
  *
  * Replaces the fanned-deck-per-bundle from PR #548. Each bundle is
  * now a vertical session-card row with:
  *   - peek card behind (4px right + 5px down offset)
- *   - tappable coral chevron (44pt hit zone)
+ *   - two stacked action buttons at the right end of the card body:
+ *       * Studio button (pencil + chevron-right) — always visible
+ *       * Artifacts button (stacked-cards + chevron-down) — only when
+ *         the row has at least one published artifact
  *   - inline expand-accordion below the card
  *
- * Single-open across the list (JS enforces). Coral rail draws on the
- * left edge of the artifact stack. Front artifact card uses the coral
- * accent border. Animations:
- *   - sibling push-down: 140ms ease-out via grid-template-rows tween.
- *   - peek lift + fade:  220ms snappy spring.
- *   - rail draw:         380ms snappy spring (scaleY 0 -> 1) + 30ms delay.
- *   - artifact stagger:  320ms snappy spring with 50ms + 60ms*n delay.
- *   - chevron rotate:    280ms snappy spring (0 -> 180deg).
+ * Single-open across the list (JS enforces). The artifact stack is
+ * inset 10dp from the session card's left edge so the coral 3dp rail
+ * sits in a clean 13dp gutter (10dp visible + 3dp rail width), fully
+ * unobscured by card chrome.
+ *
+ * Animations (2026-05-27 afternoon iteration — slowed for "deal of
+ * cards" rhythm):
+ *   - container grow:    540ms snappy spring (was 320ms).
+ *   - peek lift + fade:  380ms snappy spring (was 220ms).
+ *   - rail draw:         640ms snappy spring + 60ms delay (was 380ms + 30ms).
+ *   - artifact slide:    820ms deal-spring with 140ms per-card stagger
+ *                        and depth-proportional starting offsets
+ *                        (-180% / -280% / -380% / -480%) — deeper cards
+ *                        travel further. Was 320ms + 50ms*n.
+ *   - action chevron:    280ms snappy spring (0 -> 180deg) on the
+ *                        Artifacts button arrow.
  * `prefers-reduced-motion`: peek/rail/stagger become instant.
  * ============================================================ */
 
@@ -463,9 +474,11 @@ html, body {
   opacity: 0.92;
   z-index: 0;
   pointer-events: none;
+  /* 2026-05-27 afternoon iteration: peek lift slowed from 220ms to 380ms
+     to match the deal-of-cards rhythm of the artifact stack below. */
   transition:
-    transform 220ms cubic-bezier(0.2, 0.9, 0.25, 1.2),
-    opacity 180ms ease-out;
+    transform 380ms cubic-bezier(0.2, 0.9, 0.25, 1.2),
+    opacity 300ms ease-out;
 }
 .me-session-row[data-has-artifacts="false"] .me-session-peek {
   display: none;
@@ -556,77 +569,112 @@ html, body {
   color: var(--ink-secondary);
 }
 
-/* Chevron — 44pt hit zone wrapping a 24pt visible coral glyph.
-   The visible glyph rotates 180deg on .is-expanded. */
-.me-session-chev-hit {
-  width: 44px;
-  height: 44px;
-  margin: -10px -8px -10px 0;  /* extend hit area beyond the card padding */
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  border-radius: 22px;
-  transition: background 140ms ease-out;
+/* Action stack — two small pill buttons stacked vertically on the right
+   end of the card-body row. Replaces the legacy single chevron hit zone
+   per the 2026-05-27 afternoon iteration. The Studio button is always
+   visible; the Artifacts button only renders when the row has artifacts.
+
+   Negative margin extends the combined hit area vertically into the
+   card-body padding so each ~36pt visible button reaches Apple HIG's
+   44pt minimum tap target. */
+.me-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: -8px -6px -8px 0;
   position: relative;
   z-index: 3;
-  color: var(--brand-default);
   flex-shrink: 0;
 }
-.me-session-chev-hit:hover {
-  background: rgba(255, 107, 53, 0.08);
+
+/* One coral pill action button. Icon (svg, 18x18) + arrow glyph (text,
+   14px). Coral-tinted bg, coral border, coral fg. Hover brightens; press
+   scales to 0.96. */
+.me-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 107, 53, 0.10);
+  border: 1px solid rgba(255, 107, 53, 0.45);
+  color: var(--brand-default);
+  cursor: pointer;
+  transition:
+    background 140ms ease-out,
+    border-color 140ms ease-out,
+    transform 100ms ease-out;
+  min-width: 60px;
+  font-family: var(--font-body);
 }
-.me-session-chev-hit:active {
-  background: rgba(255, 107, 53, 0.16);
+.me-action-btn:hover {
+  background: rgba(255, 107, 53, 0.22);
+  border-color: var(--brand-default);
 }
-.me-session-chev-hit:focus-visible {
+.me-action-btn:active {
+  transform: scale(0.96);
+}
+.me-action-btn:focus-visible {
   outline: 2px solid var(--brand-default);
   outline-offset: 2px;
 }
-.me-session-chev {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
+.me-action-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
+}
+.me-action-btn .me-action-arrow {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--brand-default);
+  font-weight: 700;
   transition: transform 280ms cubic-bezier(0.2, 0.9, 0.25, 1.2);
-  pointer-events: none;
+  display: inline-block;
 }
-.me-session-chev svg {
-  width: 24px;
-  height: 24px;
-}
-.me-session-row.is-expanded .me-session-chev {
-  transform: rotate(180deg);
-}
-.me-session-row[data-has-artifacts="false"] .me-session-chev-hit {
+
+/* Artifacts button hides when the row has no published artifacts. */
+.me-session-row[data-has-artifacts="false"] .me-action-btn.is-artifacts {
   display: none;
 }
 
+/* The Artifacts button's down-arrow rotates 180° on the expanded state. */
+.me-session-row.is-expanded .me-action-btn.is-artifacts .me-action-arrow {
+  transform: rotate(180deg);
+}
+
 /* Accordion target — CSS grid template animates from 0fr to 1fr,
-   producing a smooth height tween for the artifact stack. */
+   producing a smooth height tween for the artifact stack. Slowed from
+   320ms to 540ms (2026-05-27 afternoon iteration) to match the
+   deal-of-cards rhythm. */
 .me-session-artifact-stack {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 320ms cubic-bezier(0.2, 0.9, 0.25, 1.2);
+  transition: grid-template-rows 540ms cubic-bezier(0.2, 0.9, 0.25, 1.2);
   position: relative;
 }
 .me-session-row.is-expanded .me-session-artifact-stack {
   grid-template-rows: 1fr;
 }
 
+/* Artifact stack inner container. Cards are inset 10dp from the session
+   card's left edge with the coral rail in the resulting 13dp gutter
+   (10dp visible space + 3dp rail width). The cards' own padding drops
+   back to a normal value (rail is no longer obscured by card chrome). */
 .me-session-artifact-inner {
   overflow: hidden;
   padding-top: 10px;
+  padding-left: 13px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   position: relative;
 }
 
-/* Coral hairline rail — 3px wide, sits flush at the LEFT edge of the
-   artifact stack, drawn via ::before. ScaleY 0 -> 1 from the top, with
-   a 30ms delay so siblings push down before the rail draws. */
+/* Coral hairline rail — 3px wide, sits in the 10dp gutter at the LEFT
+   edge of the stack (left:0 of the inner container). ScaleY 0 -> 1 from
+   the top, with a 60ms initial delay so siblings push down before the
+   rail draws. Slowed from 380ms to 640ms (2026-05-27 afternoon). */
 .me-session-artifact-inner::before {
   content: "";
   position: absolute;
@@ -638,7 +686,7 @@ html, body {
   border-radius: 0 0 1.5px 1.5px;
   transform-origin: top;
   transform: scaleY(0);
-  transition: transform 380ms cubic-bezier(0.2, 0.9, 0.25, 1.2) 30ms;
+  transition: transform 640ms cubic-bezier(0.2, 0.9, 0.25, 1.2) 60ms;
   opacity: 0.95;
   z-index: 2;
 }
@@ -646,44 +694,61 @@ html, body {
   transform: scaleY(1);
 }
 
-/* Artifact card — full-width, content has extra left-padding so the
-   rail at x=0 doesn't obscure the glyph. */
+/* Artifact card — inset 10dp from the session card's left edge (handled
+   by the parent's `padding-left:13px`); the card's own padding is back
+   to normal symmetric values now that the rail isn't behind it.
+   Deal-of-cards entrance: cards start positioned ABOVE their final
+   resting place (translateY -180% / -280% / -380% / -480% — deeper
+   cards travel farther) and slide down into view as the container
+   grows. The parent's overflow:hidden clips the cards behind the
+   session card until they land. */
 .me-artifact-card {
   background: var(--surface-raised);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-sm);
-  padding: 12px 14px 12px 20px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
   gap: 12px;
   text-decoration: none;
   color: inherit;
   cursor: pointer;
-  transform: translateY(-8px);
   opacity: 0;
   transition:
-    transform 320ms cubic-bezier(0.2, 0.9, 0.25, 1.2),
-    opacity 220ms ease-out,
+    transform 820ms cubic-bezier(0.2, 0.85, 0.25, 1.18),
+    opacity 300ms ease-out,
     border-color 140ms ease-out,
     box-shadow 140ms ease-out;
   position: relative;
 }
+/* Depth-proportional starting offsets so deeper cards travel farther.
+   These are the REST-state values; the .is-expanded selector below
+   resets transform to translateY(0) for the landed state. */
+.me-artifact-card:nth-child(1) { transform: translateY(-180%); }
+.me-artifact-card:nth-child(2) { transform: translateY(-280%); }
+.me-artifact-card:nth-child(3) { transform: translateY(-380%); }
+.me-artifact-card:nth-child(4) { transform: translateY(-480%); }
+.me-artifact-card:nth-child(5) { transform: translateY(-480%); }
+.me-artifact-card:nth-child(6) { transform: translateY(-480%); }
+.me-artifact-card:nth-child(7) { transform: translateY(-480%); }
+.me-artifact-card:nth-child(8) { transform: translateY(-480%); }
+
 .me-session-row.is-expanded .me-artifact-card {
   transform: translateY(0);
   opacity: 1;
 }
-/* Per-card stagger — 50ms initial + 60ms per nth-child(n). The
-   selector caps at nth-child(8): more than 8 artifact kinds is far
-   outside the current product surface (4 today, plus the template-cta
-   anchor; ceiling of 8 keeps the rule short). */
-.me-session-row.is-expanded .me-artifact-card:nth-child(1) { transition-delay: 50ms; }
-.me-session-row.is-expanded .me-artifact-card:nth-child(2) { transition-delay: 110ms; }
-.me-session-row.is-expanded .me-artifact-card:nth-child(3) { transition-delay: 170ms; }
-.me-session-row.is-expanded .me-artifact-card:nth-child(4) { transition-delay: 230ms; }
-.me-session-row.is-expanded .me-artifact-card:nth-child(5) { transition-delay: 290ms; }
-.me-session-row.is-expanded .me-artifact-card:nth-child(6) { transition-delay: 350ms; }
-.me-session-row.is-expanded .me-artifact-card:nth-child(7) { transition-delay: 410ms; }
-.me-session-row.is-expanded .me-artifact-card:nth-child(8) { transition-delay: 470ms; }
+/* Per-card stagger — 80ms initial + 140ms per nth-child(n). Card N
+   lands at 80 + 140*(N-1) ms after the row enters .is-expanded:
+     1 -> 80ms, 2 -> 220ms, 3 -> 360ms, 4 -> 500ms, 5 -> 640ms,
+     6 -> 780ms, 7 -> 920ms, 8 -> 1060ms. */
+.me-session-row.is-expanded .me-artifact-card:nth-child(1) { transition-delay: 80ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(2) { transition-delay: 220ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(3) { transition-delay: 360ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(4) { transition-delay: 500ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(5) { transition-delay: 640ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(6) { transition-delay: 780ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(7) { transition-delay: 920ms; }
+.me-session-row.is-expanded .me-artifact-card:nth-child(8) { transition-delay: 1060ms; }
 
 .me-artifact-card:hover {
   border-color: rgba(255, 255, 255, 0.10);
@@ -751,13 +816,17 @@ html, body {
 
 /* Owner-only "Use as template" CTA — lives INSIDE the expanded
    artifact area per the redesigned spec (not below the session card).
-   Uses the same coral-tinted chrome the legacy bundle CTA had. */
+   Uses the same coral-tinted chrome the legacy bundle CTA had. It is
+   one of the staggered children of .me-session-artifact-inner so the
+   nth-child(N) transition-delay rules already cover its landing time;
+   the depth-proportional starting offset is also inherited via the
+   nth-child(N) transform rules above. */
 .me-session-template-cta {
   margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px 10px 20px;
+  padding: 10px 12px;
   background: var(--brand-tint-bg);
   border: 1px solid var(--brand-tint-border);
   border-radius: var(--radius-sm);
@@ -768,9 +837,11 @@ html, body {
   font-size: 13px;
   letter-spacing: -0.1px;
   cursor: pointer;
-  transition: background 120ms ease-out, border-color 120ms ease-out;
-  /* Share the stagger animation — treated as just another card. */
-  transform: translateY(-8px);
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out,
+    transform 820ms cubic-bezier(0.2, 0.85, 0.25, 1.18),
+    opacity 300ms ease-out;
   opacity: 0;
 }
 .me-session-row.is-expanded .me-session-template-cta {
@@ -805,15 +876,20 @@ html, body {
 
 /* prefers-reduced-motion overrides per spec:
      - peek lift / rail draw / artifact stagger become instant (0ms).
-     - sibling push-down becomes 0ms.
-     - chevron rotation stays (~140ms) because it's a directional cue. */
+     - container grow becomes 0ms (snap).
+     - artifact cards still land at translateY(0) — only the transition
+       is removed.
+     - action-button arrow rotation stays (~140ms) because it's a
+       directional cue, not decoration. */
 @media (prefers-reduced-motion: reduce) {
   .me-session-peek { transition: none; }
   .me-session-artifact-stack { transition: none; }
   .me-session-artifact-inner::before { transition: none; }
   .me-artifact-card { transition: none; }
   .me-session-template-cta { transition: none; }
-  .me-session-chev { transition: transform 140ms ease-out; }
+  .me-action-btn .me-action-arrow {
+    transition: transform 140ms ease-out;
+  }
 }
 
 /* The .me-prov-avatar / .me-prov-text / .me-live-dot rules below are
