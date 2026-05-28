@@ -104,6 +104,14 @@ const APP_SHELL = [
   '/handout.html',
   '/handout.css',
   '/handout.js',
+  // Shared modules used by BOTH the interactive lobby and the Printable
+  // Workout Guide (artifact-consistency wave, 2026-05-28). Precached so
+  // the offline app shell can render either surface without the network.
+  '/exercise_hero.js',
+  '/hero_resolver.js',
+  '/homefit_logo.js',
+  '/dose_format.js',
+  '/qrcode.js',
 ];
 
 // ============================================================

@@ -164,7 +164,7 @@ export default async function middleware(request) {
     // print-friendly hand-off ("save / print your plan"), the player is
     // the workout-along experience.
     const description = isHandout
-      ? `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} · printable workout handout`
+      ? `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} · Printable Workout Guide`
       : `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} ready for you`;
     const thumbnail = firstVisible?.thumbnail_url || '';
     const planUrl = `${originHost}${isHandout ? '/h/' : '/p/'}${planId}`;

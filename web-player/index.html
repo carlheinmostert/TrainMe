@@ -125,21 +125,47 @@
            stay the same. See docs/CLIENT_WORKOUTS_AND_CLASSES.md.
            The matrix-logo SVG is injected at init by lobby.js
            via buildHomefitLogoSvg() in app.js. -->
-      <section
+      <!-- "Save this plan to your phone" — standardised with the Printable
+           Workout Guide claim chip (artifact-consistency wave, 2026-05-28).
+           Same canonical buildHomefitLogoSvg() glyph + the same magic-link /
+           active framing. Tappable: routes to /me?claim={planId} (the Wave 2
+           consumer claim flow). The planId is stamped onto the href by
+           lobby.js at wire time. -->
+      <a
         class="lobby-import-card"
         id="lobby-import-card"
+        href="/me"
         aria-labelledby="lobby-import-title"
         hidden
       >
         <span class="lobby-import-glyph" aria-hidden="true" id="lobby-import-glyph"></span>
         <div class="lobby-import-copy">
           <div class="lobby-import-head">
-            <span class="lobby-import-title" id="lobby-import-title">Get the app &amp; import this session</span>
-            <span class="lobby-import-soon" aria-label="Coming soon">Coming soon</span>
+            <span class="lobby-import-title" id="lobby-import-title">Save this plan to your phone</span>
           </div>
-          <span class="lobby-import-sub">Soon you'll be able to import this session into the app to track your progress.</span>
+          <span class="lobby-import-sub">One tap · magic-link sign-in · all your plans in one place</span>
         </div>
-      </section>
+      </a>
+
+      <!-- Standard footer seal (artifact-consistency wave, 2026-05-28).
+           The SAME "powered by homefit.studio" seal + referral QR that the
+           Printable Workout Guide footer carries, promoted here so both
+           surfaces share one footer. Coral comes from --seal-coral, which
+           a brand-skin override is forbidden to re-point. The QR is
+           rendered locally by lobby.js via HomefitQR (CSP-clean); hidden
+           gracefully when the practice has no referral code. -->
+      <footer class="lobby-seal" id="lobby-seal">
+        <div class="lobby-seal-mark">
+          <div class="lobby-seal-line">
+            <span class="lobby-seal-logo" id="lobby-seal-logo" aria-hidden="true"></span>
+            <span class="lobby-seal-brand">
+              <span>homefit</span><span class="dotsuf">.</span><span class="dotsuf">studio</span>
+            </span>
+          </div>
+          <div class="lobby-seal-version" id="lobby-seal-version" aria-hidden="true"></div>
+        </div>
+        <div class="lobby-seal-qr" id="lobby-seal-qr" title="Scan to follow your practitioner" hidden></div>
+      </footer>
 
       <!-- Export-only footer (Wave Free Lobby Export, 2026-05-05). Hidden
            during normal lobby viewing; shown only when html.is-exporting
@@ -554,6 +580,20 @@
        Memoised per (exerciseId, treatment, offset, targetSize) so
        treatment switches and re-renders hit cache. -->
   <script src="/hero_resolver.js"></script>
+  <!-- Shared modules — also loaded by the Printable Workout Guide
+       (handout.html) so the two surfaces share ONE implementation
+       (artifact-consistency wave, 2026-05-28):
+         homefit_logo.js — canonical buildHomefitLogoSvg() (app.js has an
+                           identical copy; this guarantees the handout uses
+                           the same geometry).
+         dose_format.js  — shared HomefitDose rep/hold/weight grammar that
+                           app.js's formatReps/formatHold/formatWeight now
+                           delegate to.
+         qrcode.js       — local CSP-clean QR encoder for the standard
+                           footer QR on both surfaces. -->
+  <script src="/homefit_logo.js"></script>
+  <script src="/dose_format.js"></script>
+  <script src="/qrcode.js"></script>
   <!-- jsPDF UMD bundle removed 2026-05-26 per ADR 0025 — the free artifact
        moved from an on-device PDF (triggerLobbyShare via html2canvas +
        jsPDF) to a live web page at /h/{planId}. The PDF generator is

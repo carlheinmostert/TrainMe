@@ -57,6 +57,12 @@
   const $lobbyBodyFocusBtn = $lobbySettingsPopover
     ? $lobbySettingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]')
     : null;
+  // Standard footer seal (artifact-consistency wave, 2026-05-28) — the
+  // same seal + referral QR the Printable Workout Guide carries.
+  const $lobbySeal = document.getElementById('lobby-seal');
+  const $lobbySealLogo = document.getElementById('lobby-seal-logo');
+  const $lobbySealVersion = document.getElementById('lobby-seal-version');
+  const $lobbySealQr = document.getElementById('lobby-seal-qr');
   const $selfGrantModal = document.getElementById('lobby-self-grant-modal');
   const $selfGrantTitle = document.getElementById('lobby-self-grant-title');
   const $selfGrantName = document.getElementById('lobby-self-grant-name');
@@ -296,6 +302,7 @@
     renderMatrix();
     renderList();
     renderTreatmentRow();
+    renderSeal();
     wireEvents();
 
     // Hide the start workout button on the deck — the lobby owns this.
@@ -438,6 +445,57 @@
     }).catch(() => {
       $lobbyMetaVersion.textContent = compose('?');
     });
+  }
+
+  // ==========================================================================
+  // Standard footer seal (artifact-consistency wave, 2026-05-28)
+  // ==========================================================================
+  //
+  // The SAME "powered by homefit.studio" seal + referral QR the Printable
+  // Workout Guide carries, mounted on the lobby so both surfaces share one
+  // footer. The seal version slot shows the deployed build SHA (the lobby's
+  // build-marker convention). The QR encodes the practitioner referral link
+  // and is rendered LOCALLY via HomefitQR (CSP-clean); hidden gracefully
+  // when the practice has no referral code. Coral comes from --seal-coral,
+  // which a brand-skin override must not re-point (locked decision #23).
+
+  function renderSeal() {
+    // Canonical logo glyph (same builder the handout get-app block uses).
+    if ($lobbySealLogo && !$lobbySealLogo.innerHTML) {
+      const buildLogo =
+        (typeof window !== 'undefined' && typeof window.buildHomefitLogoSvg === 'function')
+          ? window.buildHomefitLogoSvg
+          : (typeof buildHomefitLogoSvg === 'function' ? buildHomefitLogoSvg : null);
+      if (buildLogo) $lobbySealLogo.innerHTML = buildLogo();
+    }
+
+    // Build-SHA version slot — feed the deployed git SHA into the seal so
+    // the footer carries the same build marker the corner chip shows.
+    if ($lobbySealVersion) {
+      const cfg = (typeof window !== 'undefined' && window.HOMEFIT_CONFIG) || {};
+      const gitSha = (typeof cfg.gitSha === 'string' && cfg.gitSha) || 'dev';
+      const planVersion = (plan && plan.version != null) ? ('v' + plan.version) : '';
+      $lobbySealVersion.textContent = [planVersion, gitSha].filter(Boolean).join(' · ');
+    }
+
+    // Referral QR — local, CSP-clean. plan.referral_code rides on the
+    // get_plan_full payload (migration 20260528090000). Hidden when null.
+    if ($lobbySealQr) {
+      const code = plan && (plan.referral_code || '').toString().trim();
+      if (code && window.HomefitQR && window.HomefitQR.toSvg) {
+        const url = 'https://manage.homefit.studio/r/' + encodeURIComponent(code);
+        try {
+          $lobbySealQr.innerHTML = window.HomefitQR.toSvg(url, { ecLevel: 'M', quietZone: 2 });
+          $lobbySealQr.hidden = false;
+          $lobbySealQr.setAttribute('aria-label', 'QR code linking to your practitioner');
+        } catch (err) {
+          try { console.warn('[lobby] seal QR render failed:', err); } catch (_) {}
+          $lobbySealQr.hidden = true;
+        }
+      } else {
+        $lobbySealQr.hidden = true;
+      }
+    }
   }
 
   function countExercises(slides) {
@@ -2165,23 +2223,26 @@
       }
     });
 
-    // ----- Import-to-app card (TestFlight v2 — static "Coming soon") -----
-    // The PR #315 stub shipped an email-collection form whose submit
-    // was a no-op. Carl flagged that as misleading during staging QA
-    // (item 10); replaced with a static teaser card that advertises
-    // the future feature without asking for an email. When the
-    // plan_invitations + magic-link backend ships, the card gets its
-    // tap target back; the position + framing stay the same.
+    // ----- "Save this plan to your phone" card -----
+    // Standardised with the Printable Workout Guide claim chip
+    // (artifact-consistency wave, 2026-05-28): same canonical glyph + the
+    // same magic-link / active framing + the same /me?claim={planId}
+    // destination (Wave 2 consumer claim flow is live). Stamp the current
+    // planId onto the anchor href so the /me page attaches THIS plan on
+    // sign-in.
     //
-    // Matrix-only logo is injected here via buildHomefitLogoSvg()
-    // (from app.js) so the chrome stays canonical — earlier the icon
-    // was hand-rolled in markup and drifted from the brand geometry.
+    // Matrix-only logo is injected here via buildHomefitLogoSvg() (from
+    // homefit_logo.js / app.js) so the chrome stays canonical.
     const importCard = document.getElementById('lobby-import-card');
     const importGlyph = document.getElementById('lobby-import-glyph');
 
     if (importCard && !importCard._wired) {
       importCard._wired = true;
       importCard.hidden = false;
+      // Stamp the claim target. plan.id is the current plan's UUID.
+      if (plan && plan.id) {
+        importCard.setAttribute('href', '/me?claim=' + encodeURIComponent(plan.id));
+      }
       // buildHomefitLogoSvg lives at the top level of app.js (no IIFE
       // wrapper), so it's reachable as `window.buildHomefitLogoSvg` in
       // a browser. We tolerate the bare name too so this works in any

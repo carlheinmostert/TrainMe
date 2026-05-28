@@ -1,17 +1,32 @@
 /**
- * handout.js — workout handout page at /h/{planId}
+ * handout.js — Printable Workout Guide at /h/{planId}
  * =====================================================================
  *
- * Artifact-system Wave 1 (ADR 0025). Renders the live workout handout
- * from the same `get_plan_full` anon RPC the player uses. Treatment
- * toggle is consent-gated. Print button is window.print(). Claim chip
- * is wired but routes nowhere until Wave 2 magic-link claim lands —
- * the click handler is a soft no-op + TODO.
+ * Artifact-system Wave 1 (ADR 0025), aligned with the Interactive
+ * Workout Guide lobby (artifact-consistency wave, 2026-05-28). Renders
+ * the live plan from the same `get_plan_full` anon RPC the player uses.
  *
- * Data-access: ALL Supabase I/O goes through `window.HomefitApi.getPlanFull`.
- * Per feedback_no_direct_db_access.md — never call /rest/v1/rpc/* directly
- * from this file. If a future capability needs a new RPC, register it on
- * api.js first.
+ * Key alignment decisions (this surface MUST match the lobby, not
+ * redefine it):
+ *   - No view/treatment toggle. Each exercise renders STATICALLY in its
+ *     own `preferred_treatment` via the mandated hero resolver
+ *     (HomefitHero.resolve + HomefitHeroResolver), exactly like the
+ *     lobby. Consent revocation falls DOWN to line silently (resolver).
+ *   - Dose grammar is the SHARED dose module (HomefitDose) — no parallel
+ *     rep/hold logic that could drift from the lobby.
+ *   - Circuit grouping mirrors the lobby (plan.circuit_names + letter
+ *     fallback).
+ *   - The byline practitioner name comes from get_plan_sharing_context
+ *     (api.getPlanSharingContext), the same source the lobby uses — NOT
+ *     the non-existent plan.trainer_display_name / plan.trainer_name.
+ *   - Footer = the standard "powered by homefit.studio" seal + a REAL
+ *     QR (rendered locally via HomefitQR, CSP-clean) to the practice
+ *     referral link.
+ *
+ * Print button is window.print(). Claim chip routes to /me?claim={planId}.
+ *
+ * Data-access: ALL Supabase I/O goes through `window.HomefitApi`.
+ * Per feedback_no_direct_db_access.md.
  */
 
 (function () {
@@ -19,25 +34,6 @@
 
   // ===========================  Bootstrap  ===============================
 
-  // Hard-cap the time `loadHandout` is allowed to spin before we surface
-  // the error card. Two failure modes this catches that PR #550 alone
-  // didn't address:
-  //   1. Stale WKWebView HTTP cache serving a pre-PR-#550 handout.html
-  //      (missing `<script src="/config.js">`). api.js then throws at
-  //      module load, `window.HomefitApi` never exports, and handout.js
-  //      reaches the missing-API branch below — which DID call
-  //      showError(), but in some browsers the api.js throw at module
-  //      time aborts the entire <script> tag chain before handout.js
-  //      gets a chance to run. Force-quitting the app doesn't clear
-  //      WKWebView's WKWebsiteDataStore cache (per-app, NOT per-launch).
-  //   2. A future RPC change that returns a payload shape `render()`
-  //      can't traverse without throwing AFTER the loading dot has
-  //      gone visible. The .catch chain still fires, but if a render
-  //      function throws ASYNCHRONOUSLY (e.g. an image onerror handler
-  //      that retries) the loading dot is never hidden.
-  // The watchdog flips `_loadComplete` true on either render() or
-  // showError(); if it fires before that, it forces showError() with a
-  // visible reason chip so the user sees what failed.
   const LOAD_WATCHDOG_MS = 15000;
   let _loadComplete = false;
   const _watchdog = setTimeout(() => {
@@ -55,37 +51,29 @@
     return;
   }
 
-  // Render-state. We keep this in a closure rather than mutating the DOM
-  // imperatively from many sites — single source of truth.
+  // Single source of truth for render state.
   const state = {
     plan: null,
     exercises: [],
     artifacts: [],
-    consent: { line_drawing: true, grayscale: false, original: false },
-    treatment: 'line', // 'line' | 'bw' | 'original'
+    practitionerName: '',
   };
 
-  // Pre-flight: api.js + config.js must have loaded successfully. If
-  // either failed at module time (e.g. stale cached handout.html without
-  // the config.js script tag), `window.HomefitApi` is undefined.
-  // Surface immediately instead of waiting for loadHandout's first
-  // network call. The watchdog above is the secondary safety net.
+  // Pre-flight: api.js + config.js must have loaded successfully.
   if (!window.HomefitApi || typeof window.HomefitApi.getPlanFull !== 'function') {
     _loadComplete = true;
     clearTimeout(_watchdog);
     try {
       console.error(
-        '[handout] window.HomefitApi missing — '
-        + 'api.js failed at module load. Likely cause: stale cached '
-        + 'handout.html missing <script src="/config.js"> (PR #550). '
-        + 'Hard-refresh / clear app cache to recover.'
+        '[handout] window.HomefitApi missing — api.js failed at module '
+        + 'load. Likely cause: stale cached handout.html missing '
+        + '<script src="/config.js">. Hard-refresh / clear app cache.'
       );
     } catch (_) {}
     showError('Page failed to initialise. Please reload.');
     return;
   }
 
-  // Kick off the load.
   loadHandout(planId).then(() => {
     _loadComplete = true;
     clearTimeout(_watchdog);
@@ -100,7 +88,6 @@
   // ===========================  Plan loading  ============================
 
   function extractPlanIdFromPath() {
-    // Pattern: /h/{planId}
     const match = (window.location.pathname || '').match(/^\/h\/([A-Za-z0-9_-]+)\/?$/);
     if (!match) return null;
     return match[1];
@@ -111,12 +98,7 @@
       throw new Error('HomefitApi not loaded');
     }
 
-    let payload;
-    try {
-      payload = await window.HomefitApi.getPlanFull(id);
-    } catch (err) {
-      throw err;
-    }
+    const payload = await window.HomefitApi.getPlanFull(id);
     if (!payload || !payload.plan) {
       throw new Error('Plan not found');
     }
@@ -125,62 +107,39 @@
     state.exercises = Array.isArray(payload.exercises) ? payload.exercises : [];
     state.artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
 
-    // Derive consent flags from the first exercise's URLs. The RPC nulls
-    // grayscale_url / original_url when the client hasn't consented, so
-    // the presence of a non-null URL on ANY exercise == that treatment is
-    // available. (Per-exercise consent doesn't exist; consent is plan-grain
-    // via clients.video_consent.)
-    state.consent = deriveConsent(state.exercises);
-
-    // Brand-skin (Wave 4, ADR-0029). Apply the practitioner's brand colour
-    // to the page chrome (--brand-*) WITHOUT touching the seal tokens
-    // (--seal-*). Activates only when the practice's subscription is in
-    // its active or grace window AND a brand_color is set on the public
-    // profile. No skin == default coral chrome renders unchanged.
+    // Brand-skin (Wave 4, ADR-0029). Unchanged from the prior handout.
     applySkin(state.plan);
 
-    // Best-effort: stamp the per-artifact open. The RPC is a no-op if no
-    // handout row exists yet (Wave 1 — the row gets minted by Wave 3's
-    // multi-select publish gate; the page still renders for plans that
-    // haven't been explicitly "handout-published" because the source data
-    // is the same).
-    try {
-      recordHandoutOpened(id);
-    } catch (_) { /* best-effort */ }
+    // Practitioner name — same source the lobby uses (get_plan_sharing_context
+    // -> practitioner_name). Best-effort: the byline renders without it.
+    // Fired in parallel with render so the byline updates when it resolves.
+    fetchPractitionerName(id);
+
+    // Best-effort per-artifact open stamp.
+    try { recordHandoutOpened(id); } catch (_) { /* best-effort */ }
 
     render();
   }
 
-  function deriveConsent(exercises) {
-    const consent = { line_drawing: true, grayscale: false, original: false };
-    for (const ex of exercises) {
-      if (ex && ex.grayscale_url) consent.grayscale = true;
-      if (ex && ex.original_url) consent.original = true;
+  async function fetchPractitionerName(id) {
+    if (!window.HomefitApi || typeof window.HomefitApi.getPlanSharingContext !== 'function') {
+      return;
     }
-    return consent;
+    try {
+      const ctx = await window.HomefitApi.getPlanSharingContext(id);
+      const name = ctx && (ctx.practitioner_name || '').trim();
+      if (name) {
+        state.practitionerName = name;
+        // Re-paint the byline now that we have the real name.
+        try { renderHeader(); } catch (_) {}
+      }
+    } catch (err) {
+      try { console.warn('[handout] get_plan_sharing_context failed:', err); } catch (_) {}
+    }
   }
 
   // ===========================  Brand-skin  ==============================
 
-  /**
-   * applySkin — Wave 4 / ADR-0029.
-   *
-   * When the publishing practice has an active brand-skin subscription
-   * (paid OR trial, within 37 days = 30-day month + 7-day grace) AND a
-   * brand_color set on its public profile, paint the page chrome in that
-   * colour. The .skin-active class on <body> tells the CSS to swap the
-   * homefit lockup for the practitioner's lockup; inline --practice-brand-*
-   * custom properties supply the actual colour values.
-   *
-   * Seal tokens (--seal-coral, --seal-coral-light, --seal-tint-border)
-   * are NEVER touched here. The footer "powered by homefit.studio" mark
-   * stays coral regardless of the skin.
-   *
-   * Falsy brand_color, missing subscription, or missing practice_name =
-   * no-op; the default coral chrome renders unchanged. Renderer is
-   * defensive: it tolerates plans with no practice attached (legacy /
-   * orphaned rows) and silently falls back to default.
-   */
   function applySkin(plan) {
     if (!plan) return;
     const active = plan.brand_skin_active === true;
@@ -188,15 +147,9 @@
     const practiceName = (plan.practice_name || '').trim();
     const logoUrl = (plan.public_logo_url || '').trim();
     if (!active || !colorRaw || !practiceName) {
-      // Review-followup 2026-05-26 (sev2): defensively clear any residue
-      // from a previous render. Matters for SW updates / hot reload during
-      // dev when the same DOM gets re-rendered with a different plan; also
-      // a no-op on first render. Mirrors the additive setters below.
       clearSkin();
       return;
     }
-    // Validate hex — DB CHECK already enforces /^#[0-9A-Fa-f]{6}$/, but
-    // belt-and-braces so a bad value can't corrupt the inline style.
     if (!/^#[0-9A-Fa-f]{6}$/.test(colorRaw)) {
       clearSkin();
       return;
@@ -212,28 +165,13 @@
     body.classList.add('skin-active');
     body.setAttribute('data-skin-practice', (plan.practice_id || '').toString());
 
-    // Apply via inline custom properties so the CSS .skin-active block
-    // re-points the --brand-* tokens to them.
     body.style.setProperty('--practice-brand-color', colorRaw);
     body.style.setProperty('--practice-brand-color-dark', rgbToHex(dark));
     body.style.setProperty('--practice-brand-color-light', rgbToHex(light));
-    body.style.setProperty(
-      '--practice-brand-tint-bg',
-      'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.12)',
-    );
-    body.style.setProperty(
-      '--practice-brand-tint-border',
-      'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.30)',
-    );
-    body.style.setProperty(
-      '--practice-brand-glyph-bg',
-      'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.18)',
-    );
+    body.style.setProperty('--practice-brand-tint-bg', 'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.12)');
+    body.style.setProperty('--practice-brand-tint-border', 'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.30)');
+    body.style.setProperty('--practice-brand-glyph-bg', 'rgba(' + rgb.r + ', ' + rgb.g + ', ' + rgb.b + ', 0.18)');
 
-    // Populate the brand-skin lockup. Inline glyph defaults to the
-    // hero-frame stick-figure used in the mockup; a future wave (open
-    // question #9) can swap in a per-practice logo when the public
-    // profile carries a real <svg> or PNG.
     const $skin = document.getElementById('handout-brand-skin');
     if (!$skin) return;
     $skin.removeAttribute('aria-hidden');
@@ -242,9 +180,6 @@
     const $tag   = $skin.querySelector('.handout-brand-skin-tag');
     if ($glyph) {
       if (logoUrl) {
-        // Practice supplied a logo URL on their public profile. The
-        // brand-skin slot becomes the lockup; render the logo as an
-        // <img> instead of the stick-figure placeholder.
         $glyph.innerHTML = '';
         const $img = document.createElement('img');
         $img.src = logoUrl;
@@ -255,9 +190,6 @@
         $img.style.objectFit = 'contain';
         $glyph.appendChild($img);
       } else {
-        // Default hero-frame stick figure (head + spine + arms + legs)
-        // — the homefit hero convention re-used here as a temporary
-        // glyph until per-practice logos are captured.
         $glyph.innerHTML =
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
           'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
@@ -272,26 +204,12 @@
     }
     if ($name) $name.textContent = practiceName;
     if ($tag) {
-      // Optional tagline beside the name. The mockup shows a small all-caps
-      // "movement studio" tag, sourced from public_profile.tagline. If the
-      // practice has no tagline, omit it.
       const tagline = (plan.tagline || '').trim();
       $tag.textContent = tagline;
       $tag.style.display = tagline ? '' : 'none';
     }
   }
 
-  /**
-   * clearSkin — defensive reset (review-followup 2026-05-26, sev2).
-   *
-   * The non-skin code-path needs to actively undo any state a previous
-   * render may have left on document.body — under SW updates or hot
-   * reload during dev the same DOM gets reused but with a different
-   * plan. The setters in applySkin are additive (.classList.add, inline
-   * style.setProperty); without this counter-helper they'd persist.
-   *
-   * Idempotent — no-op when nothing's been applied yet.
-   */
   function clearSkin() {
     const body = document.body;
     if (!body) return;
@@ -306,14 +224,12 @@
   }
 
   function hexToRgb(hex) {
-    // Expect /^#[0-9A-Fa-f]{6}$/ — caller validates.
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
     return { r: r, g: g, b: b };
   }
-
   function rgbToHex(rgb) {
     const toHex = (n) => {
       const clamped = Math.max(0, Math.min(255, Math.round(n)));
@@ -322,16 +238,9 @@
     };
     return '#' + toHex(rgb.r) + toHex(rgb.g) + toHex(rgb.b);
   }
-
   function mixWithBlack(rgb, t) {
-    // Approximate "darker" by linear blend toward #000 by t in [0,1].
-    return {
-      r: rgb.r * (1 - t),
-      g: rgb.g * (1 - t),
-      b: rgb.b * (1 - t),
-    };
+    return { r: rgb.r * (1 - t), g: rgb.g * (1 - t), b: rgb.b * (1 - t) };
   }
-
   function mixWithWhite(rgb, t) {
     return {
       r: rgb.r + (255 - rgb.r) * t,
@@ -345,129 +254,104 @@
   function render() {
     const $page = document.getElementById('handout-page');
     const $loading = document.getElementById('handout-loading');
-    // Defensive: if either chrome anchor is missing the document is
-    // either pre-Wave-1 or DOM-tampered. Bail to error so the loading
-    // spinner doesn't hang forever waiting for a render that can't
-    // mount.
     if (!$page || !$loading) {
       throw new Error('Page DOM not ready — handout chrome elements missing.');
     }
 
-    // Each render sub-call is wrapped in try/catch so a single bad row
-    // doesn't blackhole the whole page. Without this, a thrown render
-    // function would bubble up to loadHandout's caller chain, hit the
-    // outer .catch, and call showError — which DOES hide the spinner,
-    // so the user sees the error card. BUT the inline try/catch lets
-    // partial render still succeed (e.g. header + treatment toggle
-    // render even if the exercise list trips on one row), giving the
-    // user something usable instead of a hard fail.
     try { renderHeader(); }
       catch (e) { try { console.warn('[handout] renderHeader failed:', e); } catch(_){} }
-    try { renderTreatmentToggle(); }
-      catch (e) { try { console.warn('[handout] renderTreatmentToggle failed:', e); } catch(_){} }
     try { renderExerciseList(); }
       catch (e) { try { console.warn('[handout] renderExerciseList failed:', e); } catch(_){} }
-    try { renderSealVersion(); }
-      catch (e) { try { console.warn('[handout] renderSealVersion failed:', e); } catch(_){} }
+    try { renderImportBlock(); }
+      catch (e) { try { console.warn('[handout] renderImportBlock failed:', e); } catch(_){} }
+    try { renderSeal(); }
+      catch (e) { try { console.warn('[handout] renderSeal failed:', e); } catch(_){} }
     try { bindEvents(); }
       catch (e) { try { console.warn('[handout] bindEvents failed:', e); } catch(_){} }
 
-    // ALWAYS hide loading + show page once we've attempted render. The
-    // partial-render policy above means even a half-mounted page is more
-    // useful than a stuck spinner. The original implementation here
-    // depended on every sub-call returning cleanly — a single throw
-    // anywhere up the chain (e.g. a bad exercise row) and the spinner
-    // hung forever waiting for the line below to execute. That's the
-    // failure mode this PR closes.
     $loading.hidden = true;
     $page.hidden = false;
 
-    // Update <title> + OG fallback so the bare URL (when bots don't hit
-    // middleware) still shows the right copy on share. Bot user-agents
-    // get the rewritten OG block from web-player/middleware.js.
     try {
-      const title = (state.plan && state.plan.title) || 'Your workout handout';
+      const title = (state.plan && state.plan.title) || 'Your Printable Workout Guide';
       document.title = title + ' — homefit.studio';
-    } catch (_) { /* title is cosmetic — never block render on it */ }
+    } catch (_) { /* cosmetic */ }
   }
 
   function renderHeader() {
     const $title = document.getElementById('handout-title');
     const $byline = document.getElementById('handout-byline');
-    if ($title) $title.textContent = state.plan.title || 'Your workout';
+    if ($title) $title.textContent = (state.plan && state.plan.title) || 'Your workout';
     if ($byline) {
-      const practitioner = practitionerLabel(state.plan);
-      const practice = state.plan.practice_name || '';
+      // Practitioner name from get_plan_sharing_context (same source as the
+      // lobby). Falls back to "your practitioner" when not yet resolved.
+      const practitioner = state.practitionerName || '';
+      const practice = (state.plan && state.plan.practice_name) || '';
       const parts = [];
       if (practitioner) parts.push('<b>' + escapeHtml(practitioner) + '</b>');
+      else parts.push('<b>your practitioner</b>');
       if (practice) parts.push(escapeHtml(practice));
-      $byline.innerHTML = parts.length ? ('from ' + parts.join(' · ')) : '';
+      $byline.innerHTML = 'from ' + parts.join(' · ');
     }
   }
 
-  function practitionerLabel(plan) {
-    // The plan row carries trainer info via to_jsonb(plan_row); fields are
-    // not guaranteed across schema versions, so pick whatever's present.
-    if (!plan) return '';
-    return plan.trainer_display_name
-      || plan.trainer_name
-      || '';
-  }
-
-  function renderTreatmentToggle() {
-    const $treatment = document.getElementById('handout-treatment');
-    if (!$treatment) return;
-    const buttons = $treatment.querySelectorAll('.handout-seg-item');
-    buttons.forEach((btn) => {
-      const t = btn.getAttribute('data-treatment');
-      let available = true;
-      if (t === 'bw') available = state.consent.grayscale;
-      if (t === 'original') available = state.consent.original;
-
-      btn.classList.toggle('is-locked', !available);
-      btn.disabled = !available;
-      btn.setAttribute('aria-selected', t === state.treatment ? 'true' : 'false');
-      btn.classList.toggle('is-active', t === state.treatment);
-
-      // Add a lock glyph for unavailable treatments (mockup parity).
-      const existingLock = btn.querySelector('.lock-glyph');
-      if (!available && !existingLock) {
-        const lock = document.createElement('span');
-        lock.className = 'lock-glyph';
-        lock.setAttribute('aria-hidden', 'true');
-        lock.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
-        btn.appendChild(lock);
-      } else if (available && existingLock) {
-        existingLock.remove();
-      }
-    });
-  }
+  // ===========================  Exercise list  ===========================
+  //
+  // Circuit grouping + letter fallback mirror the lobby's renderList
+  // (lobby.js:527-901). Each exercise renders statically in its own
+  // preferred_treatment via the hero resolver.
 
   function renderExerciseList() {
     const $list = document.getElementById('handout-list');
     if (!$list) return;
     $list.innerHTML = '';
 
+    const slides = state.exercises;
+
+    // Circuit letter map (mirror Studio's _circuitLetter + lobby).
+    const circuitLetters = (() => {
+      const map = {};
+      let nextIdx = 0;
+      for (let i = 0; i < slides.length; i++) {
+        const s = slides[i];
+        if (!s || !s.circuit_id) continue;
+        if (Object.prototype.hasOwnProperty.call(map, s.circuit_id)) continue;
+        map[s.circuit_id] = String.fromCharCode('A'.charCodeAt(0) + (nextIdx % 26));
+        nextIdx += 1;
+      }
+      return map;
+    })();
+
     let currentCircuit = null;
     let circuitGroup = null;
-    let circuitIndex = 0;
+    let exercisePosition = 0;
 
-    state.exercises.forEach((ex, idx) => {
-      const circuitId = ex && ex.circuit_id;
-      const isRest = ex && ex.media_type === 'rest';
+    slides.forEach((ex, idx) => {
+      if (!ex) return;
+      const circuitId = ex.circuit_id || null;
+      const isRest = ex.media_type === 'rest';
 
-      // Close out previous circuit group when the circuit changes.
+      // Close the open circuit group when the circuit changes.
       if (circuitId !== currentCircuit) {
         currentCircuit = circuitId;
         circuitGroup = null;
         if (circuitId) {
-          circuitIndex += 1;
           const cycles = circuitCyclesForId(state.plan, circuitId) || 1;
+          // Circuit display name — custom (plan.circuit_names) then the
+          // letter fallback, matching the lobby.
+          const customName = (ex.circuitName && String(ex.circuitName).trim())
+            || (state.plan
+              && state.plan.circuit_names
+              && state.plan.circuit_names[circuitId]
+              && String(state.plan.circuit_names[circuitId]).trim())
+            || '';
+          const letter = circuitLetters[circuitId] || 'A';
+          const circuitName = customName || ('Circuit ' + letter);
+
           const $h = document.createElement('div');
           $h.className = 'handout-circuit-h';
           $h.innerHTML =
-            '<span>Circuit · ' + escapeHtml(String(cycles)) + ' round'
-            + (cycles === 1 ? '' : 's')
+            '<span>' + escapeHtml(circuitName) + ' · ×' + escapeHtml(String(cycles))
             + '</span><span class="line"></span>';
           $list.appendChild($h);
 
@@ -477,18 +361,23 @@
         }
       }
 
-      const $node = isRest
-        ? buildRestNode(ex)
-        : buildExerciseNode(ex, idx + 1);
+      let $node;
+      if (isRest) {
+        $node = buildRestNode(ex);
+      } else {
+        exercisePosition += 1;
+        $node = buildExerciseNode(ex, exercisePosition);
+      }
       (circuitGroup || $list).appendChild($node);
     });
+
+    // Hydrate hero crops to 1:1 (same path the lobby uses).
+    hydrateHeroCrops();
   }
 
   function circuitCyclesForId(plan, circuitId) {
     if (!plan || !plan.circuit_cycles || !circuitId) return 1;
     let map = plan.circuit_cycles;
-    // The RPC returns jsonb that PostgREST shapes as a real object; guard
-    // against legacy string-encoded JSON anyway.
     if (typeof map === 'string') {
       try { map = JSON.parse(map); } catch (_) { return 1; }
     }
@@ -501,25 +390,25 @@
     const $wrap = document.createElement('div');
     $wrap.className = 'handout-ex';
 
-    const thumbUrl = resolveThumbnailForTreatment(ex, state.treatment);
-    const isBw = state.treatment === 'bw' && thumbUrl;
-
+    // Hero — via the mandated resolver. Static <img> only (never a
+    // <video>; the printable guide is a still document). The resolver
+    // derives the treatment from ex.preferred_treatment internally and
+    // falls down to line when consent revoked a variant.
     const $thumb = document.createElement('div');
-    $thumb.className = 'handout-ex-thumb' + (isBw ? ' is-bw' : '');
-    if (thumbUrl) {
-      const $img = document.createElement('img');
-      $img.alt = '';
-      $img.loading = 'lazy';
-      $img.src = thumbUrl;
-      $thumb.appendChild($img);
+    $thumb.className = 'handout-ex-thumb';
+
+    const heroImg = buildHeroImg(ex);
+    if (heroImg.$img) {
+      $thumb.appendChild(heroImg.$img);
+      if (heroImg.isBw) $thumb.classList.add('is-bw');
     } else {
-      // Fallback: figure glyph placeholder so the row still has a thumb.
       const $fig = document.createElement('span');
       $fig.className = 'handout-ex-fig';
       $fig.setAttribute('aria-hidden', 'true');
       $fig.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M8 11l4-2 4 2M9 13l-1.5 6M15 13l1.5 6"/></svg>';
       $thumb.appendChild($fig);
     }
+
     const $num = document.createElement('span');
     $num.className = 'handout-ex-num';
     $num.textContent = String(position);
@@ -530,13 +419,22 @@
 
     const $name = document.createElement('div');
     $name.className = 'handout-ex-name';
-    $name.textContent = ex.name || 'Exercise';
+    // Default-name fallback — mirror the lobby (Studio doesn't persist a
+    // default name; synthesize "Exercise N").
+    const rawName = (ex.name || '').trim();
+    $name.textContent = rawName || ('Exercise ' + position);
     $body.appendChild($name);
 
-    const $stats = document.createElement('div');
-    $stats.className = 'handout-ex-stats';
-    $stats.innerHTML = renderStatsHTML(ex);
-    $body.appendChild($stats);
+    // Dose line — shared dose module (HomefitDose) so rep/hold/weight
+    // grammar is byte-identical to the lobby. No `~Xs` duration segment
+    // (no per-rep video timing context on the static handout).
+    const dose = buildDose(ex);
+    if (dose) {
+      const $dose = document.createElement('div');
+      $dose.className = 'handout-ex-dose';
+      $dose.textContent = dose;
+      $body.appendChild($dose);
+    }
 
     if (ex.notes && ex.notes.trim().length > 0) {
       const $note = document.createElement('div');
@@ -548,6 +446,89 @@
     $wrap.appendChild($thumb);
     $wrap.appendChild($body);
     return $wrap;
+  }
+
+  function buildDose(ex) {
+    if (window.HomefitDose && window.HomefitDose.buildDoseLine) {
+      // No calculateDuration on the handout — omit the trailing ~Xs.
+      return window.HomefitDose.buildDoseLine(ex, {});
+    }
+    return '';
+  }
+
+  /**
+   * Build the static hero <img> for an exercise via the mandated
+   * resolver chain (HomefitHero.resolve → HomefitHeroResolver crop).
+   * Returns { $img, isBw }. The img carries data-hero-* attributes so
+   * hydrateHeroCrops can re-crop it to a 1:1 data URL post-mount, exactly
+   * like the lobby. NEVER renders a <video> (mp4-in-img trap + the
+   * printable guide is a still). Returns { $img: null } when no treatment
+   * is available so the caller renders the figure placeholder.
+   */
+  function buildHeroImg(ex) {
+    if (!window.HomefitHero || !window.HomefitHero.resolve) {
+      return { $img: null, isBw: false };
+    }
+    const hero = window.HomefitHero.resolve(ex, { surface: 'handout' });
+    if (hero.mediaTag === 'skeleton' || hero.mediaTag === 'unavailable') {
+      return { $img: null, isBw: false };
+    }
+    // For videos the resolver returns posterSrc as `src` on non-deck
+    // surfaces; for photos it's the JPG. Either way it's a still image.
+    const src = hero.src || hero.posterSrc || null;
+    if (!src) return { $img: null, isBw: false };
+
+    const $img = document.createElement('img');
+    $img.alt = '';
+    $img.loading = 'lazy';
+    $img.src = src;
+    $img.setAttribute('data-treatment', hero.treatment || 'line');
+    $img.setAttribute('data-hero-id', String(ex.id || ''));
+    $img.setAttribute('data-hero-offset', String(pickHeroOffset(ex)));
+    $img.setAttribute('data-hero-source', src);
+    const isBw = (hero.domClass || '').indexOf('is-grayscale') !== -1;
+    if (isBw) $img.classList.add('is-grayscale');
+    return { $img: $img, isBw: isBw };
+  }
+
+  function pickHeroOffset(ex) {
+    if (!ex || ex.hero_crop_offset == null) return 0.5;
+    const n = Number(ex.hero_crop_offset);
+    if (!Number.isFinite(n)) return 0.5;
+    return Math.max(0, Math.min(1, n));
+  }
+
+  /**
+   * Re-crop every freshly-rendered hero <img> to a 1:1 data URL via
+   * HomefitHeroResolver — the SAME single-source crop path the lobby
+   * uses (lobby.js hydrateHeroCrops). Satisfies the hero-resolver rule
+   * (docs/HERO_RESOLVER.md): no inline crop math, no object-fit:cover.
+   */
+  function hydrateHeroCrops() {
+    const $list = document.getElementById('handout-list');
+    if (!$list) return;
+    if (!window.HomefitHeroResolver || !window.HomefitHeroResolver.getHeroSquareImage) {
+      return; // degraded but layout intact (overflow:hidden clips the slot)
+    }
+    const heros = $list.querySelectorAll('img[data-hero-source]');
+    heros.forEach((img) => {
+      const source = img.dataset.heroSource || '';
+      if (!source || source.startsWith('data:')) return;
+      const id = img.dataset.heroId || '';
+      const treatment = img.dataset.treatment || '';
+      const offset = Number(img.dataset.heroOffset);
+      window.HomefitHeroResolver.getHeroSquareImage({
+        exerciseId: id,
+        treatment: treatment,
+        sourceUrl: source,
+        heroCropOffset: Number.isFinite(offset) ? offset : 0.5,
+        targetSize: 200,
+      }).then((dataUrl) => {
+        if (!dataUrl || !img.isConnected) return;
+        img.src = dataUrl;
+        img.dataset.heroSource = dataUrl;
+      });
+    });
   }
 
   function buildRestNode(ex) {
@@ -573,77 +554,89 @@
     return $wrap;
   }
 
-  function renderStatsHTML(ex) {
-    const sets = Array.isArray(ex.sets) ? ex.sets : [];
-    const totalSets = sets.length;
-    const parts = [];
+  // ===========================  Get-the-app block  =======================
+  //
+  // Standardised with the lobby's #lobby-import-card (task 7): canonical
+  // buildHomefitLogoSvg() glyph + the "Save this plan to your phone"
+  // magic-link framing. The handout keeps its tappable claim chip →
+  // /me?claim={planId}. The header claim chip markup already carries the
+  // copy; here we inject the canonical logo glyph into the chip's glyph
+  // slot so the brand mark matches the lobby. The lobby card is NOT a
+  // logo in the chip — it sits below the list — but the canonical glyph
+  // is the shared element. We render the canonical glyph in the claim
+  // chip's leading slot.
 
-    if (totalSets > 0) {
-      // Reps — show the most-common reps value, falling back to "varies".
-      const repsValues = sets.map((s) => Number(s && s.reps) || 0).filter((n) => n > 0);
-      if (repsValues.length > 0) {
-        const allSame = repsValues.every((r) => r === repsValues[0]);
-        const repsLabel = allSame ? String(repsValues[0]) : (Math.min(...repsValues) + '–' + Math.max(...repsValues));
-        parts.push('<span class="stat"><b>' + escapeHtml(repsLabel) + '</b> reps</span>');
-      }
-
-      // Sets count.
-      parts.push('<span class="stat"><b>' + totalSets + '</b> set' + (totalSets === 1 ? '' : 's') + '</span>');
-
-      // Hold — pick the first non-zero hold across the sets + its mode.
-      const holdSet = sets.find((s) => Number(s && s.hold_seconds) > 0);
-      if (holdSet) {
-        const hold = Number(holdSet.hold_seconds);
-        const mode = holdSet.hold_position;
-        let modeLabel = '';
-        if (mode === 'per_rep') modeLabel = 'hold';
-        else if (mode === 'end_of_set') modeLabel = 'hold end-of-set';
-        else if (mode === 'end_of_exercise') modeLabel = 'hold end';
-        else modeLabel = 'hold';
-        parts.push('<span class="stat">' + escapeHtml(modeLabel) + ' <b>' + hold + 's</b></span>');
-      }
+  function renderImportBlock() {
+    const $glyph = document.getElementById('handout-claim-glyph');
+    if (!$glyph) return;
+    const buildLogo = resolveBuildLogo();
+    if (buildLogo) {
+      $glyph.innerHTML = buildLogo();
     }
-
-    return parts.join('');
   }
 
-  function resolveThumbnailForTreatment(ex, treatment) {
-    if (!ex) return null;
-    // Three-treatment thumbs (post Wave Three-Treatment-Thumbs):
-    //   thumbnail_url_line (always when available)
-    //   thumbnail_url_color (consent-gated)
-    //   thumbnail_url_bw    (photos only)
-    if (treatment === 'line') {
-      return ex.thumbnail_url_line || ex.thumbnail_url || null;
+  function resolveBuildLogo() {
+    if (typeof window !== 'undefined' && typeof window.buildHomefitLogoSvg === 'function') {
+      return window.buildHomefitLogoSvg;
     }
-    if (treatment === 'bw') {
-      // Photos have a dedicated bw thumb. Videos fall back to the color
-      // thumb with a CSS grayscale filter (handled by .is-bw on the wrap).
-      return ex.thumbnail_url_bw || ex.thumbnail_url_color || ex.thumbnail_url_line || ex.thumbnail_url || null;
-    }
-    if (treatment === 'original') {
-      return ex.thumbnail_url_color || ex.thumbnail_url_line || ex.thumbnail_url || null;
-    }
-    return ex.thumbnail_url_line || ex.thumbnail_url || null;
+    if (typeof buildHomefitLogoSvg === 'function') return buildHomefitLogoSvg;
+    return null;
   }
 
-  // ===========================  Footer seal version  =====================
+  // ===========================  Footer seal + QR  ========================
+
+  function renderSeal() {
+    renderSealVersion();
+    renderSealQr();
+  }
 
   function renderSealVersion() {
     const $v = document.getElementById('handout-seal-version');
     if (!$v) return;
     const version = state.plan && state.plan.version ? state.plan.version : 1;
-    // Use the published_at from the handout artifact if available, else
-    // fall back to plans.last_published_at or now.
     const handoutArtifact = (state.artifacts || []).find((a) => a && a.kind === 'handout');
     const planUrlArtifact = (state.artifacts || []).find((a) => a && a.kind === 'plan_url');
     const stampSource =
       (handoutArtifact && handoutArtifact.published_at)
       || (planUrlArtifact && planUrlArtifact.published_at)
-      || state.plan.last_published_at
+      || (state.plan && state.plan.last_published_at)
       || null;
     const stamp = stampSource ? formatVersionStamp(new Date(stampSource)) : 'unstamped';
-    $v.textContent = 'v' + version + ' · ' + stamp;
+    // "Published · v{N} · {stamp}" — aligns the version framing with the
+    // /me artifact card pill ("Published · v{N}").
+    $v.textContent = 'Published · v' + version + ' · ' + stamp;
+  }
+
+  /**
+   * Render a REAL QR (local, CSP-clean via HomefitQR) encoding the
+   * practitioner referral link. Sourced from plan.referral_code (added
+   * to get_plan_full in 20260528090000_get_plan_full_referral_code.sql).
+   * When the practice has no referral code the QR is hidden gracefully.
+   */
+  function renderSealQr() {
+    const $qr = document.getElementById('handout-qr');
+    if (!$qr) return;
+    const code = state.plan && (state.plan.referral_code || '').toString().trim();
+    if (!code) {
+      // No referral code — hide the QR slot gracefully.
+      $qr.hidden = true;
+      return;
+    }
+    if (!window.HomefitQR || !window.HomefitQR.toSvg) {
+      $qr.hidden = true;
+      return;
+    }
+    const url = 'https://manage.homefit.studio/r/' + encodeURIComponent(code);
+    try {
+      const svg = window.HomefitQR.toSvg(url, { ecLevel: 'M', quietZone: 2 });
+      $qr.hidden = false;
+      $qr.innerHTML = svg;
+      $qr.setAttribute('title', 'Scan to follow your practitioner');
+      $qr.setAttribute('aria-label', 'QR code linking to your practitioner');
+    } catch (err) {
+      try { console.warn('[handout] QR render failed:', err); } catch (_) {}
+      $qr.hidden = true;
+    }
   }
 
   function formatVersionStamp(date) {
@@ -671,41 +664,17 @@
     const $print = document.getElementById('handout-print-btn');
     if ($print) {
       $print.addEventListener('click', () => {
-        // Best path on every browser: window.print() against the
-        // @media print stylesheet in handout.css. Hides claim chip +
-        // treatment toggle + print button; lays out paper-friendly.
         try { window.print(); } catch (_) {}
-      });
-    }
-
-    const $treatment = document.getElementById('handout-treatment');
-    if ($treatment) {
-      $treatment.addEventListener('click', (event) => {
-        const target = event.target && event.target.closest
-          ? event.target.closest('.handout-seg-item')
-          : null;
-        if (!target || target.classList.contains('is-locked')) return;
-        const t = target.getAttribute('data-treatment');
-        if (!t || t === state.treatment) return;
-        state.treatment = t;
-        renderTreatmentToggle();
-        renderExerciseList();
       });
     }
 
     const $claim = document.getElementById('handout-claim');
     if ($claim) {
       $claim.addEventListener('click', (event) => {
-        // Wave 2: route to /me with the current plan as the claim target.
-        // The /me page magic-link form pre-fills the redirect with
-        // ?claim={planId} so the eventual click-through attaches THIS
-        // plan to the new consumer account.
         if (event.target && event.target.closest('.handout-claim-x')) return;
         try {
           window.location.assign('/me?claim=' + encodeURIComponent(planId));
         } catch (_) {
-          // Fall back to a logged hint if navigation fails (e.g. CSP
-          // restriction or embedded surface).
           try { console.info('[handout] claim chip clicked — /me unreachable (plan_id=' + planId + ')'); } catch (_) {}
         }
       });
@@ -715,8 +684,8 @@
     if ($claimX) {
       $claimX.addEventListener('click', (event) => {
         event.stopPropagation();
-        const $claim = document.getElementById('handout-claim');
-        if ($claim) $claim.hidden = true;
+        const $c = document.getElementById('handout-claim');
+        if ($c) $c.hidden = true;
       });
     }
   }
@@ -724,11 +693,6 @@
   // ===========================  Best-effort RPCs  ========================
 
   async function recordHandoutOpened(id) {
-    // Per ADR 0022 / Wave 1 schema delta: stamp first_opened_at on the
-    // plan_artifacts row keyed by (plan_id, kind='handout'). Anonymous-
-    // callable per ADR 0024. Best-effort: errors are caught + logged.
-    // The RPC is added to api.js as window.HomefitApi.recordArtifactOpened
-    // in this same commit.
     if (!window.HomefitApi || typeof window.HomefitApi.recordArtifactOpened !== 'function') {
       return;
     }
@@ -741,14 +705,6 @@
 
   // ===========================  Helpers  =================================
 
-  /**
-   * showError — fall-back UI when loading fails or the plan can't be
-   * fetched. Hides the loading + page chrome, shows the error card.
-   * The optional `reason` text is appended to the error card's `<p>` so
-   * a stuck user sees what actually went wrong (and, more importantly,
-   * a Carl-side bug report carries the failure message in the screenshot).
-   * Defensive: if `reason` is null/undefined the card renders unchanged.
-   */
   function showError(reason) {
     const $loading = document.getElementById('handout-loading');
     const $page = document.getElementById('handout-page');
@@ -757,12 +713,7 @@
     if ($page) $page.hidden = true;
     if ($err) {
       $err.hidden = false;
-      // Append the reason as a small chip so the failure is observable
-      // without DevTools. Only render when we have a non-empty reason —
-      // a blank chip would just add visual noise.
       if (reason && typeof reason === 'string' && reason.length > 0) {
-        // Remove a prior reason chip first so a second showError() call
-        // (defensive) doesn't stack chips.
         const existing = $err.querySelector('.handout-error-reason');
         if (existing) existing.remove();
         const $chip = document.createElement('p');
