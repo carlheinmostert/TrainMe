@@ -95,6 +95,33 @@ class ExerciseCapture {
   /// purge on app startup. Null when [archiveFilePath] is null.
   final DateTime? archivedAt;
 
+  /// When this exercise's own content was last edited by the practitioner
+  /// (unpublished-changes coral spine, 2026-05-28).
+  ///
+  /// Local-device authoring aid only — drives the per-exercise "this card
+  /// has unpublished edits" coral left-edge spine in Studio. Stamped to
+  /// `DateTime.now()` at each in-memory content-edit call site in the
+  /// Studio screen (via [markContentEdited] or an inline `copyWith`) so the
+  /// card lights up the instant an edit lands, before any reload. Compared
+  /// against the session's publish stamp (`sentAt`) by
+  /// [Session.exerciseHasUnpublishedChanges].
+  ///
+  /// Semantics:
+  ///   * `null` → never edited since this row was minted, OR a legacy /
+  ///     freshly-pulled row (the column backfills NULL on upgrade). No
+  ///     per-card spine until the next edit.
+  ///   * non-null → most-recent content edit. Spine shows when this is
+  ///     newer than the last publish.
+  ///
+  /// NOT a content-edit signal for the session-dirty mechanism — that path
+  /// (`last_content_edit_at` on the session row) is owned separately by
+  /// LocalStorageService. This field is purely the per-exercise marker.
+  ///
+  /// Persistence: local SQLite `exercises.last_edited_at` (schema v50,
+  /// epoch-ms INTEGER). LOCAL-ONLY — never mirrored to Supabase, never sent
+  /// through any RPC, never read by the web player.
+  final DateTime? lastEditedAt;
+
   /// When the raw archive was successfully uploaded to the private
   /// `raw-archive` Supabase bucket at `{practice_id}/{plan_id}/{exercise_id}.mp4`.
   /// Set on a best-effort basis during publish — raw-archive upload failures
@@ -494,6 +521,7 @@ class ExerciseCapture {
     this.videoDurationMs,
     this.archiveFilePath,
     this.archivedAt,
+    this.lastEditedAt,
     this.rawArchiveUploadedAt,
     this.segmentedRawFilePath,
     this.maskFilePath,
@@ -612,6 +640,9 @@ class ExerciseCapture {
       archivedAt: map['archived_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['archived_at'] as int)
           : null,
+      lastEditedAt: map['last_edited_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['last_edited_at'] as int)
+          : null,
       rawArchiveUploadedAt: map['raw_archive_uploaded_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(
               map['raw_archive_uploaded_at'] as int)
@@ -665,6 +696,7 @@ class ExerciseCapture {
       'video_duration_ms': videoDurationMs,
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
+      'last_edited_at': lastEditedAt?.millisecondsSinceEpoch,
       'raw_archive_uploaded_at': rawArchiveUploadedAt?.millisecondsSinceEpoch,
       'segmented_raw_file_path': segmentedRawFilePath,
       'mask_file_path': maskFilePath,
@@ -719,6 +751,8 @@ class ExerciseCapture {
     bool clearArchiveFilePath = false,
     DateTime? archivedAt,
     bool clearArchivedAt = false,
+    DateTime? lastEditedAt,
+    bool clearLastEditedAt = false,
     DateTime? rawArchiveUploadedAt,
     bool clearRawArchiveUploadedAt = false,
     String? segmentedRawFilePath,
@@ -787,6 +821,9 @@ class ExerciseCapture {
           ? null
           : (archiveFilePath ?? this.archiveFilePath),
       archivedAt: clearArchivedAt ? null : (archivedAt ?? this.archivedAt),
+      lastEditedAt: clearLastEditedAt
+          ? null
+          : (lastEditedAt ?? this.lastEditedAt),
       rawArchiveUploadedAt: clearRawArchiveUploadedAt
           ? null
           : (rawArchiveUploadedAt ?? this.rawArchiveUploadedAt),
@@ -846,6 +883,13 @@ class ExerciseCapture {
   String? get absoluteSafeRawFilePath => safeRawFilePath != null
       ? PathResolver.resolve(safeRawFilePath!)
       : null;
+
+  /// Stamp [lastEditedAt] to now (unpublished-changes coral spine,
+  /// 2026-05-28). Call this at a Studio content-edit call site so the
+  /// per-exercise spine lights immediately against the in-memory model.
+  /// Pure metadata write — leaves every other field untouched.
+  ExerciseCapture markContentEdited() =>
+      copyWith(lastEditedAt: DateTime.now());
 
   /// Backfill the per-capture persistence defaults.
   ///

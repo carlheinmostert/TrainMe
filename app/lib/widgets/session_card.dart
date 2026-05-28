@@ -13,6 +13,7 @@ import '../services/exercise_hero_resolver.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../utils/hero_crop_alignment.dart';
+import 'change_spine.dart';
 import 'conversion_error_log_sheet.dart';
 import 'source_tag_chip.dart';
 
@@ -513,6 +514,17 @@ class _SessionCardState extends State<SessionCard> {
                     ],
                   ),
                 ),
+                // z=3 — unpublished-changes coral spine (2026-05-28).
+                // Painted ABOVE the dark veil so it reads crisp coral.
+                // Shows when ANY exercise in this published session has
+                // unpublished edits (existing getter; no new logic).
+                if (session.hasUnpublishedContentChanges)
+                  const Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: ChangeSpine(),
+                  ),
               ],
             ),
           ),
