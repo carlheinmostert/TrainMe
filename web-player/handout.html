@@ -11,13 +11,13 @@
        for bot user-agents so WhatsApp / iMessage previews unfurl with the
        real plan title + hero image. Same pattern the /p/ player uses. -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Your workout handout — homefit.studio" />
-  <meta property="og:description" content="A page-format view of your exercise plan — reps, sets, notes, with a Save-PDF button." />
+  <meta property="og:title" content="Your Printable Workout Guide — homefit.studio" />
+  <meta property="og:description" content="A page-format view of your exercise plan — reps, sets, notes, with a Print or Save-PDF button." />
   <meta property="og:image" content="" />
   <meta property="og:url" content="" />
   <meta property="og:site_name" content="homefit.studio" />
 
-  <title>Workout handout — homefit.studio</title>
+  <title>Printable Workout Guide — homefit.studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" />
@@ -97,7 +97,11 @@
          magic-link claim flow lands. The chip is hidden in print via
          @media print + body.is-printing. -->
     <aside class="handout-claim" id="handout-claim">
-      <span class="handout-claim-glyph" aria-hidden="true">
+      <!-- Canonical homefit logo glyph injected by handout.js
+           (renderImportBlock → buildHomefitLogoSvg) so the get-app block
+           matches the lobby's #lobby-import-card. The inline save-to-phone
+           SVG below is a no-JS fallback. -->
+      <span class="handout-claim-glyph" id="handout-claim-glyph" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
           <path d="M12 11v6M9 14l3 3 3-3" />
@@ -114,16 +118,12 @@
       </button>
     </aside>
 
-    <!-- Treatment toggle — Line / B&W / Original. Same consent gating as
-         the player (locked decision #10 — no "higher bar for print"). -->
-    <div class="handout-treatment" id="handout-treatment">
-      <span class="handout-treatment-label">View</span>
-      <div class="handout-seg" role="tablist" aria-label="Treatment selection">
-        <button type="button" class="handout-seg-item is-active" data-treatment="line" role="tab" aria-selected="true">Line</button>
-        <button type="button" class="handout-seg-item" data-treatment="bw" role="tab" aria-selected="false">B&amp;W</button>
-        <button type="button" class="handout-seg-item" data-treatment="original" role="tab" aria-selected="false">Original</button>
-      </div>
-    </div>
+    <!-- No view/treatment toggle (artifact-consistency wave, 2026-05-28).
+         Each exercise renders STATICALLY in its own preferred_treatment via
+         the mandated hero resolver — exactly like the Interactive Workout
+         Guide lobby. Consent revocation falls down to line silently. The
+         printable guide must MATCH the lobby's components, not redefine a
+         "higher bar for print" toggle. -->
 
     <!-- Exercise list — flat list with optional circuit groupings.
          JS renders into this container; markup pattern below in handout.js. -->
@@ -143,12 +143,14 @@
         </div>
         <div class="handout-seal-version" id="handout-seal-version">v? · loading</div>
       </div>
-      <!-- QR — Wave 1 placeholder. Wave fast-follow renders a real QR
-           pointing at /p/{planId}?ref={practiceReferralCode} per ADR 0029
-           locked decision #23. Today this is a CSS-only square. -->
-      <div class="handout-qr" id="handout-qr" title="Open the workout player">
-        <div class="handout-qr-inner"></div>
-      </div>
+      <!-- QR — rendered LOCALLY by handout.js via HomefitQR (CSP-clean,
+           no external QR image API). Encodes the practitioner referral
+           link https://manage.homefit.studio/r/{referral_code}. Sourced
+           from plan.referral_code (get_plan_full migration
+           20260528090000). Hidden gracefully when the practice has no
+           referral code. The same QR renders in the standard footer on
+           both surfaces. -->
+      <div class="handout-qr" id="handout-qr" title="Scan to follow your practitioner" hidden></div>
     </footer>
   </main>
 
@@ -160,6 +162,20 @@
        a data-access surface. -->
   <script src="/config.js"></script>
   <script src="/api.js"></script>
+  <!-- Shared modules — MUST load before handout.js. The Printable Workout
+       Guide uses the SAME hero resolver + dose grammar + canonical logo as
+       the Interactive Workout Guide lobby (artifact-consistency wave,
+       2026-05-28) so the two surfaces can never visually diverge.
+         homefit_logo.js   — canonical buildHomefitLogoSvg() glyph
+         dose_format.js     — shared HomefitDose rep/hold/weight grammar
+         hero_resolver.js   — 1:1 crop (HomefitHeroResolver) per HERO_RESOLVER.md
+         exercise_hero.js   — treatment selection (HomefitHero.resolve)
+         qrcode.js          — local CSP-clean QR encoder (HomefitQR) -->
+  <script src="/homefit_logo.js"></script>
+  <script src="/dose_format.js"></script>
+  <script src="/hero_resolver.js"></script>
+  <script src="/exercise_hero.js"></script>
+  <script src="/qrcode.js"></script>
   <script src="/handout.js"></script>
 </body>
 </html>

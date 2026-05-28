@@ -550,7 +550,7 @@
       +       '</svg>'
       +     '</div>'
       +     '<div>'
-      +       '<strong>No artifacts yet.</strong> Publish this session to mint a workout plan or handout. Both will appear here.'
+      +       '<strong>No artifacts yet.</strong> Publish this session to mint an Interactive Workout Guide or Printable Workout Guide. Both will appear here.'
       +     '</div>'
       +   '</div>'
       + '</div>';
@@ -614,9 +614,17 @@
     $label.textContent = label;
     $meta.appendChild($label);
 
+    // Status pill — unified to "Published · v{N}" (artifact-consistency
+    // wave, 2026-05-28). The old "Live" variant is retired; every minted
+    // artifact in this list is published, and the plan version makes a
+    // freshly-republished guide distinguishable from a stale one. Version
+    // rides on each artifact row from list_my_plans (row.version).
     const $pill = document.createElement('span');
     $pill.className = 'me-artifact-card-pill';
-    $pill.textContent = relativeTime(new Date(row.published_at || row.last_published_at || row.claimed_at || Date.now()));
+    const version = Number(row.version);
+    $pill.textContent = Number.isFinite(version) && version > 0
+      ? ('Published · v' + version)
+      : 'Published';
     $meta.appendChild($pill);
 
     $card.appendChild($meta);
@@ -820,8 +828,8 @@
 
   function kindToLabel(kind) {
     switch (kind) {
-      case 'plan_url': return 'Workout player';
-      case 'handout':  return 'Workout handout';
+      case 'plan_url': return 'Interactive Workout Guide';
+      case 'handout':  return 'Printable Workout Guide';
       case 'poster':   return 'Workout poster';
       case 'reel':     return 'Workout reel';
       case 'ai_reel':  return 'AI reel';

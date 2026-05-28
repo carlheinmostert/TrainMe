@@ -1383,6 +1383,13 @@ function buildPrepOverlay(slide) {
  * least { reps }. Returns a string or '' for empty input.
  */
 function formatReps(playSets) {
+  // Delegate to the shared dose module (dose_format.js) so the lobby and
+  // the Printable Workout Guide can never diverge on rep grammar. The
+  // inline fallback below is byte-identical and only runs if the shared
+  // module failed to load (defensive — it ships in APP_SHELL).
+  if (window.HomefitDose && window.HomefitDose.formatReps) {
+    return window.HomefitDose.formatReps(playSets);
+  }
   if (!Array.isArray(playSets) || !playSets.length) return '';
   const repsList = playSets.map((s) => Number(s.reps) || 0);
   const allSame = repsList.every((r) => r === repsList[0]);
@@ -1418,6 +1425,12 @@ function formatReps(playSets) {
  * allSetsForSlide() (lobby). Returns a string.
  */
 function formatHold(playSets) {
+  // Delegate to the shared dose module (dose_format.js) — single source
+  // shared with the Printable Workout Guide. Inline fallback below is
+  // byte-identical for the load-failure case.
+  if (window.HomefitDose && window.HomefitDose.formatHold) {
+    return window.HomefitDose.formatHold(playSets);
+  }
   if (!Array.isArray(playSets) || !playSets.length) return '';
   const holds = playSets.map((s) => Number(s.hold_seconds) || 0);
   const allSame = holds.every((h) => h === holds[0]);
@@ -4970,6 +4983,11 @@ function renderWeightChipHtml({ weightKg, urgent, leadGlyph, holdSeconds }) {
  * varying detection.
  */
 function formatWeight(playSets) {
+  // Delegate to the shared dose module (dose_format.js) — single source
+  // shared with the Printable Workout Guide. Inline fallback is identical.
+  if (window.HomefitDose && window.HomefitDose.formatWeight) {
+    return window.HomefitDose.formatWeight(playSets);
+  }
   if (!Array.isArray(playSets) || playSets.length === 0) return '';
   const weights = playSets.map((s) => s && s.weight_kg);
   const allBodyweight = weights.every((w) => w == null);

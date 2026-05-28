@@ -30,6 +30,11 @@
   --c-brand-surface: #FFF3ED;
   --c-brand-tint-bg: rgba(255, 107, 53, 0.12);       /* D-10 */
   --c-brand-tint-border: rgba(255, 107, 53, 0.30);   /* D-10 */
+  /* Seal coral — the footer "powered by homefit.studio" credibility seal.
+     Mirrors --seal-coral in handout.css / me.css. NEVER re-pointed by a
+     brand-skin override (locked decision #23). The lobby has no brand-skin
+     today, but the token name keeps the seal honest if one lands. */
+  --seal-coral: #FF6B35;
   /* Brand-cascade aliases used by JS-injected inline styles. Defaults
      match the coral surface tokens above; applyPracticeBranding()
      overwrites them when a custom brand_color is present.
@@ -3836,12 +3841,11 @@ video.lobby-hero-media {
 /*  soon toast. Wired in lobby.js. Backend lands in a follow-up PR.     */
 /* ===================================================================== */
 
-/* "Get the app" teaser — static "Coming soon" card. The PR #315 stub
-   shipped a tappable CTA that opened an email form; Carl flagged that
-   as misleading (the form was a no-op). This is now a passive,
-   non-tappable card that advertises the future feature without
-   collecting anything. The matrix-only homefit logo is injected by
-   lobby.js into .lobby-import-glyph at init time. */
+/* "Save this plan to your phone" card — standardised with the Printable
+   Workout Guide claim chip (artifact-consistency wave, 2026-05-28). Now
+   an active anchor to /me?claim={planId} (the Wave 2 consumer claim flow
+   is live). Canonical homefit logo injected by lobby.js into
+   .lobby-import-glyph. */
 .lobby-import-card {
   margin: 18px 16px 0;
   padding: 14px 16px;
@@ -3853,6 +3857,15 @@ video.lobby-hero-media {
   border-radius: 12px;
   color: inherit;
   font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur-fast, 120ms) var(--ease-standard, ease);
+}
+.lobby-import-card:hover {
+  background: rgba(255, 107, 53, 0.18);
+}
+.lobby-import-card:active {
+  transform: scale(0.995);
 }
 
 .lobby-import-glyph {
@@ -3918,6 +3931,74 @@ video.lobby-hero-media {
   font-weight: 400;
   color: var(--ink-secondary, #9ca3af);
   line-height: 1.45;
+}
+
+/* ---------- Standard footer seal (artifact-consistency wave) ----------
+   The SAME "powered by homefit.studio" seal + referral QR the Printable
+   Workout Guide carries, mounted on the lobby so both surfaces share one
+   footer. Coral comes from --seal-coral (never re-skinned). Geometry
+   mirrors handout.css's .handout-seal. */
+.lobby-seal {
+  margin: 18px 16px 0;
+  padding: 14px 16px;
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.lobby-seal-mark {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lobby-seal-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lobby-seal-logo {
+  display: inline-flex;
+  align-items: center;
+  width: 64px;
+  flex-shrink: 0;
+}
+.lobby-seal-logo .homefit-logo {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.lobby-seal-brand {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--c-ink-primary);
+}
+.lobby-seal-brand .dotsuf {
+  color: var(--seal-coral);
+  font-weight: 600;
+}
+.lobby-seal-version {
+  font-size: 10px;
+  color: var(--c-ink-muted);
+  letter-spacing: 0.2px;
+}
+.lobby-seal-qr {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px;
+  box-sizing: border-box;
+}
+.lobby-seal-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* ---------- Tiny self-dismissing toast ---------- */
