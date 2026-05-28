@@ -3364,6 +3364,62 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return hasExercises && !hasConversionsRunning && !_isPublishing;
   }
 
+  /// True when a user-initiated Publish tap would do nothing: the plan is
+  /// already published, no content edits are pending since the last
+  /// publish, AND every shippable artifact kind has already been minted
+  /// (`published_at` stamped on its `plan_artifacts` row).
+  ///
+  /// This is the inverse of "is there anything to publish". It reuses the
+  /// EXISTING change-detection signals rather than inventing a new one:
+  ///   1. `Session.hasUnpublishedContentChanges` — the same dirty flag the
+  ///      Publish cell's tooltip and the session-card glyph already key
+  ///      off (content edit newer than the last publish stamp).
+  ///   2. The artifact-aware angle: a published+clean workout does NOT mean
+  ///      every artifact was minted. If ANY shippable kind
+  ///      ([ArtifactKindRegistry.shippable], today `handout` + `plan_url`)
+  ///      lacks a published `plan_artifacts` row, that kind is still pending
+  ///      → there IS something to publish → returns false.
+  ///
+  /// Conservative on a cold cache: `_artifactStatuses` loads async on init.
+  /// While it's empty (not yet resolved, or genuinely never published) the
+  /// "all shippable kinds minted" test fails, so we DON'T short-circuit —
+  /// the tap falls through to the real publish gate. The no-op toast only
+  /// fires once we can positively confirm every shippable kind is live.
+  bool get _nothingToPublish {
+    if (!_session.isPublished) return false;
+    if (_session.hasUnpublishedContentChanges) return false;
+    final live = <String>{
+      for (final s in _artifactStatuses)
+        if (s.isPublished) s.kind,
+    };
+    for (final spec in ArtifactKindRegistry.shippable) {
+      if (!live.contains(spec.kind)) return false;
+    }
+    return true;
+  }
+
+  /// Dismissible no-op toast for the "Publish tapped but nothing changed"
+  /// path. Reuses the floating coral-bordered SnackBar styling from
+  /// [_showMissingMediaSnackBar] (the existing Studio toast pattern — not a
+  /// modal, per R-01 / `feedback_no_popups_ever`). No credit, no network.
+  void _showNothingToPublishToast() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Nothing to publish — already up to date.'),
+          duration: const Duration(seconds: 3),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(color: AppColors.primary, width: 1),
+          ),
+        ),
+      );
+  }
+
   // ---------------------------------------------------------------------------
   // PR-C — workflow-toolbar chip resolution
   // ---------------------------------------------------------------------------
@@ -3512,6 +3568,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (kinds != null) {
       resolvedKinds = kinds;
     } else {
+      // 2026-05-28 — Publish is always tappable (the cell is never
+      // disabled). When a user-initiated tap arrives but there is
+      // genuinely nothing to publish — the plan is published, no content
+      // edits are pending, AND every shippable artifact kind is already
+      // live — short-circuit BEFORE opening the gate (no network, no
+      // credit, no RPC) and surface a dismissible toast. The retry path
+      // (`kinds != null`) intentionally bypasses this check: it replays
+      // an explicit prior selection.
+      if (_nothingToPublish) {
+        _showNothingToPublishToast();
+        return;
+      }
       // Practice credit balance comes from SyncService's hydrated cache
       // — keyed by practice id, primed from `cached_credit_balance`
       // at boot. Null means the cache hasn't been hydrated yet for
