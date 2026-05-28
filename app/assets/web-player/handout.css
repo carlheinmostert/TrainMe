@@ -318,14 +318,19 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
 .handout-claim:hover { background: rgba(255, 107, 53, 0.18); }
 .handout-claim-glyph {
   flex-shrink: 0;
-  width: 30px; height: 30px;
+  width: 44px; height: 30px;
   border-radius: 8px;
   background: var(--brand-glyph-bg);
   border: 1px solid var(--brand-tint-border);
   color: var(--brand-light);
   display: flex; align-items: center; justify-content: center;
+  padding: 5px 4px;
+  box-sizing: border-box;
 }
-.handout-claim-glyph svg { width: 14px; height: 14px; }
+/* No-JS fallback inline glyph stays small + centred. */
+.handout-claim-glyph svg:not(.homefit-logo) { width: 14px; height: 14px; }
+/* Canonical matrix logo (injected by handout.js) fills the wider box. */
+.handout-claim-glyph .homefit-logo { width: 100%; height: auto; display: block; }
 .handout-claim-text { flex: 1; min-width: 0; }
 .handout-claim-title {
   font-family: var(--font-display);
@@ -354,57 +359,11 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
 .handout-claim-x:hover { color: var(--ink-primary); }
 .handout-claim-x svg { width: 12px; height: 12px; }
 
-/* =====================  Treatment toggle  ================================ */
-
-.handout-treatment {
-  display: flex; align-items: center; gap: 10px;
-  margin-top: 2px;
-}
-.handout-treatment-label {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.7px;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  flex-shrink: 0;
-}
-.handout-seg {
-  display: flex;
-  background: var(--surface-base);
-  border: 1px solid var(--surface-border);
-  border-radius: 10px;
-  padding: 3px;
-  flex: 1;
-}
-.handout-seg-item {
-  flex: 1; text-align: center;
-  padding: 7px 4px;
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 11.5px;
-  color: var(--ink-secondary);
-  border-radius: 7px;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center; gap: 4px;
-  transition: background 120ms ease, color 120ms ease;
-}
-.handout-seg-item:hover:not(.is-locked):not(.is-active) {
-  color: var(--ink-primary);
-}
-.handout-seg-item.is-active {
-  background: var(--brand-default);
-  color: white;
-}
-.handout-seg-item.is-locked {
-  color: var(--ink-disabled);
-  cursor: not-allowed;
-}
-.handout-seg-item .lock-glyph {
-  display: inline-flex;
-}
-.handout-seg-item .lock-glyph svg { width: 10px; height: 10px; }
+/* The view/treatment toggle was removed in the artifact-consistency wave
+   (2026-05-28). Each exercise now renders statically in its own
+   preferred_treatment via the shared hero resolver — exactly like the
+   Interactive Workout Guide lobby. No `.handout-treatment` / `.handout-seg*`
+   rules remain. */
 
 /* =====================  Exercise list  =================================== */
 
@@ -434,25 +393,34 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
   margin-bottom: 2px;
 }
 
+/* Exercise card — aligned to the Interactive Workout Guide lobby card
+   (lobby.js exerciseRowHTML + styles.css .lobby-row-content). Same
+   surface/border/radius, a square hero, a Montserrat name + a single
+   shared dose line. */
 .handout-ex {
   display: flex; gap: 12px; align-items: stretch;
   background: var(--surface-base);
   border: 1px solid var(--surface-border);
   border-radius: 12px;
-  padding: 11px;
+  padding: 10px;
 }
 .handout-ex-thumb {
   position: relative; flex-shrink: 0;
-  width: 64px; height: 64px;
+  width: 72px; height: 72px;
   border-radius: 9px; overflow: hidden;
   background: linear-gradient(150deg, #2b2f3d 0%, #20232e 60%, #181b24 100%);
 }
+/* No object-fit:cover — the hero resolver (hero_resolver.js) bakes a 1:1
+   data URL whose intrinsic dimensions ARE the square crop, exactly like
+   the lobby. Per the single-source hero rule (docs/HERO_RESOLVER.md):
+   no inline crop math, no object-fit:cover on the <img>. */
 .handout-ex-thumb img {
+  position: absolute; inset: 0;
   width: 100%; height: 100%;
-  object-fit: cover;
   display: block;
 }
-.handout-ex-thumb.is-bw img {
+.handout-ex-thumb.is-bw img,
+.handout-ex-thumb img.is-grayscale {
   filter: grayscale(1) contrast(1.05);
 }
 .handout-ex-num {
@@ -477,26 +445,30 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
 
 .handout-ex-body {
   flex: 1; min-width: 0;
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
 }
+/* Name + dose mirror the lobby's .lobby-info-name / .lobby-info-dose so
+   the two surfaces read identically. */
 .handout-ex-name {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 700;
+  font-size: 16px;
   color: var(--ink-primary);
   line-height: 1.2;
+  letter-spacing: -0.01em;
+  word-break: break-word;
 }
-.handout-ex-stats {
-  display: flex; gap: 10px; flex-wrap: wrap;
-  font-size: 11px;
+.handout-ex-dose {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
   color: var(--ink-secondary);
-}
-.handout-ex-stats .stat { display: flex; align-items: center; gap: 4px; }
-.handout-ex-stats .stat b { color: var(--ink-primary); font-weight: 600; }
-.handout-ex-note {
-  font-size: 11px;
-  color: var(--ink-muted);
   line-height: 1.4;
+}
+.handout-ex-note {
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.45;
   font-style: italic;
 }
 
@@ -570,6 +542,11 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
   letter-spacing: 0.2px;
 }
 
+/* Footer QR — a REAL QR rendered locally by handout.js via HomefitQR
+   (CSP-clean SVG, no external image API). Encodes the practitioner
+   referral link. The white padding + rounded corners frame the scannable
+   matrix on the dark seal. Hidden via the `hidden` attribute when the
+   practice has no referral code. */
 .handout-qr {
   flex-shrink: 0;
   width: 56px; height: 56px;
@@ -578,26 +555,10 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
   padding: 4px;
   position: relative;
 }
-.handout-qr-inner {
+.handout-qr svg {
+  display: block;
   width: 100%; height: 100%;
-  position: relative;
-  overflow: hidden;
-  background-image:
-    repeating-conic-gradient(#0f1117 0% 25%, transparent 0% 50%);
-  background-size: 6px 6px;
 }
-.handout-qr-inner::before,
-.handout-qr-inner::after,
-.handout-qr-bl {
-  content: "";
-  position: absolute;
-  width: 13px; height: 13px;
-  border: 2.5px solid #0f1117;
-  background: white;
-}
-.handout-qr-inner::before { top: 0; left: 0; }
-.handout-qr-inner::after  { top: 0; right: 0; }
-.handout-qr-inner .handout-qr-bl { bottom: 0; left: 0; }
 
 /* =====================  Print stylesheet  ================================= */
 /* `window.print()` is the only export path — no html2canvas / jsPDF.
@@ -624,7 +585,6 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
   .handout-loading,
   .handout-error,
   .handout-claim,
-  .handout-treatment,
   .handout-print-btn {
     display: none !important;
   }

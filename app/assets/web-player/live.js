@@ -29,6 +29,27 @@
 (function () {
   'use strict';
 
+  // ==========================================================================
+  // Service worker self-heal — auto-reload on new SW take-over
+  // ==========================================================================
+  //
+  // The live page (/v/{practice}/{premises}/now) does NOT register a SW —
+  // live.html only loads config.js + api.js + live.js. But a SW registered
+  // by a prior visit to /p/{planId} on this origin has scope `/` and would
+  // otherwise control this tab's fetches. The companion SW change (see
+  // web-player/sw.js) already short-circuits the fetch handler for `/v/*`
+  // so the controller is invisible for live-page subresources; this
+  // listener is the second half — when a new SW takes over (the user had
+  // a stale controller from a prior /p visit and a deploy just landed),
+  // reload so the new bundle is in memory immediately. No workout-guard
+  // needed; the live page has no client-facing in-progress state to
+  // protect.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    });
+  }
+
   const POLL_INTERVAL_MS = 12000;
 
   const elLoading = document.getElementById('live-loading');
@@ -634,10 +655,17 @@
     const tail = document.createElement('div');
     tail.className = 'live-popover-tail';
 
+    // Action row — Report leads (more important on a transparency
+    // page); "View practice profile" link follows. Wrap in a flex row
+    // so they sit side-by-side with consistent baseline alignment.
+    const actions = document.createElement('div');
+    actions.className = 'live-popover-actions';
+    actions.appendChild(report);
+    if (profileLink) actions.appendChild(profileLink);
+
     elPopover.appendChild(name);
     elPopover.appendChild(meta);
-    if (profileLink) elPopover.appendChild(profileLink);
-    elPopover.appendChild(report);
+    elPopover.appendChild(actions);
     elPopover.appendChild(tail);
 
     // Append into the map shell so the popover shares the map's
@@ -1465,7 +1493,14 @@
       empty.textContent = 'No captures in the last 24 hours.';
       list.appendChild(empty);
     } else {
-      events.forEach((ev) => list.appendChild(buildEventRow(ev)));
+      // 2026-05-25 — buildEventRow returns null for non-capture audit
+      // kinds (e.g. safe_mode_accepted_empty telemetry rows) which
+      // count toward the per-trainer aggregate but don't render a
+      // visual dot. Skip nulls to avoid `appendChild(null)`.
+      events.forEach((ev) => {
+        const row = buildEventRow(ev);
+        if (row) list.appendChild(row);
+      });
     }
     elTimeline.appendChild(list);
 
@@ -1500,7 +1535,22 @@
     const row = document.createElement('div');
     row.className = 'live-roster-event';
     const dot = document.createElement('div');
+    // 2026-05-25 — only photo/video events render as visual dots in
+    // the drawer. The get_premises_active_roster RPC also returns
+    // `safe_mode_accepted_empty` audit rows (added via the new
+    // record_safe_mode_capture_event RPC); those are practitioner-
+    // facing telemetry, not bystander-transparency events, so they
+    // get rolled into the per-trainer event count without a visual
+    // dot. We default to the photo class for anything unknown so a
+    // future kind doesn't crash the drawer.
     const isVideo = ev.kind === 'video';
+    const isCapture = ev.kind === 'photo' || ev.kind === 'video';
+    if (!isCapture) {
+      // Skip the row entirely — the trainer's event_count_24h already
+      // includes it in the aggregate; we just don't render a dot for
+      // non-capture audit kinds.
+      return null;
+    }
     dot.className = 'live-roster-event-dot ' + (isVideo ? 'is-video' : 'is-photo');
     row.appendChild(dot);
 
