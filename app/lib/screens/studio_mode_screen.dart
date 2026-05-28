@@ -3594,6 +3594,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         existing: _artifactStatuses,
         planUrlCreditCost: _publishCostPreview,
         creditBalance: balance,
+        // When the workout content changed since the last publish, the
+        // already-published `plan_url` row must re-open as a checkable
+        // + pre-checked (and FREE) re-publish row instead of a locked
+        // "Live" row — otherwise the practitioner cannot ship edits.
+        hasPendingContentChanges: _session.hasUnpublishedContentChanges,
       );
       if (!mounted) return;
       if (gateResult == null || gateResult.kinds.isEmpty) {
