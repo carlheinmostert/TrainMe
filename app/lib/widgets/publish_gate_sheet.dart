@@ -61,11 +61,24 @@ class PublishGateSheet extends StatefulWidget {
   /// "—" in that frame.
   final int? creditBalance;
 
+  /// True when the workout content has been edited since the last
+  /// publish (the session-wide [Session.hasUnpublishedContentChanges]
+  /// signal). When true, an ALREADY-PUBLISHED `plan_url` row is no
+  /// longer treated as a locked "Live" row — it becomes a checkable
+  /// (and pre-checked) re-publish row so the practitioner can ship
+  /// their edits. Re-publishing an already-paid plan is FREE (see
+  /// [_PublishGateSheetState._costFor]).
+  ///
+  /// Defaults to false so never-published plans and the retry path
+  /// keep the original publish-once semantics.
+  final bool hasPendingContentChanges;
+
   const PublishGateSheet({
     super.key,
     required this.existing,
     required this.planUrlCreditCost,
     required this.creditBalance,
+    this.hasPendingContentChanges = false,
   });
 
   /// Open the gate as a bottom sheet. Resolves to a [PublishGateResult]
@@ -77,6 +90,7 @@ class PublishGateSheet extends StatefulWidget {
     required List<PlanArtifactStatus> existing,
     required int? planUrlCreditCost,
     required int? creditBalance,
+    bool hasPendingContentChanges = false,
   }) {
     return showModalBottomSheet<PublishGateResult>(
       context: context,
@@ -94,6 +108,7 @@ class PublishGateSheet extends StatefulWidget {
           existing: existing,
           planUrlCreditCost: planUrlCreditCost,
           creditBalance: creditBalance,
+          hasPendingContentChanges: hasPendingContentChanges,
         ),
       ),
     );
@@ -105,7 +120,9 @@ class PublishGateSheet extends StatefulWidget {
 
 class _PublishGateSheetState extends State<PublishGateSheet> {
   /// Per-kind checked state. Pre-populated to false for every shippable
-  /// kind — nothing pre-checked per locked decision #5.
+  /// kind — nothing pre-checked per locked decision #5 — EXCEPT the
+  /// always-present core `plan_url` (workout player) row, which is
+  /// pre-checked on open (see [initState]).
   final Map<String, bool> _checked = {};
 
   @override
@@ -114,6 +131,17 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
     for (final spec in ArtifactKindRegistry.all) {
       if (spec.shippable) _checked[spec.kind] = false;
     }
+    // 2026-05-28 — Pre-check the core workout-player (`plan_url`) row
+    // whenever the gate opens. PR #557's no-op guard means the gate is
+    // never reachable when the plan is fully up to date, so there is
+    // ALWAYS publishable work in the `plan_url` row by the time we get
+    // here. Pre-checking it means:
+    //   - a first publish opens with the player ready to confirm, and
+    //   - an edit re-publish (where `plan_url` is already Live) becomes
+    //     a checkable + checked re-publish row (see `_stateFor`).
+    // Other shippable kinds (handout, future) stay opt-in / unchecked
+    // per locked decision #5 — their default above is untouched.
+    _checked[ArtifactKind.planUrl] = true;
   }
 
   /// Look up an existing `plan_artifacts` row by kind. Returns null if
@@ -125,9 +153,29 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
     return null;
   }
 
+  /// True when this kind is already published AND has pending edits that
+  /// still need re-publishing. Today this is the content-driven workout
+  /// player (`plan_url`) gated by the session-wide
+  /// [PublishGateSheet.hasPendingContentChanges] signal. A published
+  /// `plan_url` with NO pending edits stays a locked "Live" row; a
+  /// published kind that is NOT content-driven (e.g. a handout that's
+  /// already live and unaffected) also stays "Live".
+  bool _isRepublishable(ArtifactKindSpec spec) {
+    if (_existingFor(spec.kind) == null) return false; // never published
+    if (spec.kind != ArtifactKind.planUrl) return false; // only the player
+    return widget.hasPendingContentChanges;
+  }
+
   _RowState _stateFor(ArtifactKindSpec spec) {
     if (!spec.shippable) return _RowState.soon;
-    if (_existingFor(spec.kind) != null) return _RowState.live;
+    if (_existingFor(spec.kind) != null) {
+      // Already-published kind. It stays a locked "Live" row UNLESS it's
+      // the content-driven workout player with pending edits — then it
+      // re-opens as a checkable (and pre-checked) re-publish row so the
+      // practitioner can ship the edits. Re-publishing is free (already
+      // paid) — see `_costFor`.
+      if (!_isRepublishable(spec)) return _RowState.live;
+    }
     return (_checked[spec.kind] ?? false)
         ? _RowState.availableChecked
         : _RowState.availableUnchecked;
@@ -137,6 +185,16 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
   /// paid, never re-charged); Soon rows can't be checked; unchecked
   /// rows contribute 0; checked rows contribute the spec's tier price.
   int _costFor(ArtifactKindSpec spec) {
+    // CREDIT CORRECTNESS (sensitive code): re-publishing an
+    // already-published kind NEVER re-charges. An existing
+    // `plan_artifacts` row means the kind was already paid for on its
+    // first publish; editing + re-publishing the workout player is free
+    // (mirrors the server-side version-bump free-edit policy — this is
+    // purely the gate's DISPLAYED cost, the server stays the source of
+    // truth). So any kind with an existing published row contributes 0,
+    // even when pre-checked/checked for re-publish. Only a FIRST publish
+    // (no existing row) of a paid kind costs its tier price.
+    if (_existingFor(spec.kind) != null) return 0;
     final state = _stateFor(spec);
     if (state != _RowState.availableChecked) return 0;
     switch (spec.priceTier) {
@@ -249,10 +307,22 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
                 separatorBuilder: (_, idx) => const SizedBox(height: 10),
                 itemBuilder: (_, i) {
                   final spec = ArtifactKindRegistry.all[i];
+                  // A row is tappable when it's shippable AND either has
+                  // never been published, OR is the content-driven player
+                  // re-opened for a free re-publish (see `_isRepublishable`).
+                  // Locked "Live" rows (already-minted, no pending edits)
+                  // stay non-interactive per locked decision #6.
+                  final tappable = spec.shippable &&
+                      (_existingFor(spec.kind) == null ||
+                          _isRepublishable(spec));
                   return _KindRow(
                     spec: spec,
                     state: _stateFor(spec),
-                    onTap: spec.shippable && _existingFor(spec.kind) == null
+                    // Already-published kinds re-charge nothing on
+                    // re-publish — show "Free" so the row agrees with the
+                    // zeroed running total (see `_costFor`).
+                    isFreeRepublish: _existingFor(spec.kind) != null,
+                    onTap: tappable
                         ? () {
                             setState(() {
                               _checked[spec.kind] =
@@ -292,7 +362,18 @@ class _KindRow extends StatelessWidget {
   final _RowState state;
   final VoidCallback? onTap;
 
-  const _KindRow({required this.spec, required this.state, this.onTap});
+  /// True when this is an already-paid kind re-opened for a free
+  /// re-publish (edits to an already-published player). Forces the
+  /// price column to render "Free / 0 cr" instead of the paid tier
+  /// price — matches the running total, which never re-charges.
+  final bool isFreeRepublish;
+
+  const _KindRow({
+    required this.spec,
+    required this.state,
+    this.onTap,
+    this.isFreeRepublish = false,
+  });
 
   Color _backgroundColor() {
     switch (state) {
@@ -399,7 +480,11 @@ class _KindRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              _PriceLabel(tier: spec.priceTier, state: state),
+              _PriceLabel(
+                tier: spec.priceTier,
+                state: state,
+                freeOverride: isFreeRepublish,
+              ),
             ],
           ),
         ),
@@ -520,11 +605,31 @@ class _PriceLabel extends StatelessWidget {
   final ArtifactPriceTier tier;
   final _RowState state;
 
-  const _PriceLabel({required this.tier, required this.state});
+  /// When true, render "Free / 0 cr" regardless of [tier] — used for an
+  /// already-paid kind re-opened for a free re-publish so the row's
+  /// price column agrees with the running total (which never re-charges).
+  final bool freeOverride;
+
+  const _PriceLabel({
+    required this.tier,
+    required this.state,
+    this.freeOverride = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final muted = state == _RowState.soon;
+    if (freeOverride) {
+      // Already-paid re-publish — never re-charged. Mirror the free-tier
+      // styling so the column reads "Free / 0 cr".
+      return _stack(
+        context,
+        big: 'Free',
+        unit: '0 cr',
+        bigColor: AppColors.rest,
+        unitColor: AppColors.textSecondaryOnDark,
+      );
+    }
     switch (tier) {
       case ArtifactPriceTier.free:
         return _stack(
