@@ -3210,14 +3210,14 @@ abstract class ArtifactKindRegistry {
   static const List<ArtifactKindSpec> all = [
     ArtifactKindSpec(
       kind: ArtifactKind.handout,
-      label: 'Workout handout',
+      label: 'Printable Workout Guide',
       description: 'Printable page — exercises, reps, hold, notes.',
       priceTier: ArtifactPriceTier.free,
       shippable: true,
     ),
     ArtifactKindSpec(
       kind: ArtifactKind.planUrl,
-      label: 'Workout player',
+      label: 'Interactive Workout Guide',
       description: 'Shareable link — clients press play and follow along.',
       priceTier: ArtifactPriceTier.paid,
       shippable: true,

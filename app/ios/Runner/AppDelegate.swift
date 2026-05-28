@@ -47,6 +47,13 @@ import ARKit
   // FaceEnrolmentARKitChannel.swift.
   private var faceEnrolmentARKit: FaceEnrolmentARKitChannel?
 
+  // Artifact-consistency wave (2026-05-28) — native print bridge for the
+  // Printable Workout Guide WebView. `window.print()` is a no-op inside
+  // WKWebView, so the page's print intent is bridged here and presented
+  // via UIPrintInteractionController (Print + Save-as-PDF for free). See
+  // HomefitWebPrintChannel.swift.
+  private var webPrint: HomefitWebPrintChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -286,6 +293,12 @@ import ARKit
     // <video> audio even though PR #41's concurrent-drain gave Line
     // treatment real audio tracks.
     unifiedPreviewAudio = UnifiedPreviewAudioChannel(messenger: messenger)
+
+    // Artifact-consistency wave — native print bridge for the Printable
+    // Workout Guide WebView. Bridges the page's print intent to
+    // UIPrintInteractionController so the practitioner gets the native
+    // print/Save-as-PDF sheet (WKWebView's window.print() is a no-op).
+    webPrint = HomefitWebPrintChannel(messenger: messenger)
 
     // Wave 4 Phase 2 — custom URL scheme handler. Installs a one-shot
     // swizzle on `-[WKWebViewConfiguration init]` so every
