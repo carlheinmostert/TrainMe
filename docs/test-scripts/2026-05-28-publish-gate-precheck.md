@@ -85,3 +85,36 @@ Files: `app/lib/widgets/publish_gate_sheet.dart`,
       pending edits → not re-checkable) while the "Workout handout" row
       is checkable. Confirm enables once the handout is ticked. The total
       shows the handout's cost (Free) — the live player adds nothing.
+
+## All stale artifacts re-publishable on edit (opt-in, free) — 2026-05-28 refinement
+
+Refines the gate so that when the session has pending content edits,
+EVERY already-published artifact (not just the player) goes "Out of date"
+and becomes re-publishable. The player stays pre-checked; every other
+out-of-date kind is offered opt-in (default UNCHECKED). All re-publishes
+stay FREE.
+
+Setup: a client with a PUBLISHED session whose BOTH the workout player AND
+the workout handout are already live. (Publish the player, then re-open the
+gate with no edits and tick the handout, confirm — now both are live.)
+
+- [ ] 12. Make a content edit to that session (change a rep count, add an
+      exercise). Tap PUBLISH. The gate opens. The "Workout handout" row now
+      shows an "Out of date" badge (coral), is CHECKABLE, and defaults
+      UNCHECKED. Its price column reads "Free / 0 cr".
+- [ ] 13. In the same gate, the "Workout player" row shows the "Out of
+      date" badge AND is TICKED (pre-checked, coral check). Its price also
+      reads "Free / 0 cr".
+- [ ] 14. The "Out of date" handout row looks distinct from BOTH a locked
+      "Live" row (sage, no badge, not tappable) AND a never-published
+      "Available" row (neutral, no badge) — it carries a coral wash + the
+      coral "Out of date" badge.
+- [ ] 15. Tick the handout too. Confirm. BOTH the player and handout
+      re-publish. The credit balance is UNCHANGED (both re-publishes are
+      free). The big "Total now" reads "Free".
+- [ ] 16. Repeat steps 12–13, but this time LEAVE the handout UNCHECKED.
+      Confirm. ONLY the player re-publishes (handout stays as-was). The CTA
+      read "Publish 1 artifact · free" before confirm.
+- [ ] 17. After step 16, the handout is still its pre-edit (stale) version
+      on the client side — that is the practitioner's explicit choice
+      (they declined the opt-in refresh). No silent re-charge occurred.
