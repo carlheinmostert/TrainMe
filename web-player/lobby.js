@@ -61,7 +61,6 @@
   // same seal + referral QR the Printable Workout Guide carries.
   const $lobbySeal = document.getElementById('lobby-seal');
   const $lobbySealLogo = document.getElementById('lobby-seal-logo');
-  const $lobbySealVersion = document.getElementById('lobby-seal-version');
   const $lobbySealQr = document.getElementById('lobby-seal-qr');
   const $selfGrantModal = document.getElementById('lobby-self-grant-modal');
   const $selfGrantTitle = document.getElementById('lobby-self-grant-title');
@@ -451,13 +450,17 @@
   // Standard footer seal (artifact-consistency wave, 2026-05-28)
   // ==========================================================================
   //
-  // The SAME "powered by homefit.studio" seal + referral QR the Printable
-  // Workout Guide carries, mounted on the lobby so both surfaces share one
-  // footer. The seal version slot shows the deployed build SHA (the lobby's
-  // build-marker convention). The QR encodes the practitioner referral link
-  // and is rendered LOCALLY via HomefitQR (CSP-clean); hidden gracefully
-  // when the practice has no referral code. Coral comes from --seal-coral,
-  // which a brand-skin override must not re-point (locked decision #23).
+  // FINAL standard footer (artifact-consistency pass 2, 2026-05-28): ONE
+  // seal on both surfaces. "powered by homefit.studio" + matrix glyph + the
+  // referral QR + the "Visual plans clients follow." tagline (the tagline +
+  // QR live in the markup; JS only injects the canonical glyph + the QR).
+  // The "Published · v{N} · {date}" version line was REMOVED from the seal
+  // (the plan version shows on the artefact cards; the build SHA stays on
+  // the discreet corner chip #lobby-meta-version). The QR encodes the
+  // practitioner referral link and is rendered LOCALLY via HomefitQR
+  // (CSP-clean); hidden gracefully when the practice has no referral code.
+  // Coral comes from --seal-coral, which a brand-skin override must not
+  // re-point (locked decision #23).
 
   function renderSeal() {
     // Canonical logo glyph (same builder the handout get-app block uses).
@@ -467,15 +470,6 @@
           ? window.buildHomefitLogoSvg
           : (typeof buildHomefitLogoSvg === 'function' ? buildHomefitLogoSvg : null);
       if (buildLogo) $lobbySealLogo.innerHTML = buildLogo();
-    }
-
-    // Build-SHA version slot — feed the deployed git SHA into the seal so
-    // the footer carries the same build marker the corner chip shows.
-    if ($lobbySealVersion) {
-      const cfg = (typeof window !== 'undefined' && window.HOMEFIT_CONFIG) || {};
-      const gitSha = (typeof cfg.gitSha === 'string' && cfg.gitSha) || 'dev';
-      const planVersion = (plan && plan.version != null) ? ('v' + plan.version) : '';
-      $lobbySealVersion.textContent = [planVersion, gitSha].filter(Boolean).join(' · ');
     }
 
     // Referral QR — local, CSP-clean. plan.referral_code rides on the
@@ -2236,7 +2230,26 @@
     const importCard = document.getElementById('lobby-import-card');
     const importGlyph = document.getElementById('lobby-import-glyph');
 
-    if (importCard && !importCard._wired) {
+    // Surface gating (artifact-consistency pass 2, 2026-05-28): render the
+    // get-app block ONLY on the public web. In the embedded in-app WebView
+    // the device is already linked, so the block must NOT appear. Mirrors
+    // the handout's gating. `api.isLocalSurface` is the canonical detector
+    // (forwarded from HomefitApi.isLocalSurface through the helpers object);
+    // fall back to window.HomefitApi when the helper isn't wired.
+    const _isLocal = (function () {
+      try {
+        if (api && typeof api.isLocalSurface === 'function') return !!api.isLocalSurface();
+        if (window.HomefitApi && typeof window.HomefitApi.isLocalSurface === 'function') {
+          return !!window.HomefitApi.isLocalSurface();
+        }
+      } catch (_) {}
+      return false;
+    })();
+
+    if (importCard && _isLocal) {
+      // Embedded in-app WebView — keep the get-app block hidden.
+      importCard.hidden = true;
+    } else if (importCard && !importCard._wired) {
       importCard._wired = true;
       importCard.hidden = false;
       // Stamp the claim target. plan.id is the current plan's UUID.

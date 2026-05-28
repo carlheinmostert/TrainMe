@@ -1,22 +1,27 @@
 /* =============================================================================
- * handout.css — workout handout at /h/{planId}
+ * handout.css — Printable Workout Guide at /h/{planId}
  * =============================================================================
  *
- * Default-variant CSS for the artifact-system Wave 1 workout handout (ADR 0025).
- * Geometry + tokens lifted verbatim from the signed-off mockup at
- * docs/design/mockups/2026-05-26-workout-handout-page.html so visual parity is
- * load-bearing.
+ * A near-twin of the Interactive Workout Guide lobby (/p/{planId}).
+ * Artifact-consistency pass 2 (2026-05-28): the exercise cards now use the
+ * SAME class names + geometry as the lobby (.lobby-row / .lobby-hero /
+ * .lobby-info / .lobby-circuit*), so the two surfaces look nearly identical
+ * on the first page. The card rules below are lifted VERBATIM from the
+ * lobby block in styles.css (the `.lobby-*` selectors); the only adaptation
+ * is the `--c-*` token aliases declared in :root so the shared selectors
+ * resolve against this page's tokens (which carry the same coral / surface /
+ * ink values as the lobby's design tokens).
  *
- * Wave 1 ships the homefit-default look only — Wave 4 layers a .skin-{name}
- * class on <body> that re-points the --brand-* tokens to the practitioner's
- * brand colour. The seal-coral tokens (--seal-coral, --seal-coral-light,
- * --seal-tint-border) are scoped to :root + the .handout-seal rules ONLY and
- * are FORBIDDEN to be re-pointed by any skin override. That's locked decision
- * #23 in the artifact-system design doc and #28 (the .studio wordmark in
- * coral) in the same place — feedback_homefit_studio_wordmark.md.
+ * The get-the-app block (.handout-import-card) mirrors the lobby's
+ * #lobby-import-card as a PLAIN dark card with the canonical homefit glyph.
+ * The footer seal (.handout-seal) is the standard seal: powered-by line +
+ * matrix glyph + referral QR + "Visual plans clients follow." tagline. NO
+ * version line (the plan version shows on the artefact cards / build chip).
+ * Coral comes from --seal-coral, which a brand-skin override is FORBIDDEN to
+ * re-point (locked decision #23).
  *
- * Print stylesheet (@media print) hides the claim chip + treatment toggle +
- * print button and lays out the page as a clean A4-friendly handout.
+ * Print stylesheet (@media print) hides the import block + print button and
+ * flattens the interactive cards to a clean A4-friendly static handout.
  * window.print() in handout.js drives the standard browser save-PDF dialog —
  * no html2canvas / jsPDF (ADR 0025 deprecates that pipeline).
  * ============================================================================= */
@@ -50,54 +55,52 @@
 
   --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+  /* --------------------------------------------------------------------------
+   * Lobby token aliases. The shared exercise-card CSS (the `.lobby-*` rules
+   * below, lifted verbatim from styles.css) reads `--c-*` / `--f-*` /
+   * --radius-* / --dur-* / --ease-* design tokens. The lobby's :root in
+   * styles.css carries the same coral / surface / ink VALUES as this page's
+   * tokens above, so aliasing keeps the cards byte-identical to the lobby
+   * without pulling in the whole 128KB player stylesheet. Mirror styles.css
+   * :root if those tokens ever change.
+   * ------------------------------------------------------------------------ */
+  --c-brand: var(--brand-default);
+  --c-brand-tint-bg: var(--brand-tint-bg);
+  --c-brand-tint-border: var(--brand-tint-border);
+  --c-surface-bg: var(--surface-bg);
+  --c-surface-base: var(--surface-base);
+  --c-surface-raised: var(--surface-raised);
+  --c-surface-border: var(--surface-border);
+  --c-ink-primary: var(--ink-primary);
+  --c-ink-secondary: var(--ink-secondary);
+  --c-ink-muted: var(--ink-muted);
+  --c-text-on-dark: var(--ink-primary);
+  --c-rest: var(--rest);
+  --c-rest-tint-bg: rgba(134, 239, 172, 0.15);
+  --c-rest-tint-border: rgba(134, 239, 172, 0.55);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --f-display: var(--font-display);
+  --f-body: var(--font-body);
+  --dur-fast: 150ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* =====================  Global `hidden` attribute reset  ====================
    The `.handout-loading`, `.handout-page`, and `.handout-error` containers
-   are all toggled in JS via the global `hidden` HTML attribute
-   (handout.js: `$loading.hidden = true`, `$page.hidden = false`, etc.).
-   But each of those classes sets an explicit `display: flex`, and an
-   author `display` rule ALWAYS beats the user-agent stylesheet's
-   `[hidden] { display: none }` (author origin > UA origin, regardless of
-   selector specificity). The net effect: `hidden = true` had NO visual
-   effect — the loading overlay (position: fixed; inset: 0; z-index: 100)
-   stayed painted on top of the fully-rendered page forever, so the page
-   was stuck on "Loading your plan…" even though loadHandout + render had
-   already completed successfully.
-
-   This single rule restores the intended semantics of the `hidden`
-   attribute so the JS toggles take effect. `!important` is required to
-   win over the per-class `display: flex` declarations below. The
-   @media print block already uses the same `!important` pattern for the
-   same reason. */
+   are all toggled in JS via the global `hidden` HTML attribute. Each of
+   those classes sets an explicit `display: flex`, and an author `display`
+   rule ALWAYS beats the UA stylesheet's `[hidden] { display: none }`. This
+   single rule restores the intended semantics so the JS toggles take effect.
+   `!important` is required to win over the per-class `display: flex`. */
 [hidden] { display: none !important; }
 
 /* =====================  Brand-skin override (Wave 4 — ADR-0029)  ============
-   When handout.js detects an active subscription via
-   payload.plan.brand_skin_active === true AND a brand_color is set on
-   the practice's public profile, it sets:
-     * body.handout-body.skin-active           — re-points the --brand-*
-                                                  tokens to inline-set
-                                                  --practice-brand-* values
-                                                  (declared in JS as inline
-                                                  style on <body>).
-     * data-skin-practice="<practice-id>"      — purely informational; lets
-                                                  the QA inspect which skin
-                                                  is active. (Matches the
-                                                  attribute name set by
-                                                  applySkin() in handout.js.)
-
-   Forbidden from this block: any rule that re-points
-   --seal-coral / --seal-coral-light / --seal-tint-border. The footer mark
-   uses --seal-* exclusively (locked decision #23).
-
-   The inline custom properties land via JS:
-     body.style.setProperty('--practice-brand-color',        color);
-     body.style.setProperty('--practice-brand-color-light',  lightened);
-     body.style.setProperty('--practice-brand-tint-bg',      tintedBg);
-     body.style.setProperty('--practice-brand-tint-border',  tintedBorder);
-     body.style.setProperty('--practice-brand-glyph-bg',     tintedGlyphBg);
-   See applySkin() in handout.js. */
+   When handout.js detects an active subscription it sets body.skin-active +
+   inline --practice-brand-* custom properties; the rule below re-points the
+   --brand-* family (NOT --seal-* — locked decision #23). */
 body.handout-body.skin-active {
   --brand-default:      var(--practice-brand-color, #ff6b35);
   --brand-dark:         var(--practice-brand-color-dark, #e85a24);
@@ -107,18 +110,12 @@ body.handout-body.skin-active {
   --brand-glyph-bg:     var(--practice-brand-glyph-bg, rgba(255, 107, 53, 0.18));
 }
 
-/* When the skin is active AND a practice-supplied lockup is rendered,
-   hide the default homefit lockup and show the .handout-brand-skin
-   block. The seal footer keeps the homefit lockup unconditionally. */
+/* When the skin is active AND a practice-supplied lockup is rendered, hide
+   the default homefit lockup and show the .handout-brand-skin block. The
+   seal footer keeps the homefit lockup unconditionally. */
 body.handout-body.skin-active .brand-default { display: none; }
 body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
 
-/* Practitioner brand-skin header lockup. The glyph is currently a single
-   homefit-shaped wordmark placeholder until a per-practice logo capture
-   surface ships (open question #9 in the design doc — out of scope for
-   this wave). For now the lockup shows the practice name in coloured ink
-   alongside an optional tagline. Geometry lifted from the workout-handout
-   mockup. */
 .handout-brand-skin {
   display: flex; align-items: center; gap: 7px;
 }
@@ -263,8 +260,6 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
   font-weight: 600;
 }
 .brand-default .brand-studio {
-  /* Brand-studio also gets the dot's font-weight via .dotsuf. The default
-     font-weight on .brand-default is 800 (homefit); .studio drops to 600. */
   font-weight: 600;
 }
 .handout-title {
@@ -301,204 +296,372 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
 .handout-print-btn:active { transform: scale(0.96); }
 .handout-print-btn svg { width: 18px; height: 18px; }
 
-/* =====================  Claim chip  ====================================== */
-
-.handout-claim {
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 14px;
-  background: var(--brand-tint-bg);
-  border: 1px solid var(--brand-tint-border);
-  border-radius: 12px;
-  margin-top: 2px;
-  cursor: pointer;
-  /* Quiet pulse (per locked decision #12 — escalating but never modal).
-     Wave 1 leaves it static; Wave 2 turns the animation on for return
-     visits via a body.handout-claim--pulse class. */
-}
-.handout-claim:hover { background: rgba(255, 107, 53, 0.18); }
-.handout-claim-glyph {
-  flex-shrink: 0;
-  width: 44px; height: 30px;
-  border-radius: 8px;
-  background: var(--brand-glyph-bg);
-  border: 1px solid var(--brand-tint-border);
-  color: var(--brand-light);
-  display: flex; align-items: center; justify-content: center;
-  padding: 5px 4px;
-  box-sizing: border-box;
-}
-/* No-JS fallback inline glyph stays small + centred. */
-.handout-claim-glyph svg:not(.homefit-logo) { width: 14px; height: 14px; }
-/* Canonical matrix logo (injected by handout.js) fills the wider box. */
-.handout-claim-glyph .homefit-logo { width: 100%; height: auto; display: block; }
-.handout-claim-text { flex: 1; min-width: 0; }
-.handout-claim-title {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 13.5px;
-  color: var(--ink-primary);
-  line-height: 1.25;
-}
-.handout-claim-sub {
-  font-size: 11px;
-  color: var(--ink-secondary);
-  margin-top: 1px;
-  line-height: 1.3;
-}
-.handout-claim-x {
-  flex-shrink: 0;
-  width: 24px; height: 24px;
-  border-radius: 50%;
-  border: 0;
-  background: transparent;
-  color: var(--ink-muted);
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  padding: 0;
-}
-.handout-claim-x:hover { color: var(--ink-primary); }
-.handout-claim-x svg { width: 12px; height: 12px; }
-
-/* The view/treatment toggle was removed in the artifact-consistency wave
-   (2026-05-28). Each exercise now renders statically in its own
-   preferred_treatment via the shared hero resolver — exactly like the
-   Interactive Workout Guide lobby. No `.handout-treatment` / `.handout-seg*`
-   rules remain. */
-
-/* =====================  Exercise list  =================================== */
-
-.handout-list {
+/* =====================  Get-the-app block  ===============================
+   Standardised with the lobby's #lobby-import-card (artifact-consistency
+   pass 2). A PLAIN dark card with the canonical homefit glyph — NOT
+   coral-tinted (coral is reserved for primary actions). Same on both
+   surfaces. Sits at the TOP, above the exercise list. Rendered only on the
+   public web (handout.js gates on !isLocalSurface()). Hidden in print. */
+.handout-import-card {
+  margin: 2px 0 0;
+  padding: 14px 16px;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 6px;
-}
-.handout-circuit-h {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 4px 4px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--brand-light);
-}
-.handout-circuit-h .line {
-  flex: 1; height: 1px;
-  background: linear-gradient(90deg, var(--brand-tint-border) 0%, transparent 100%);
-}
-.handout-circuit-group {
-  border-left: 2px solid var(--brand-tint-border);
-  padding-left: 8px;
-  display: flex; flex-direction: column; gap: 8px;
-  margin-bottom: 2px;
-}
-
-/* Exercise card — aligned to the Interactive Workout Guide lobby card
-   (lobby.js exerciseRowHTML + styles.css .lobby-row-content). Same
-   surface/border/radius, a square hero, a Montserrat name + a single
-   shared dose line. */
-.handout-ex {
-  display: flex; gap: 12px; align-items: stretch;
+  align-items: center;
+  gap: 12px;
   background: var(--surface-base);
   border: 1px solid var(--surface-border);
   border-radius: 12px;
-  padding: 10px;
+  color: inherit;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur-fast, 120ms) var(--ease-standard, ease);
 }
-.handout-ex-thumb {
-  position: relative; flex-shrink: 0;
-  width: 72px; height: 72px;
-  border-radius: 9px; overflow: hidden;
-  background: linear-gradient(150deg, #2b2f3d 0%, #20232e 60%, #181b24 100%);
-}
-/* No object-fit:cover — the hero resolver (hero_resolver.js) bakes a 1:1
-   data URL whose intrinsic dimensions ARE the square crop, exactly like
-   the lobby. Per the single-source hero rule (docs/HERO_RESOLVER.md):
-   no inline crop math, no object-fit:cover on the <img>. */
-.handout-ex-thumb img {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  display: block;
-}
-.handout-ex-thumb.is-bw img,
-.handout-ex-thumb img.is-grayscale {
-  filter: grayscale(1) contrast(1.05);
-}
-.handout-ex-num {
-  position: absolute;
-  top: 4px; left: 4px;
-  width: 18px; height: 18px;
-  border-radius: 5px;
-  background: rgba(15, 17, 23, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 10.5px;
-  color: var(--ink-primary);
+.handout-import-card:hover { background: var(--surface-raised); }
+.handout-import-card:active { transform: scale(0.995); }
+.handout-import-glyph {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: #0f1117;
+  border: 1px solid var(--surface-border);
   display: flex; align-items: center; justify-content: center;
+  padding: 6px 4px;
+  box-sizing: border-box;
 }
-.handout-ex-fig {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  color: rgba(240, 240, 245, 0.22);
-}
-.handout-ex-fig svg { width: 30px; height: 30px; }
-
-.handout-ex-body {
+.handout-import-glyph .homefit-logo { width: 100%; height: auto; display: block; }
+.handout-import-copy {
   flex: 1; min-width: 0;
-  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  display: flex; flex-direction: column; gap: 4px;
 }
-/* Name + dose mirror the lobby's .lobby-info-name / .lobby-info-dose so
-   the two surfaces read identically. */
-.handout-ex-name {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 16px;
+.handout-import-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.handout-import-title {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink-primary);
+  line-height: 1.25;
+}
+.handout-import-sub {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-secondary);
+  line-height: 1.45;
+}
+
+/* =============================================================================
+ * Exercise cards — SHARED with the lobby (artifact-consistency pass 2)
+ * =============================================================================
+ * The rules below are lifted VERBATIM from the lobby block in styles.css
+ * (the `.lobby-*` selectors). HomefitExerciseCard.buildListHTML emits the
+ * same markup on both surfaces, so these rules render the cards identically.
+ * Keep in lockstep with styles.css if the lobby card CSS changes.
+ * =========================================================================== */
+
+.lobby-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lobby-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0 16px;
+  transition: none;
+}
+
+/* Legacy gutter (rail + connector) is display:none on every row — the
+   closed-loop frame replaces the rail metaphor. */
+.lobby-row > .lobby-row-gutter { display: none; }
+.lobby-row > .lobby-row-gutter > .lobby-row-gutter-rail,
+.lobby-row > .lobby-row-gutter > .lobby-row-gutter-connector { display: none; }
+
+.lobby-row > .lobby-row-content {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+  min-width: 0;
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+.lobby-row.is-circuit > .lobby-row-content {
+  background: var(--c-surface-base);
+  border-color: var(--c-surface-border);
+}
+
+.lobby-row.is-rest > .lobby-row-content {
+  background: var(--c-rest-tint-bg);
+  border-color: var(--c-rest-tint-border);
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.lobby-row.is-active-pill > .lobby-row-content {
+  border-color: var(--c-brand);
+  box-shadow: 0 0 0 1px var(--c-brand);
+}
+
+/* Hero ------------------------------------------------------------------- */
+.lobby-hero {
+  flex: 0 0 40%;
+  aspect-ratio: 1 / 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--c-surface-raised);
+}
+
+.lobby-hero-media,
+.lobby-hero-skeleton {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lobby-hero-media { display: block; }
+
+/* Video frames stream natively at the source aspect ratio — keep
+   object-fit: cover for <video> so playing frames crop to the 1:1 slot. */
+video.lobby-hero-media { object-fit: cover; }
+
+.lobby-hero-media.is-grayscale { filter: grayscale(1) contrast(1.05); }
+
+.lobby-hero-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--c-surface-raised) 0%,
+    var(--c-surface-border) 50%,
+    var(--c-surface-raised) 100%
+  );
+  background-size: 200% 100%;
+  animation: lobby-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes lobby-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-hero-skeleton { animation: none; }
+}
+
+/* Hero-resolver no-fallback placeholder ---------------------------------- */
+.hero-not-available {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  box-sizing: border-box;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 107, 53, 0.18) 0%,
+    rgba(255, 107, 53, 0.06) 100%
+  );
+  color: var(--c-text-on-dark);
+  border: 1px solid rgba(255, 107, 53, 0.28);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+.hero-not-available::before {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  background-color: rgba(255, 107, 53, 0.9);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M21.9 21.9 2.1 2.1.69 3.51 3 5.83V19c0 1.1.9 2 2 2h13.17l2.32 2.32 1.41-1.42zM5 19V7.83l7.07 7.07-.61.61L9 12l-3 4h8.17l2 2H5zM21 17.17V5c0-1.1-.9-2-2-2H6.83l2 2H19v10.17l2 2z'/></svg>") no-repeat center / 100%;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M21.9 21.9 2.1 2.1.69 3.51 3 5.83V19c0 1.1.9 2 2 2h13.17l2.32 2.32 1.41-1.42zM5 19V7.83l7.07 7.07-.61.61L9 12l-3 4h8.17l2 2H5zM21 17.17V5c0-1.1-.9-2-2-2H6.83l2 2H19v10.17l2 2z'/></svg>") no-repeat center / 100%;
+}
+.hero-not-available-name {
+  font-family: 'Montserrat', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 13px;
   line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hero-not-available-sub {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 107, 53, 0.95);
+  text-transform: uppercase;
+}
+
+/* Info column ----------------------------------------------------------- */
+.lobby-info {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+.lobby-info-name {
+  font-family: var(--f-display);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+  color: var(--c-ink-primary);
   letter-spacing: -0.01em;
   word-break: break-word;
 }
-.handout-ex-dose {
-  font-family: var(--font-body);
+.lobby-info-dose {
+  font-family: var(--f-body);
   font-size: 13px;
   font-weight: 400;
-  color: var(--ink-secondary);
+  color: var(--c-ink-secondary);
+  margin: 0;
   line-height: 1.4;
 }
-.handout-ex-note {
+.lobby-info-notes {
+  margin: 4px 0 0;
+  font-family: var(--f-body);
   font-size: 12px;
-  color: var(--ink-muted);
-  line-height: 1.45;
   font-style: italic;
+  color: var(--c-ink-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+.lobby-info-notes.is-expanded {
+  -webkit-line-clamp: unset;
+  display: block;
+  overflow: visible;
 }
 
-/* Rest cards — sage chip + duration. */
-.handout-rest {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px;
-  background: rgba(134, 239, 172, 0.06);
-  border: 1px solid rgba(134, 239, 172, 0.18);
+/* Circuit group --------------------------------------------------------- */
+.lobby-circuit {
+  position: relative;
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+.lobby-circuit-box {
+  border: 2px solid rgba(255, 107, 53, 0.25);
+  border-radius: 10px;
+  padding: 4px;
+  animation: lobby-circuit-pulse 2.4s ease-in-out infinite;
+  animation-delay: calc(var(--box-index) * 0.4s);
+}
+.lobby-circuit-box-depth-1 { border-radius: 14px; padding: 4px; }
+.lobby-circuit-box-depth-2 { border-radius: 18px; padding: 4px; }
+.lobby-circuit-box-depth-3 { border-radius: 22px; padding: 4px; }
+.lobby-circuit-box-depth-4 { border-radius: 26px; padding: 4px; }
+.lobby-circuit-box-inner {
+  padding: 6px;
+  background: var(--c-surface-bg);
+}
+@keyframes lobby-circuit-pulse {
+  0%, 100% {
+    border-color: rgba(255, 107, 53, 0.25);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25% {
+    border-color: rgba(255, 107, 53, 1);
+    box-shadow: 0 0 24px 4px rgba(255, 107, 53, 0.65),
+                0 0 0 2px rgba(255, 107, 53, 0.45);
+  }
+  55%, 99% {
+    border-color: rgba(255, 107, 53, 0.25);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lobby-circuit-box { animation: none !important; }
+}
+.lobby-circuit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: var(--c-surface-base);
   border-radius: 10px;
 }
-.handout-rest-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--rest);
-}
-.handout-rest-label {
-  font-size: 11.5px;
-  color: var(--rest);
+.lobby-circuit-header-label {
+  flex: 1 1 auto;
+  font-family: var(--f-body);
+  font-size: 14px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.5px;
+  color: var(--c-brand);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.handout-rest-duration {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--ink-secondary);
+.lobby-circuit-header-cycles {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--c-brand-tint-bg);
+  border: 1px solid var(--c-brand-tint-border);
+  border-radius: 9999px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, Courier, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-brand);
+}
+.lobby-circuit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lobby-circuit-body .lobby-row { padding: 0; }
+
+/* Rest row -------------------------------------------------------------- */
+.lobby-row.is-rest .lobby-rest-label {
+  font-family: var(--f-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-rest);
+  letter-spacing: 0.01em;
 }
 
 /* =====================  Footer seal  ====================================== */
+/* The standard seal — ONE seal on both surfaces. Geometry mirrors the
+   lobby's .lobby-seal. "powered by homefit.studio" + matrix glyph + the
+   referral QR + the "Visual plans clients follow." tagline. No version
+   line. Coral via --seal-coral (never re-skinned). */
 
 .handout-seal {
   margin-top: 18px;
@@ -510,19 +673,19 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
 }
 .handout-seal-mark {
   flex: 1; min-width: 0;
-  display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: column; gap: 4px;
 }
 .handout-seal-line {
-  display: flex; align-items: baseline; gap: 6px;
-  font-family: var(--font-display);
+  display: flex; align-items: center; gap: 8px;
 }
-.handout-seal-powered {
-  font-weight: 500;
-  font-family: var(--font-body);
-  font-size: 10.5px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: var(--ink-secondary);
+.handout-seal-logo {
+  display: inline-flex;
+  align-items: center;
+  width: 64px;
+  flex-shrink: 0;
+}
+.handout-seal-logo .homefit-logo {
+  width: 100%; height: auto; display: block;
 }
 .handout-seal-brand {
   font-family: var(--font-display);
@@ -536,35 +699,36 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
   color: var(--seal-coral);
   font-weight: 600;
 }
-.handout-seal-version {
-  font-size: 10px;
-  color: var(--ink-muted);
+.handout-seal-tagline {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-secondary);
   letter-spacing: 0.2px;
 }
 
 /* Footer QR — a REAL QR rendered locally by handout.js via HomefitQR
-   (CSP-clean SVG, no external image API). Encodes the practitioner
-   referral link. The white padding + rounded corners frame the scannable
-   matrix on the dark seal. Hidden via the `hidden` attribute when the
-   practice has no referral code. */
-.handout-qr {
+   (CSP-clean SVG). The white padding + rounded corners frame the
+   scannable matrix on the dark seal. Hidden when no referral code. */
+.handout-seal-qr {
   flex-shrink: 0;
   width: 56px; height: 56px;
   border-radius: 8px;
   background: white;
   padding: 4px;
+  box-sizing: border-box;
   position: relative;
 }
-.handout-qr svg {
+.handout-seal-qr svg {
   display: block;
   width: 100%; height: 100%;
 }
 
 /* =====================  Print stylesheet  ================================= */
 /* `window.print()` is the only export path — no html2canvas / jsPDF.
-   Hide the interactive controls (claim, treatment toggle, print button)
-   and lay out the page on a paper-friendly white background. The seal
-   stays visible (version stamp + QR are load-bearing on paper). */
+   The cards are flattened to a static A4-friendly document: video swaps
+   never fire on paper (print doesn't scroll), animations off, dark surfaces
+   → white. The seal stays visible (tagline + QR are load-bearing on paper). */
 
 @media print {
   :root {
@@ -576,15 +740,20 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
     --ink-secondary: #4b5563;
     --ink-muted: #6b7280;
     --ink-disabled: #9ca3af;
-    /* Seal coral stays bright on paper too — that's the "credibility seal"
-       per ADR 0029. We keep --seal-coral pointing at coral; the brand
-       tokens also stay coral on Wave 1 (default look). */
+    /* Lobby aliases re-resolve from the overridden tokens above. */
+    --c-surface-bg: #ffffff;
+    --c-surface-base: #ffffff;
+    --c-surface-raised: #f7f7f7;
+    --c-surface-border: #e5e7eb;
+    --c-ink-primary: #111827;
+    --c-ink-secondary: #4b5563;
+    --c-ink-muted: #6b7280;
   }
 
   /* Hide all interactive controls and ephemeral UI. */
   .handout-loading,
   .handout-error,
-  .handout-claim,
+  .handout-import-card,
   .handout-print-btn {
     display: none !important;
   }
@@ -596,26 +765,42 @@ body.handout-body:not(.skin-active) .handout-brand-skin { display: none; }
     gap: 12px;
   }
   .handout-header { border-bottom-color: #e5e7eb; }
-  .handout-ex {
+
+  /* Flatten the cards: static surface, no active-row coral border, no
+     circuit pulse, page-break-safe. */
+  .lobby-row > .lobby-row-content {
     background: white;
     border-color: #e5e7eb;
+    box-shadow: none;
     page-break-inside: avoid;
     break-inside: avoid;
   }
-  .handout-circuit-group {
+  .lobby-row.is-active-pill > .lobby-row-content {
+    border-color: #e5e7eb;
+    box-shadow: none;
+  }
+  .lobby-row.is-rest > .lobby-row-content {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+  }
+  .lobby-circuit,
+  .lobby-circuit-box {
     page-break-inside: avoid;
     break-inside: avoid;
   }
+  .lobby-circuit-box {
+    animation: none !important;
+    border-color: rgba(255, 107, 53, 0.5);
+    box-shadow: none;
+  }
+  .lobby-circuit-box-inner { background: white; }
+  .lobby-circuit-header { background: #f7f7f7; }
+  .lobby-hero-skeleton { animation: none; }
+
   .handout-seal {
     background: #fafafa;
     border-color: #e5e7eb;
     page-break-inside: avoid;
     margin-top: 24px;
-  }
-  /* Strip dark-mode shadows on print. */
-  .handout-ex-num {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.08);
-    color: var(--ink-primary);
   }
 }

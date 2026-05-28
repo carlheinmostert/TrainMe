@@ -147,13 +147,18 @@
         </div>
       </a>
 
-      <!-- Standard footer seal (artifact-consistency wave, 2026-05-28).
-           The SAME "powered by homefit.studio" seal + referral QR that the
-           Printable Workout Guide footer carries, promoted here so both
-           surfaces share one footer. Coral comes from --seal-coral, which
-           a brand-skin override is forbidden to re-point. The QR is
-           rendered locally by lobby.js via HomefitQR (CSP-clean); hidden
-           gracefully when the practice has no referral code. -->
+      <!-- Standard footer seal — FINAL, one seal on BOTH surfaces
+           (artifact-consistency pass 2, 2026-05-28). The SAME seal the
+           Printable Workout Guide footer carries: "powered by
+           homefit.studio" + matrix glyph + the referral QR + the
+           "Visual plans clients follow." tagline. NOTHING ELSE — the
+           "Published · v{N} · {date}" version line was REMOVED (the plan
+           version shows on the artefact cards; the build SHA stays on the
+           discreet corner chip #lobby-meta-version, not in this seal).
+           Coral comes from --seal-coral, which a brand-skin override is
+           forbidden to re-point (locked decision #23). The QR is rendered
+           locally by lobby.js via HomefitQR (CSP-clean); hidden gracefully
+           when the practice has no referral code. -->
       <footer class="lobby-seal" id="lobby-seal">
         <div class="lobby-seal-mark">
           <div class="lobby-seal-line">
@@ -162,21 +167,10 @@
               <span>homefit</span><span class="dotsuf">.</span><span class="dotsuf">studio</span>
             </span>
           </div>
-          <div class="lobby-seal-version" id="lobby-seal-version" aria-hidden="true"></div>
+          <div class="lobby-seal-tagline">Visual plans clients follow.</div>
         </div>
         <div class="lobby-seal-qr" id="lobby-seal-qr" title="Scan to follow your practitioner" hidden></div>
       </footer>
-
-      <!-- Export-only footer (Wave Free Lobby Export, 2026-05-05). Hidden
-           during normal lobby viewing; shown only when html.is-exporting
-           is set during the html2canvas snapshot pass. Branding + tagline. -->
-      <div class="lobby-export-footer" id="lobby-export-footer" aria-hidden="true">
-        <div class="lobby-export-brand">
-          <span class="lobby-export-brand-mark"></span>
-          <span><span class="homefit-logo-wordmark-name">homefit</span><span class="homefit-logo-wordmark-studio">.studio</span></span>
-        </div>
-        <div class="lobby-export-tagline">Visual plans clients follow.</div>
-      </div>
     </div>
 
     <!-- Lightweight transient toast — kept around for future use even
