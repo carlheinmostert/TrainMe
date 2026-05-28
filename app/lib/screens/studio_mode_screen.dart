@@ -4592,16 +4592,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   /// PREVIEW (CAPS) — 2026-05-27 (artifact-system follow-up).
   ///
-  /// A session can now publish multiple artifact kinds (workout player +
-  /// take-home handout). Preview used to jump straight to the workout-plan
-  /// card deck — it assumed the player was the only previewable artifact.
-  /// Now it first opens a single-select picker (the inline bottom-sheet
-  /// card in `preview_artifact_picker_sheet.dart`, sibling visual to the
-  /// publish gate) and routes to the chosen artifact's preview surface.
+  /// A session can now publish multiple artifact kinds (Interactive Workout
+  /// Guide + Printable Workout Guide). Preview used to jump straight to the
+  /// card deck — it assumed the interactive guide was the only previewable
+  /// artifact. Now it first opens a single-select picker (the inline
+  /// bottom-sheet card in `preview_artifact_picker_sheet.dart`, sibling
+  /// visual to the publish gate) and routes to the chosen artifact's
+  /// preview surface.
   ///
-  ///   * Workout player → the existing [UnifiedPreviewScreen] card deck.
-  ///   * Take-home handout → [HandoutWebViewScreen.localPreview], which
-  ///     renders the LOCALLY BUNDLED handout assets (fresh from this
+  ///   * Interactive Workout Guide → the existing [UnifiedPreviewScreen]
+  ///     card deck.
+  ///   * Printable Workout Guide → [HandoutWebViewScreen.localPreview],
+  ///     which renders the LOCALLY BUNDLED handout assets (fresh from this
   ///     build) via the `homefit-local://` scheme, bypassing the device's
   ///     stale remote handout cache.
   Future<void> _openPreview() async {
@@ -4626,7 +4628,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               planId: _session.id,
               session: _session,
               storage: widget.storage,
-              title: 'Handout preview',
+              title: 'Printable Workout Guide preview',
             ),
           ),
         );

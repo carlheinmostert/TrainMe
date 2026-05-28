@@ -97,13 +97,13 @@ class ArtifactStatusRow extends StatelessWidget {
 
   String _shortLabelFor(String kind) {
     // Use the short, scannable form for the pill. The full label
-    // ("Workout handout") lives in the Publish gate; the status row
-    // optimises for compact reading at a glance.
+    // ("Printable Workout Guide") lives in the Publish gate; the status
+    // row optimises for compact reading at a glance.
     switch (kind) {
       case ArtifactKind.handout:
-        return 'Handout';
+        return 'Printable';
       case ArtifactKind.planUrl:
-        return 'Player';
+        return 'Interactive';
       case ArtifactKind.poster:
         return 'Poster';
       case ArtifactKind.reel:
@@ -119,8 +119,11 @@ class ArtifactStatusRow extends StatelessWidget {
 
   String _stateLabel(_BitState s) {
     switch (s) {
+      // The sage "live" variant is retired — both minted states now read
+      // "published" so the status language matches the artifact cards and
+      // the web `/me` twin. The free/paid distinction survives only as the
+      // pill tint (sage vs coral), not the label.
       case _BitState.live:
-        return 'live';
       case _BitState.published:
         return 'published';
       case _BitState.notYet:

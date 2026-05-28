@@ -2,35 +2,62 @@
 // HandoutWebViewScreen — Wave 6 (artifact-system, 2026-05-27)
 // =============================================================================
 //
-// Full-screen WKWebView that renders the workout-handout artifact. Two
-// modes, selected at construction:
+// Full-screen WKWebView that renders the Printable Workout Guide artifact
+// (formerly "take-home handout"). Two modes, selected at construction:
 //
-//   * REMOTE (default ctor) — loads the PUBLISHED handout at
+//   * REMOTE (default ctor) — loads the PUBLISHED guide at
 //     `<webPlayerOrigin>/h/{planId}`. Mounted from the
 //     SessionArtifactAccordion's `onPlayHandout` callback when the
 //     artifact kind is `handout` on ClientSessionsScreen / MyWorkouts.
 //     This is the share/published path; do NOT change its behaviour.
 //
 //   * LOCAL PREVIEW ([HandoutWebViewScreen.localPreview]) — renders the
-//     handout from the LOCALLY BUNDLED `app/assets/web-player/handout.*`
-//     assets via the same `homefit-local://` custom scheme the workout-
-//     plan preview uses (`UnifiedPlayerSchemeHandler.swift` +
-//     `UnifiedPreviewSchemeBridge`). Mounted from the Studio Preview
-//     artifact picker. The point of the local variant: it bypasses the
-//     device's WKWebView HTTP cache, so the practitioner always previews
-//     the freshest handout code shipped in THIS build — even when the
-//     remote `/h/{planId}` URL is serving a stale cached `handout.js`.
-//     Plan data still flows through the bundled handout.js's normal
-//     `getPlanFull` call, which api.js routes to the local scheme handler
-//     (`/api/plan/{planId}`) and the Dart bridge answers from SQLite.
+//     guide from the LOCALLY BUNDLED `app/assets/web-player/handout.*`
+//     assets via the same `homefit-local://` custom scheme the
+//     Interactive Workout Guide preview uses
+//     (`UnifiedPlayerSchemeHandler.swift` + `UnifiedPreviewSchemeBridge`).
+//     Mounted from the Studio Preview artifact picker. The point of the
+//     local variant: it bypasses the device's WKWebView HTTP cache, so the
+//     practitioner always previews the freshest guide code shipped in THIS
+//     build — even when the remote `/h/{planId}` URL is serving a stale
+//     cached `handout.js`. Plan data still flows through the bundled
+//     handout.js's normal `getPlanFull` call, which api.js routes to the
+//     local scheme handler (`/api/plan/{planId}`) and the Dart bridge
+//     answers from SQLite.
 //
 // Remote mode is online-only: if the practitioner is offline the WebView
 // shows its own connection error; we don't fall back silently (per
 // `feedback_no_silent_fallbacks`). Local mode never touches the network.
+//
+// CHROME (artifact-consistency wave, 2026-05-28). This screen previously
+// hosted a standard Flutter AppBar, which read as a system bar and diverged
+// from how the Interactive Workout Guide preview (`UnifiedPreviewScreen`) is
+// presented. It now mirrors that surface: a full-bleed WebView with a single
+// floating circular dismiss chip in the top-left. Same chrome vocabulary on
+// both viewer surfaces.
+//
+// NATIVE PRINT BRIDGE (artifact-consistency wave, 2026-05-28). The page's
+// in-page Print button calls `window.print()`, which is effectively a NO-OP
+// inside WKWebView (no print dialog surfaces). We bridge the print intent to
+// the native iOS print sheet (`UIPrintInteractionController` via
+// `HomefitWebPrintChannel.swift`), which gives Print + Save-as-PDF for free.
+// Two routes reach the bridge:
+//   1. The page can explicitly call `window.HomefitPrint.postMessage('{...}')`
+//      on the registered JS channel (the web sibling branch wires the button
+//      to attempt this first, then fall back to `window.print()`).
+//   2. A page-finished shim overrides `window.print` so the existing
+//      `window.print()` call ALSO reaches the bridge — so the native sheet
+//      works even before the web side is updated.
+// No html2canvas / jsPDF on either surface.
 // =============================================================================
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
     show
@@ -38,19 +65,29 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
         WebKitWebViewController,
         WebKitWebViewControllerCreationParams;
 
-import 'dart:io' show Platform;
-
 import '../config.dart';
 import '../models/session.dart';
 import '../services/local_storage_service.dart';
 import '../services/unified_preview_scheme_bridge.dart';
 import '../theme.dart';
 
+/// JS channel the Printable Workout Guide page posts print intents on.
+/// The page can call `window.HomefitPrint.postMessage(JSON.stringify({
+/// type: 'print' }))`. Mirrored as a string literal in the web sibling
+/// branch — do NOT rename one without the other.
+const String _kPrintChannelName = 'HomefitPrint';
+
+/// MethodChannel to the native print bridge. Name mirrored in
+/// `HomefitWebPrintChannel.swift` (`channelName`). Do NOT change one
+/// without the other.
+const MethodChannel _printMethodChannel = MethodChannel('homefit/web-print');
+
 class HandoutWebViewScreen extends StatefulWidget {
-  /// Plan id whose handout artifact this WebView opens.
+  /// Plan id whose Printable Workout Guide this WebView opens.
   final String planId;
 
-  /// Optional title shown in the AppBar. Defaults to "Workout handout".
+  /// Optional title. Used as the native print-job name (the screen itself
+  /// no longer shows a title bar). Defaults to "Printable Workout Guide".
   final String? title;
 
   /// When true, render from the locally-bundled web-player assets via the
@@ -169,7 +206,15 @@ class _HandoutWebViewScreenState extends State<HandoutWebViewScreen> {
 
     final controller = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(AppColors.surfaceBg);
+      ..setBackgroundColor(AppColors.surfaceBg)
+      // Native print bridge channel. The page posts a print intent here
+      // (either explicitly via `window.HomefitPrint.postMessage(...)` or
+      // through the `window.print` shim injected on page-finished below);
+      // we forward it to the native iOS print sheet.
+      ..addJavaScriptChannel(
+        _kPrintChannelName,
+        onMessageReceived: _onPrintMessage,
+      );
 
     if (Platform.isIOS && (kDebugMode || kProfileMode)) {
       final platform = controller.platform;
@@ -212,6 +257,13 @@ class _HandoutWebViewScreenState extends State<HandoutWebViewScreen> {
         },
         onPageFinished: (_) {
           if (mounted) setState(() => _loading = false);
+          // Override the page's `window.print()` so the existing in-page
+          // Print button reaches the native bridge even before the web
+          // sibling branch is updated to call `window.HomefitPrint`
+          // directly. WKWebView's native `window.print()` is a no-op, so
+          // intercepting it loses nothing and gains the native sheet.
+          // ignore: discarded_futures
+          _injectPrintShim(_controller);
         },
         onWebResourceError: (err) {
           if (mounted) {
@@ -239,29 +291,102 @@ class _HandoutWebViewScreenState extends State<HandoutWebViewScreen> {
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // Native print bridge
+  // ---------------------------------------------------------------------------
+
+  /// Inject a shim that re-points `window.print()` at the native bridge.
+  /// Idempotent (re-running on a re-navigated page just re-installs it).
+  /// We keep the original under `window.__nativePrint` purely for clarity;
+  /// it's a no-op on WKWebView so there's nothing useful to fall back to.
+  Future<void> _injectPrintShim(WebViewController? controller) async {
+    if (controller == null) return;
+    const js = '''
+      (function () {
+        if (window.__homefitPrintShimInstalled) return;
+        window.__homefitPrintShimInstalled = true;
+        window.__nativePrint = window.print;
+        window.print = function () {
+          try {
+            window.$_kPrintChannelName.postMessage(JSON.stringify({ type: 'print' }));
+          } catch (e) {
+            // Channel missing (non-iOS / web): fall back to the original.
+            if (typeof window.__nativePrint === 'function') {
+              window.__nativePrint();
+            }
+          }
+        };
+      })();
+    ''';
+    try {
+      await controller.runJavaScript(js);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Handout] print shim injection failed: $e');
+      }
+    }
+  }
+
+  /// Handle a print intent posted from the page on the [_kPrintChannelName]
+  /// JS channel. The payload is tolerated as either a bare string or a JSON
+  /// object with `{ "type": "print" }`; anything else is ignored.
+  void _onPrintMessage(JavaScriptMessage message) {
+    final raw = message.message.trim();
+    var isPrint = false;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['type'] == 'print') {
+        isPrint = true;
+      } else if (decoded is String && decoded == 'print') {
+        isPrint = true;
+      }
+    } catch (_) {
+      // Not JSON — accept a bare "print" string.
+      if (raw == 'print') isPrint = true;
+    }
+    if (!isPrint) {
+      if (kDebugMode) {
+        debugPrint('[Handout] ignored print message: $raw');
+      }
+      return;
+    }
+    // ignore: discarded_futures
+    _presentPrintSheet();
+  }
+
+  /// Ask the native side to present the iOS print/share sheet for the
+  /// frontmost WebView. No-op (with a debug log) on platforms without the
+  /// bridge or when the channel reports an error.
+  Future<void> _presentPrintSheet() async {
+    if (!Platform.isIOS) return;
+    try {
+      await _printMethodChannel.invokeMethod<dynamic>(
+        'presentPrintSheet',
+        {'jobName': widget.title ?? 'Printable Workout Guide'},
+      );
+    } on PlatformException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Handout] native print failed: ${e.code} ${e.message}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Handout] native print error: $e');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // No AppBar — full-bleed WebView with a single floating dismiss chip,
+    // mirroring how UnifiedPreviewScreen (the Interactive Workout Guide
+    // preview) presents itself. The page renders its own chrome (title,
+    // print button); the app only owns the back-out affordance.
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.surfaceBg,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: AppColors.textOnDark),
-        title: Text(
-          widget.title ?? 'Workout handout',
-          style: const TextStyle(
-            fontFamily: 'Montserrat',
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-            color: AppColors.textOnDark,
-            letterSpacing: -0.2,
-          ),
-        ),
-      ),
       body: Stack(
         children: [
-          if (_controller != null) WebViewWidget(controller: _controller!),
+          if (_controller != null)
+            Positioned.fill(child: WebViewWidget(controller: _controller!)),
           if (_loading)
             const Positioned.fill(
               child: Center(
@@ -291,9 +416,9 @@ class _HandoutWebViewScreenState extends State<HandoutWebViewScreen> {
                         color: AppColors.textSecondaryOnDark,
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        "Couldn't load the handout.",
-                        style: const TextStyle(
+                      const Text(
+                        "Couldn't load the guide.",
+                        style: TextStyle(
                           fontFamily: 'Montserrat',
                           fontWeight: FontWeight.w700,
                           fontSize: 15,
@@ -315,6 +440,33 @@ class _HandoutWebViewScreenState extends State<HandoutWebViewScreen> {
                 ),
               ),
             ),
+          // Top-left back-out chip. Same circular dark-pill styling as the
+          // Interactive Workout Guide preview (UnifiedPreviewScreen) so the
+          // practitioner reads it as viewer chrome, not a system bar.
+          Positioned(
+            top: MediaQuery.of(context).padding.top,
+            left: 0,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.55),
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: IconButton(
+                iconSize: 20,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints.tightFor(
+                  width: 40,
+                  height: 40,
+                ),
+                tooltip: 'Close',
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: AppColors.primary,
+                ),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+          ),
         ],
       ),
     );
