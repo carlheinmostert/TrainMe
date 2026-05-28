@@ -46,6 +46,7 @@ import '../widgets/inline_editable_text.dart';
 import '../widgets/paste_bottom_sheet.dart';
 import '../widgets/preset_chip_row.dart';
 import '../widgets/artifact_share_sheet.dart';
+import '../widgets/preview_artifact_picker_sheet.dart';
 import '../widgets/publish_gate_sheet.dart';
 import '../widgets/publish_progress_sheet.dart';
 import '../widgets/safe_mode_icon.dart';
@@ -58,6 +59,7 @@ import '../widgets/undo_snackbar.dart';
 import '../services/auth_service.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/plan_settings_sheet.dart';
+import 'handout_web_view_screen.dart';
 import 'unified_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
@@ -2234,11 +2236,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                     publishingChipTone: _resolveChipTone(),
                     publishingChipProgress: _resolveChipProgress(),
                     onPublishingChipTap: _resolveChipTap(),
-                    // PR #6 (self-trainer wave, 2026-05-25) — server-
-                    // previewed credit cost (0 / 1 / 2). Null until
-                    // the first RPC resolves; the cell hides the cost
-                    // line in that frame.
-                    publishCostPreview: _publishCostPreview,
+                    // 2026-05-27 — the toolbar PUBLISH cell no longer
+                    // renders a credit-cost caption (Carl's request).
+                    // `_publishCostPreview` is still fetched and fed to
+                    // the publish gate sheet's running total below
+                    // (see `planUrlCreditCost:` in `_openPublishGate`).
                   ),
                 ],
               ),
@@ -4442,14 +4444,48 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
   }
 
-  void _openPreview() {
+  /// PREVIEW (CAPS) — 2026-05-27 (artifact-system follow-up).
+  ///
+  /// A session can now publish multiple artifact kinds (workout player +
+  /// take-home handout). Preview used to jump straight to the workout-plan
+  /// card deck — it assumed the player was the only previewable artifact.
+  /// Now it first opens a single-select picker (the inline bottom-sheet
+  /// card in `preview_artifact_picker_sheet.dart`, sibling visual to the
+  /// publish gate) and routes to the chosen artifact's preview surface.
+  ///
+  ///   * Workout player → the existing [UnifiedPreviewScreen] card deck.
+  ///   * Take-home handout → [HandoutWebViewScreen.localPreview], which
+  ///     renders the LOCALLY BUNDLED handout assets (fresh from this
+  ///     build) via the `homefit-local://` scheme, bypassing the device's
+  ///     stale remote handout cache.
+  Future<void> _openPreview() async {
     HapticFeedback.selectionClick();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            UnifiedPreviewScreen(session: _session, storage: widget.storage),
-      ),
-    );
+    final choice = await PreviewArtifactPickerSheet.show(context);
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case PreviewArtifactChoice.workoutPlayer:
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => UnifiedPreviewScreen(
+              session: _session,
+              storage: widget.storage,
+            ),
+          ),
+        );
+        break;
+      case PreviewArtifactChoice.handout:
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => HandoutWebViewScreen.localPreview(
+              planId: _session.id,
+              session: _session,
+              storage: widget.storage,
+              title: 'Handout preview',
+            ),
+          ),
+        );
+        break;
+    }
   }
 
   /// True when the session has at least one non-rest exercise that the

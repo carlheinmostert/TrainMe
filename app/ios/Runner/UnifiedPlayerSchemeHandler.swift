@@ -135,6 +135,34 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
       return
     }
 
+    // 2b. Handout preview route (2026-05-27 artifact-system follow-up).
+    //
+    // `homefit-local://plan/h/<planId>` serves the bundled `handout.html`
+    // verbatim. The pathname the page sees is therefore `/h/<planId>`,
+    // which is exactly what the bundled `handout.js`'s
+    // `extractPlanIdFromPath()` regex (`/^\/h\/([A-Za-z0-9_-]+)\/?$/`)
+    // expects — so NOT one byte of the web-player bundle has to change to
+    // make the local preview find its planId. (Mirrors how the
+    // workout-player preview already works: api.js's `isLocalSurface()`
+    // keys off host `plan` + `?src=local`, both present on the URL the
+    // Flutter `HandoutWebViewScreen` local variant loads.)
+    //
+    // Why a dedicated route instead of letting the page read a query
+    // param: the live `/h/{planId}` surface reads the id from the PATH,
+    // and keeping the embedded preview path-shaped means the bundled JS
+    // takes the identical code path on both surfaces. Less to drift.
+    //
+    // The planId itself is validated by the page + the Dart bridge; here
+    // we only need to know the request is shaped `h/<something>` so we can
+    // hand back the handout shell. The relative asset refs inside
+    // handout.html (`/handout.css`, `/api.js`, `/handout.js`) resolve back
+    // through the static-asset resolver below on subsequent requests.
+    if match(path: path, pattern: "h/") != nil {
+      if tryRespondWithBundleAsset(urlSchemeTask, assetName: "handout.html") {
+        return
+      }
+    }
+
     // 3. Static bundle assets — data-driven resolver.
     //
     // Any file in `app/assets/web-player/` (as written by
