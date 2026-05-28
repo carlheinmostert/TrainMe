@@ -13,6 +13,14 @@
 // Locked decisions: nothing pre-checked (#5); Live rows are no-op on
 // re-tick — never re-charged (#6); registry-future kinds render as Soon.
 //
+// 2026-05-28 refinement: when the session has pending content edits, EVERY
+// already-published artifact kind (not just the workout player) becomes
+// re-publishable and renders an "Out of date" badge. These rows are
+// CHECKABLE and FREE (re-publishing an already-paid kind never re-charges).
+// The workout player is pre-checked (it's the core artifact); every other
+// out-of-date kind is offered opt-in / unchecked. A published kind with no
+// pending edits stays a locked "Live" row.
+//
 // Reader-App safe: the only money-words here are "credit" / "credits".
 // No PayFast, no Stripe, no purchase paths.
 // =============================================================================
@@ -40,7 +48,21 @@ class PublishGateResult {
 
 /// Per-row state machine for the gate. Wire-side state strings are the
 /// same as the mockup callouts ("Available", "Live", "Soon").
-enum _RowState { availableUnchecked, availableChecked, live, soon }
+///
+/// `outOfDateUnchecked` / `outOfDateChecked` are the 2026-05-28 addition:
+/// an ALREADY-PUBLISHED kind that the session's pending content edits have
+/// made stale. These rows are checkable and FREE (the kind was already
+/// paid for on first publish), and render an "Out of date" badge so the
+/// practitioner can tell them apart from both a locked "Live" row (already
+/// up to date) and a never-published "Available" row (first publish).
+enum _RowState {
+  availableUnchecked,
+  availableChecked,
+  outOfDateUnchecked,
+  outOfDateChecked,
+  live,
+  soon,
+}
 
 class PublishGateSheet extends StatefulWidget {
   /// Currently-published artifact statuses on this plan. Drives which
@@ -153,30 +175,41 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
     return null;
   }
 
-  /// True when this kind is already published AND has pending edits that
-  /// still need re-publishing. Today this is the content-driven workout
-  /// player (`plan_url`) gated by the session-wide
-  /// [PublishGateSheet.hasPendingContentChanges] signal. A published
-  /// `plan_url` with NO pending edits stays a locked "Live" row; a
-  /// published kind that is NOT content-driven (e.g. a handout that's
-  /// already live and unaffected) also stays "Live".
+  /// True when this kind is already published AND the session's pending
+  /// content edits have made it stale — so it can be re-published.
+  ///
+  /// 2026-05-28: widened from "only the workout player" to ANY shippable
+  /// already-published kind. The bug it fixes: a practitioner edits a
+  /// published session, re-publishes only the player, and the handout (built
+  /// from the pre-edit session) is left silently stale AND locked. Now any
+  /// already-published artifact goes "Out of date" when there are pending
+  /// edits and the practitioner can opt in to refresh it (free).
+  ///
+  /// Rules preserved:
+  ///   - never-published kinds return false — they're a FIRST publish, not a
+  ///     RE-publish (their cost is still the tier price);
+  ///   - with NO pending content changes, nothing is re-publishable — every
+  ///     already-published kind stays a locked "Live" row.
   bool _isRepublishable(ArtifactKindSpec spec) {
     if (_existingFor(spec.kind) == null) return false; // never published
-    if (spec.kind != ArtifactKind.planUrl) return false; // only the player
     return widget.hasPendingContentChanges;
   }
 
   _RowState _stateFor(ArtifactKindSpec spec) {
     if (!spec.shippable) return _RowState.soon;
+    final checked = _checked[spec.kind] ?? false;
     if (_existingFor(spec.kind) != null) {
-      // Already-published kind. It stays a locked "Live" row UNLESS it's
-      // the content-driven workout player with pending edits — then it
-      // re-opens as a checkable (and pre-checked) re-publish row so the
-      // practitioner can ship the edits. Re-publishing is free (already
-      // paid) — see `_costFor`.
+      // Already-published kind. It stays a locked "Live" row UNLESS the
+      // session has pending content edits — then it re-opens as a checkable
+      // "Out of date" re-publish row so the practitioner can ship the edits.
+      // Re-publishing is always free (already paid) — see `_costFor`.
       if (!_isRepublishable(spec)) return _RowState.live;
+      return checked
+          ? _RowState.outOfDateChecked
+          : _RowState.outOfDateUnchecked;
     }
-    return (_checked[spec.kind] ?? false)
+    // Never-published kind — first publish path.
+    return checked
         ? _RowState.availableChecked
         : _RowState.availableUnchecked;
   }
@@ -188,12 +221,13 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
     // CREDIT CORRECTNESS (sensitive code): re-publishing an
     // already-published kind NEVER re-charges. An existing
     // `plan_artifacts` row means the kind was already paid for on its
-    // first publish; editing + re-publishing the workout player is free
-    // (mirrors the server-side version-bump free-edit policy — this is
-    // purely the gate's DISPLAYED cost, the server stays the source of
-    // truth). So any kind with an existing published row contributes 0,
-    // even when pre-checked/checked for re-publish. Only a FIRST publish
-    // (no existing row) of a paid kind costs its tier price.
+    // first publish; editing + re-publishing ANY already-published kind
+    // (workout player, handout, future) is free (mirrors the server-side
+    // version-bump free-edit policy — this is purely the gate's DISPLAYED
+    // cost, the server stays the source of truth). So any kind with an
+    // existing published row contributes 0, even when checked for an
+    // "Out of date" re-publish. Only a FIRST publish (no existing row) of
+    // a paid kind costs its tier price.
     if (_existingFor(spec.kind) != null) return 0;
     final state = _stateFor(spec);
     if (state != _RowState.availableChecked) return 0;
@@ -221,7 +255,12 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
   List<String> get _checkedKinds {
     final out = <String>[];
     for (final spec in ArtifactKindRegistry.all) {
-      if (_stateFor(spec) == _RowState.availableChecked) {
+      final state = _stateFor(spec);
+      // Both a checked first-publish row AND a checked "Out of date"
+      // re-publish row contribute to the publish set. (Out-of-date rows
+      // re-publish for free — see `_costFor` — but they still ship.)
+      if (state == _RowState.availableChecked ||
+          state == _RowState.outOfDateChecked) {
         out.add(spec.kind);
       }
     }
@@ -308,7 +347,8 @@ class _PublishGateSheetState extends State<PublishGateSheet> {
                 itemBuilder: (_, i) {
                   final spec = ArtifactKindRegistry.all[i];
                   // A row is tappable when it's shippable AND either has
-                  // never been published, OR is the content-driven player
+                  // never been published (first publish), OR is an
+                  // already-published kind made stale by pending edits and
                   // re-opened for a free re-publish (see `_isRepublishable`).
                   // Locked "Live" rows (already-minted, no pending edits)
                   // stay non-interactive per locked decision #6.
@@ -378,7 +418,12 @@ class _KindRow extends StatelessWidget {
   Color _backgroundColor() {
     switch (state) {
       case _RowState.availableChecked:
+      case _RowState.outOfDateChecked:
         return AppColors.primary.withValues(alpha: 0.12);
+      case _RowState.outOfDateUnchecked:
+        // Stale-but-unchecked: a faint coral wash so it reads as
+        // "needs attention / offered" without the full checked treatment.
+        return AppColors.primary.withValues(alpha: 0.05);
       case _RowState.live:
         return AppColors.rest.withValues(alpha: 0.08);
       case _RowState.soon:
@@ -391,7 +436,10 @@ class _KindRow extends StatelessWidget {
   Color _borderColor() {
     switch (state) {
       case _RowState.availableChecked:
+      case _RowState.outOfDateChecked:
         return AppColors.primary.withValues(alpha: 0.5);
+      case _RowState.outOfDateUnchecked:
+        return AppColors.primary.withValues(alpha: 0.3);
       case _RowState.live:
         return AppColors.rest.withValues(alpha: 0.32);
       case _RowState.soon:
@@ -461,6 +509,19 @@ class _KindRow extends StatelessWidget {
                                 AppColors.rest.withValues(alpha: 0.18),
                             foreground: AppColors.rest,
                           ),
+                        ] else if (state == _RowState.outOfDateUnchecked ||
+                            state == _RowState.outOfDateChecked) ...[
+                          // Already-published kind made stale by pending
+                          // edits. Coral "Out of date" badge so it reads
+                          // distinct from a calm "Live" row and a neutral
+                          // "Available" first-publish row.
+                          const SizedBox(width: 8),
+                          _StatusChip(
+                            label: 'Out of date',
+                            background:
+                                AppColors.primary.withValues(alpha: 0.16),
+                            foreground: AppColors.primary,
+                          ),
                         ],
                       ],
                     ),
@@ -506,6 +567,7 @@ class _CheckGlyph extends StatelessWidget {
     Color iconColor = Colors.white;
     switch (state) {
       case _RowState.availableChecked:
+      case _RowState.outOfDateChecked:
         bg = AppColors.primary;
         border = AppColors.primary;
         icon = Icons.check;
@@ -519,6 +581,13 @@ class _CheckGlyph extends StatelessWidget {
       case _RowState.soon:
         bg = Colors.transparent;
         border = AppColors.surfaceBorder;
+        icon = null;
+        break;
+      case _RowState.outOfDateUnchecked:
+        // Empty checkbox with a coral hint border so it reads as
+        // "actionable / offered" while still clearly unchecked.
+        bg = Colors.transparent;
+        border = AppColors.primary.withValues(alpha: 0.55);
         icon = null;
         break;
       case _RowState.availableUnchecked:
@@ -553,6 +622,8 @@ class _KindGlyph extends StatelessWidget {
     Color color;
     switch (state) {
       case _RowState.availableChecked:
+      case _RowState.outOfDateChecked:
+      case _RowState.outOfDateUnchecked:
         color = AppColors.primary;
         break;
       case _RowState.live:
