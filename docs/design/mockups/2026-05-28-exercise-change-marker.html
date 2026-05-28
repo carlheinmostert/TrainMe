@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Exercise change marker — homefit.studio</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #171A21;
+    --surface-raised: #1F232C;
+    --hairline: rgba(255,255,255,0.08);
+    --coral: #FF6B35;
+    --sage: #86EFAC;
+    --text: #F4F5F7;
+    --text-dim: #8A93A8;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Inter", system-ui, sans-serif;
+    padding: 28px 16px 60px;
+  }
+  .wrap { max-width: 460px; margin: 0 auto; }
+  h1 { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 4px; }
+  .sub { color: var(--text-dim); font-size: 13px; margin: 0 0 22px; }
+  .opt-label {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--coral); margin: 26px 0 10px;
+  }
+  .opt-note { color: var(--text-dim); font-size: 12.5px; line-height: 1.5; margin: 0 0 12px; }
+
+  /* ---- base exercise card (mirrors Studio card chrome) ---- */
+  .card {
+    position: relative;
+    display: flex; align-items: center; gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .thumb {
+    width: 60px; height: 60px; border-radius: 12px; flex-shrink: 0;
+    background: linear-gradient(135deg,#2a2f3a,#3a414f);
+    filter: grayscale(1) contrast(1.05);
+  }
+  .meta { flex: 1; min-width: 0; }
+  .ex-title { font-size: 15px; font-weight: 700; margin: 0 0 3px; }
+  .ex-sub { font-size: 12.5px; color: var(--text-dim); margin: 0; }
+  .pos-glyph {
+    font-size: 30px; font-weight: 800; color: var(--coral);
+    font-variant-numeric: tabular-nums; width: 30px; text-align: center; flex-shrink: 0;
+    opacity: 0.9;
+  }
+
+  /* =====================================================================
+     OPTION A — coral left-edge bar (continuous spine down the card)
+     ===================================================================== */
+  .opt-a.changed::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--coral);
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* =====================================================================
+     OPTION B — coral dot + "Edited" pill on the meta row
+     ===================================================================== */
+  .edited-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-top: 6px;
+    padding: 3px 9px 3px 7px;
+    border-radius: 999px;
+    background: rgba(255,107,53,0.13);
+    border: 1px solid rgba(255,107,53,0.4);
+    color: var(--coral);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .edited-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--coral); }
+
+  /* =====================================================================
+     OPTION C — corner dot only (minimal — coral dot top-right)
+     ===================================================================== */
+  .opt-c.changed::after {
+    content: ""; position: absolute; top: 12px; right: 14px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--coral);
+    box-shadow: 0 0 0 3px rgba(255,107,53,0.18);
+  }
+
+  .legend {
+    margin-top: 34px; padding: 16px; border: 1px solid var(--hairline);
+    border-radius: 12px; background: var(--surface);
+  }
+  .legend h2 { font-size: 13px; margin: 0 0 8px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-dim); }
+  .legend ul { margin: 0; padding-left: 18px; }
+  .legend li { font-size: 13px; line-height: 1.6; margin-bottom: 5px; }
+  .legend code { background: var(--surface-raised); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Exercise change marker</h1>
+  <p class="sub">Surfacing "this exercise has edits not yet published" on Studio exercise cards. Three visual options — same data signal (<code>exercise.lastEditedAt &gt; session.sentAt</code>).</p>
+
+  <!-- ============ OPTION A ============ -->
+  <div class="opt-label">Option A — coral left-edge spine</div>
+  <p class="opt-note">A 4px coral bar runs the full left edge of any card with unpublished edits. Reads as "this row is dirty" at a glance; scales to a list (you see a column of coral spines for everything you've touched). Doesn't steal content space.</p>
+  <div class="card opt-a changed">
+    <div class="pos-glyph">1</div>
+    <div class="thumb"></div>
+    <div class="meta"><p class="ex-title">Goblet squat</p><p class="ex-sub">3 sets · 10 reps · video</p></div>
+  </div>
+  <div class="card opt-a">
+    <div class="pos-glyph">2</div>
+    <div class="thumb"></div>
+    <div class="meta"><p class="ex-title">Glute bridge</p><p class="ex-sub">3 sets · 12 reps · video</p></div>
+  </div>
+
+  <!-- ============ OPTION B ============ -->
+  <div class="opt-label">Option B — "Edited" pill</div>
+  <p class="opt-note">An explicit coral "Edited" pill under the exercise sub-line. Most legible / least ambiguous — literally says what it means. Costs vertical space and a little visual noise when many cards are dirty.</p>
+  <div class="card opt-b">
+    <div class="pos-glyph">1</div>
+    <div class="thumb"></div>
+    <div class="meta">
+      <p class="ex-title">Goblet squat</p>
+      <p class="ex-sub">3 sets · 10 reps · video</p>
+      <span class="edited-pill"><span class="dot"></span>Edited · not published</span>
+    </div>
+  </div>
+  <div class="card opt-b">
+    <div class="pos-glyph">2</div>
+    <div class="thumb"></div>
+    <div class="meta"><p class="ex-title">Glute bridge</p><p class="ex-sub">3 sets · 12 reps · video</p></div>
+  </div>
+
+  <!-- ============ OPTION C ============ -->
+  <div class="opt-label">Option C — corner dot</div>
+  <p class="opt-note">A single coral dot (with soft halo) top-right of the card. Minimal, iOS-notification-badge vocabulary. Subtlest — easy to miss in a long list, but uncluttered.</p>
+  <div class="card opt-c changed">
+    <div class="pos-glyph">1</div>
+    <div class="thumb"></div>
+    <div class="meta"><p class="ex-title">Goblet squat</p><p class="ex-sub">3 sets · 10 reps · video</p></div>
+  </div>
+  <div class="card opt-c">
+    <div class="pos-glyph">2</div>
+    <div class="thumb"></div>
+    <div class="meta"><p class="ex-title">Glute bridge</p><p class="ex-sub">3 sets · 12 reps · video</p></div>
+  </div>
+
+  <div class="legend">
+    <h2>Behaviour (all options)</h2>
+    <ul>
+      <li>Marker shows when <code>exercise.lastEditedAt</code> is after the session's last publish (<code>sentAt</code>).</li>
+      <li>All markers CLEAR the moment the session is published (publish stamps a new <code>sentAt</code>; every exercise's edit time is now older).</li>
+      <li>A never-published session: no markers (nothing to compare against — the whole session is "new", surfaced by the Publish CTA, not per-card).</li>
+      <li>Newly-added exercises on an already-published session DO get the marker (their <code>lastEditedAt</code> &gt; <code>sentAt</code>).</li>
+      <li>Open question: does <strong>reorder</strong> (position change) count as an edit for the marker? Proposed: NO — position changes are structural/session-level, not per-exercise content. Marker = content edits only (reps/sets/hold/notes/trim/treatment/body-focus).</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>
