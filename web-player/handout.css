@@ -52,6 +52,26 @@
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 
+/* =====================  Global `hidden` attribute reset  ====================
+   The `.handout-loading`, `.handout-page`, and `.handout-error` containers
+   are all toggled in JS via the global `hidden` HTML attribute
+   (handout.js: `$loading.hidden = true`, `$page.hidden = false`, etc.).
+   But each of those classes sets an explicit `display: flex`, and an
+   author `display` rule ALWAYS beats the user-agent stylesheet's
+   `[hidden] { display: none }` (author origin > UA origin, regardless of
+   selector specificity). The net effect: `hidden = true` had NO visual
+   effect — the loading overlay (position: fixed; inset: 0; z-index: 100)
+   stayed painted on top of the fully-rendered page forever, so the page
+   was stuck on "Loading your plan…" even though loadHandout + render had
+   already completed successfully.
+
+   This single rule restores the intended semantics of the `hidden`
+   attribute so the JS toggles take effect. `!important` is required to
+   win over the per-class `display: flex` declarations below. The
+   @media print block already uses the same `!important` pattern for the
+   same reason. */
+[hidden] { display: none !important; }
+
 /* =====================  Brand-skin override (Wave 4 — ADR-0029)  ============
    When handout.js detects an active subscription via
    payload.plan.brand_skin_active === true AND a brand_color is set on
