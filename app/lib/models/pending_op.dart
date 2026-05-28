@@ -130,7 +130,19 @@ class PendingOp {
     } catch (_) {
       payload = <String, dynamic>{};
     }
-    final type = _opTypeFromWire(row['op_type'] as String? ?? '');
+    final wireType = row['op_type'] as String? ?? '';
+    final type = _opTypeFromWire(wireType);
+    if (type == null) {
+      // Unknown op_type — this can happen when a newer client version
+      // writes an op type that this build doesn't know how to drain.
+      // Log loudly so it shows up in debug logs and diagnostics, but
+      // don't crash — stamp the lastError field so the drain layer can
+      // surface it without dispatching the wrong RPC.
+      assert(false, 'PendingOp.fromMap: unknown op_type "$wireType"');
+      if (kDebugMode) {
+        debugPrint('[PendingOp.fromMap] Unknown op_type "$wireType" — id: ${row['id']}');
+      }
+    }
     return PendingOp(
       id: row['id'] as String,
       type: type ?? PendingOpType.upsertClient,
@@ -138,7 +150,9 @@ class PendingOp {
       createdAt: row['created_at'] as int,
       attempts: row['attempts'] as int? ?? 0,
       lastAttemptAt: row['last_attempt_at'] as int?,
-      lastError: row['last_error'] as String?,
+      lastError: type == null
+          ? 'unknown_op_type:$wireType'
+          : row['last_error'] as String?,
     );
   }
 

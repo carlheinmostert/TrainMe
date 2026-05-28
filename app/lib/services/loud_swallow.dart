@@ -83,6 +83,7 @@ Future<T?> loudSwallow<T>(
   try {
     return await body();
   } catch (e, st) {
+    final enrichedMeta = _enrichMeta(meta: meta, st: st, e: e);
     // Fire-and-forget the server-side log. NEVER await it — the caller
     // must see its result (or rethrow) on the original timeline.
     unawaited(_postErrorLog(
@@ -90,11 +91,7 @@ Future<T?> loudSwallow<T>(
       kind: kind,
       source: source,
       message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
+      meta: enrichedMeta,
     ));
     // Always leave a local breadcrumb. Release-build safe (unlike debugPrint).
     unawaited(_appendLocalLog(
@@ -131,16 +128,13 @@ void loudSwallowSync(
   try {
     body();
   } catch (e, st) {
+    final enrichedMeta = _enrichMeta(meta: meta, st: st, e: e);
     unawaited(_postErrorLog(
       severity: severity,
       kind: kind,
       source: source,
       message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
+      meta: enrichedMeta,
     ));
     unawaited(_appendLocalLog(
       severity: severity,
@@ -170,6 +164,22 @@ String _stackTop(StackTrace st) {
   return lines.take(3).join('\n');
 }
 
+/// Merges caller-supplied [meta] with the standard diagnostic fields
+/// (`stack_top`, `error_type`) derived from the caught exception. Extracted
+/// to eliminate the identical inline spread that appeared in both
+/// [loudSwallow] and [loudSwallowSync].
+Map<String, Object?> _enrichMeta({
+  required Map<String, Object?>? meta,
+  required StackTrace st,
+  required Object e,
+}) {
+  return <String, Object?>{
+    ...?meta,
+    'stack_top': _stackTop(st),
+    'error_type': e.runtimeType.toString(),
+  };
+}
+
 /// Post to the `log_error` SECURITY DEFINER RPC (Milestone Q). Fire-and-
 /// forget: the caller has already been serviced; a failure here is its
 /// own swallow site (one level deep — we don't want an infinite loop of
@@ -195,18 +205,20 @@ Future<void> _postErrorLog({
     final metaPracticeId = meta?['practice_id'];
     final practiceIdArg = metaPracticeId is String ? metaPracticeId : null;
 
-    await client.rpc(
-      'log_error',
-      params: <String, dynamic>{
-        'p_severity': severity,
-        'p_kind': kind,
-        'p_source': source,
-        'p_message': _truncate(message, 2000),
-        'p_meta': meta == null ? null : _safeJson(meta),
-        'p_practice_id': practiceIdArg,
-        'p_sha': AppConfig.buildSha,
-      },
-    );
+    await client
+        .rpc(
+          'log_error',
+          params: <String, dynamic>{
+            'p_severity': severity,
+            'p_kind': kind,
+            'p_source': source,
+            'p_message': _truncate(message, 2000),
+            'p_meta': meta == null ? null : _safeJson(meta),
+            'p_practice_id': practiceIdArg,
+            'p_sha': AppConfig.buildSha,
+          },
+        )
+        .timeout(const Duration(seconds: 5));
   } catch (e) {
     // We deliberately do NOT recurse into loudSwallow here — that would
     // be a log-of-a-log-of-a-log infinite loop on persistent RPC failure.
