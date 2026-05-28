@@ -2,26 +2,31 @@
  * handout.js — Printable Workout Guide at /h/{planId}
  * =====================================================================
  *
- * Artifact-system Wave 1 (ADR 0025), aligned with the Interactive
- * Workout Guide lobby (artifact-consistency wave, 2026-05-28). Renders
- * the live plan from the same `get_plan_full` anon RPC the player uses.
+ * A near-twin of the Interactive Workout Guide lobby (/p/{planId}).
+ * Artifact-consistency pass 2 (2026-05-28): the printable now shares the
+ * lobby's exercise CARD renderer + interactivity engine (exercise_card.js)
+ * and the standard footer seal, so the two surfaces look nearly identical
+ * on the first page. The ONLY intended first-page differences are the
+ * Print button (here) vs the Start Workout button (lobby).
  *
- * Key alignment decisions (this surface MUST match the lobby, not
- * redefine it):
- *   - No view/treatment toggle. Each exercise renders STATICALLY in its
- *     own `preferred_treatment` via the mandated hero resolver
- *     (HomefitHero.resolve + HomefitHeroResolver), exactly like the
- *     lobby. Consent revocation falls DOWN to line silently (resolver).
- *   - Dose grammar is the SHARED dose module (HomefitDose) — no parallel
- *     rep/hold logic that could drift from the lobby.
- *   - Circuit grouping mirrors the lobby (plan.circuit_names + letter
- *     fallback).
- *   - The byline practitioner name comes from get_plan_sharing_context
- *     (api.getPlanSharingContext), the same source the lobby uses — NOT
- *     the non-existent plan.trainer_display_name / plan.trainer_name.
- *   - Footer = the standard "powered by homefit.studio" seal + a REAL
- *     QR (rendered locally via HomefitQR, CSP-clean) to the practice
- *     referral link.
+ * Key alignment decisions (this surface MUST match the lobby, not redefine):
+ *   - Card = HomefitExerciseCard.buildListHTML — the lobby's large 1:1
+ *     hero card, circuit grouping (plan.circuit_names + letter fallback),
+ *     shared dose grammar. No parallel rep/hold logic.
+ *   - INTERACTIVE on screen — HomefitExerciseCard.createInteractivity drives
+ *     the active-card highlight + active-row img→video swap as you scroll.
+ *     @media print (handout.css) flattens everything to a static document.
+ *     The printable does NOT get the guided-workout flow (no Start Workout,
+ *     pill matrix, prep countdown, timers, rep stack) — that stays the
+ *     Interactive Guide's distinguishing feature. The printable is a
+ *     browseable interactive REFERENCE that also prints.
+ *   - Get-the-app block = the lobby's PLAIN dark card + canonical glyph,
+ *     at the TOP, rendered ONLY on the public web (!isLocalSurface()).
+ *   - Footer = the standard "powered by homefit.studio" seal + matrix glyph
+ *     + real referral QR (local, CSP-clean) + "Visual plans clients follow."
+ *     tagline. NO version line in the seal.
+ *   - Byline practitioner name from get_plan_sharing_context (the same
+ *     source the lobby uses) with "your practitioner" fallback.
  *
  * Print button is window.print(). Claim chip routes to /me?claim={planId}.
  *
@@ -36,6 +41,7 @@
 
   const LOAD_WATCHDOG_MS = 15000;
   let _loadComplete = false;
+  let _interactivity = null;
   const _watchdog = setTimeout(() => {
     if (_loadComplete) return;
     _loadComplete = true;
@@ -93,6 +99,16 @@
     return match[1];
   }
 
+  function isLocalSurface() {
+    // Delegate to api.js's canonical detector (embedded in-app WebView vs
+    // the public web). Defensive default: treat unknown as public web so
+    // the get-app block shows rather than silently hiding.
+    if (window.HomefitApi && typeof window.HomefitApi.isLocalSurface === 'function') {
+      try { return !!window.HomefitApi.isLocalSurface(); } catch (_) { return false; }
+    }
+    return false;
+  }
+
   async function loadHandout(id) {
     if (!window.HomefitApi || typeof window.HomefitApi.getPlanFull !== 'function') {
       throw new Error('HomefitApi not loaded');
@@ -107,6 +123,12 @@
     state.exercises = Array.isArray(payload.exercises) ? payload.exercises : [];
     state.artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
 
+    // 2026-05-17 — append `?v=<plan.version>` to per-exercise thumb URLs so
+    // each republish forces a fresh fetch through every cache layer. Mirrors
+    // lobby.js showLobby's cache-buster so the two surfaces fetch the same
+    // bytes.
+    bustThumbCaches(state.plan, state.exercises);
+
     // Brand-skin (Wave 4, ADR-0029). Unchanged from the prior handout.
     applySkin(state.plan);
 
@@ -119,6 +141,22 @@
     try { recordHandoutOpened(id); } catch (_) { /* best-effort */ }
 
     render();
+  }
+
+  function bustThumbCaches(plan, exercises) {
+    if (!plan || plan.version == null || !Array.isArray(exercises)) return;
+    const v = String(plan.version);
+    const thumbKeys = ['thumbnail_url', 'thumbnail_url_line', 'thumbnail_url_color', 'thumbnail_url_bw'];
+    for (let i = 0; i < exercises.length; i++) {
+      const ex = exercises[i];
+      if (!ex) continue;
+      for (let j = 0; j < thumbKeys.length; j++) {
+        const k = thumbKeys[j];
+        const u = ex[k];
+        if (typeof u !== 'string' || !u || u.indexOf('?v=') !== -1) continue;
+        ex[k] = u + (u.indexOf('?') === -1 ? '?v=' : '&v=') + v;
+      }
+    }
   }
 
   async function fetchPractitionerName(id) {
@@ -260,10 +298,10 @@
 
     try { renderHeader(); }
       catch (e) { try { console.warn('[handout] renderHeader failed:', e); } catch(_){} }
-    try { renderExerciseList(); }
-      catch (e) { try { console.warn('[handout] renderExerciseList failed:', e); } catch(_){} }
     try { renderImportBlock(); }
       catch (e) { try { console.warn('[handout] renderImportBlock failed:', e); } catch(_){} }
+    try { renderExerciseList(); }
+      catch (e) { try { console.warn('[handout] renderExerciseList failed:', e); } catch(_){} }
     try { renderSeal(); }
       catch (e) { try { console.warn('[handout] renderSeal failed:', e); } catch(_){} }
     try { bindEvents(); }
@@ -271,6 +309,12 @@
 
     $loading.hidden = true;
     $page.hidden = false;
+
+    // Wire scroll-driven interactivity AFTER first paint so measured offsets
+    // are accurate. The printable scrolls the document/body (no fixed inner
+    // scroller), so the shared engine listens on window scroll.
+    try { setupInteractivity(); }
+      catch (e) { try { console.warn('[handout] setupInteractivity failed:', e); } catch(_){} }
 
     try {
       const title = (state.plan && state.plan.title) || 'Your Printable Workout Guide';
@@ -297,282 +341,94 @@
 
   // ===========================  Exercise list  ===========================
   //
-  // Circuit grouping + letter fallback mirror the lobby's renderList
-  // (lobby.js:527-901). Each exercise renders statically in its own
-  // preferred_treatment via the hero resolver.
+  // Uses the shared card renderer (HomefitExerciseCard) so the markup is
+  // byte-identical to the lobby. Circuit grouping + dose grammar + hero
+  // resolution all flow through the shared module.
 
   function renderExerciseList() {
     const $list = document.getElementById('handout-list');
     if (!$list) return;
-    $list.innerHTML = '';
+    if (!window.HomefitExerciseCard || !window.HomefitExerciseCard.buildListHTML) {
+      // Defensive — exercise_card.js failed to load. Render nothing rather
+      // than a broken half-list; the watchdog + error state cover the
+      // truly-failed case, but a missing optional module shouldn't blank
+      // the whole page.
+      try { console.warn('[handout] HomefitExerciseCard missing — list not rendered.'); } catch (_) {}
+      return;
+    }
 
-    const slides = state.exercises;
+    // Pass the shared whole-exercise duration estimator (HomefitDose) so the
+    // dose line carries the SAME trailing `~Xs` segment the Interactive lobby
+    // shows — the two dose lines read identically.
+    const helpers = {};
+    if (window.HomefitDose && typeof window.HomefitDose.calculateDuration === 'function') {
+      helpers.calculateDuration = window.HomefitDose.calculateDuration;
+    }
+    $list.innerHTML = window.HomefitExerciseCard.buildListHTML(
+      state.exercises,
+      state.plan,
+      helpers
+    );
 
-    // Circuit letter map (mirror Studio's _circuitLetter + lobby).
-    const circuitLetters = (() => {
-      const map = {};
-      let nextIdx = 0;
-      for (let i = 0; i < slides.length; i++) {
-        const s = slides[i];
-        if (!s || !s.circuit_id) continue;
-        if (Object.prototype.hasOwnProperty.call(map, s.circuit_id)) continue;
-        map[s.circuit_id] = String.fromCharCode('A'.charCodeAt(0) + (nextIdx % 26));
-        nextIdx += 1;
-      }
-      return map;
-    })();
-
-    let currentCircuit = null;
-    let circuitGroup = null;
-    let exercisePosition = 0;
-
-    slides.forEach((ex, idx) => {
-      if (!ex) return;
-      const circuitId = ex.circuit_id || null;
-      const isRest = ex.media_type === 'rest';
-
-      // Close the open circuit group when the circuit changes.
-      if (circuitId !== currentCircuit) {
-        currentCircuit = circuitId;
-        circuitGroup = null;
-        if (circuitId) {
-          const cycles = circuitCyclesForId(state.plan, circuitId) || 1;
-          // Circuit display name — custom (plan.circuit_names) then the
-          // letter fallback, matching the lobby.
-          const customName = (ex.circuitName && String(ex.circuitName).trim())
-            || (state.plan
-              && state.plan.circuit_names
-              && state.plan.circuit_names[circuitId]
-              && String(state.plan.circuit_names[circuitId]).trim())
-            || '';
-          const letter = circuitLetters[circuitId] || 'A';
-          const circuitName = customName || ('Circuit ' + letter);
-
-          const $h = document.createElement('div');
-          $h.className = 'handout-circuit-h';
-          $h.innerHTML =
-            '<span>' + escapeHtml(circuitName) + ' · ×' + escapeHtml(String(cycles))
-            + '</span><span class="line"></span>';
-          $list.appendChild($h);
-
-          circuitGroup = document.createElement('div');
-          circuitGroup.className = 'handout-circuit-group';
-          $list.appendChild(circuitGroup);
-        }
-      }
-
-      let $node;
-      if (isRest) {
-        $node = buildRestNode(ex);
-      } else {
-        exercisePosition += 1;
-        $node = buildExerciseNode(ex, exercisePosition);
-      }
-      (circuitGroup || $list).appendChild($node);
-    });
-
-    // Hydrate hero crops to 1:1 (same path the lobby uses).
-    hydrateHeroCrops();
+    // Bake 1:1 hero crops (same path the lobby uses).
+    window.HomefitExerciseCard.hydrateHeroCrops($list);
   }
 
-  function circuitCyclesForId(plan, circuitId) {
-    if (!plan || !plan.circuit_cycles || !circuitId) return 1;
-    let map = plan.circuit_cycles;
-    if (typeof map === 'string') {
-      try { map = JSON.parse(map); } catch (_) { return 1; }
-    }
-    if (typeof map !== 'object') return 1;
-    const n = Number(map[circuitId]);
-    return Number.isFinite(n) && n > 0 ? n : 1;
-  }
-
-  function buildExerciseNode(ex, position) {
-    const $wrap = document.createElement('div');
-    $wrap.className = 'handout-ex';
-
-    // Hero — via the mandated resolver. Static <img> only (never a
-    // <video>; the printable guide is a still document). The resolver
-    // derives the treatment from ex.preferred_treatment internally and
-    // falls down to line when consent revoked a variant.
-    const $thumb = document.createElement('div');
-    $thumb.className = 'handout-ex-thumb';
-
-    const heroImg = buildHeroImg(ex);
-    if (heroImg.$img) {
-      $thumb.appendChild(heroImg.$img);
-      if (heroImg.isBw) $thumb.classList.add('is-bw');
-    } else {
-      const $fig = document.createElement('span');
-      $fig.className = 'handout-ex-fig';
-      $fig.setAttribute('aria-hidden', 'true');
-      $fig.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M8 11l4-2 4 2M9 13l-1.5 6M15 13l1.5 6"/></svg>';
-      $thumb.appendChild($fig);
-    }
-
-    const $num = document.createElement('span');
-    $num.className = 'handout-ex-num';
-    $num.textContent = String(position);
-    $thumb.appendChild($num);
-
-    const $body = document.createElement('div');
-    $body.className = 'handout-ex-body';
-
-    const $name = document.createElement('div');
-    $name.className = 'handout-ex-name';
-    // Default-name fallback — mirror the lobby (Studio doesn't persist a
-    // default name; synthesize "Exercise N").
-    const rawName = (ex.name || '').trim();
-    $name.textContent = rawName || ('Exercise ' + position);
-    $body.appendChild($name);
-
-    // Dose line — shared dose module (HomefitDose) so rep/hold/weight
-    // grammar is byte-identical to the lobby. No `~Xs` duration segment
-    // (no per-rep video timing context on the static handout).
-    const dose = buildDose(ex);
-    if (dose) {
-      const $dose = document.createElement('div');
-      $dose.className = 'handout-ex-dose';
-      $dose.textContent = dose;
-      $body.appendChild($dose);
-    }
-
-    if (ex.notes && ex.notes.trim().length > 0) {
-      const $note = document.createElement('div');
-      $note.className = 'handout-ex-note';
-      $note.textContent = ex.notes.trim();
-      $body.appendChild($note);
-    }
-
-    $wrap.appendChild($thumb);
-    $wrap.appendChild($body);
-    return $wrap;
-  }
-
-  function buildDose(ex) {
-    if (window.HomefitDose && window.HomefitDose.buildDoseLine) {
-      // No calculateDuration on the handout — omit the trailing ~Xs.
-      return window.HomefitDose.buildDoseLine(ex, {});
-    }
-    return '';
-  }
-
-  /**
-   * Build the static hero <img> for an exercise via the mandated
-   * resolver chain (HomefitHero.resolve → HomefitHeroResolver crop).
-   * Returns { $img, isBw }. The img carries data-hero-* attributes so
-   * hydrateHeroCrops can re-crop it to a 1:1 data URL post-mount, exactly
-   * like the lobby. NEVER renders a <video> (mp4-in-img trap + the
-   * printable guide is a still). Returns { $img: null } when no treatment
-   * is available so the caller renders the figure placeholder.
-   */
-  function buildHeroImg(ex) {
-    if (!window.HomefitHero || !window.HomefitHero.resolve) {
-      return { $img: null, isBw: false };
-    }
-    const hero = window.HomefitHero.resolve(ex, { surface: 'handout' });
-    if (hero.mediaTag === 'skeleton' || hero.mediaTag === 'unavailable') {
-      return { $img: null, isBw: false };
-    }
-    // For videos the resolver returns posterSrc as `src` on non-deck
-    // surfaces; for photos it's the JPG. Either way it's a still image.
-    const src = hero.src || hero.posterSrc || null;
-    if (!src) return { $img: null, isBw: false };
-
-    const $img = document.createElement('img');
-    $img.alt = '';
-    $img.loading = 'lazy';
-    $img.src = src;
-    $img.setAttribute('data-treatment', hero.treatment || 'line');
-    $img.setAttribute('data-hero-id', String(ex.id || ''));
-    $img.setAttribute('data-hero-offset', String(pickHeroOffset(ex)));
-    $img.setAttribute('data-hero-source', src);
-    const isBw = (hero.domClass || '').indexOf('is-grayscale') !== -1;
-    if (isBw) $img.classList.add('is-grayscale');
-    return { $img: $img, isBw: isBw };
-  }
-
-  function pickHeroOffset(ex) {
-    if (!ex || ex.hero_crop_offset == null) return 0.5;
-    const n = Number(ex.hero_crop_offset);
-    if (!Number.isFinite(n)) return 0.5;
-    return Math.max(0, Math.min(1, n));
-  }
-
-  /**
-   * Re-crop every freshly-rendered hero <img> to a 1:1 data URL via
-   * HomefitHeroResolver — the SAME single-source crop path the lobby
-   * uses (lobby.js hydrateHeroCrops). Satisfies the hero-resolver rule
-   * (docs/HERO_RESOLVER.md): no inline crop math, no object-fit:cover.
-   */
-  function hydrateHeroCrops() {
+  function setupInteractivity() {
     const $list = document.getElementById('handout-list');
     if (!$list) return;
-    if (!window.HomefitHeroResolver || !window.HomefitHeroResolver.getHeroSquareImage) {
-      return; // degraded but layout intact (overflow:hidden clips the slot)
+    if (!window.HomefitExerciseCard || !window.HomefitExerciseCard.createInteractivity) return;
+    if (_interactivity) {
+      try { _interactivity.destroy(); } catch (_) {}
+      _interactivity = null;
     }
-    const heros = $list.querySelectorAll('img[data-hero-source]');
-    heros.forEach((img) => {
-      const source = img.dataset.heroSource || '';
-      if (!source || source.startsWith('data:')) return;
-      const id = img.dataset.heroId || '';
-      const treatment = img.dataset.treatment || '';
-      const offset = Number(img.dataset.heroOffset);
-      window.HomefitHeroResolver.getHeroSquareImage({
-        exerciseId: id,
-        treatment: treatment,
-        sourceUrl: source,
-        heroCropOffset: Number.isFinite(offset) ? offset : 0.5,
-        targetSize: 200,
-      }).then((dataUrl) => {
-        if (!dataUrl || !img.isConnected) return;
-        img.src = dataUrl;
-        img.dataset.heroSource = dataUrl;
-      });
+    _interactivity = window.HomefitExerciseCard.createInteractivity({
+      list: $list,
+      scroller: document.scrollingElement || document.documentElement,
     });
-  }
-
-  function buildRestNode(ex) {
-    const $wrap = document.createElement('div');
-    $wrap.className = 'handout-rest';
-
-    const $dot = document.createElement('span');
-    $dot.className = 'handout-rest-dot';
-    $wrap.appendChild($dot);
-
-    const $label = document.createElement('span');
-    $label.className = 'handout-rest-label';
-    $label.textContent = 'Rest';
-    $wrap.appendChild($label);
-
-    const seconds = Number(ex && ex.rest_seconds) || 0;
-    if (seconds > 0) {
-      const $dur = document.createElement('span');
-      $dur.className = 'handout-rest-duration';
-      $dur.textContent = formatDuration(seconds);
-      $wrap.appendChild($dur);
-    }
-    return $wrap;
+    // Light the first card so the active-card highlight is present before the
+    // first scroll (mirrors the lobby's activateInitialRow). Activate
+    // immediately, then once more on the next frame in case layout shifts as
+    // hero crops / fonts settle. Don't rely on rAF alone — in a backgrounded
+    // / non-painting context (some headless surfaces) rAF can be starved, so
+    // the synchronous call is the guarantee and the rAF is the refinement.
+    const ctrl = _interactivity;
+    try { ctrl.activateInitialRow(); } catch (_) {}
+    requestAnimationFrame(() => {
+      try { ctrl.activateInitialRow(); } catch (_) {}
+    });
   }
 
   // ===========================  Get-the-app block  =======================
   //
-  // Standardised with the lobby's #lobby-import-card (task 7): canonical
-  // buildHomefitLogoSvg() glyph + the "Save this plan to your phone"
-  // magic-link framing. The handout keeps its tappable claim chip →
-  // /me?claim={planId}. The header claim chip markup already carries the
-  // copy; here we inject the canonical logo glyph into the chip's glyph
-  // slot so the brand mark matches the lobby. The lobby card is NOT a
-  // logo in the chip — it sits below the list — but the canonical glyph
-  // is the shared element. We render the canonical glyph in the claim
-  // chip's leading slot.
+  // Standardised with the lobby's #lobby-import-card (task 3): the canonical
+  // buildHomefitLogoSvg() glyph in a PLAIN dark card, at the TOP, the same
+  // "Save this plan to your phone" framing, the same /me?claim={planId}
+  // destination. Rendered ONLY on the public web — in the embedded in-app
+  // WebView the device is already linked, so the block stays hidden.
 
   function renderImportBlock() {
-    const $glyph = document.getElementById('handout-claim-glyph');
-    if (!$glyph) return;
-    const buildLogo = resolveBuildLogo();
-    if (buildLogo) {
-      $glyph.innerHTML = buildLogo();
+    const $card = document.getElementById('handout-import-card');
+    if (!$card) return;
+
+    // Surface gating — hide entirely inside the embedded in-app WebView.
+    if (isLocalSurface()) {
+      $card.hidden = true;
+      return;
     }
+
+    // Stamp the claim target so /me attaches THIS plan on sign-in.
+    if (state.plan && state.plan.id) {
+      $card.setAttribute('href', '/me?claim=' + encodeURIComponent(state.plan.id));
+    }
+
+    const $glyph = document.getElementById('handout-import-glyph');
+    if ($glyph && !$glyph.innerHTML) {
+      const buildLogo = resolveBuildLogo();
+      if (buildLogo) $glyph.innerHTML = buildLogo();
+    }
+
+    $card.hidden = false;
   }
 
   function resolveBuildLogo() {
@@ -584,27 +440,23 @@
   }
 
   // ===========================  Footer seal + QR  ========================
+  //
+  // The standard seal — ONE seal on both surfaces. "powered by
+  // homefit.studio" + matrix glyph + real referral QR + "Visual plans
+  // clients follow." tagline. No version line (the plan version shows on
+  // the artefact cards / build chip). Coral via --seal-coral (never
+  // re-skinned).
 
   function renderSeal() {
-    renderSealVersion();
+    renderSealLogo();
     renderSealQr();
   }
 
-  function renderSealVersion() {
-    const $v = document.getElementById('handout-seal-version');
-    if (!$v) return;
-    const version = state.plan && state.plan.version ? state.plan.version : 1;
-    const handoutArtifact = (state.artifacts || []).find((a) => a && a.kind === 'handout');
-    const planUrlArtifact = (state.artifacts || []).find((a) => a && a.kind === 'plan_url');
-    const stampSource =
-      (handoutArtifact && handoutArtifact.published_at)
-      || (planUrlArtifact && planUrlArtifact.published_at)
-      || (state.plan && state.plan.last_published_at)
-      || null;
-    const stamp = stampSource ? formatVersionStamp(new Date(stampSource)) : 'unstamped';
-    // "Published · v{N} · {stamp}" — aligns the version framing with the
-    // /me artifact card pill ("Published · v{N}").
-    $v.textContent = 'Published · v' + version + ' · ' + stamp;
+  function renderSealLogo() {
+    const $logo = document.getElementById('handout-seal-logo');
+    if (!$logo || $logo.innerHTML) return;
+    const buildLogo = resolveBuildLogo();
+    if (buildLogo) $logo.innerHTML = buildLogo();
   }
 
   /**
@@ -618,7 +470,6 @@
     if (!$qr) return;
     const code = state.plan && (state.plan.referral_code || '').toString().trim();
     if (!code) {
-      // No referral code — hide the QR slot gracefully.
       $qr.hidden = true;
       return;
     }
@@ -639,25 +490,6 @@
     }
   }
 
-  function formatVersionStamp(date) {
-    if (!(date instanceof Date) || isNaN(date.getTime())) return 'unstamped';
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const d = date.getDate();
-    const m = months[date.getMonth()];
-    const y = date.getFullYear();
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    return d + ' ' + m + ' ' + y + ' ' + hh + ':' + mm;
-  }
-
-  function formatDuration(seconds) {
-    const s = Math.max(0, Math.round(seconds));
-    if (s < 60) return s + 's';
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return r === 0 ? (m + 'm') : (m + 'm ' + r + 's');
-  }
-
   // ===========================  Events  ==================================
 
   function bindEvents() {
@@ -668,24 +500,29 @@
       });
     }
 
-    const $claim = document.getElementById('handout-claim');
-    if ($claim) {
-      $claim.addEventListener('click', (event) => {
-        if (event.target && event.target.closest('.handout-claim-x')) return;
-        try {
-          window.location.assign('/me?claim=' + encodeURIComponent(planId));
-        } catch (_) {
-          try { console.info('[handout] claim chip clicked — /me unreachable (plan_id=' + planId + ')'); } catch (_) {}
-        }
+    // Notes expand/collapse — same affordance as the lobby's
+    // [data-notes-toggle] buttons.
+    const $list = document.getElementById('handout-list');
+    if ($list) {
+      $list.addEventListener('click', (evt) => {
+        const toggle = evt.target.closest('[data-notes-toggle]');
+        if (!toggle) return;
+        const expanded = toggle.classList.toggle('is-expanded');
+        toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       });
     }
 
-    const $claimX = document.getElementById('handout-claim-x');
-    if ($claimX) {
-      $claimX.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const $c = document.getElementById('handout-claim');
-        if ($c) $c.hidden = true;
+    const $import = document.getElementById('handout-import-card');
+    if ($import) {
+      $import.addEventListener('click', (event) => {
+        // The anchor already carries the href; this is belt-and-braces so a
+        // non-anchor variant still routes. Let the native anchor navigation
+        // run; only intercept if the href is the bare /me default.
+        if ($import.getAttribute('href') !== '/me') return;
+        event.preventDefault();
+        try {
+          window.location.assign('/me?claim=' + encodeURIComponent(planId));
+        } catch (_) {}
       });
     }
   }

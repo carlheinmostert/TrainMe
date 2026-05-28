@@ -53,18 +53,16 @@
   <main id="handout-page" class="handout-page" hidden>
 
     <!-- Header — practitioner brand + plan title + practitioner byline + print button.
-         Wave 1 ships the default homefit lockup. Wave 4 (ADR-0029) adds the
-         brand-skin override: when payload.plan.brand_skin_active is true AND
-         the practice has set a brand_color, handout.js adds `.skin-active` on
-         <body> + populates `.handout-brand-skin` with the practitioner lockup;
-         CSS swaps which one is visible. The footer seal stays coral. -->
+         The brand-skin override (ADR-0029): when payload.plan.brand_skin_active
+         is true AND the practice has set a brand_color, handout.js adds
+         `.skin-active` on <body> + populates `.handout-brand-skin` with the
+         practitioner lockup; CSS swaps which one is visible. The footer seal
+         stays coral. -->
     <header class="handout-header">
       <div class="handout-brand">
         <!-- Default homefit.studio lockup. The `.studio` part is COLOURED CORAL
-             per locked decision #28 in the artifact-system design doc — both
-             the dot AND the word. Memory ref: feedback_homefit_studio_wordmark.md.
-             The seal at the footer also renders coral on this same convention.
-             Hidden when .skin-active is present on <body>. -->
+             per locked decision #28 — both the dot AND the word. Hidden when
+             .skin-active is present on <body>. -->
         <div class="brand-default" aria-label="homefit.studio">
           <span class="brand-name">homefit</span><!--
           --><span class="brand-dot dotsuf">.</span><!--
@@ -91,66 +89,58 @@
       </button>
     </header>
 
-    <!-- Claim chip — soft, dismissible, escalating-but-never-modal per
-         R-01 + ADR 0024 (locked decisions #11 + #12). VISIBLE in Wave 1 to
-         seed the funnel; the click handler is a TODO until the Wave 2
-         magic-link claim flow lands. The chip is hidden in print via
-         @media print + body.is-printing. -->
-    <aside class="handout-claim" id="handout-claim">
-      <!-- Canonical homefit logo glyph injected by handout.js
-           (renderImportBlock → buildHomefitLogoSvg) so the get-app block
-           matches the lobby's #lobby-import-card. The inline save-to-phone
-           SVG below is a no-JS fallback. -->
-      <span class="handout-claim-glyph" id="handout-claim-glyph" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
-          <path d="M12 11v6M9 14l3 3 3-3" />
-        </svg>
-      </span>
-      <div class="handout-claim-text">
-        <div class="handout-claim-title">Save this plan to your phone</div>
-        <div class="handout-claim-sub">One tap · magic-link sign-in · all your plans in one place</div>
+    <!-- Get-the-app block — standardised with the lobby's #lobby-import-card
+         (artifact-consistency pass 2, 2026-05-28). PLAIN dark card + the
+         canonical homefit logo glyph (buildHomefitLogoSvg). It sits at the
+         TOP (above the exercise list) on BOTH surfaces. Rendered ONLY on the
+         public web (`!isLocalSurface()`): in the embedded in-app WebView the
+         device is already linked, so handout.js leaves it hidden there. The
+         glyph is injected at render time. Tappable → /me?claim={planId}
+         (the Wave 2 consumer claim flow). Hidden in print via @media print. -->
+    <a class="handout-import-card" id="handout-import-card" href="/me" aria-labelledby="handout-import-title" hidden>
+      <span class="handout-import-glyph" aria-hidden="true" id="handout-import-glyph"></span>
+      <div class="handout-import-copy">
+        <div class="handout-import-head">
+          <span class="handout-import-title" id="handout-import-title">Save this plan to your phone</span>
+        </div>
+        <span class="handout-import-sub">One tap · magic-link sign-in · all your plans in one place</span>
       </div>
-      <button class="handout-claim-x" id="handout-claim-x" type="button" title="Dismiss" aria-label="Dismiss claim prompt">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
-      </button>
-    </aside>
+    </a>
 
-    <!-- No view/treatment toggle (artifact-consistency wave, 2026-05-28).
-         Each exercise renders STATICALLY in its own preferred_treatment via
-         the mandated hero resolver — exactly like the Interactive Workout
-         Guide lobby. Consent revocation falls down to line silently. The
-         printable guide must MATCH the lobby's components, not redefine a
-         "higher bar for print" toggle. -->
+    <!-- Exercise list — the SAME card markup the Interactive Workout Guide
+         lobby renders (HomefitExerciseCard.buildListHTML): a large 1:1 hero
+         (flex ~40%), a Montserrat name + shared dose line, circuit grouping
+         (plan.circuit_names + letter fallback) and rest chips. On screen the
+         list is INTERACTIVE — the row nearest the viewport centre highlights
+         and its hero swaps img→video (HomefitExerciseCard.createInteractivity).
+         @media print flattens everything to a static A4-friendly document.
+         Uses the lobby class names so styles.css-mirrored CSS drives both. -->
+    <ul class="handout-list lobby-list" id="handout-list" role="list" aria-label="Exercises"></ul>
 
-    <!-- Exercise list — flat list with optional circuit groupings.
-         JS renders into this container; markup pattern below in handout.js. -->
-    <section class="handout-list" id="handout-list" aria-label="Exercises"></section>
-
-    <!-- Footer seal — ALWAYS homefit coral, even when a brand-skin lands in
-         Wave 4. The CSS uses --seal-coral / --seal-coral-light tokens that
-         the .skin-{name} override class is forbidden from re-pointing.
-         Locked decision #23. -->
+    <!-- Standard footer seal — the SAME seal the Interactive Workout Guide
+         lobby carries (artifact-consistency pass 2). ONE seal on both
+         surfaces: "powered by homefit.studio" + matrix glyph, the real
+         referral QR, and the "Visual plans clients follow." tagline. The
+         version line was REMOVED from the seal (the plan version shows on
+         the artefact cards / build chip instead). Coral comes from
+         --seal-coral, which a brand-skin override is forbidden to re-point
+         (locked decision #23). The QR is rendered LOCALLY by handout.js via
+         HomefitQR (CSP-clean); hidden gracefully when the practice has no
+         referral code. -->
     <footer class="handout-seal">
       <div class="handout-seal-mark">
         <div class="handout-seal-line">
-          <span class="handout-seal-powered">powered by</span>
+          <span class="handout-seal-logo" id="handout-seal-logo" aria-hidden="true"></span>
           <span class="handout-seal-brand">
             <span>homefit</span><span class="dotsuf">.</span><span class="dotsuf">studio</span>
           </span>
         </div>
-        <div class="handout-seal-version" id="handout-seal-version">v? · loading</div>
+        <div class="handout-seal-tagline">Visual plans clients follow.</div>
       </div>
-      <!-- QR — rendered LOCALLY by handout.js via HomefitQR (CSP-clean,
-           no external QR image API). Encodes the practitioner referral
-           link https://manage.homefit.studio/r/{referral_code}. Sourced
-           from plan.referral_code (get_plan_full migration
-           20260528090000). Hidden gracefully when the practice has no
-           referral code. The same QR renders in the standard footer on
-           both surfaces. -->
-      <div class="handout-qr" id="handout-qr" title="Scan to follow your practitioner" hidden></div>
+      <!-- QR — rendered LOCALLY by handout.js via HomefitQR. Encodes the
+           practitioner referral link https://manage.homefit.studio/r/{code}.
+           Hidden gracefully when the practice has no referral code. -->
+      <div class="handout-seal-qr" id="handout-qr" title="Scan to follow your practitioner" hidden></div>
     </footer>
   </main>
 
@@ -163,18 +153,21 @@
   <script src="/config.js"></script>
   <script src="/api.js"></script>
   <!-- Shared modules — MUST load before handout.js. The Printable Workout
-       Guide uses the SAME hero resolver + dose grammar + canonical logo as
-       the Interactive Workout Guide lobby (artifact-consistency wave,
-       2026-05-28) so the two surfaces can never visually diverge.
+       Guide uses the SAME card renderer + hero resolver + dose grammar +
+       canonical logo as the Interactive Workout Guide lobby
+       (artifact-consistency pass 2, 2026-05-28) so the two surfaces can
+       never visually diverge.
          homefit_logo.js   — canonical buildHomefitLogoSvg() glyph
          dose_format.js     — shared HomefitDose rep/hold/weight grammar
          hero_resolver.js   — 1:1 crop (HomefitHeroResolver) per HERO_RESOLVER.md
          exercise_hero.js   — treatment selection (HomefitHero.resolve)
+         exercise_card.js   — shared card markup + interactivity engine
          qrcode.js          — local CSP-clean QR encoder (HomefitQR) -->
   <script src="/homefit_logo.js"></script>
   <script src="/dose_format.js"></script>
   <script src="/hero_resolver.js"></script>
   <script src="/exercise_hero.js"></script>
+  <script src="/exercise_card.js"></script>
   <script src="/qrcode.js"></script>
   <script src="/handout.js"></script>
 </body>

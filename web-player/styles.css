@@ -3842,18 +3842,19 @@ video.lobby-hero-media {
 /* ===================================================================== */
 
 /* "Save this plan to your phone" card — standardised with the Printable
-   Workout Guide claim chip (artifact-consistency wave, 2026-05-28). Now
-   an active anchor to /me?claim={planId} (the Wave 2 consumer claim flow
-   is live). Canonical homefit logo injected by lobby.js into
-   .lobby-import-glyph. */
+   Workout Guide get-app block (artifact-consistency pass 2, 2026-05-28).
+   A PLAIN dark card with the canonical homefit glyph — NOT coral-tinted
+   (coral is reserved for primary actions). Same treatment on both surfaces.
+   Active anchor to /me?claim={planId} (the Wave 2 consumer claim flow).
+   Canonical homefit logo injected by lobby.js into .lobby-import-glyph. */
 .lobby-import-card {
   margin: 18px 16px 0;
   padding: 14px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--brand-tint-bg);
-  border: 1px solid var(--brand-tint-border);
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
   border-radius: 12px;
   color: inherit;
   font-family: inherit;
@@ -3862,7 +3863,7 @@ video.lobby-hero-media {
   transition: background var(--dur-fast, 120ms) var(--ease-standard, ease);
 }
 .lobby-import-card:hover {
-  background: rgba(255, 107, 53, 0.18);
+  background: var(--c-surface-raised);
 }
 .lobby-import-card:active {
   transform: scale(0.995);
@@ -3874,7 +3875,7 @@ video.lobby-hero-media {
   height: 44px;
   border-radius: 10px;
   background: #0f1117;
-  border: 1px solid var(--surface-border, #2e3140);
+  border: 1px solid var(--c-surface-border, #2e3140);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3907,7 +3908,7 @@ video.lobby-hero-media {
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 13px;
   font-weight: 600;
-  color: var(--ink-primary, #f0f0f5);
+  color: var(--c-ink-primary, #f0f0f5);
   line-height: 1.25;
 }
 
@@ -3929,7 +3930,7 @@ video.lobby-hero-media {
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 11.5px;
   font-weight: 400;
-  color: var(--ink-secondary, #9ca3af);
+  color: var(--c-ink-secondary, #9ca3af);
   line-height: 1.45;
 }
 
@@ -3981,9 +3982,13 @@ video.lobby-hero-media {
   color: var(--seal-coral);
   font-weight: 600;
 }
-.lobby-seal-version {
-  font-size: 10px;
-  color: var(--c-ink-muted);
+/* CTA tagline — replaces the removed version line in the seal
+   (artifact-consistency pass 2). Matches the handout's .handout-seal-tagline. */
+.lobby-seal-tagline {
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-ink-secondary);
   letter-spacing: 0.2px;
 }
 .lobby-seal-qr {

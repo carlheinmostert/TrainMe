@@ -115,6 +115,59 @@
     return m + ':' + String(s).padStart(2, '0');
   }
 
+  // Per-rep video timing — mirrors app.js perRepSecondsForSlide. Videos
+  // derive per-rep from video_duration_ms / video_reps_per_loop; everything
+  // else (photos, missing timing) uses the 3s default.
+  var SECONDS_PER_REP = 3;
+  function perRepSecondsForSlide(slide) {
+    if (!slide) return SECONDS_PER_REP;
+    if (slide.media_type === 'video') {
+      var durMs = Number(slide.video_duration_ms) || 0;
+      var reps = Number(slide.video_reps_per_loop) || 1;
+      if (durMs > 0 && reps > 0) return (durMs / 1000) / reps;
+    }
+    return SECONDS_PER_REP;
+  }
+
+  function perSetSeconds(set, slide, isLastSetInExercise) {
+    var perRep = perRepSecondsForSlide(slide);
+    var reps = Math.max(1, (set && set.reps) || 1);
+    var hold = Math.max(0, (set && set.hold_seconds) || 0);
+    var breather = Math.max(0, (set && set.breather_seconds_after) || 0);
+    var holdPosition = (set && set.hold_position) || 'end_of_set';
+    var holdTotal;
+    if (holdPosition === 'per_rep') holdTotal = reps * hold;
+    else if (holdPosition === 'end_of_exercise') holdTotal = isLastSetInExercise ? hold : 0;
+    else holdTotal = hold;
+    var phys = (reps * perRep) + holdTotal;
+    return Math.max(1, Math.round(phys + breather));
+  }
+
+  /**
+   * Whole-exercise estimated duration in seconds — mirrors app.js
+   * calculateDuration for a non-unrolled (handout) slide. Sums per-set
+   * durations across every authored set; the final set carries the
+   * end_of_exercise hold. Rest slides return their rest_seconds (30s
+   * fallback). This lets the Printable Workout Guide render the SAME
+   * trailing `~Xs` dose segment the Interactive lobby shows, so the dose
+   * lines read identically.
+   */
+  function calculateDuration(slide) {
+    if (!slide) return 1;
+    if (slide.media_type === 'rest') {
+      var v = slide.rest_seconds;
+      if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return 30;
+      return Math.max(1, Math.round(Number(v)));
+    }
+    var playSets = allSetsForSlide(slide);
+    var total = 0;
+    for (var i = 0; i < playSets.length; i++) {
+      var isLast = i === playSets.length - 1;
+      total += perSetSeconds(playSets[i], slide, isLast);
+    }
+    return Math.max(1, total);
+  }
+
   /**
    * Mirror of lobby.js buildDoseLine — single source so the handout and
    * the interactive lobby produce byte-identical dose lines.
@@ -170,5 +223,9 @@
     formatWeightKg: formatWeightKg,
     formatDur: formatDur,
     buildDoseLine: buildDoseLine,
+    // Whole-exercise estimated duration (surfaces without app.js, i.e. the
+    // handout). Mirrors app.js calculateDuration for a non-unrolled slide.
+    calculateDuration: calculateDuration,
+    perRepSecondsForSlide: perRepSecondsForSlide,
   });
 })();

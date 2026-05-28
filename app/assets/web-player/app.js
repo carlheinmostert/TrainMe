@@ -6048,6 +6048,14 @@ async function init() {
         // overrides for every slide), so the global mental model survives
         // without a separate "global active treatment" state.
         getEffective: getEffective,
+        // Surface detector — embedded in-app WebView vs the public web.
+        // The lobby uses this to gate the get-app block (don't show it when
+        // the device is already linked). Forwards the canonical detector.
+        isLocalSurface: function () {
+          return !!(window.HomefitApi
+            && typeof window.HomefitApi.isLocalSurface === 'function'
+            && window.HomefitApi.isLocalSurface());
+        },
         getPractitionerName: function () { return analyticsTrainerName; },
         rebindVideoSources: rebindVideoSources,
         // Lobby-settings-unify (2026-05-14): the lobby renders the same
