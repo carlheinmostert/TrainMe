@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Exercise change marker — homefit.studio</title>
+<title>Unpublished-changes spine — homefit.studio</title>
 <style>
   :root {
     --bg: #0F1117;
@@ -24,26 +24,34 @@
   }
   .wrap { max-width: 460px; margin: 0 auto; }
   h1 { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 4px; }
-  .sub { color: var(--text-dim); font-size: 13px; margin: 0 0 22px; }
-  .opt-label {
-    font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-    color: var(--coral); margin: 26px 0 10px;
-  }
+  .sub { color: var(--text-dim); font-size: 13px; margin: 0 0 4px; line-height: 1.5; }
+  .pick { color: var(--coral); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; margin: 22px 0 10px; }
   .opt-note { color: var(--text-dim); font-size: 12.5px; line-height: 1.5; margin: 0 0 12px; }
 
-  /* ---- base exercise card (mirrors Studio card chrome) ---- */
-  .card {
-    position: relative;
+  /* =====================================================================
+     THE SPINE — one shared treatment, applied at BOTH levels.
+     4px coral bar down the left edge of any card that has unpublished
+     edits. Identical on an exercise card and on the session card that
+     holds it, so the dirty state reads consistently top-down.
+     ===================================================================== */
+  .spine { position: relative; }
+  .spine.changed::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--coral);
+    border-radius: 0 2px 2px 0;
+    z-index: 5;
+  }
+
+  /* ---- exercise card (Studio list) ---- */
+  .ex-card {
     display: flex; align-items: center; gap: 14px;
     background: var(--surface);
     border: 1px solid var(--hairline);
     border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 12px;
-    overflow: hidden;
+    padding: 14px 16px; margin-bottom: 10px; overflow: hidden;
   }
   .thumb {
-    width: 60px; height: 60px; border-radius: 12px; flex-shrink: 0;
+    width: 56px; height: 56px; border-radius: 12px; flex-shrink: 0;
     background: linear-gradient(135deg,#2a2f3a,#3a414f);
     filter: grayscale(1) contrast(1.05);
   }
@@ -51,116 +59,96 @@
   .ex-title { font-size: 15px; font-weight: 700; margin: 0 0 3px; }
   .ex-sub { font-size: 12.5px; color: var(--text-dim); margin: 0; }
   .pos-glyph {
-    font-size: 30px; font-weight: 800; color: var(--coral);
-    font-variant-numeric: tabular-nums; width: 30px; text-align: center; flex-shrink: 0;
-    opacity: 0.9;
+    font-size: 28px; font-weight: 800; color: var(--coral);
+    font-variant-numeric: tabular-nums; width: 28px; text-align: center; flex-shrink: 0; opacity: 0.9;
   }
 
-  /* =====================================================================
-     OPTION A — coral left-edge bar (continuous spine down the card)
-     ===================================================================== */
-  .opt-a.changed::before {
-    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-    background: var(--coral);
-    border-radius: 0 2px 2px 0;
+  /* ---- session / workout card (My Workouts · ClientSessions) ---- */
+  .sess-card {
+    position: relative; height: 118px; border-radius: var(--radius);
+    border: 1px solid var(--hairline); overflow: hidden; margin-bottom: 12px;
+    background: linear-gradient(120deg,#23272f,#1a1d24);
+    display: flex; align-items: center; padding: 0 18px; gap: 16px;
   }
-
-  /* =====================================================================
-     OPTION B — coral dot + "Edited" pill on the meta row
-     ===================================================================== */
-  .edited-pill {
-    display: inline-flex; align-items: center; gap: 5px;
-    margin-top: 6px;
-    padding: 3px 9px 3px 7px;
-    border-radius: 999px;
-    background: rgba(255,107,53,0.13);
-    border: 1px solid rgba(255,107,53,0.4);
-    color: var(--coral);
-    font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  .sess-veil { position: absolute; inset: 0; background: rgba(15,17,23,0.30); }
+  .sess-glyph {
+    position: relative; font-size: 56px; font-weight: 800; color: var(--coral);
+    font-variant-numeric: tabular-nums; line-height: 1; z-index: 2;
   }
-  .edited-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--coral); }
-
-  /* =====================================================================
-     OPTION C — corner dot only (minimal — coral dot top-right)
-     ===================================================================== */
-  .opt-c.changed::after {
-    content: ""; position: absolute; top: 12px; right: 14px;
-    width: 9px; height: 9px; border-radius: 50%;
-    background: var(--coral);
-    box-shadow: 0 0 0 3px rgba(255,107,53,0.18);
+  .sess-meta { position: relative; z-index: 2; }
+  .self-chip {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--sage); background: rgba(134,239,172,0.14);
+    border: 1px solid rgba(134,239,172,0.4); border-radius: 999px; padding: 2px 8px; margin-bottom: 6px;
   }
+  .sess-title { font-size: 19px; font-weight: 800; margin: 0; }
+  .sess-ver { font-size: 14px; font-weight: 700; color: var(--coral); margin: 4px 0 0; }
 
   .legend {
-    margin-top: 34px; padding: 16px; border: 1px solid var(--hairline);
+    margin-top: 30px; padding: 16px; border: 1px solid var(--hairline);
     border-radius: 12px; background: var(--surface);
   }
   .legend h2 { font-size: 13px; margin: 0 0 8px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-dim); }
   .legend ul { margin: 0; padding-left: 18px; }
   .legend li { font-size: 13px; line-height: 1.6; margin-bottom: 5px; }
   .legend code { background: var(--surface-raised); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+  .rejected { color: var(--text-dim); font-size: 12px; margin-top: 18px; font-style: italic; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Exercise change marker</h1>
-  <p class="sub">Surfacing "this exercise has edits not yet published" on Studio exercise cards. Three visual options — same data signal (<code>exercise.lastEditedAt &gt; session.sentAt</code>).</p>
+  <h1>Unpublished-changes spine</h1>
+  <p class="sub">One coral left-edge spine, applied consistently at BOTH levels: the exercise card that changed, and the session card that holds it. Glance at the workout list → see which sessions are dirty; open one → see exactly which exercises.</p>
 
-  <!-- ============ OPTION A ============ -->
-  <div class="opt-label">Option A — coral left-edge spine</div>
-  <p class="opt-note">A 4px coral bar runs the full left edge of any card with unpublished edits. Reads as "this row is dirty" at a glance; scales to a list (you see a column of coral spines for everything you've touched). Doesn't steal content space.</p>
-  <div class="card opt-a changed">
-    <div class="pos-glyph">1</div>
-    <div class="thumb"></div>
-    <div class="meta"><p class="ex-title">Goblet squat</p><p class="ex-sub">3 sets · 10 reps · video</p></div>
-  </div>
-  <div class="card opt-a">
-    <div class="pos-glyph">2</div>
-    <div class="thumb"></div>
-    <div class="meta"><p class="ex-title">Glute bridge</p><p class="ex-sub">3 sets · 12 reps · video</p></div>
-  </div>
+  <div class="pick">Session list (My Workouts · client sessions)</div>
+  <p class="opt-note">A session card gets the spine when ANY of its exercises has unpublished edits (the existing <code>session.hasUnpublishedContentChanges</code> signal). No drill-in needed to know a workout has pending changes.</p>
 
-  <!-- ============ OPTION B ============ -->
-  <div class="opt-label">Option B — "Edited" pill</div>
-  <p class="opt-note">An explicit coral "Edited" pill under the exercise sub-line. Most legible / least ambiguous — literally says what it means. Costs vertical space and a little visual noise when many cards are dirty.</p>
-  <div class="card opt-b">
-    <div class="pos-glyph">1</div>
-    <div class="thumb"></div>
-    <div class="meta">
-      <p class="ex-title">Goblet squat</p>
-      <p class="ex-sub">3 sets · 10 reps · video</p>
-      <span class="edited-pill"><span class="dot"></span>Edited · not published</span>
+  <div class="sess-card spine changed">
+    <div class="sess-veil"></div>
+    <div class="sess-glyph">4</div>
+    <div class="sess-meta">
+      <span class="self-chip">SELF</span>
+      <p class="sess-title">26 May 2026 20:27</p>
+      <p class="sess-ver">v2 · 27 May</p>
     </div>
   </div>
-  <div class="card opt-b">
-    <div class="pos-glyph">2</div>
-    <div class="thumb"></div>
-    <div class="meta"><p class="ex-title">Glute bridge</p><p class="ex-sub">3 sets · 12 reps · video</p></div>
+  <div class="sess-card spine">
+    <div class="sess-veil"></div>
+    <div class="sess-glyph">1</div>
+    <div class="sess-meta">
+      <span class="self-chip">SELF</span>
+      <p class="sess-title">27 May 2026 08:17</p>
+      <p class="sess-ver">v2 · 27 May</p>
+    </div>
   </div>
 
-  <!-- ============ OPTION C ============ -->
-  <div class="opt-label">Option C — corner dot</div>
-  <p class="opt-note">A single coral dot (with soft halo) top-right of the card. Minimal, iOS-notification-badge vocabulary. Subtlest — easy to miss in a long list, but uncluttered.</p>
-  <div class="card opt-c changed">
-    <div class="pos-glyph">1</div>
-    <div class="thumb"></div>
-    <div class="meta"><p class="ex-title">Goblet squat</p><p class="ex-sub">3 sets · 10 reps · video</p></div>
+  <div class="pick">Inside that session (Studio exercise list)</div>
+  <p class="opt-note">Drilling into the dirty session above: the same spine marks the exact exercises whose content changed since last publish (<code>exercise.lastEditedAt &gt; session.sentAt</code>). Identical treatment → the eye connects "dirty workout" to "these dirty exercises."</p>
+
+  <div class="ex-card spine changed">
+    <div class="pos-glyph">1</div><div class="thumb"></div>
+    <div class="meta"><p class="ex-title">Goblet squat</p><p class="ex-sub">3 sets · 12 reps · video &nbsp;·&nbsp; edited</p></div>
   </div>
-  <div class="card opt-c">
-    <div class="pos-glyph">2</div>
-    <div class="thumb"></div>
+  <div class="ex-card spine">
+    <div class="pos-glyph">2</div><div class="thumb"></div>
     <div class="meta"><p class="ex-title">Glute bridge</p><p class="ex-sub">3 sets · 12 reps · video</p></div>
+  </div>
+  <div class="ex-card spine changed">
+    <div class="pos-glyph">3</div><div class="thumb"></div>
+    <div class="meta"><p class="ex-title">Bird dog</p><p class="ex-sub">2 sets · 8 reps · video &nbsp;·&nbsp; edited</p></div>
   </div>
 
   <div class="legend">
-    <h2>Behaviour (all options)</h2>
+    <h2>Behaviour (both levels)</h2>
     <ul>
-      <li>Marker shows when <code>exercise.lastEditedAt</code> is after the session's last publish (<code>sentAt</code>).</li>
-      <li>All markers CLEAR the moment the session is published (publish stamps a new <code>sentAt</code>; every exercise's edit time is now older).</li>
-      <li>A never-published session: no markers (nothing to compare against — the whole session is "new", surfaced by the Publish CTA, not per-card).</li>
-      <li>Newly-added exercises on an already-published session DO get the marker (their <code>lastEditedAt</code> &gt; <code>sentAt</code>).</li>
-      <li>Open question: does <strong>reorder</strong> (position change) count as an edit for the marker? Proposed: NO — position changes are structural/session-level, not per-exercise content. Marker = content edits only (reps/sets/hold/notes/trim/treatment/body-focus).</li>
+      <li><strong>Exercise spine:</strong> shows when <code>exercise.lastEditedAt &gt; session.sentAt</code> (needs the new per-exercise column).</li>
+      <li><strong>Session spine:</strong> shows when <code>session.hasUnpublishedContentChanges</code> is true (already exists — any exercise edited after last publish). The session spine is effectively "OR of its exercise spines."</li>
+      <li>All spines CLEAR on publish (new <code>sentAt</code> makes every edit older).</li>
+      <li>Never-published session: no spines at either level (the whole thing is new — Publish CTA communicates that, not the spine).</li>
+      <li>Reorder does NOT light the spine (structural, not per-exercise content) — proposed default, pending Carl's yes/no.</li>
     </ul>
   </div>
+  <p class="rejected">Rejected alternatives (2026-05-28): "Edited" pill (cost vertical space) and corner dot (too easy to miss in a list). Spine chosen for scannability + cross-level consistency.</p>
 </div>
 </body>
 </html>

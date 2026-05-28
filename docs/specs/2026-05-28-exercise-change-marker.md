@@ -19,7 +19,14 @@ Decision origin: 2026-05-28 session. Carl chose per-exercise markers (over sessi
 
 ## Goal
 
-On the Studio exercise list, an exercise card shows a marker when `exercise.lastEditedAt` is after the session's last-publish timestamp (`session.sentAt`). The marker clears for all cards the moment the session is published. The signal is per-exercise content edits only.
+Surface "has unpublished edits" with ONE consistent visual — a coral left-edge spine (Option A, locked 2026-05-28) — applied at TWO levels:
+
+1. **Session card** (My Workouts + ClientSessionsScreen session lists): spine when ANY exercise in the session has unpublished edits. Uses the EXISTING `Session.hasUnpublishedContentChanges` signal — no new schema needed for this level.
+2. **Exercise card** (Studio exercise list): spine on each exercise whose own content changed since last publish. Needs the new per-exercise `lastEditedAt` column.
+
+Both render the identical 4px coral left-edge spine so the practitioner connects "this workout is dirty" (session list) to "these specific exercises are dirty" (inside Studio) at a glance. The session spine is effectively the OR of its exercise spines. All spines clear on publish.
+
+Marker visual is LOCKED to Option A (coral left-edge spine). The "Edited" pill and corner-dot alternatives are rejected (pill costs vertical space; dot too easy to miss in a list). See the mockup.
 
 ## Data model change
 
@@ -30,7 +37,15 @@ Add a nullable `lastEditedAt` (epoch-ms) to the exercise model + local store. Cl
 
 ## Detection rule
 
-A card shows the marker when:
+**Session card** (no new schema — already available):
+
+```
+session.hasUnpublishedContentChanges == true
+```
+
+(which already encodes `isPublished && lastContentEditAt.isAfter(sentAt)`). Render the spine on the session-list card when true.
+
+**Exercise card** shows the spine when:
 
 ```
 exercise.lastEditedAt != null
@@ -67,10 +82,13 @@ Anchor sites in `app/lib/screens/studio_mode_screen.dart`: `_updateExercise` (~l
 
 ## Marker visual
 
-Mockup: `docs/design/mockups/2026-05-28-exercise-change-marker.html` (three options). Pick one with Carl before coding:
-- **Option A — coral left-edge spine** (4px bar down the card's left edge). Recommended: scannable in a list, no content-space cost.
-- **Option B — "Edited · not published" pill** under the sub-line. Most explicit, costs vertical space.
-- **Option C — corner dot** with halo. Minimal, easy to miss in a long list.
+LOCKED: Option A — a 4px coral left-edge spine (`#FF6B35`, `border-radius: 0 2px 2px 0`), painted full-height down the left edge of any card with unpublished edits. Identical treatment on the exercise card and the session card. Mockup: `docs/design/mockups/2026-05-28-exercise-change-marker.html`.
+
+Two render sites:
+- **Session card** — the session-list card widget (used by My Workouts + ClientSessionsScreen). Spine gated on `session.hasUnpublishedContentChanges`. The cards have a filmstrip background + veil; the spine sits ABOVE the veil (higher z-index) so it stays coral-crisp over imagery.
+- **Exercise card** — the Studio exercise-list card widget. Spine gated on the per-exercise detection rule below.
+
+Implementation tip: factor the spine into one shared widget/decoration (e.g. a `ChangeSpine` overlay or a reusable `BoxDecoration` border) used by both card widgets, so the treatment cannot drift between levels (it must stay consistent — that is the whole point of the design).
 
 ## Clear-on-publish behaviour
 
@@ -84,26 +102,28 @@ Publishing stamps a new `session.sentAt` (already happens in the publish flow). 
 
 ## Out of scope
 
-- Session-level "unpublished changes" badge (Carl chose per-exercise; a session badge could be a later add but is not in this spec).
 - Cloud mirroring of `lastEditedAt`.
 - Surfacing the marker on the client web player or any consumption surface (this is practitioner authoring config — `feedback_consumption_vs_config_surfaces`; mobile Studio only, no R-10 web parity).
 - Diffing WHAT changed (just that it changed).
 
 ## Acceptance criteria
 
-1. Edit a single exercise (e.g. change reps) on an already-published session → only THAT card shows the marker; siblings do not.
-2. Publish → all markers clear.
-3. Add a new exercise to an already-published session → the new card shows the marker.
-4. Reorder exercises → no markers appear from the reorder alone.
-5. A never-published session shows no markers regardless of edits.
-6. Marker is correct offline.
-7. `dart analyze` clean; SQLite migration 48→49 applies cleanly on an existing install (verify no data loss; existing rows backfill NULL).
+1. Edit a single exercise (e.g. change reps) on an already-published session → only THAT exercise card shows the spine; siblings do not. AND the session card (in My Workouts / client list) shows the spine.
+2. Publish → all spines clear at BOTH levels.
+3. Add a new exercise to an already-published session → the new exercise card shows the spine + the session card shows the spine.
+4. Reorder exercises → no spine appears from the reorder alone (at either level).
+5. A never-published session shows no spine at either level regardless of edits.
+6. Spines are correct offline.
+7. The session-card spine and exercise-card spine are visually identical (4px coral left edge) — confirm they share one implementation.
+8. `dart analyze` clean; SQLite migration 48→49 applies cleanly on an existing install (existing rows backfill NULL → no exercise spines until next edit, but the SESSION spine still works immediately via the existing signal).
 
 ## File map
 
 - `app/lib/models/exercise_capture.dart` — add `lastEditedAt` + copyWith/toMap/fromMap + a content-edit helper.
 - `app/lib/services/local_storage_service.dart` — `_dbVersion` 48→49, migration, column in insert/update.
 - `app/lib/screens/studio_mode_screen.dart` — stamp `lastEditedAt` at each content-edit site (NOT reorder/position).
-- `app/lib/widgets/` — the Studio exercise card widget renders the chosen marker, gated on the detection rule.
-- `docs/design/mockups/2026-05-28-exercise-change-marker.html` — visual options (pick one first).
-- Test script under `docs/test-scripts/` covering the acceptance criteria.
+- `app/lib/widgets/` — ONE shared spine widget/decoration consumed by BOTH the Studio exercise card AND the session-list card (so the treatment can't drift). The session card already lives in the widget used by My Workouts + ClientSessionsScreen (the filmstrip session card) — gate its spine on `session.hasUnpublishedContentChanges`. The exercise card gates on the per-exercise rule.
+- `docs/design/mockups/2026-05-28-exercise-change-marker.html` — locked Option A shown at both levels.
+- Test script under `docs/test-scripts/` covering the acceptance criteria (both levels).
+
+Note (R-10): both surfaces are practitioner authoring config, NOT client consumption — mobile only, no web-player parity. The spine must never appear on the client web player.
