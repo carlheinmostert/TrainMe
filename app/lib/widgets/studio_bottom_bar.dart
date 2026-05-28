@@ -142,7 +142,6 @@ class StudioBottomBar extends StatelessWidget {
     final adjustActive = onAdjust != null;
     final previewActive = hasExercises;
     final hasPublishError = publishError != null && !isPublishing;
-    final publishActive = canPublish || hasPublishError;
     final shareActive = session.isPublished;
 
     // CAPS workflow chain: Capture · Adjust · Preview · Publish · Share
@@ -197,9 +196,17 @@ class StudioBottomBar extends StatelessWidget {
           isPublishing: isPublishing,
           canPublish: canPublish,
           hasError: hasPublishError,
-          onTap: publishActive
-              ? (hasPublishError ? onShowPublishError : onPublish)
-              : null,
+          // 2026-05-28 — Publish is now ALWAYS tappable (never disabled).
+          // A disabled button read as broken with no explanation (Carl's
+          // call); the "nothing to publish" case is handled inside the
+          // handler with a no-op toast rather than by greying the cell.
+          // The only state where the tap does nothing is mid-publish
+          // (`isPublishing`) — re-firing a publish in flight is wrong, so
+          // we null the callback in that one frame. When the last publish
+          // failed we still route to the error-detail surface.
+          onTap: isPublishing
+              ? null
+              : (hasPublishError ? onShowPublishError : onPublish),
           onLockedTap: onPublishLockedTap,
         ),
       _CapsCell(
@@ -657,18 +664,15 @@ class _PublishCapsCell extends StatelessWidget {
     final publishedDirty =
         session.isPublished && session.hasUnpublishedContentChanges;
     final publishedClean = session.isPublished && !publishedDirty;
-    final cellActive = canPublish || publishedClean || hasError;
-
-    final glyphColor = hasError
-        ? AppColors.error
-        : cellActive
-            ? AppColors.textOnDark
-            : AppColors.textOnDark.withValues(alpha: 0.45);
-    final labelColor = hasError
-        ? AppColors.error
-        : cellActive
-            ? AppColors.textSecondaryOnDark
-            : AppColors.textSecondaryOnDark.withValues(alpha: 0.55);
+    // 2026-05-28 — Publish is always tappable, so the cell always reads as
+    // active (full-opacity glyph + label). A greyed cell suggested a broken
+    // button; the "nothing to publish" case now surfaces as a toast on tap
+    // rather than as a disabled affordance. The error tone still overrides
+    // to coral. `publishedClean` / `publishedDirty` are retained for the
+    // tooltip copy below.
+    final glyphColor = hasError ? AppColors.error : AppColors.textOnDark;
+    final labelColor =
+        hasError ? AppColors.error : AppColors.textSecondaryOnDark;
 
     Widget glyph;
     if (isPublishing) {
