@@ -673,6 +673,12 @@ class ApiClient {
           : (chargedRaw is String
               ? (double.tryParse(chargedRaw) ?? 0.0)
               : 0.0);
+      // #565 — per-artefact version. Legacy pre-#565 RPC omits the key;
+      // default to 0 so the pill falls back to a bare "Published".
+      final versionRaw = row['version'];
+      final version = versionRaw is num
+          ? versionRaw.toInt()
+          : (versionRaw is String ? (int.tryParse(versionRaw) ?? 0) : 0);
       out.add(
         PlanArtifactStatus(
           kind: kind,
@@ -681,6 +687,7 @@ class ApiClient {
           publishedAt: publishedAt,
           creditsCharged: credits,
           firstOpenedAt: firstOpenedAt,
+          version: version,
         ),
       );
     }
@@ -3272,6 +3279,14 @@ class PlanArtifactStatus {
   final double creditsCharged;
   final DateTime? firstOpenedAt;
 
+  /// Plan/session version stamped at this artefact's LAST publish (#565).
+  /// NOT an independent counter — equals the plan version as of the publish
+  /// that (re)generated this artefact. Two artefacts published together
+  /// share a number; they diverge only when one is republished without the
+  /// other. 0 = never published / legacy pre-#565 RPC (treated as "no
+  /// version" by the UI, which then renders a bare "Published" pill).
+  final int version;
+
   const PlanArtifactStatus({
     required this.kind,
     required this.status,
@@ -3279,6 +3294,7 @@ class PlanArtifactStatus {
     required this.publishedAt,
     required this.creditsCharged,
     required this.firstOpenedAt,
+    this.version = 0,
   });
 
   /// True when the artifact has been published (i.e. the practitioner
