@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 49;
+  static const _dbVersion = 50;
 
   Database? _db;
 
@@ -119,6 +119,12 @@ class LocalStorageService {
         video_duration_ms INTEGER,
         archive_file_path TEXT,
         archived_at INTEGER,
+        -- Unpublished-changes coral spine (2026-05-28, v50). Epoch-ms of
+        -- the practitioner's last content edit to THIS exercise. Drives
+        -- the per-card coral left-edge spine in Studio. LOCAL-ONLY — never
+        -- mirrored to Supabase. NULL on legacy / freshly-pulled rows (no
+        -- spine until the next edit).
+        last_edited_at INTEGER,
         raw_archive_uploaded_at INTEGER,
         preferred_treatment TEXT,
         prep_seconds INTEGER,
@@ -1467,6 +1473,20 @@ class LocalStorageService {
         'email_verified_at',
         'TEXT',
       );
+    }
+
+    if (oldVersion < 50) {
+      // Unpublished-changes coral spine (2026-05-28) — per-exercise
+      // "this card has unpublished edits" marker. Epoch-ms of the
+      // practitioner's last content edit to the exercise. Drives the
+      // coral left-edge spine on Studio exercise cards.
+      //
+      // LOCAL-ONLY — no Supabase mirror, no RPC plumbing. Backfills NULL
+      // on every existing row, so existing exercises show no per-card
+      // spine until the next edit. The SESSION-level spine still works
+      // immediately via the existing `sessions.last_content_edit_at`
+      // signal (untouched by this migration).
+      await _addColumnIfMissing(db, 'exercises', 'last_edited_at', 'INTEGER');
     }
   }
 

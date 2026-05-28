@@ -1075,6 +1075,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // pre-fill (incl. the no-sticky-yet brand-new-client path) falls
     // back to B&W treatment + body-focus off (2026-05-12).
     exercise = StickyDefaults.applyGlobalCaptureDefaults(exercise);
+    // A freshly captured exercise is brand-new content — stamp the
+    // unpublished-changes coral spine (2026-05-28) so it lights on an
+    // already-published session (no-op visually on never-published drafts).
+    exercise = exercise.markContentEdited();
     exercises.insert(position, exercise);
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
@@ -1110,12 +1114,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
       final exercises = List<ExerciseCapture>.from(_session.exercises);
       final original = exercises[dataIndex];
-      final replaced = original.copyWith(
-        rawFilePath: PathResolver.toRelative(destPath),
-        mediaType: type,
-        conversionStatus: ConversionStatus.pending,
-        clearVideoDurationMs: true,
-      );
+      // Swapping the underlying media changes what the client sees — stamp
+      // the unpublished-changes coral spine (2026-05-28).
+      final replaced = original
+          .copyWith(
+            rawFilePath: PathResolver.toRelative(destPath),
+            mediaType: type,
+            conversionStatus: ConversionStatus.pending,
+            clearVideoDurationMs: true,
+          )
+          .markContentEdited();
       exercises[dataIndex] = replaced;
       setState(() {
         _touchAndPush(_session.copyWith(exercises: exercises));
@@ -1158,6 +1166,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (inheritedCircuit != null) {
       rest = rest.copyWith(circuitId: inheritedCircuit);
     }
+    // A newly inserted rest is brand-new content — stamp the spine
+    // (2026-05-28) so the new row lights on an already-published session.
+    rest = rest.markContentEdited();
     exercises.insert(insertIndex, rest);
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
@@ -1199,10 +1210,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     var offset = 0;
     for (final pos in insertPositions) {
       final adjusted = pos + offset;
+      // Auto-inserted rests are new content rows — stamp the spine
+      // (2026-05-28) so they light on an already-published session.
       final rest = ExerciseCapture.createRest(
         position: adjusted,
         sessionId: _session.id,
-      );
+      ).markContentEdited();
       exercises.insert(adjusted, rest);
       offset++;
     }
@@ -1227,13 +1240,31 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   void _updateExercise(int index, ExerciseCapture updated) {
     final previous = _session.exercises[index];
+    // Unpublished-changes coral spine (2026-05-28). `_updateExercise` is
+    // the single funnel for genuine content edits — the editor sheet's
+    // `onExerciseChanged` AND every viewer-internal toggle (body focus,
+    // treatment, mute, soft-trim, hero, rotation) route here via
+    // `onExerciseUpdate`. Stamp the edit time so the per-card spine lights
+    // immediately against the in-memory model and so the persisted row
+    // carries the stamp.
+    //
+    // Pipeline / conversion churn never reaches this method (the
+    // conversion listener owns that path), so an unconditional stamp here
+    // is correct. We only skip the re-stamp when the caller already stamped
+    // a fresher value in the same gesture (the viewer toggles pre-stamp
+    // before bubbling up), which keeps the in-memory + persisted stamp
+    // consistent and avoids an unnecessary second `DateTime.now()`.
+    final callerStampedFresh = updated.lastEditedAt != null &&
+        updated.lastEditedAt != previous.lastEditedAt;
+    final stamped =
+        callerStampedFresh ? updated : updated.markContentEdited();
     setState(() {
       final exercises = List<ExerciseCapture>.from(_session.exercises);
-      exercises[index] = updated;
+      exercises[index] = stamped;
       _touchAndPush(_session.copyWith(exercises: exercises));
     });
     unawaited(
-      widget.storage.saveExercise(updated).catchError((e, st) {
+      widget.storage.saveExercise(stamped).catchError((e, st) {
         debugPrint('saveExercise failed: $e');
       }),
     );
@@ -1338,9 +1369,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       targetSession: _session,
       positionOverride: index + 1,
     );
-    final duplicate = original.circuitId != null
-        ? cloned.copyWith(circuitId: original.circuitId)
-        : cloned;
+    // Unpublished-changes coral spine (2026-05-28) — the freshly
+    // duplicated row is brand-new content, so stamp its edit time at
+    // creation. On an already-published session this lights its spine (and
+    // the session-level spine) immediately. The shifted survivors keep
+    // their own existing stamps (the position reindex below does not touch
+    // `lastEditedAt`), so they only light if they were already dirty.
+    final duplicate = (original.circuitId != null
+            ? cloned.copyWith(circuitId: original.circuitId)
+            : cloned)
+        .markContentEdited();
 
     // Insert at index + 1 and shift all subsequent positions.
     final exercises = List<ExerciseCapture>.from(_session.exercises);
@@ -1656,11 +1694,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         missing.add(itemId);
         continue;
       }
-      final clone = await cloneExerciseInto(
+      final clone = (await cloneExerciseInto(
         source: source,
         targetSession: _session,
         positionOverride: _session.exercises.length + created.length,
-      );
+      ))
+          // Pasted rows are brand-new content — stamp the unpublished-
+          // changes coral spine (2026-05-28).
+          .markContentEdited();
       created.add(clone);
       consumedItemIds.add(itemId);
     }
@@ -1819,20 +1860,28 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final upperCircuit = upper.circuitId;
     final lowerCircuit = lower.circuitId;
 
+    // Circuit membership is a published-visible structural property, so
+    // each exercise whose circuitId actually changes is stamped for the
+    // unpublished-changes coral spine (2026-05-28).
     if (upperCircuit == null && lowerCircuit == null) {
       final newId = const Uuid().v4();
-      exercises[upperIndex] = upper.copyWith(circuitId: newId);
-      exercises[lowerIndex] = lower.copyWith(circuitId: newId);
+      exercises[upperIndex] =
+          upper.copyWith(circuitId: newId).markContentEdited();
+      exercises[lowerIndex] =
+          lower.copyWith(circuitId: newId).markContentEdited();
     } else if (upperCircuit != null && lowerCircuit == null) {
-      exercises[lowerIndex] = lower.copyWith(circuitId: upperCircuit);
+      exercises[lowerIndex] =
+          lower.copyWith(circuitId: upperCircuit).markContentEdited();
     } else if (upperCircuit == null && lowerCircuit != null) {
-      exercises[upperIndex] = upper.copyWith(circuitId: lowerCircuit);
+      exercises[upperIndex] =
+          upper.copyWith(circuitId: lowerCircuit).markContentEdited();
     } else if (upperCircuit != lowerCircuit) {
       final target = upperCircuit!;
       final source = lowerCircuit!;
       for (var i = 0; i < exercises.length; i++) {
         if (exercises[i].circuitId == source) {
-          exercises[i] = exercises[i].copyWith(circuitId: target);
+          exercises[i] =
+              exercises[i].copyWith(circuitId: target).markContentEdited();
         }
       }
       final updatedCycles = Map<String, int>.from(_session.circuitCycles);
@@ -1874,7 +1923,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     for (var i = 0; i < exercises.length; i++) {
       if (exercises[i].circuitId == circuitId) {
-        exercises[i] = exercises[i].copyWith(clearCircuitId: true);
+        // Breaking the circuit changes each member's published-visible
+        // grouping — stamp the spine (2026-05-28).
+        exercises[i] =
+            exercises[i].copyWith(clearCircuitId: true).markContentEdited();
       }
     }
     final updatedCycles = Map<String, int>.from(_session.circuitCycles);
@@ -1935,11 +1987,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     final newCircuitId = const Uuid().v4();
+    // Splitting / clearing circuit membership changes each affected
+    // exercise's published-visible grouping — stamp the unpublished-
+    // changes coral spine (2026-05-28) at each membership mutation.
     var newGroupSize = 0;
     var i = lowerIndex;
     while (i < exercises.length &&
         exercises[i].circuitId == originalCircuitId) {
-      exercises[i] = exercises[i].copyWith(circuitId: newCircuitId);
+      exercises[i] =
+          exercises[i].copyWith(circuitId: newCircuitId).markContentEdited();
       newGroupSize++;
       i++;
     }
@@ -1954,14 +2010,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (upperGroupSize < 2) {
       for (var j = 0; j < exercises.length; j++) {
         if (exercises[j].circuitId == originalCircuitId) {
-          exercises[j] = exercises[j].copyWith(clearCircuitId: true);
+          exercises[j] =
+              exercises[j].copyWith(clearCircuitId: true).markContentEdited();
         }
       }
     }
     if (newGroupSize < 2) {
       for (var j = 0; j < exercises.length; j++) {
         if (exercises[j].circuitId == newCircuitId) {
-          exercises[j] = exercises[j].copyWith(clearCircuitId: true);
+          exercises[j] =
+              exercises[j].copyWith(clearCircuitId: true).markContentEdited();
         }
       }
     }
@@ -2104,8 +2162,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final moved = exercises.removeAt(oldIndex);
       exercises.insert(newIndex, moved);
 
+      // Unpublished-changes coral spine (2026-05-28) — Carl's 2026-05-28
+      // reversal of the spec draft: a user drag-reorder stamps EVERY
+      // exercise, not just the moved one. Order is a published-visible
+      // property of the whole plan; once exercises move, every published
+      // artifact is out of position and the plan must be republished, so
+      // the entire list lights up. Stamping happens in the same loop that
+      // re-numbers `position`. `_saveExerciseOrder()` (below) re-persists
+      // each row, so the stamps reach SQLite. Delete-reindex and
+      // duplicate-insert reindex of survivors deliberately do NOT stamp —
+      // only the user drag-reorder is a full-list republish trigger.
+      final now = DateTime.now();
       for (var i = 0; i < exercises.length; i++) {
-        exercises[i] = exercises[i].copyWith(position: i);
+        exercises[i] = exercises[i].copyWith(position: i, lastEditedAt: now);
       }
 
       // Circuit stitching — if a null-circuit item is sandwiched
@@ -2707,6 +2776,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         isExpanded: _expandedIndex == dataIndex,
         isFocused: isFocused,
         isInCircuit: isInCircuit,
+        // Unpublished-changes coral spine (2026-05-28). Lit when this
+        // exercise's own content was edited since the last publish.
+        // Card stays dumb — the dirty computation lives on Session.
+        showChangeSpine: _session.exerciseHasUnpublishedChanges(exercise),
         // Wave 17 — per-exercise analytics stats from the in-memory
         // plan analytics summary. Null when no data is available.
         analyticsStats: _planAnalytics?.exerciseStats[exercise.id],
@@ -5226,7 +5299,9 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     HapticFeedback.selectionClick();
     final before = _current;
     final next = !(before.bodyFocus ?? true);
-    final updated = before.copyWith(bodyFocus: next);
+    // Pre-stamp the unpublished-changes edit time (2026-05-28) so the
+    // per-card spine lights and the directly-persisted row carries it.
+    final updated = before.copyWith(bodyFocus: next).markContentEdited();
     setState(() {
       _exercises[_currentIndex] = updated;
     });
@@ -5602,12 +5677,15 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// SQLite on a short delay so a long drag doesn't hammer the disk.
   void _persistTrim(int? startMs, int? endMs) {
     final exercise = _current;
-    final updated = exercise.copyWith(
-      startOffsetMs: startMs,
-      endOffsetMs: endMs,
-      clearStartOffsetMs: startMs == null,
-      clearEndOffsetMs: endMs == null,
-    );
+    // Pre-stamp the unpublished-changes edit time (2026-05-28).
+    final updated = exercise
+        .copyWith(
+          startOffsetMs: startMs,
+          endOffsetMs: endMs,
+          clearStartOffsetMs: startMs == null,
+          clearEndOffsetMs: endMs == null,
+        )
+        .markContentEdited();
     setState(() {
       _exercises[_currentIndex] = updated;
     });
@@ -5651,7 +5729,12 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final exercise = _current;
     if (exercise.mediaType != MediaType.video) return;
     if (exercise.focusFrameOffsetMs == heroMs) return;
-    final updated = exercise.copyWith(focusFrameOffsetMs: heroMs);
+    // Picking a new Hero frame changes the poster the client sees, so it
+    // is a published-visible content edit — stamp the spine (2026-05-28).
+    // The subsequent thumbnail regen inherits this stamp (it copyWiths
+    // `fresh`), so the regen itself never independently stamps.
+    final updated =
+        exercise.copyWith(focusFrameOffsetMs: heroMs).markContentEdited();
     setState(() {
       _exercises[_currentIndex] = updated;
     });
@@ -5710,7 +5793,12 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       if (flush) _heroCropSaveTimer?.cancel();
       return;
     }
-    final updated = exercise.copyWith(heroCropOffset: clamped);
+    // Hero crop offset is a published-visible property (the 1:1 crop the
+    // client lobby + hero surfaces use), so a deliberate crop pick is a
+    // content edit — stamp the spine (2026-05-28). `persist()` reads the
+    // stamped row off the live list, so the debounced save carries it too.
+    final updated =
+        exercise.copyWith(heroCropOffset: clamped).markContentEdited();
     setState(() {
       _exercises[_currentIndex] = updated;
     });
@@ -5791,7 +5879,9 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// reset-to-default).
   void _persistPreferredTreatment(Treatment next) {
     final exercise = _current;
-    final updated = exercise.copyWith(preferredTreatment: next);
+    // Pre-stamp the unpublished-changes edit time (2026-05-28).
+    final updated =
+        exercise.copyWith(preferredTreatment: next).markContentEdited();
     // Update the in-memory list so a subsequent page-change back to
     // this index reads the new preference without a DB round-trip.
     _exercises[_currentIndex] = updated;
@@ -5872,9 +5962,11 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     _inactiveController?.setVolume(0.0);
     _showControlsThenMaybeIdleFade();
 
-    // Persist through to the exercise row + parent list.
+    // Persist through to the exercise row + parent list. Pre-stamp the
+    // unpublished-changes edit time (2026-05-28).
     final exercise = _current;
-    final updated = exercise.copyWith(includeAudio: !nextMuted);
+    final updated =
+        exercise.copyWith(includeAudio: !nextMuted).markContentEdited();
     _exercises[_currentIndex] = updated;
     final cb = widget.onExerciseUpdate;
     if (cb != null) cb(updated);
@@ -6574,10 +6666,14 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final newAspect = (next.isOdd != current.isOdd && oldAspect != null)
         ? 1 / oldAspect
         : oldAspect;
-    final updated = exercise.copyWith(
-      rotationQuarters: next,
-      aspectRatio: newAspect,
-    );
+    // Rotation is a published-visible playback property — stamp the
+    // unpublished-changes spine (2026-05-28).
+    final updated = exercise
+        .copyWith(
+          rotationQuarters: next,
+          aspectRatio: newAspect,
+        )
+        .markContentEdited();
     setState(() {
       _exercises[_currentIndex] = updated;
     });
@@ -6598,10 +6694,14 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final newAspect = (current.isOdd && oldAspect != null)
         ? 1 / oldAspect
         : oldAspect;
-    final updated = exercise.copyWith(
-      rotationQuarters: 0,
-      aspectRatio: newAspect,
-    );
+    // Rotation reset is a published-visible playback change — stamp the
+    // unpublished-changes spine (2026-05-28).
+    final updated = exercise
+        .copyWith(
+          rotationQuarters: 0,
+          aspectRatio: newAspect,
+        )
+        .markContentEdited();
     setState(() {
       _exercises[_currentIndex] = updated;
     });

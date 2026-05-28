@@ -11,6 +11,7 @@ import '../models/treatment.dart';
 import '../services/api_client.dart';
 import '../services/media_prefetch_service.dart';
 import '../theme.dart';
+import 'change_spine.dart';
 import 'debug/safe_mode_v2_tuning_sheet.dart';
 import 'exercise_editor_sheet.dart';
 import 'mini_preview.dart';
@@ -156,6 +157,14 @@ class StudioExerciseCard extends StatelessWidget {
 
   final ExerciseAnalyticsStats? analyticsStats;
 
+  /// Whether to render the coral "unpublished changes" spine down the
+  /// card's left edge (unpublished-changes coral spine, 2026-05-28).
+  ///
+  /// The parent (Studio screen) computes this via
+  /// [Session.exerciseHasUnpublishedChanges] and passes it in — the card
+  /// stays dumb about publish state. Defaults to false.
+  final bool showChangeSpine;
+
   /// Card height — Carl's spec is 152pt. The Hero area is square
   /// (cardHeight × cardHeight) and the text column fills the
   /// remaining width.
@@ -176,6 +185,7 @@ class StudioExerciseCard extends StatelessWidget {
     required this.onDelete,
     this.onDownloadOriginal,
     this.analyticsStats,
+    this.showChangeSpine = false,
   });
 
   @override
@@ -217,9 +227,16 @@ class StudioExerciseCard extends StatelessWidget {
           // (cardHeight × cardHeight) on the left; the rest of the
           // row is the editable plan summary + chips + notes preview.
           // Mirrors the lobby's image-left card pattern.
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          //
+          // Wrapped in a Stack so the unpublished-changes coral spine
+          // (2026-05-28) overlays the full-height left edge above the
+          // Hero. The card clips to radius 16, so the spine's rounded
+          // right corners read cleanly against the card's rounded left.
+          child: Stack(
             children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
               // -----------------------------------------------------
               // LEFT — 1:1 square Hero area
               // -----------------------------------------------------
@@ -268,6 +285,18 @@ class StudioExerciseCard extends StatelessWidget {
                   ],
                 ),
               ),
+            ],
+              ),
+              // Unpublished-changes coral spine (2026-05-28) — full-height
+              // left edge, painted above the Hero. Gated by the parent via
+              // [Session.exerciseHasUnpublishedChanges].
+              if (showChangeSpine)
+                const Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: ChangeSpine(),
+                ),
             ],
           ),
         ),

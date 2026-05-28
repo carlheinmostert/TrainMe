@@ -447,6 +447,27 @@ class Session {
     return edited.isAfter(sent);
   }
 
+  /// Whether [e]'s own content has unpublished edits since the last
+  /// publish (per-exercise unpublished-changes coral spine, 2026-05-28).
+  ///
+  /// Mirrors [hasUnpublishedContentChanges] at the exercise granularity:
+  ///   * Never-published sessions show no per-card markers (the card
+  ///     already reads as a draft elsewhere).
+  ///   * Legacy / freshly-pulled rows with a null
+  ///     [ExerciseCapture.lastEditedAt] show no marker — we have no record
+  ///     of pre-feature edits, so defaulting to "dirty" would light every
+  ///     historic card on upgrade.
+  ///   * Otherwise the spine shows when the edit stamp is newer than the
+  ///     last publish ([sentAt]).
+  bool exerciseHasUnpublishedChanges(ExerciseCapture e) {
+    if (!isPublished) return false;
+    final edited = e.lastEditedAt;
+    if (edited == null) return false;
+    final sent = sentAt;
+    if (sent == null) return true;
+    return edited.isAfter(sent);
+  }
+
   /// Whether all captures in this session have finished converting.
   bool get allConversionsComplete =>
       exercises.every((e) => e.isConverted);

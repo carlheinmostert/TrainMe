@@ -99,7 +99,7 @@ void main() {
 
         // Sanity: user_version landed at the current schema version.
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 49);
+        expect(version.first['user_version'], 50);
 
         await svc.close();
       },
@@ -116,7 +116,7 @@ void main() {
           factory: databaseFactoryFfi,
         );
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 49);
+        expect(version.first['user_version'], 50);
 
         // Spot-check a few of the columns the v3+ migration branches
         // touch — they must all be present after _createTables.
@@ -127,6 +127,93 @@ void main() {
         expect(names, contains('hero_crop_offset'));
         expect(names, contains('focus_frame_offset_ms'));
         expect(names, contains('body_focus'));
+        // v50 — unpublished-changes coral spine column on fresh installs.
+        expect(names, contains('last_edited_at'));
+
+        await svc.close();
+      },
+    );
+
+    test(
+      'v50 migration adds last_edited_at as a nullable column',
+      () async {
+        // Unpublished-changes coral spine (2026-05-28). Prove the
+        // 49 → 50 upgrade lands the new local-only `last_edited_at`
+        // column on an existing install. SQLite `ALTER TABLE ADD COLUMN`
+        // backfills NULL on every pre-existing row by definition (no per-
+        // card spine until the next edit), so the load-bearing assertion
+        // is the column landing + accepting NULL.
+        const dbPath = 'file:v50_migration_test?mode=memory&cache=shared';
+        final factory = databaseFactoryFfi;
+
+        // Step 1 — create the DB at v49 with an exercises table that does
+        // NOT yet carry last_edited_at.
+        var db = await factory.openDatabase(
+          dbPath,
+          options: OpenDatabaseOptions(
+            version: 49,
+            onCreate: (db, _) async {
+              await db.execute('''
+                CREATE TABLE exercises (
+                  id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL,
+                  position INTEGER NOT NULL,
+                  raw_file_path TEXT NOT NULL,
+                  media_type INTEGER NOT NULL,
+                  conversion_status INTEGER NOT NULL DEFAULT 0,
+                  created_at INTEGER NOT NULL
+                )
+              ''');
+            },
+          ),
+        );
+        // Sanity: the column is absent before the migration.
+        var info = await db.rawQuery('PRAGMA table_info(exercises)');
+        expect(
+          info.any((row) => row['name'] == 'last_edited_at'),
+          isFalse,
+        );
+        await db.close();
+
+        // Step 2 — reopen at the current version so onUpgrade fires the
+        // v50 branch and adds the column.
+        final svc = await LocalStorageService.openForTest(
+          path: dbPath,
+          factory: factory,
+        );
+
+        info = await svc.db.rawQuery('PRAGMA table_info(exercises)');
+        final col = info.firstWhere(
+          (row) => row['name'] == 'last_edited_at',
+          orElse: () => <String, Object?>{},
+        );
+        expect(
+          col.isNotEmpty,
+          isTrue,
+          reason: 'v50 migration must add the last_edited_at column',
+        );
+        // Nullable column (no NOT NULL constraint) so existing rows can
+        // backfill NULL.
+        expect(col['notnull'], 0);
+
+        // A row written without last_edited_at reads back NULL — the same
+        // semantics a pre-existing v49 row gets after the ADD COLUMN.
+        await svc.db.insert('exercises', <String, Object?>{
+          'id': 'no-stamp',
+          'session_id': 's-x',
+          'position': 0,
+          'raw_file_path': 'raw/x.mp4',
+          'media_type': 1,
+          'conversion_status': 2,
+          'created_at': DateTime.now().millisecondsSinceEpoch,
+        });
+        final rows = await svc.db.query(
+          'exercises',
+          columns: ['id', 'last_edited_at'],
+          where: 'id = ?',
+          whereArgs: ['no-stamp'],
+        );
+        expect(rows.single['last_edited_at'], isNull);
 
         await svc.close();
       },
