@@ -111,6 +111,27 @@ An unlabelled issue is valid — "no status label" *is* the TRIAGE state. Adopti
 just makes the whole backlog visible on the board immediately; the first sweep
 after init classifies the Triage column.
 
+## Step 2c — board view (one-time, manual — API limitation)
+
+GitHub's GraphQL API has **no mutation to create or configure project views**
+(there is no `createProjectV2View` / `updateProjectV2View`; `ProjectV2ViewLayout`
+is read-only). So the board *view* — its layout and which field forms the
+columns — must be set once per repo **in the UI**. init **prints these steps in
+its report**; it cannot perform them.
+
+1. Open the project. On the view tab, click the **⌄** and switch the layout to **Board**.
+2. Open the view's **⋯ / settings → "Column field" (or "Group by") → `Stage`**.
+
+The board then shows the Stage columns (Triage / Needs you / Building / Hold /
+Done) with cards draggable between them. (Cards also show GitHub's built-in
+"Status" chip — cosmetic; hide it via the view's field-visibility settings if it
+distracts.)
+
+**Future zero-touch option for genericity:** maintain one template project with
+the Board view already configured and have init `gh project copy` it (copy
+preserves views), then re-read the new field/option IDs into the config — this
+avoids the manual view step on every new repo.
+
 ## Step 3 — the CLAUDE.md memory rule
 
 Write/refresh a marked managed section in the repo's `CLAUDE.md` so the proactive
