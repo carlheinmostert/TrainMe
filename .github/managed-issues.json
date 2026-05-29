@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "owner": "carlheinmostert",
+  "integrationBranch": "staging",
+  "project": {
+    "number": 2,
+    "id": "PVT_kwHOAXKkPc4BZJCG",
+    "stageFieldId": "PVTSSF_lAHOAXKkPc4BZJCGzhUJ2ko",
+    "options": {
+      "Triage": "37dc02a2",
+      "Needs you": "95709db8",
+      "Building": "4f85dbf4",
+      "Hold": "5c4b0147",
+      "Done": "cd2cdb70"
+    }
+  },
+  "phoneCursorPath": "docs/phone-build.json",
+  "queueCeiling": 15,
+  "maxNewPrsPerSweep": 5
+}

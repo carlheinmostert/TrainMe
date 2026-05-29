@@ -91,6 +91,26 @@ done
    ones appended).
 5. **Capture** the field id and each option id from the response.
 
+## Step 2b — adopt existing open issues (adopt, don't judge)
+
+Bring the current backlog onto the board without classifying it. For every
+**open** issue:
+
+- Add it to the board if it isn't already a card:
+  `addProjectV2ItemById(projectId, contentId)` (resolve the issue's node id first).
+- **Set its Stage column from its current labels** (canonical map): a `status:*`
+  label → the matching column; `status:building`/`status:awaiting-pr` → Building;
+  any `awaiting-*` → Needs you; `status:hold` → Hold; **no status label → Triage.**
+- **Do not** add `bug`/`enhancement`, **do not** comment, **do not** classify —
+  that is the sweep's first-tick job.
+- **Flag anomalies** in the report (don't auto-fix): more than one `status:*`
+  label on an issue, or a status label not in the definitions. Leave them for the
+  sweep / Carl.
+
+An unlabelled issue is valid — "no status label" *is* the TRIAGE state. Adoption
+just makes the whole backlog visible on the board immediately; the first sweep
+after init classifies the Triage column.
+
 ## Step 3 — the CLAUDE.md memory rule
 
 Write/refresh a marked managed section in the repo's `CLAUDE.md` so the proactive
