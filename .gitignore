@@ -80,6 +80,11 @@ docs/test-scripts/*.results.json
 !.claude/settings.json
 !.claude/hooks
 !.claude/hooks/**
+# Personal Claude skills — shared so scheduled remote Routines (which clone
+# the default branch and discover skills only from the cloned working tree)
+# can invoke them. Plugin-sourced skills are symlinks and stay out by nature.
+!.claude/skills
+!.claude/skills/**
 # Per-developer hook state (orphan-agent registry + brief sidecars
 # written by record-agent-dispatch.py). Already covered by `.claude/*`
 # above, but called out explicitly so the intent is obvious.
