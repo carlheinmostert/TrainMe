@@ -61,6 +61,18 @@ Do NOT call `./install-device.sh` directly — its per-call worktree churn was t
 
 Capture the SHA the install skill reports back; feed it into the test-script kicker and the final message lead-in.
 
+### 2b. Stamp the phone cursor + reconcile managed-issues (only if the repo uses it)
+
+Skip this entirely unless `.github/managed-issues.json` exists. When it does, this install is the **synchronisation point** that tells the managed-issues sweep what's actually on Carl's phone:
+
+1. **Stamp the cursor.** Write the `phoneCursorPath` from the config (default `docs/phone-build.json`):
+   `{ "sha": "<installed build SHA>", "build": "<pubspec version+build, e.g. 1.0.0+5>", "branch": "<channel>", "installedAt": "<ISO-8601>" }`.
+   Commit it **direct to main** — it's metadata, like a spec (`feedback_specs_direct_to_main`) — via an ephemeral worktree; confirm the push with Carl like any push.
+2. **Reconcile validation.** For each open issue in `status:awaiting-validation` labelled `ios-impact`, check whether its PR's merge commit is now an ancestor of the installed SHA (`git merge-base --is-ancestor <mergeSha> <installedSha>`). If yes, it's on the phone now → update its validation note to "**test now — build {build}** — see the test script below, items N…M" and leave it in Needs you. (Delegate the comment edit, per the manage-issues delegation rule.)
+3. The device-QA test script you author next (step 3) **is** the validation worklist for those issues — link it from each reconciled issue so ticking the test list and clearing the Needs-you inbox are the same act.
+
+This is the only moment the system can know what's on the phone, so it's where the build-number cursor advances. The sweep never builds/installs; this step is always Carl-initiated.
+
 ### 3. Author the device-QA test script
 
 Path: `docs/test-scripts/<YYYY-MM-DD>-<slug>.md` — **plain Markdown** (as of 2026-05-21). Structure:
@@ -113,3 +125,4 @@ Invoke `anthropic-skills:send-whatsapp` to notify Carl the build is on his phone
 - `feedback_test_wave_discipline`
 - `feedback_test_scripts_unicode`
 - `ios-impact` PR label workflow (2026-05-23) — CI in `.github/workflows/ci.yml` auto-labels any PR whose diff touches real Dart / Swift / pubspec / podfile / privacy manifest. Wrapper at `tools/ios-pending-prs.sh` queries the labelled merged PRs as the discovery mechanism for wave assembly. Supports multi-Claude-session workflows where parallel sessions open PRs and one session does the consolidated install.
+- managed-issues phone-cursor reconcile (step 2b) — when `.github/managed-issues.json` exists, the install stamps `docs/phone-build.json` (the build cursor the sweep reads) and flips in-build `status:awaiting-validation` `ios-impact` issues to "test now — build N", linking this wave's test script as their validation worklist.

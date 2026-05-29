@@ -168,7 +168,21 @@ Build can't complete → remove `status:building`, `help wanted`, assign Carl, c
 
 ## Validation
 
-A merged PR does **not** close its issue (it used `Refs #N`). On detecting the merge, move the issue to `status:awaiting-validation` (Needs you) with a note on what to test. **Carl's validation is the only thing that closes it:** a `Go`/`/go`/`/close` consumed at this state → close (Done); a prose failure → re-open as a fresh defect (new fix/PR — a merged PR can't be reopened). *(Stage 4 wires the surface-specific "is it live/testable" detail: web Vercel-deploy URL; mobile build-number phone cursor + the `homefit-ship-to-phone` reconcile. Until then the card simply waits in Needs you.)*
+A merged PR does **not** close its issue (it used `Refs #N`). On detecting the merge, the sweep moves the issue to `status:awaiting-validation` (Needs you) and posts a **test note** scoped to the surface. **Only Carl's validation closes it:** `Go`/`/go`/`/close` at this state → close (Done); a prose failure → re-open as a fresh defect (new fix/PR — a merged PR can't be reopened).
+
+**Which surface** (from the PR's labels/files):
+- **`ios-impact`** (Dart/Swift/`pubspec`) → **mobile** → the phone-cursor path.
+- otherwise → **web** (portal/player) → the Vercel-deploy path.
+- both → post both notes; fully validated only when both are confirmed.
+
+**Web validation (automatic):** the sweep confirms the merge commit's Vercel deployment succeeded (`gh api repos/$REPO/deployments?sha=<mergeSha>` → its `statuses_url` shows `success` + the target URL; or the commit's check/status for the Vercel deploy) and writes the **live staging URL** + what to check into the test note. Carl tests in a browser; pass → `/go`/`/close`.
+
+**Mobile validation (build cursor):** the sweep reads the phone cursor at `phoneCursorPath` (default `docs/phone-build.json`): `{ "sha", "build", "branch", "installedAt" }` — the SHA + build number of the last build Carl installed, stamped by `homefit-ship-to-phone`.
+- If the merged fix's commit is **an ancestor of the cursor SHA** (`git merge-base --is-ancestor <fixSha> <cursorSha>`; `fixSha` = the PR's merge commit) → it's **on the phone** → the note reads "**test now — build {build}**".
+- Otherwise → "**awaiting build** — run `homefit-ship-to-phone` to put this on your phone, then validate." The sweep **never** builds or installs.
+- The ship step does the reconcile (see that skill): after install it stamps the new cursor and flips every in-build mobile `awaiting-validation` issue's note to "test now", linking the build's numbered test list — which *is* the validation worklist.
+
+**Optional (either surface):** the sweep may smoke-test on the iOS simulator first and annotate "passed on sim — needs your eyes on device for X", thinning the manual list.
 
 ## Merge mode
 
