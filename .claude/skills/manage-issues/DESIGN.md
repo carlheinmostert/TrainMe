@@ -114,18 +114,20 @@ Your inbox is a GitHub **Projects board**, reviewed from the GitHub mobile app
 (verified: board view + Status editing work on mobile via long-press → edit
 field; not drag, but instant).
 
-- **Columns:** `Triage` · `Needs you` (combined) · `Building` · `Hold` · `Done`.
+- **Columns:** `Triage` · `Needs you` (combined) · `Go` · `Building` · `Hold` · `Done`.
 - **One combined "Needs you" column** is your inbox — approvals, merges, replies,
   tests all pile here; each card's label says which action it wants.
-- **Moving a card is the command, and the instant feedback.** Setting a card's
-  Status moves it out of "Needs you" the moment you do it — so "answered = moved",
-  no waiting on the hourly bot, no losing your place. The bot reconciles on its
-  next tick.
-  - → `Building` = approve & go (or retry)
+- **Dragging a card to `Go` is the universal "approve / advance" — you never pick
+  the next state.** The bot reads the card's label and routes it: a design/fix
+  approval → build; a validation card → close (pass); a merge card → merge (in
+  merge mode). `Go` is the board twin of the `/go` comment. The card leaves
+  "Needs you" the instant you move it (answered = moved), no waiting on the hourly
+  bot; the bot reconciles on its next tick and slides it onward to the real state.
+  - → `Go` = approve / advance (bot routes by label)
   - → `Hold` = park
-  - → `Done` = close
-  - merge cards: you merge the PR (or → `Done` in merge mode); reply/test cards:
-    you comment / validate — the bot relocates the card.
+  - → `Done` = close outright
+  - Exceptions: a **needs-info** card isn't a `Go` — you answer it by commenting
+    the info; **merge** only actually merges when you've run merge mode.
 - The board is a **mirror with a few input columns**; labels stay the canonical
   state, the board Status mirrors them, and your moves out of "Needs you" are the
   only board edits the bot treats as commands.

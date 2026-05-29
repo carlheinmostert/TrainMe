@@ -22,7 +22,10 @@ run on a repo that hasn't been init'd (it reads `.github/managed-issues.json`).
   `status:awaiting-merge`, `status:awaiting-validation`, `status:hold` — plus the
   native `bug`, `enhancement`, `help wanted`.
 - **Board**: a Projects v2 board with a single-select **"Stage"** field whose
-  options are the columns `Triage` · `Needs you` · `Building` · `Hold` · `Done`.
+  options are the columns `Triage` · `Needs you` · `Go` · `Building` · `Hold` ·
+  `Done`. (`Go` is a *command* column — Carl drags an item there to approve/advance
+  it without choosing the next state; the sweep reads it and routes — see the
+  sweep's board-sync logic.)
   (We create our own field because the default "Status" field's options can't be
   edited via API.)
 - **Memory rule**: a managed section in the repo's `CLAUDE.md` carrying the
@@ -79,7 +82,8 @@ done
        singleSelectOptions:[
          {name:"Triage",    color:GRAY,   description:"Bot classifying / waiting for budget"},
          {name:"Needs you", color:YELLOW, description:"Your inbox: approve / merge / test / reply"},
-         {name:"Building",  color:BLUE,   description:"Bot building (or you advanced it here to approve)"},
+         {name:"Go",        color:PURPLE, description:"Approve / advance — bot routes to the right next state"},
+         {name:"Building",  color:BLUE,   description:"Bot building"},
          {name:"Hold",      color:ORANGE, description:"Parked — hands off"},
          {name:"Done",      color:GREEN,  description:"Resolved"}
        ]
