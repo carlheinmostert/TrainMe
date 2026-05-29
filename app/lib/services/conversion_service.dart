@@ -700,97 +700,38 @@ class ConversionService extends ChangeNotifier {
             final priorOffset = done.focusFrameOffsetMs;
             final useAutoPick = priorOffset == null;
 
-            // B&W thumbnail (load-bearing — gates the Hero offset
-            // resolution used by the color + line calls below). On
-            // failure we keep the pre-conversion thumbnail and skip
-            // the dependent variants; user-facing surfaces fall back
-            // to the explicit placeholder (parallel agent's resolver).
-            int pickedMs = priorOffset ?? 0;
-            bool bwOk = false;
-            try {
-              final bwResp = await _thumbChannel
-                  .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
-                'inputPath': sourcePath,
-                'outputPath': thumbPath,
-                'timeMs': priorOffset ?? 0,
-                'autoPick': useAutoPick,
-                'grayscale': true,
-              }).timeout(const Duration(seconds: 30));
-              pickedMs = (bwResp?['timeMs'] as int?) ?? priorOffset ?? 0;
-              // Wave Lobby — adopt the native segmentation centroid
-              // as the default hero crop offset. Lands on every fresh
+            // Extract the three treatment variants (B&W → color → line)
+            // through the shared helper (issue #576). Post-conversion
+            // passes the prior Hero offset (or 0) with autoPick enabled
+            // when there's no prior offset, so the native motion-peak
+            // picker chooses the frame. The helper writes every file +
+            // logs per-variant failures; we apply the post-conversion-
+            // specific model stamping (focusFrameOffsetMs round-trip +
+            // heroCropOffset adoption) from the returned result below.
+            final variantResult = await _extractThumbnailVariants(
+              exerciseId: exercise.id,
+              sourcePath: sourcePath,
+              thumbDir: thumbDir,
+              bwTimeMs: priorOffset ?? 0,
+              bwAutoPick: useAutoPick,
+              convertedPath: done.convertedFilePath,
+            );
+            final bwOk = variantResult.bwOk;
+            if (bwOk) {
+              // Wave Lobby — adopt the native segmentation centroid as
+              // the default hero crop offset. Lands on every fresh
               // capture so the lobby + every thumbnail frames the
               // practitioner instead of whatever the centre vertical
-              // band happens to be (a TV in Carl's QA case). Null
-              // when segmentation bailed / source was square — leave
-              // the existing value alone so a prior manual drag
-              // isn't wiped by a no-op.
-              final autoOffset =
-                  (bwResp?['autoHeroCropOffset'] as num?)?.toDouble();
+              // band happens to be (a TV in Carl's QA case). Null when
+              // segmentation bailed / source was square — leave the
+              // existing value alone so a prior manual drag isn't wiped
+              // by a no-op.
               done = done.copyWith(
                 thumbnailPath: PathResolver.toRelative(thumbPath),
-                focusFrameOffsetMs: pickedMs,
-                heroCropOffset: autoOffset ?? done.heroCropOffset,
+                focusFrameOffsetMs: variantResult.pickedMs,
+                heroCropOffset:
+                    variantResult.autoHeroCropOffset ?? done.heroCropOffset,
               );
-              bwOk = true;
-            } catch (e, st) {
-              await _logVariantFailure(
-                exerciseId: exercise.id,
-                variant: 'bw',
-                error: e,
-                stack: st,
-              );
-            }
-
-            // Color thumbnail (used for original treatment).
-            // autoPick: false, grayscale: false — plain color frame, no
-            // body-focus segmentation. Sampled at the SAME Hero offset
-            // as the B&W run so all treatments are visually consistent.
-            // Independent failure: a B&W success doesn't gate this, and
-            // a color failure doesn't gate the line run.
-            try {
-              final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
-              await _thumbChannel
-                  .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
-                'inputPath': sourcePath,
-                'outputPath': colorPath,
-                'timeMs': pickedMs,
-                'autoPick': false,
-                'grayscale': false,
-              }).timeout(const Duration(seconds: 30));
-            } catch (e, st) {
-              await _logVariantFailure(
-                exerciseId: exercise.id,
-                variant: 'color',
-                error: e,
-                stack: st,
-              );
-            }
-
-            // Line-drawing thumbnail (used for line treatment). Sampled
-            // from the converted line video at the same Hero offset
-            // (raw + line are produced in lock-step so the timeline
-            // matches).
-            if (done.convertedFilePath != null) {
-              try {
-                final convertedPath = PathResolver.resolve(done.convertedFilePath!);
-                final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
-                await _thumbChannel
-                    .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
-                  'inputPath': convertedPath,
-                  'outputPath': linePath,
-                  'timeMs': pickedMs,
-                  'autoPick': false,
-                  'grayscale': false,
-                }).timeout(const Duration(seconds: 30));
-              } catch (e, st) {
-                await _logVariantFailure(
-                  exerciseId: exercise.id,
-                  variant: 'line',
-                  error: e,
-                  stack: st,
-                );
-              }
             }
             // Silence the analyzer about unused `bwOk` — it's a future
             // read-site (we may surface a UI banner on Hero-frame loss).
@@ -1091,89 +1032,36 @@ class ConversionService extends ChangeNotifier {
         contextKind: 'regen_no_source',
       );
     } else {
-      // B&W (grayscale + body-focus crop) — the canonical practitioner-
-      // facing thumbnail. autoPick:false so the caller-supplied
-      // [offsetMs] is honoured verbatim.
+      // Re-scrub the three treatment variants (B&W → color → line)
+      // through the shared helper (issue #576). Regen passes the
+      // caller's clamped offset with autoPick:false so the chosen
+      // frame is honoured verbatim — pickedMs therefore echoes
+      // clampedMs and the color + line passes sample the same frame.
       //
       // Wave Lobby — even though autoPick is false, the native side
-      // still runs segmentation (the B&W treatment uses the body-
-      // focus pass), so the soft-mask centroid is still available.
-      // We adopt it as the new hero crop offset — a re-scrub
-      // intentionally replaces a prior manual drag because the user
-      // just picked a new frame and the auto-pick is the right
-      // default for that frame. They can re-drag if they disagree.
-      // Per Phase B in the brief.
-      try {
-        final bwResp = await _thumbChannel
-            .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
-          'inputPath': sourcePath,
-          'outputPath': thumbPath,
-          'timeMs': clampedMs,
-          'autoPick': false,
-          'grayscale': true,
-        }).timeout(const Duration(seconds: 30));
-        final autoOffset =
-            (bwResp?['autoHeroCropOffset'] as num?)?.toDouble();
+      // still runs segmentation (the B&W treatment uses the body-focus
+      // pass), so the soft-mask centroid is still available. We adopt
+      // it as the new hero crop offset — a re-scrub intentionally
+      // replaces a prior manual drag because the user just picked a new
+      // frame and the auto-pick is the right default for that frame.
+      // They can re-drag if they disagree. Per Phase B in the brief.
+      // (focusFrameOffsetMs is already set above from clampedMs; regen
+      // does NOT round-trip pickedMs back into it.)
+      final variantResult = await _extractThumbnailVariants(
+        exerciseId: exercise.id,
+        sourcePath: sourcePath,
+        thumbDir: thumbDir,
+        bwTimeMs: clampedMs,
+        bwAutoPick: false,
+        convertedPath: exercise.convertedFilePath,
+        contextKind: 'regen',
+      );
+      if (variantResult.bwOk) {
         next = next.copyWith(
           thumbnailPath: PathResolver.toRelative(thumbPath),
-          heroCropOffset: autoOffset ?? next.heroCropOffset,
+          heroCropOffset:
+              variantResult.autoHeroCropOffset ?? next.heroCropOffset,
         );
-      } catch (e, st) {
-        await _logVariantFailure(
-          exerciseId: exercise.id,
-          variant: 'bw',
-          error: e,
-          stack: st,
-          contextKind: 'regen',
-        );
-      }
-
-      // Colour (no body-focus, no grayscale) — used by the Original
-      // treatment surface. Independent failure: a B&W failure above
-      // doesn't stop this; a failure here doesn't gate the line run.
-      try {
-        final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
-        await _thumbChannel
-            .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
-          'inputPath': sourcePath,
-          'outputPath': colorPath,
-          'timeMs': clampedMs,
-          'autoPick': false,
-          'grayscale': false,
-        }).timeout(const Duration(seconds: 30));
-      } catch (e, st) {
-        await _logVariantFailure(
-          exerciseId: exercise.id,
-          variant: 'color',
-          error: e,
-          stack: st,
-          contextKind: 'regen',
-        );
-      }
-
-      // Line-drawing — sampled from the converted line video at the
-      // same offset (the converted video shares the raw timeline).
-      if (exercise.convertedFilePath != null) {
-        try {
-          final convertedPath = PathResolver.resolve(exercise.convertedFilePath!);
-          final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
-          await _thumbChannel
-              .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
-            'inputPath': convertedPath,
-            'outputPath': linePath,
-            'timeMs': clampedMs,
-            'autoPick': false,
-            'grayscale': false,
-          }).timeout(const Duration(seconds: 30));
-        } catch (e, st) {
-          await _logVariantFailure(
-            exerciseId: exercise.id,
-            variant: 'line',
-            error: e,
-            stack: st,
-            contextKind: 'regen',
-          );
-        }
       }
     }
 
@@ -2985,6 +2873,141 @@ class ConversionService extends ChangeNotifier {
     }
   }
 
+  /// Extract the three treatment-aware thumbnail variants (B&W → color →
+  /// line) from [sourcePath] into [thumbDir], each behind an independent
+  /// single-shot `extractFrame` channel call with a 30s timeout and its
+  /// own try/catch. This is the shared body that used to be duplicated
+  /// between [_processQueue] (post-conversion) and
+  /// [regenerateHeroThumbnails] (Hero re-scrub) — see issue #576.
+  ///
+  /// STRICTLY behaviour-preserving: same channel method, same per-variant
+  /// arguments, same single-shot 30s timeouts, same per-variant failure
+  /// logging via [_logVariantFailure]. NO retries, NO backoff. The two
+  /// call sites diverge only in:
+  ///
+  ///   * [bwTimeMs] / [bwAutoPick] — post-conversion passes the prior Hero
+  ///     offset (or 0) with `autoPick` enabled when there's no prior
+  ///     offset, so the native motion-peak picker chooses the frame;
+  ///     regen passes the caller's clamped offset with `autoPick:false` so
+  ///     the chosen frame is honoured verbatim.
+  ///   * The color + line passes sample at the picked offset — which for
+  ///     post-conversion is whatever the B&W run resolved (`pickedMs`), and
+  ///     for regen is the clamped offset (regen passes `autoPick:false`, so
+  ///     `pickedMs` echoes [bwTimeMs] and the two are identical).
+  ///   * [convertedPath] — the line pass only runs when the caller has a
+  ///     converted line-drawing path; `null` skips it.
+  ///   * [contextKind] — discriminates the failure-log entries
+  ///     (`post_conversion` vs `regen`).
+  ///
+  /// The helper does NOT mutate the exercise row; it returns a
+  /// [_ThumbnailVariantResult] so each caller can apply its own divergent
+  /// `copyWith` (post-conversion round-trips `focusFrameOffsetMs`; regen
+  /// does not). The B&W thumbnail path is always `${exerciseId}_thumb.jpg`,
+  /// color is `${exerciseId}_thumb_color.jpg`, line is
+  /// `${exerciseId}_thumb_line.jpg` — all inside [thumbDir].
+  Future<_ThumbnailVariantResult> _extractThumbnailVariants({
+    required String exerciseId,
+    required String sourcePath,
+    required String thumbDir,
+    required int bwTimeMs,
+    required bool bwAutoPick,
+    required String? convertedPath,
+    String contextKind = 'post_conversion',
+  }) async {
+    final thumbPath = p.join(thumbDir, '${exerciseId}_thumb.jpg');
+
+    // B&W thumbnail (load-bearing — gates the Hero offset resolution used
+    // by the color + line calls below). On failure we keep the existing
+    // thumbnail and skip the dependent variants; user-facing surfaces fall
+    // back to the explicit placeholder.
+    int pickedMs = bwTimeMs;
+    double? autoHeroCropOffset;
+    bool bwOk = false;
+    try {
+      final bwResp = await _thumbChannel
+          .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+        'inputPath': sourcePath,
+        'outputPath': thumbPath,
+        'timeMs': bwTimeMs,
+        'autoPick': bwAutoPick,
+        'grayscale': true,
+      }).timeout(const Duration(seconds: 30));
+      pickedMs = (bwResp?['timeMs'] as int?) ?? bwTimeMs;
+      // Wave Lobby — adopt the native segmentation centroid as the default
+      // hero crop offset. Null when segmentation bailed / source was square
+      // — caller leaves the existing value alone so a prior manual drag
+      // isn't wiped by a no-op.
+      autoHeroCropOffset = (bwResp?['autoHeroCropOffset'] as num?)?.toDouble();
+      bwOk = true;
+    } catch (e, st) {
+      await _logVariantFailure(
+        exerciseId: exerciseId,
+        variant: 'bw',
+        error: e,
+        stack: st,
+        contextKind: contextKind,
+      );
+    }
+
+    // Color thumbnail (used for original treatment). autoPick:false,
+    // grayscale:false — plain color frame, no body-focus segmentation.
+    // Sampled at the SAME offset the B&W run resolved so all treatments
+    // are visually consistent. Independent failure: a B&W success doesn't
+    // gate this, and a color failure doesn't gate the line run.
+    try {
+      final colorPath = p.join(thumbDir, '${exerciseId}_thumb_color.jpg');
+      await _thumbChannel
+          .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+        'inputPath': sourcePath,
+        'outputPath': colorPath,
+        'timeMs': pickedMs,
+        'autoPick': false,
+        'grayscale': false,
+      }).timeout(const Duration(seconds: 30));
+    } catch (e, st) {
+      await _logVariantFailure(
+        exerciseId: exerciseId,
+        variant: 'color',
+        error: e,
+        stack: st,
+        contextKind: contextKind,
+      );
+    }
+
+    // Line-drawing thumbnail (used for line treatment). Sampled from the
+    // converted line video at the same offset (raw + line are produced in
+    // lock-step so the timeline matches). Skipped when there's no converted
+    // path.
+    if (convertedPath != null) {
+      try {
+        final resolvedConverted = PathResolver.resolve(convertedPath);
+        final linePath = p.join(thumbDir, '${exerciseId}_thumb_line.jpg');
+        await _thumbChannel
+            .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+          'inputPath': resolvedConverted,
+          'outputPath': linePath,
+          'timeMs': pickedMs,
+          'autoPick': false,
+          'grayscale': false,
+        }).timeout(const Duration(seconds: 30));
+      } catch (e, st) {
+        await _logVariantFailure(
+          exerciseId: exerciseId,
+          variant: 'line',
+          error: e,
+          stack: st,
+          contextKind: contextKind,
+        );
+      }
+    }
+
+    return _ThumbnailVariantResult(
+      bwOk: bwOk,
+      pickedMs: pickedMs,
+      autoHeroCropOffset: autoHeroCropOffset,
+    );
+  }
+
   /// `regen_no_source`) so the same `variant` shows up with different
   /// context labels in the log without needing a separate log-writer per
   /// caller.
@@ -3504,6 +3527,35 @@ class _ConvertResult {
   void clearSafeVariant() {
     safePath = null;
   }
+}
+
+/// Result of [ConversionService._extractThumbnailVariants] — the three
+/// values both call sites historically read out of the B&W extract pass
+/// to stamp onto the exercise row. The helper performs the file writes +
+/// per-variant failure logging itself; the caller applies these values
+/// via its own `copyWith` so the divergent model-stamping at each site is
+/// preserved verbatim.
+///
+///   * [bwOk]              — the B&W (canonical practitioner thumbnail)
+///                           extract succeeded. `_processQueue` reads this
+///                           to emit a debug line on loss; regen ignores it.
+///   * [pickedMs]          — the timeMs the native side resolved (echoes
+///                           the requested offset unless autoPick chose a
+///                           motion-peak frame). `_processQueue` round-
+///                           trips this into `focusFrameOffsetMs` and uses
+///                           it as the offset for the color + line passes.
+///   * [autoHeroCropOffset]— the native segmentation centroid, adopted as
+///                           the default hero crop offset when present.
+class _ThumbnailVariantResult {
+  final bool bwOk;
+  final int pickedMs;
+  final double? autoHeroCropOffset;
+
+  _ThumbnailVariantResult({
+    required this.bwOk,
+    required this.pickedMs,
+    required this.autoHeroCropOffset,
+  });
 }
 
 /// Per-exercise Safe Mode v2 video conversion progress event
