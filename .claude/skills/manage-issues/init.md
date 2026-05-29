@@ -148,17 +148,19 @@ replace everything between the markers, leave the rest untouched.
 
 During any working session in this repo, do not let new features/bugs/ideas
 derail the task at hand. When something raised is a **distinct, scope-expanding
-unit of work** (not a clarification or sub-step of what we're doing):
+unit of work** (not a clarification, sub-step, or correction of the current task):
 
-- Dispatch the **intake skill in a background sub-agent** to file it as a GitHub
-  issue with a rich, front-loaded body, then carry on — announce it in one line
-  ("Filed #N — parking it, back to X"). A one-word veto from Carl pulls it back
-  (close the issue).
-- Explicit triggers `park` / `stack` / `log` also file on demand.
-- Never block the conversation to ask permission first; file + notice + continue.
+- Dispatch the **`manage-issues-intake` skill in a background sub-agent** to file
+  it as a GitHub issue (rich, front-loaded body; **bare in TRIAGE** — no labels,
+  no assignee), then carry on. Announce in one line ("Filed #N — parking it, back
+  to X"). A one-word veto from Carl pulls it back (close the issue).
+- Explicit triggers: **park / log / capture / stack it / "file an issue"**.
+  Default **one issue per distinct item**; on a burst, **"stack these as one"**
+  bundles them into a single checklist issue. ("stack" routes here — it replaces
+  the old local-stack-file mechanism.)
+- Never block the conversation to ask permission first: file + notice + continue.
 
-See the intake skill for the issue shape; it complies with the manage-issues
-state machine (lands bare in TRIAGE).
+The sweep (`manage-issues`) classifies and routes from there.
 <!-- managed-issues:intake end -->
 ```
 

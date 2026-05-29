@@ -436,6 +436,18 @@ The three cadences live in the same repo on purpose. A web tweak doesn't need a 
 - `app/ios/Runner/PrivacyInfo.xcprivacy` — Apple privacy manifest. 8 collected-data-type declarations; must mirror `docs/app-store-connect-privacy.md` and the App Store Connect form Carl fills in.
 - `web-portal/src/app/privacy/page.tsx` + `web-portal/src/app/terms/page.tsx` — POPIA-aligned scaffolds with bracketed placeholders for legal-pending wording.
 
+<!-- managed-issues:intake start -->
+## Issue intake discipline (managed-issues)
+
+During any working session in this repo, do not let new features/bugs/ideas derail the task at hand. When something raised is a **distinct, scope-expanding unit of work** (not a clarification, sub-step, or correction of the current task):
+
+- Dispatch the **`manage-issues-intake` skill in a background sub-agent** to file it as a GitHub issue (rich, front-loaded body; **bare in TRIAGE** — no labels, no assignee), then carry on. Announce in one line ("Filed #N — parking it, back to X"). A one-word veto from Carl pulls it back (close the issue).
+- Explicit triggers: **park / log / capture / stack it / "file an issue"**. Default **one issue per distinct item**; on a burst, **"stack these as one"** bundles them into a single checklist issue. ("stack" routes here — it replaces the old local-stack-file mechanism.)
+- Never block the conversation to ask permission first: file + notice + continue.
+
+The sweep (`manage-issues`) classifies and routes from there.
+<!-- managed-issues:intake end -->
+
 ## Development Guidelines
 
 - Favour speed and validation over perfection — MVP ship window is 2 weeks
