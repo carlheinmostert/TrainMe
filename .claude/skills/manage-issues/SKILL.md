@@ -23,6 +23,7 @@ This skill is a **state machine** whose inbox/control surface is a **GitHub Proj
 The first argument selects the mode (default is the sweep):
 
 - **sweep** (default) — `/manage-issues [owner/repo]` runs the unattended state machine. **Never merges.**
+- **dry-run** — `/manage-issues dry-run [owner/repo]` runs the full read + decide pass but makes **no state changes**: instead of acting, it posts/refreshes a "what I'd do" proposal comment on each issue (see [Dry run](#dry-run)). Safe to run as often as you like.
 - **merge** — `/manage-issues merge [owner/repo]` runs the sweep *with merge authorised* (key 2 of the two-key merge model — see [Merge mode](#merge-mode)). Merges only PRs Carl has already approved.
 - **init** — `/manage-issues init [owner/repo]` reconciles a repo to the desired state. Runbook: [`init.md`](init.md). Run once per repo before sweeping.
 
@@ -87,12 +88,12 @@ Commands are honoured the same way whether issued by **moving a card** or by a *
 
 ## Bot identity & idempotency
 
-The token is Carl's own account (`carlheinmostert`), so bot comments and Carl's comments share an author. Every bot comment MUST:
+The token is Carl's own account (`carlheinmostert`), so bot comments and Carl's comments share an author. Every bot comment opens with `> _Automated triage. A human reviews before anything merges._` and ends with a hidden marker:
 
-1. End with the hidden marker `<!-- managed-issue-bot -->`.
-2. Open with `> _Automated triage. A human reviews before anything merges._`
+- **Action comments** (grills, specs, fix proposals, PR links): `<!-- managed-issue-bot -->`.
+- **Dry-run proposals**: `<!-- managed-issue-bot:dry-run -->` (transient scaffolding — see [Dry run](#dry-run)).
 
-**"The logger replied"** = the newest comment does **not** carry the marker AND is newer than the last that does.
+**"The logger replied"** = the newest comment that is **not** a bot comment (carries *neither* marker) is newer than the last bot *action* comment. **Dry-run comments are ignored** in this check, so a proposal sitting at the bottom never masks a real reply.
 
 ## Control commands (`/go`, `/close`, `/hold`)
 
@@ -172,6 +173,20 @@ A merged PR does **not** close its issue (it used `Refs #N`). On detecting the m
 ## Merge mode
 
 Default sweeps never merge. **Two keys:** (1) Carl approves a specific PR — `/go`/`Go` on its `awaiting-merge` card, or a GitHub PR approval; (2) the run is invoked as `/manage-issues merge`. Only with **both** does the bot merge, and only PRs that are **approved + CI-green + cleanly mergeable + targeting the integration branch** — never `main`, never force. A merged PR flows to `status:awaiting-validation`. Approved-but-not-merged (no merge mode) stays put, reported as "approved, awaiting a merge pass".
+
+## Dry run
+
+`dry-run` mode runs the entire read + decide pass — config, board-sync *plan*, command detection, per-issue decisions, throttle — but performs **no state changes**: no labels, no board moves, no branches, no PRs, no merges, no closes. Its *only* write is a proposal comment per issue.
+
+Per issue, each dry run:
+
+1. **Delete** the bot's previous dry-run comment, if any (the bot owns it).
+2. **Re-read the whole thread** — so it incorporates any feedback Carl added since the last dry run.
+3. **Post a fresh proposal as the newest comment**, marked `<!-- managed-issue-bot:dry-run -->`, stating the decided next step and how to approve it ("reply `/go`, or drag the card to **Go**"; `/hold` to park, `/close` to close).
+
+So there is never more than one dry-run comment per issue; it always sits at the **bottom** (its position is the proof it accounted for everything above it); and it is never stale. Dry-run comments are disposable scaffolding — the permanent record is the real action comments + human replies.
+
+A **live** sweep deletes any lingering dry-run comment on an issue when it acts on that issue (the proposal has been consumed). Dry-run is safe to run as often as Carl likes; the hourly Routine may even be run **dry by default**, flipping a run to live only when Carl is comfortable.
 
 ## Throttle
 
