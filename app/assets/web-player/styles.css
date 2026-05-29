@@ -850,13 +850,58 @@ body.is-embedded .active-slide-title {
   z-index: 1;
 }
 
-/* === Play/pause toggle (top-right of card-viewport) ==============
+/* === Persistent mute toggle (TOP of the right-edge chrome stack) ===
+   Re-exposed in #586 so audio is reachable on BOTH the lobby and the
+   deck regardless of the per-exercise `include_audio` default. Always
+   visible (unlike play/pause, which is workout-mode only). Same visual
+   chrome as fullscreen + settings; the icon swaps speaker-on/off via
+   updateMuteToggle() so it mirrors the effective mute state. */
+.mute-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--c-brand);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.mute-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.mute-toggle:active {
+  transform: scale(0.92);
+}
+.mute-toggle svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke: currentColor;
+}
+.mute-toggle svg[hidden] {
+  display: none;
+}
+.mute-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* === Play/pause toggle (top-right of card-viewport, BELOW mute) ===
    YouTube-style icon-swap button. Same visual chrome as fullscreen +
    settings. Hidden outside workout mode (the tap-to-pause on the
    media area still handles preview interactions). */
 .playpause-toggle {
   position: absolute;
-  top: 12px;
+  top: 60px;
   right: 12px;
   width: 40px;
   height: 40px;
@@ -913,7 +958,7 @@ body.is-embedded .active-slide-title {
 /* === Fullscreen toggle (top-right of card-viewport, BELOW playpause) === */
 .fullscreen-toggle {
   position: absolute;
-  top: 60px;
+  top: 108px;
   right: 12px;
   width: 40px;
   height: 40px;
@@ -953,7 +998,7 @@ body.is-embedded .active-slide-title {
    column so the video stays uncluttered when not maximised. */
 .settings-toggle {
   position: absolute;
-  top: 108px;
+  top: 156px;
   right: 12px;
   width: 40px;
   height: 40px;
@@ -990,17 +1035,19 @@ body.is-embedded .active-slide-title {
   outline-offset: 2px;
 }
 
-/* Right-edge chrome column: [playpause top:12], [fullscreen top:60],
-   [settings top:108]. Each rule pins its own coords above. The
-   standalone mute speaker was retired in Wave 42 — gear panel only. */
+/* Right-edge chrome column: [mute top:12], [playpause top:60],
+   [fullscreen top:108], [settings top:156]. Each rule pins its own
+   coords above. The persistent mute toggle was re-exposed at the top
+   of the stack in #586 (it had been retired to the gear panel in
+   Wave 42). */
 
 /* === Settings popover ============================================= */
 .settings-popover {
   position: absolute;
-  /* Anchored just below the gear button. The gear sits at top:108 (third
-     in the vertical chrome stack) — popover offsets by another
+  /* Anchored just below the gear button. The gear sits at top:156
+     (fourth in the vertical chrome stack) — popover offsets by another
      button-height + gap (40 + 8 = 48) so they don't overlap. */
-  top: 156px;
+  top: 204px;
   right: 12px;
   z-index: 30;
   min-width: 296px;
@@ -2300,8 +2347,9 @@ body.is-fullscreen .edge-nav:disabled {
   opacity: 0.15;
 }
 
-/* Fullscreen + playpause toggles are always 100% alpha so the user
-   can always exit fullscreen / pause the workout. */
+/* Mute + fullscreen + playpause toggles are always 100% alpha so the
+   user can always reach audio / exit fullscreen / pause the workout. */
+body.is-fullscreen .mute-toggle,
 body.is-fullscreen .fullscreen-toggle,
 body.is-fullscreen .playpause-toggle {
   opacity: 1;
@@ -2442,24 +2490,30 @@ body.is-fullscreen .playpause-toggle {
   }
 
   /* Right-edge chrome: tighten the stack so it doesn't letterbox into
-     the card area on the shorter canvas. Wave 42 retired the standalone
-     mute speaker — gear panel is the only mute entry point now. */
+     the card area on the shorter canvas. The persistent mute toggle
+     (#586) sits at the top of the stack; the rest follow on the same
+     42px stride. */
+  .mute-toggle,
   .playpause-toggle,
   .fullscreen-toggle,
   .settings-toggle {
     width: 36px;
     height: 36px;
   }
-  .playpause-toggle {
+  .mute-toggle {
     top: 8px;
     right: 8px;
   }
-  .fullscreen-toggle {
+  .playpause-toggle {
     top: 50px;
     right: 8px;
   }
-  .settings-toggle {
+  .fullscreen-toggle {
     top: 92px;
+    right: 8px;
+  }
+  .settings-toggle {
+    top: 134px;
     right: 8px;
   }
 
@@ -2468,7 +2522,7 @@ body.is-fullscreen .playpause-toggle {
      lower-right corner. Keep its anchor under the gear button + cap the
      width so it sits as a proper floating card. */
   .settings-popover {
-    top: 134px;
+    top: 182px;
     right: 8px;
     min-width: 280px;
     max-width: 360px;
@@ -3594,6 +3648,52 @@ video.lobby-hero-media {
   height: 22px;
   display: block;
   stroke: currentColor;
+}
+
+/* Lobby mute button — sits in the sticky CTA bar so audio is reachable
+   pre-workout (#586). Mirrors .lobby-gear-btn shape so the two buttons
+   read as one cluster. Coral when audio is ON (unmuted) — matching the
+   "active/overridden" colour language the deck chrome uses. The icon
+   swaps speaker-on/off via updateMuteToggle(). */
+.lobby-mute-btn {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-base);
+  color: var(--c-ink-secondary);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+.lobby-mute-btn:hover {
+  background: var(--c-surface-raised);
+  color: var(--c-ink-primary);
+}
+.lobby-mute-btn:active { transform: scale(0.96); }
+.lobby-mute-btn:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.lobby-mute-btn[aria-pressed="false"] {
+  color: var(--c-brand);
+  border-color: var(--c-brand);
+}
+.lobby-mute-btn svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  stroke: currentColor;
+}
+.lobby-mute-btn svg[hidden] {
+  display: none;
 }
 
 /* Lobby share button — sits next to the gear, triggers the lobby PDF
