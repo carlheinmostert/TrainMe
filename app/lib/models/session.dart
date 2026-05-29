@@ -390,9 +390,19 @@ class Session {
   }
 
   /// Return a new Session with the cycle count updated for a circuit.
+  ///
+  /// [cycles] must be >= 1. The inter-round rest term in
+  /// [estimatedTotalDurationSeconds] (`(cycles - 1) * restBetweenCircuitRounds`)
+  /// relies on this invariant; a sub-1 value would silently corrupt the
+  /// estimated duration and the credit cost derived from it. Rather than
+  /// clamp invalid input (which hides UI/data-integrity bugs from the
+  /// caller — see issue #578), throw so the bad value surfaces.
   Session setCircuitCycles(String circuitId, int cycles) {
+    if (cycles < 1) {
+      throw ArgumentError.value(cycles, 'cycles', 'must be >= 1');
+    }
     final updated = Map<String, int>.from(circuitCycles);
-    updated[circuitId] = cycles.clamp(1, 5);
+    updated[circuitId] = cycles;
     return copyWith(circuitCycles: updated);
   }
 
