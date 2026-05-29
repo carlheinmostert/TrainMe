@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 50;
+  static const _dbVersion = 51;
 
   Database? _db;
 
@@ -1487,6 +1487,49 @@ class LocalStorageService {
       // immediately via the existing `sessions.last_content_edit_at`
       // signal (untouched by this migration).
       await _addColumnIfMissing(db, 'exercises', 'last_edited_at', 'INTEGER');
+    }
+
+    if (oldVersion < 51) {
+      // Serialize MediaType / ConversionStatus by NAME, not ordinal (#572).
+      //
+      // ExerciseCapture.toMap now writes the enum `.name` string instead
+      // of `.index`. Names survive enum reorders / insertions; ordinals
+      // silently corrupt persisted state if a value is ever inserted
+      // mid-enum. This block backfills existing rows that still hold the
+      // legacy INTEGER ordinals, converting each to its string name.
+      //
+      // SQLite columns are dynamically typed — the `media_type` /
+      // `conversion_status` columns were declared INTEGER but happily
+      // accept TEXT, so no column-type DDL is needed; we just rewrite the
+      // cell values. The CASE mapping uses the ACTUAL enum declaration
+      // order in app/lib/models/exercise_capture.dart:
+      //   MediaType        { photo=0, video=1, rest=2 }
+      //   ConversionStatus { pending=0, converting=1, done=2, failed=3 }
+      //
+      // The `WHERE typeof(...) = 'integer'` guard keeps this idempotent and
+      // safe against any rows already written as names (e.g. a mixed DB
+      // after a partial run) — only integer cells are rewritten.
+      await db.execute('''
+        UPDATE exercises
+        SET media_type = CASE media_type
+          WHEN 0 THEN 'photo'
+          WHEN 1 THEN 'video'
+          WHEN 2 THEN 'rest'
+          ELSE 'photo'
+        END
+        WHERE typeof(media_type) = 'integer'
+      ''');
+      await db.execute('''
+        UPDATE exercises
+        SET conversion_status = CASE conversion_status
+          WHEN 0 THEN 'pending'
+          WHEN 1 THEN 'converting'
+          WHEN 2 THEN 'done'
+          WHEN 3 THEN 'failed'
+          ELSE 'pending'
+        END
+        WHERE typeof(conversion_status) = 'integer'
+      ''');
     }
   }
 
