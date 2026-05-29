@@ -312,6 +312,7 @@ class Session {
   Session copyWith({
     String? clientName,
     String? title,
+    bool clearTitle = false,
     List<ExerciseCapture>? exercises,
     DateTime? sentAt,
     String? planUrl,
@@ -342,7 +343,7 @@ class Session {
     return Session(
       id: id,
       clientName: clientName ?? this.clientName,
-      title: title ?? this.title,
+      title: clearTitle ? null : (title ?? this.title),
       exercises: exercises ?? this.exercises,
       createdAt: createdAt,
       sentAt: sentAt ?? this.sentAt,
