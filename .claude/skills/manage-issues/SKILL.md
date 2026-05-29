@@ -17,6 +17,13 @@ This skill is a **state machine**. The issue's label *is* its state; the sweep i
 - `$OWNER` — the human whose commands the bot obeys and who holds the developer gates. Defaults to `carlheinmostert`.
 - Everything else is read live from the issues.
 
+## Modes
+
+The first argument selects the mode (default is the sweep):
+
+- **sweep** (default) — `/manage-issues [owner/repo]` runs the unattended state machine below over the repo's open issues.
+- **init** — `/manage-issues init [owner/repo]` reconciles a repo to the desired state: labels · Projects board ("Stage" field columns) · the CLAUDE.md intake memory rule · `.github/managed-issues.json` config. Idempotent and safe to re-run after a skill update. Full runbook: [`init.md`](init.md). Run once per repo before sweeping.
+
 ## Non-negotiable safety rules
 
 These hold on every repo, every run. Violating the letter is violating the spirit.
