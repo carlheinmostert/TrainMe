@@ -373,6 +373,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           "Couldn't track everyone in the shot — try a different angle.",
         SafeModeRejectionReason.missingFaceEmbedding =>
           "Face fingerprint isn't ready — try again in a moment.",
+        // Issue #587 — the native Safe Mode privacy pass failed (timeout,
+        // plugin glitch, or no safe variant produced). We fail closed and
+        // refuse the capture rather than upload the raw, un-blurred
+        // original. Tell the practitioner the blur didn't run so they can
+        // retry — never silently keep the un-blurred shot.
+        SafeModeRejectionReason.passFailed =>
+          "Couldn't blur this capture — nothing was saved. Try again.",
       };
     });
     _safeToastClearTimer = Timer(const Duration(seconds: 4), () {

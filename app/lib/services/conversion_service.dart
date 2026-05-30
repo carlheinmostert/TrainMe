@@ -202,6 +202,17 @@ enum SafeModeRejectionReason {
   /// uploading the un-blurred raw archive would breach the privacy
   /// contract, so we reject the capture instead.
   missingFaceEmbedding,
+
+  /// The native Safe Mode privacy pass itself failed — a platform-channel
+  /// error (`PlatformException`), a timeout, a missing native plugin, a
+  /// native-reported failure, or the safe-variant file never landing on
+  /// disk. The embedding was present and the subject identifiable, but
+  /// no safe variant could be produced. Issue #587: this MUST fail closed
+  /// (hard-refuse the capture) rather than fall through to uploading the
+  /// raw, un-blurred original — mirroring the [missingFaceEmbedding]
+  /// refusal. Per `feedback_no_silent_fallbacks`, a privacy-pass failure
+  /// is never a silent "publish without blurring" path.
+  passFailed,
 }
 
 /// Thrown by [ConversionService] when a Safe Mode capture cannot be
@@ -1364,26 +1375,53 @@ class ConversionService extends ChangeNotifier {
             if (await File(candidate).exists()) {
               safePhotoPath = candidate;
               safePhotoMissRate = missRate;
+            } else {
+              // Issue #587 — native call returned but the safe-variant
+              // JPG never landed on disk. The embedding was present and
+              // the subject identifiable, yet we have no blurred output.
+              // Fail closed: refuse rather than fall through to the raw
+              // capture below (`canonicalSource ?? rawFilePath`), which
+              // would upload un-blurred bystanders.
+              throw SafeModeRejection(
+                exercise.id,
+                missRate,
+                reason: SafeModeRejectionReason.passFailed,
+              );
             }
+          } on SafeModeRejection {
+            // Already a fail-closed refusal (the missing-file branch
+            // above) — propagate verbatim to the queue handler. Don't
+            // let the catch below re-wrap / swallow it.
+            rethrow;
           } catch (e, stack) {
-            debugPrint(
-              'Photo Safe Mode v2 pass failed for ${exercise.id}: $e — '
-              'falling through with safe=null; downstream passes will '
-              'fall back to the raw capture (un-blurred bystanders may '
-              'surface — outer queue handler may still throw '
-              'SafeModeRejection based on missRate when applicable).',
-            );
+            // Issue #587 (approved via /go — hard-refuse for photo +
+            // video). The native Safe Mode privacy pass threw — a
+            // platform-channel error, a timeout, or a null/StateError
+            // response. Previously this logged and fell through with
+            // `safePhotoPath = null`, so `canonicalSource` defaulted to
+            // the RAW capture and the un-blurred photo uploaded to the
+            // cloud raw-archive — a silent privacy fallback. We now FAIL
+            // CLOSED: surface a [SafeModeRejection] so the queue handler
+            // deletes the exercise row and the capture screen shows the
+            // coral rejection toast, mirroring the missing-embedding
+            // refusal above (`feedback_no_silent_fallbacks`).
             try {
               final logDir = await getApplicationDocumentsDirectory();
               final logFile =
                   File(p.join(logDir.path, 'conversion_error.log'));
               await logFile.writeAsString(
-                '${DateTime.now()} [applySafeModeV2ToPhoto failed]\n$e\n$stack\n\n',
+                '${DateTime.now()} [applySafeModeV2ToPhoto failed — '
+                'failing closed per #587]\n$e\n$stack\n\n',
                 mode: FileMode.append,
               );
             } catch (_) {
               // Sanctioned log-of-log swallow.
             }
+            throw SafeModeRejection(
+              exercise.id,
+              0.0,
+              reason: SafeModeRejectionReason.passFailed,
+            );
           }
 
           // Wave M41 (2026-05-26) — match-log toggle. When ON, run the
@@ -2035,7 +2073,22 @@ class ConversionService extends ChangeNotifier {
           'applySafeModeV2ToVideo: native side reported failure for '
           '${exercise.id} (result=$result)',
         );
-        return const _SafeModeV2VideoOutcome();
+        // Issue #587 (approved via /go — hard-refuse for photo + video).
+        // The native pass returned but reported it could not produce a
+        // safe variant. Previously this returned an empty outcome
+        // (`safePath = null`), so `_ConvertResult.safePath` stayed null,
+        // `UploadService` stamped no `safeRawFilePath`, and the RAW
+        // un-blurred video uploaded to the cloud raw-archive — a silent
+        // privacy fallback. FAIL CLOSED: throw a [SafeModeRejection] so
+        // the outer catch (`on SafeModeRejection { rethrow; }` at the
+        // caller) propagates it to the queue handler, the exercise row
+        // is deleted, and the coral rejection toast fires — mirroring the
+        // missing-embedding refusal above (`feedback_no_silent_fallbacks`).
+        throw SafeModeRejection(
+          exercise.id,
+          0.0,
+          reason: SafeModeRejectionReason.passFailed,
+        );
       }
 
       final missRate =
@@ -2054,32 +2107,102 @@ class ConversionService extends ChangeNotifier {
       // success but a downstream disk error could still leave the
       // file absent.
       final destExists = await File(destPath).exists();
+      if (!destExists) {
+        // Issue #587 — native call returned success but the safe-variant
+        // MP4 never landed on disk. The embedding was present and the
+        // subject identifiable, yet we have no blurred output. Fail
+        // closed: refuse rather than return `safePath = null` and fall
+        // through to the raw capture, which would upload un-blurred
+        // bystanders. Mirrors the photo missing-file branch.
+        throw SafeModeRejection(
+          exercise.id,
+          missRate,
+          reason: SafeModeRejectionReason.passFailed,
+        );
+      }
       return _SafeModeV2VideoOutcome(
-        safePath: destExists ? destPath : null,
+        safePath: destPath,
         safeMissRate: missRate,
       );
+    } on SafeModeRejection {
+      // Already a fail-closed refusal (the native-failure / missing-file
+      // branches above) — propagate verbatim. Don't let the broader
+      // catches below re-wrap or swallow it.
+      rethrow;
     } on PlatformException catch (e, stack) {
       debugPrint(
         'applySafeModeV2ToVideo failed for ${exercise.id}: '
         '${e.code} - ${e.message}',
       );
+      // Issue #587 (approved via /go — hard-refuse for photo + video).
+      // The native Safe Mode privacy pass threw a platform-channel error
+      // or timed out. Previously this logged and returned an empty
+      // outcome (`safePath = null`), so the RAW un-blurred video uploaded
+      // to the cloud raw-archive — a silent privacy fallback. FAIL
+      // CLOSED: surface a [SafeModeRejection] so the queue handler
+      // deletes the exercise row and the coral rejection toast fires,
+      // mirroring the photo path (`feedback_no_silent_fallbacks`).
       try {
         final logDir = await getApplicationDocumentsDirectory();
         final logFile = File(p.join(logDir.path, 'conversion_error.log'));
         await logFile.writeAsString(
-          '${DateTime.now()} [applySafeModeV2ToVideo failed]\n$e\n$stack\n\n',
+          '${DateTime.now()} [applySafeModeV2ToVideo failed — '
+          'failing closed per #587]\n$e\n$stack\n\n',
           mode: FileMode.append,
         );
       } catch (_) {
         // Sanctioned log-of-log swallow.
       }
-      return const _SafeModeV2VideoOutcome();
+      throw SafeModeRejection(
+        exercise.id,
+        0.0,
+        reason: SafeModeRejectionReason.passFailed,
+      );
     } on MissingPluginException {
+      // Issue #587 — the native channel is unavailable (e.g. non-iOS
+      // platform with no Safe Mode pipeline). Safe Mode was requested for
+      // this capture but cannot be honoured, so there is no way to blur
+      // bystanders. Previously this returned an empty outcome and the raw
+      // video uploaded un-blurred. FAIL CLOSED to match the photo path's
+      // catch-all, which also treats a missing native pass as a refusal.
       debugPrint(
         'applySafeModeV2ToVideo: native channel not available '
-        '(not iOS?) — Safe Mode pass skipped',
+        '(not iOS?) — failing closed per #587 (no raw upload)',
       );
-      return const _SafeModeV2VideoOutcome();
+      throw SafeModeRejection(
+        exercise.id,
+        0.0,
+        reason: SafeModeRejectionReason.passFailed,
+      );
+    } catch (e, stack) {
+      // Issue #587 — catch-all for any other privacy-pass failure that
+      // isn't a SafeModeRejection: the 3-minute [TimeoutException] thrown
+      // by `onTimeout`, a [StateError], a malformed-result cast, etc.
+      // Previously these propagated as a raw exception to `_convert`'s
+      // `catch (e, stack)`, which fell through to frame-extraction of the
+      // RAW UNBLURRED video — a silent privacy fallback. FAIL CLOSED:
+      // convert to a [SafeModeRejection] so the capture is refused and no
+      // raw upload occurs. Mirrors the photo path's broad catch.
+      debugPrint(
+        'applySafeModeV2ToVideo failed (non-platform) for ${exercise.id}: '
+        '$e — failing closed per #587',
+      );
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [applySafeModeV2ToVideo failed (non-platform) — '
+          'failing closed per #587]\n$e\n$stack\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {
+        // Sanctioned log-of-log swallow.
+      }
+      throw SafeModeRejection(
+        exercise.id,
+        0.0,
+        reason: SafeModeRejectionReason.passFailed,
+      );
     } finally {
       await progressSub?.cancel();
     }
