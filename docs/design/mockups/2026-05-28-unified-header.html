@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unified artefact header — proposed (2026-05-28)</title>
+<style>
+  :root{
+    --bg:#0F1117; --surface:#171A22; --surface2:#1E2230; --border:#2A2F3C;
+    --coral:#FF6B35; --sage:#86EFAC;
+    --ink:#F4F6FA; --ink2:#9AA3B2; --ink3:#6B7280;
+    /* Sample PRACTICE brand-skin (a teal physio brand) — NOT homefit coral.
+       Everything tinted with this is brandable / practice-provided. */
+    --brand:#0E9594; --brand-tint:rgba(14,149,148,0.14); --brand-bd:rgba(14,149,148,0.40);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:Inter,-apple-system,system-ui,sans-serif;line-height:1.5;padding:30px 20px 80px}
+  h1{font-family:Montserrat,sans-serif;font-weight:800;font-size:24px;margin:0 0 6px}
+  .sub{color:var(--ink2);max-width:840px;margin:0 0 18px}
+  code{background:#0b0d12;padding:1px 5px;border-radius:5px;color:#cdd5e2;font-size:12px}
+
+  .legend{max-width:880px;margin:0 auto 30px;display:flex;flex-wrap:wrap;gap:10px 22px;
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px}
+  .legend .li{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}
+  .sw{width:16px;height:16px;border-radius:4px;flex:none}
+  .sw.brand{background:var(--brand)} .sw.coral{background:var(--coral)} .sw.sage{background:var(--sage)}
+  .sw.fix{background:var(--surface2);border:1px solid var(--border)}
+  .pin{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;
+    background:var(--brand);color:#04201f;font-weight:800;font-size:12px;font-family:Montserrat;flex:none}
+
+  .stage{display:flex;gap:46px;justify-content:center;flex-wrap:wrap;align-items:flex-start}
+  .col{width:344px}
+  .col h3{font-family:Montserrat;text-align:center;font-size:15px;margin:0 0 2px}
+  .col .url{text-align:center;color:var(--ink3);font-size:12px;font-family:ui-monospace,monospace;margin:0 0 12px}
+  .phone{position:relative;background:var(--bg);border:1px solid var(--border);
+    border-radius:26px;padding:16px 14px 18px;box-shadow:0 10px 44px rgba(0,0,0,.45);overflow:hidden}
+
+  /* ---- the UNIFIED header (identical markup on both) ---- */
+  .hdr{position:relative}
+  .x{position:absolute;top:-2px;left:-2px;width:28px;height:28px;border-radius:50%;background:#000;
+    color:var(--coral);display:grid;place-items:center;font-weight:700;font-size:15px}
+  .printbtn{position:absolute;top:-4px;right:-2px;width:42px;height:38px;border-radius:10px;
+    background:var(--surface2);border:1px solid var(--border);display:grid;place-items:center;font-size:18px}
+  .brandrow{display:flex;align-items:center;gap:10px;margin:34px 0 2px}
+  .logo{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center;
+    background:var(--brand);color:#fff;font-family:Montserrat;font-weight:800;font-size:19px;
+    box-shadow:0 0 0 1px var(--brand-bd)}
+  .pname{font-family:Montserrat;font-weight:800;font-size:18px}
+  .tagline{color:var(--ink2);font-size:12.5px;font-style:italic;margin:0 0 0 48px}
+  .ctx{margin:12px 0 10px}
+  .greet{font-family:Montserrat;font-weight:800;font-size:20px}
+  .meta{color:var(--ink2);font-size:13px}
+  .meta2{color:var(--ink3);font-size:12px}
+  .cta{display:inline-flex;align-items:center;gap:7px;margin-top:10px;
+    background:var(--brand-tint);border:1px solid var(--brand-bd);color:var(--brand);
+    font-weight:700;font-size:13px;padding:7px 13px;border-radius:10px}
+  .cta b{color:var(--ink)}
+  .rule{height:1px;background:var(--border);margin:12px 0}
+
+  /* pill matrix (lobby only) */
+  .pills{display:flex;gap:7px;margin:10px 0 2px;flex-wrap:wrap}
+  .pill{width:54px;height:26px;border-radius:7px;background:var(--surface2);border:1px solid var(--border)}
+  .pill.on{background:var(--brand);border-color:var(--brand)}
+
+  /* get-app block (homefit, plain, top) */
+  .getapp{display:flex;gap:11px;align-items:center;background:var(--surface);
+    border:1px solid var(--border);border-radius:13px;padding:11px;margin:10px 0}
+  .galyph{width:42px;height:32px;border-radius:8px;flex:none;background:var(--surface2);
+    border:1px solid var(--border);display:grid;place-items:center;font-size:9px;letter-spacing:1px}
+  .galyph .c{color:var(--coral)} .galyph .s{color:var(--sage)} .galyph .g{color:var(--ink3)}
+  .getapp .t{font-family:Montserrat;font-weight:700;font-size:14px}
+  .getapp .d{color:var(--ink3);font-size:11.5px}
+
+  /* circuit + cards */
+  .circuit-h{display:flex;justify-content:space-between;align-items:center;background:var(--surface);
+    border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin:14px 0 8px}
+  .circuit-h .lbl{font-family:Montserrat;font-weight:800;color:var(--brand);letter-spacing:.04em}
+  .x3{border:1px solid var(--brand-bd);color:var(--brand);border-radius:20px;padding:2px 10px;font-weight:700;font-size:13px}
+  .nest{border:1px solid var(--brand-bd);border-radius:16px;padding:5px;box-shadow:0 0 0 4px rgba(14,149,148,.07)}
+  .card{display:flex;gap:12px;align-items:center;background:#0c0e14;border:1px solid var(--border);
+    border-radius:13px;padding:10px;margin:5px 0}
+  .card.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
+  .hero{width:104px;height:104px;border-radius:12px;flex:none;
+    background:linear-gradient(135deg,#3a3f4b,#20242e);filter:grayscale(1)}
+  .hero.line{background:repeating-linear-gradient(45deg,#e8e8e8 0 2px,#cfcfcf 2px 4px),#dcdcdc;filter:none}
+  .cname{font-family:Montserrat;font-weight:700;font-size:17px}
+  .csub{color:var(--ink2);font-size:13px}
+
+  /* footer seal (FIXED homefit) */
+  .seal{display:flex;justify-content:space-between;align-items:center;background:var(--surface);
+    border:1px solid var(--border);border-radius:13px;padding:11px;margin-top:14px}
+  .seal .pby{font-family:Montserrat;font-weight:800;font-size:13px}
+  .seal .pby .s{color:var(--coral)}
+  .seal .tl{color:var(--ink3);font-size:11px;margin-top:2px}
+  .qr{width:54px;height:54px;border-radius:7px;background:#fff;display:grid;place-items:center;
+    color:#0f1117;font-size:8px;text-align:center;font-weight:700;flex:none}
+  .startbtn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--coral);
+    color:#0f1117;font-family:Montserrat;font-weight:800;padding:13px;border-radius:13px;margin-top:12px}
+
+  /* annotation pins overlaid on header elements */
+  .anno{position:absolute;z-index:6;width:20px;height:20px;border-radius:50%;background:var(--brand);
+    color:#04201f;font-weight:800;font-size:12px;font-family:Montserrat;display:grid;place-items:center;
+    border:2px solid var(--bg)}
+  .note{max-width:880px;margin:26px auto 0;color:var(--ink3);font-size:12.5px;text-align:center}
+</style>
+</head>
+<body>
+  <h1>Unified artefact header — proposed</h1>
+  <p class="sub">Both surfaces share ONE header. Shown for a <b>brand-skinned</b> practice ("Apex Physio", brand colour teal) so you can see the practice-provided fields in place. When a practice is NOT subscribed, the brand row falls back to the fixed <code>homefit.studio</code> wordmark and the practice CTA is hidden. The only intended first-page differences: <b>Print</b> button (printable) and the <b>pill matrix + Start workout</b> (interactive).</p>
+
+  <div class="legend">
+    <div class="li"><span class="pin">1</span> Practice logo <code>public_logo_url</code></div>
+    <div class="li"><span class="pin">2</span> Practice name <code>name</code></div>
+    <div class="li"><span class="pin">3</span> Tagline <code>tagline</code></div>
+    <div class="li"><span class="pin">4</span> Brand colour <code>brand_color</code></div>
+    <div class="li"><span class="pin">5</span> Practice CTA <code>contact_whatsapp</code></div>
+    <span style="flex-basis:100%;height:0"></span>
+    <div class="li"><span class="sw brand"></span> brandable (practice-provided)</div>
+    <div class="li"><span class="sw coral"></span> homefit-fixed (footer seal)</div>
+    <div class="li"><span class="sw sage"></span> semantic (rest)</div>
+    <div class="li"><span class="sw fix"></span> neutral / data</div>
+  </div>
+
+  <div class="stage">
+    <!-- ============ PRINTABLE /h/ ============ -->
+    <div class="col">
+      <h3>Printable Workout Guide</h3>
+      <p class="url">/h/{planId}</p>
+      <div class="phone">
+        <div class="hdr">
+          <div class="printbtn" title="Print — the /h/-only difference">&#128424;</div>
+          <div class="anno" style="left:6px;top:36px">1</div>
+          <div class="anno" style="left:150px;top:36px">2</div>
+          <div class="anno" style="left:150px;top:78px">3</div>
+          <div class="brandrow">
+            <div class="logo">A</div>
+            <div class="pname">Apex Physio</div>
+          </div>
+          <div class="tagline">Move better, every day.</div>
+          <div class="ctx">
+            <div class="greet">Hi Sarah</div>
+            <div class="meta">9 exercises · ~15 min · 15 May 2026 11:44</div>
+            <div class="meta2">from Lindiwe</div>
+          </div>
+          <div class="cta" title="practice CTA → WhatsApp"><span>&#128172;</span> Message <b>Apex Physio</b>
+            <div class="anno" style="position:relative;left:6px;top:0">5</div>
+          </div>
+          <div class="anno" style="left:34px;top:18px">4</div>
+        </div>
+        <div class="rule"></div>
+        <div class="getapp">
+          <div class="galyph"><span class="g">··</span><span class="c">&#9642;&#9642;</span><span class="s">&#9642;</span></div>
+          <div><div class="t">Save this plan to your phone</div><div class="d">One tap · magic-link · all your plans</div></div>
+        </div>
+        <div class="circuit-h"><span class="lbl">CIRCUIT A</span><span class="x3">×3</span></div>
+        <div class="nest">
+          <div class="card active"><div class="hero line"></div><div><div class="cname">Exercise 1</div><div class="csub">1 × 10 reps · 30s rest · ~1:00</div></div></div>
+          <div class="card"><div class="hero"></div><div><div class="cname">Exercise 2</div><div class="csub">Reference position</div></div></div>
+        </div>
+        <div class="seal">
+          <div><div class="pby">powered by homefit<span class="s">.studio</span></div><div class="tl">Visual plans clients follow.</div></div>
+          <div class="qr">QR<br>/r/{code}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ INTERACTIVE /p/ ============ -->
+    <div class="col">
+      <h3>Interactive Workout Guide</h3>
+      <p class="url">/p/{planId}</p>
+      <div class="phone">
+        <div class="hdr">
+          <div class="x" title="dismiss (in-app)">&times;</div>
+          <div class="brandrow">
+            <div class="logo">A</div>
+            <div class="pname">Apex Physio</div>
+          </div>
+          <div class="tagline">Move better, every day.</div>
+          <div class="ctx">
+            <div class="greet">Hi Sarah</div>
+            <div class="meta">9 exercises · ~15 min · 15 May 2026 11:44</div>
+            <div class="meta2">from Lindiwe</div>
+          </div>
+          <div class="cta"><span>&#128172;</span> Message <b>Apex Physio</b></div>
+        </div>
+        <!-- pill matrix — the /p/-only element -->
+        <div class="pills" title="pill matrix — interactive, /p/ only">
+          <div class="pill on"></div><div class="pill on"></div><div class="pill on"></div>
+          <div class="pill"></div><div class="pill"></div>
+        </div>
+        <div class="rule"></div>
+        <div class="getapp">
+          <div class="galyph"><span class="g">··</span><span class="c">&#9642;&#9642;</span><span class="s">&#9642;</span></div>
+          <div><div class="t">Save this plan to your phone</div><div class="d">One tap · magic-link · all your plans</div></div>
+        </div>
+        <div class="circuit-h"><span class="lbl">CIRCUIT A</span><span class="x3">×3</span></div>
+        <div class="nest">
+          <div class="card active"><div class="hero line"></div><div><div class="cname">Exercise 1</div><div class="csub">1 × 10 reps · 30s rest · ~1:00</div></div></div>
+          <div class="card"><div class="hero"></div><div><div class="cname">Exercise 2</div><div class="csub">Reference position</div></div></div>
+        </div>
+        <div class="seal">
+          <div><div class="pby">powered by homefit<span class="s">.studio</span></div><div class="tl">Visual plans clients follow.</div></div>
+          <div class="qr">QR<br>/r/{code}</div>
+        </div>
+        <div class="startbtn" title="Start workout — the /p/-only difference">&#9201; Start workout</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">Header is byte-identical on both. Practice-provided fields (1–5) only render when the practice has an active brand skin; otherwise the brand row is the fixed <code>homefit.studio</code> wordmark and the CTA is hidden. The footer seal (powered-by + referral QR + tagline) stays homefit-coral on every artefact regardless of brand skin. Tagline + the contact CTA still need adding to the <code>get_plan_full</code> payload (one additive migration).</p>
+</body>
+</html>
