@@ -154,10 +154,9 @@ unit of work** (not a clarification, sub-step, or correction of the current task
   it as a GitHub issue (rich, front-loaded body; **bare in TRIAGE** — no labels,
   no assignee), then carry on. Announce in one line ("Filed #N — parking it, back
   to X"). A one-word veto from Carl pulls it back (close the issue).
-- Explicit triggers: **park / log / capture / stack it / "file an issue"**.
-  Default **one issue per distinct item**; on a burst, **"stack these as one"**
-  bundles them into a single checklist issue. ("stack" routes here — it replaces
-  the old local-stack-file mechanism.)
+- Explicit triggers: **park / log / capture / "file an issue"**. Default **one
+  issue per distinct item**; on a burst, **"park these as one"** bundles them
+  into a single checklist issue.
 - Never block the conversation to ask permission first: file + notice + continue.
 
 The sweep (`manage-issues`) classifies and routes from there.

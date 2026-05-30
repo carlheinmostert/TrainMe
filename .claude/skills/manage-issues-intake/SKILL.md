@@ -1,6 +1,6 @@
 ---
 name: manage-issues-intake
-description: Capture a tangent — a new feature, bug, or idea that surfaced mid-session — into a rich, front-loaded GitHub issue, so the live session stays focused and the work gets handled in batch by the manage-issues sweep. Use proactively whenever something raised is a distinct, scope-expanding unit of work (not part of the current task), or on an explicit "park it" / "log it" / "capture it" / "stack it" / "file an issue for that".
+description: Capture a tangent — a new feature, bug, or idea that surfaced mid-session — into a rich, front-loaded GitHub issue, so the live session stays focused and the work gets handled in batch by the manage-issues sweep. Use proactively whenever something raised is a distinct, scope-expanding unit of work (not part of the current task), or on an explicit "park it" / "log it" / "capture it" / "file an issue for that".
 ---
 
 # manage-issues-intake
@@ -12,7 +12,7 @@ The **capture** half of the managed-issues system. It files a session tangent as
 ## When it fires
 
 - **Proactively** — when something raised in a session is a **distinct, scope-expanding unit of work**: not a clarification, not a sub-step of the current task, not a correction of what's being worked on. (The always-on trigger lives in the repo's `CLAUDE.md`, installed by `manage-issues init`.)
-- **On explicit request** — "park it", "log it", "capture it", "**stack it**", "file an issue for that". By default **one issue per distinct item**; if Carl rattles off several at once he can say **"stack these as one"** and intake bundles that burst into a single checklist issue. ("stack" now routes here — it retires the old "queue to a local stack file" mechanism; durable issues replace the ephemeral list.)
+- **On explicit request** — "park it", "log it", "capture it", "file an issue for that". By default **one issue per distinct item**; if Carl rattles off several at once he can say **"park these as one"** and intake bundles that burst into a single checklist issue.
 - Either way: **file it, drop a one-line notice, and continue** — "Filed #123 (dark-mode export) — parking it, back to the migration." Never block the conversation to ask permission. A one-word veto from Carl pulls it back (close the issue).
 
 ## How it runs

@@ -14,7 +14,7 @@ All under `/Users/chm/dev/TrainMe/.claude/skills/` (committed to `main`, symlink
 - `manage-issues/SKILL.md` — the sweep (the running state machine). Modes: default sweep · `dry-run` · `merge` · `init`.
 - `manage-issues/init.md` — the `init` reconciler runbook (labels, board, CLAUDE.md rule, config).
 - `manage-issues/STATE_MACHINE.md` — the diagram (note: slightly behind DESIGN.md on AWAITING_VALIDATION; DESIGN.md is authoritative).
-- `manage-issues-intake/SKILL.md` — the capture half ("park/log/capture/stack it" → files a bare-TRIAGE issue via a background sub-agent).
+- `manage-issues-intake/SKILL.md` — the capture half ("park/log/capture" → files a bare-TRIAGE issue via a background sub-agent).
 - `.github/managed-issues.json` — the per-repo wiring (project IDs, Stage option IDs, queue ceiling). Read by the sweep.
 
 **Commit trail on `main`** (oldest→newest): `b030aae` skills-into-repo · `36edf4f` state-machine reshape · `4462c06` DESIGN.md · `344b4ab`+`8c98a67` stage 1 (init+board) · `b2494c9` manual-board-view doc · `ef3bccb` Go column · `da1ad85` stage 2 (board-driven sweep) · `73954b0` dry-run mode · `a108c9c` stage 3 (intake + CLAUDE.md rule) · `dd59fe6` stage 4 (validation wiring). Main tip = `dd59fe6`.
@@ -36,8 +36,8 @@ All under `/Users/chm/dev/TrainMe/.claude/skills/` (committed to `main`, symlink
 
 - **GitHub Projects *views* are UI-only** — there is NO GraphQL mutation to create/configure a board view (confirmed against the live schema). Board layout + "group by Stage" is a **one-time manual step per repo** (documented in `init.md` step 2c). Everything else (project, fields, options, items, status) is API-automatable.
 - **CLAUDE.md divergence:** the `<!-- managed-issues:intake -->` rule is on `main` AND in Carl's working-tree CLAUDE.md (his working copy is divergent + has WIP). When he reconciles, the same marked block is in both — expect a clean merge, but if it conflicts, keep one copy of the block.
-- **"stack" now = capture** → routes to `manage-issues-intake`, retiring the old local stack-file. The `feedback_stack_means_queue` memory + its MEMORY.md index line were updated this session.
-- **The always-on intake rule is now live** (CLAUDE.md): proactively park scope-expanding tangents to GitHub via the intake sub-agent + a one-line notice; "stack/park/log it" on demand; one issue per item, "stack these as one" to bundle.
+- **"stack" was deliberately NOT adopted** as an intake trigger (reverted 2026-05-30) — it keeps its original test-wave meaning (`feedback_stack_means_queue`). Intake triggers are **park / log / capture / "file an issue"**.
+- **The always-on intake rule is now live** (CLAUDE.md): proactively park scope-expanding tangents to GitHub via the intake sub-agent + a one-line notice; "park/log/capture it" on demand; one issue per item, "park these as one" to bundle.
 - **Direct-to-main for skills/docs/config** via ephemeral worktree (per `feedback_specs_direct_to_main`); confirm pushes with Carl; never commit his CLAUDE.md WIP (edit main's copy in the worktree, his working copy separately).
 - **Dry-run mechanism:** delete the prior dry-run comment → re-read thread → repost fresh proposal at the bottom (always last = proof it saw everything). Reply-detection ignores dry-run comments.
 

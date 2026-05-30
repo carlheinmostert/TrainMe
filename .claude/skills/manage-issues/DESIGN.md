@@ -187,7 +187,7 @@ Keeps live sessions focused: tangents go to GitHub, not into the conversation.
 
 - **Trigger:** I proactively auto-file a tangent that is a *distinct,
   scope-expanding unit of work* with a one-line notice ("Filed #123 — parking it,
-  back to X"); explicit `park` / `stack` / `log` also force it; one-word pull-back.
+  back to X"); explicit `park` / `log` / `capture` also force it; one-word pull-back.
 - **How:** a **background sub-agent** writes a **rich, front-loaded** issue body
   (what surfaced, why, file paths/links, the checklist fields the sweep wants) so
   the batch sweep classifies it *positively* instead of grilling for detail.
