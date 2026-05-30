@@ -22,6 +22,15 @@ import 'source_tag_chip.dart';
 /// unreadable noise.
 const int _kFilmstripMaxCells = 4;
 
+/// Fixed width of the dedicated actions column (column 3 of the card's
+/// 3-column row, issue #567). Sized to fit the widest action pill
+/// (Edit / Artifacts: icon + arrow + horizontal padding ≈ 70px) plus a
+/// little breathing room so the two buttons read as a stable right-edge
+/// stack regardless of how long the title/meta in column 2 runs. Pinning
+/// this width is the whole point — before #567 the actions floated as an
+/// absolute overlay and drifted with the card content.
+const double _kActionsColumnWidth = 92.0;
+
 /// Hero pick rule (audit F17, 2026-05-13): take the first N video
 /// exercises in session order; if zero videos, take up to N photos
 /// (was: first photo only, which was the F17 bug). If zero photos
@@ -423,7 +432,15 @@ class _SessionCardState extends State<SessionCard> {
                 Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  // #567 — true 3-column row:
+                  //   col 1 = leading count glyph (fixed 60px footprint)
+                  //   col 2 = flexible content (title, meta, pills)
+                  //   col 3 = dedicated fixed-width actions column
+                  // `stretch` lets the actions column take the full card
+                  // height so its child can pin Edit top-right + Artifacts
+                  // bottom-right (the accordion's [trailingOverride]).
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _LeadingCountGlyph(count: exerciseCount),
                       const SizedBox(width: 12),
@@ -500,17 +517,31 @@ class _SessionCardState extends State<SessionCard> {
                       //
                       // 2026-05-27 (artifact-card accordion) — surfaces
                       // that need a tappable trailing control (the
-                      // accordion expand-chevron on
+                      // accordion's Edit + Artifacts buttons on
                       // ClientSessionsScreen / MyWorkouts / `/me`) pass
                       // their own widget via [trailingOverride]. The
                       // default is the static chevron-right used by
                       // every other caller.
-                      widget.trailingOverride ??
-                          const Icon(
-                            Icons.chevron_right,
-                            color: AppColors.grey500,
-                            size: 22,
-                          ),
+                      //
+                      // #567 — column 3: a dedicated FIXED-WIDTH actions
+                      // column. The override fills the full card height
+                      // (the Row is `stretch`) so it can pin Edit
+                      // top-right + Artifacts bottom-right; the width is
+                      // fixed at [_kActionsColumnWidth] so the buttons no
+                      // longer drift with title/meta length. The default
+                      // chevron callers get a vertically-centred glyph in
+                      // the same column.
+                      SizedBox(
+                        width: _kActionsColumnWidth,
+                        child: widget.trailingOverride ??
+                            const Center(
+                              child: Icon(
+                                Icons.chevron_right,
+                                color: AppColors.grey500,
+                                size: 22,
+                              ),
+                            ),
+                      ),
                     ],
                   ),
                 ),

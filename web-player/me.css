@@ -489,11 +489,9 @@ html, body {
   opacity: 0;
 }
 
-/* The actual session card body. 2026-05-27 evening iteration — the card
-   no longer clips overflow because the absolutely-positioned action
-   stack (Studio + Artifact buttons) anchors to the card's right edge
-   with `pointer-events: none` on the wrapper so the card body remains
-   tappable through the gap between the two buttons. */
+/* The actual session card body. #567 — the action buttons now live in a
+   dedicated third flex column inside the card body (not an absolute
+   overlay), so the card body is a clean 3-column flex row. */
 .me-session-card {
   position: relative;
   z-index: 1;
@@ -505,13 +503,13 @@ html, body {
 
 .me-session-card-body {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 12px;
-  /* Reserve room on the right edge so the meta column doesn't run under
-     the absolutely-positioned action buttons (which sit at right:10px
-     with widths ~85-110px). 64px on the right is enough breathing room
-     for the largest button (Studio: pencil + chevron + padding). */
-  padding: 14px 64px 14px 16px;
+  /* #567 — even padding all round; the actions column is now a real flex
+     child (col 3) so no right-edge reservation hack is needed. `stretch`
+     lets the actions column take the full body height to pin Edit
+     top-right + Artifacts bottom-right. */
+  padding: 14px 12px 14px 16px;
 }
 
 /* Exercise-count glyph — coral mono-numeric, tabular figures. Mirrors
@@ -528,11 +526,16 @@ html, body {
   text-align: left;
   flex-shrink: 0;
   line-height: 1;
+  /* Body row is `align-items: stretch` (#567) so the actions column can
+     fill the height; keep the count glyph vertically centred. */
+  align-self: center;
 }
 
 .me-session-meta {
   flex: 1;
   min-width: 0;
+  /* Vertically centre the content column against the stretched row. */
+  align-self: center;
 }
 
 .me-session-title {
@@ -577,48 +580,43 @@ html, body {
   color: var(--ink-secondary);
 }
 
-/* Action stack — two absolutely-positioned pill buttons painted OVER
-   the entire session card (2026-05-27 evening iteration). The Studio
-   button is vertically centered on the whole card; the Artifact button
-   is docked at the bottom-right with a ~12px bottom inset.
-
-   The wrapper has `pointer-events: none` so the gap BETWEEN the two
-   buttons remains tappable on the card body underneath; each button
-   re-enables pointer events via `pointer-events: auto`. Both buttons
-   are ALWAYS visible — tapping the Artifact button on a row with zero
-   published artifacts reveals an empty-state slider with onboarding
-   copy instead of expanding the accordion.
-
-   Vertical separation between the two buttons is now proportional to
-   the card height (~80-100dp on a typical filmstrip card). */
+/* Action stack — the card body's dedicated, fixed-width third column
+   (#567). Studio/Edit pins to the top, Artifacts to the bottom via
+   `justify-content: space-between`; both align to the right edge. The
+   fixed width keeps the buttons from drifting with the title/meta
+   length (the whole point of #567 — they were an absolute overlay
+   before). Both buttons are ALWAYS visible — tapping the Artifact
+   button on a row with zero published artifacts reveals an empty-state
+   slider with onboarding copy instead of expanding the accordion. */
 .me-action-stack {
-  position: absolute;
-  right: 10px;
-  top: 0;
-  bottom: 0;
-  width: auto;
-  pointer-events: none;
+  flex-shrink: 0;
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
   z-index: 3;
 }
 
 /* One coral pill action button. Icon (svg, 18x18) + arrow glyph (text,
-   14px). Coral-tinted bg + border + fg with backdrop-blur so the button
-   stays legible over filmstrip imagery. Heavier bg tint
-   (rgba(255,107,53,0.18)) matches the mockup's evening-iteration spec.
+   14px). #567 legibility — coral fill raised to rgba(255,107,53,0.45)
+   over a dark scrim base so the pill reads as a solid coral chip on ANY
+   filmstrip hero behind it; backdrop-blur stays for extra separation.
    Hover brightens; press scales to 0.96. */
 .me-action-btn {
-  position: absolute;
-  right: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: rgba(255, 107, 53, 0.18);
-  border: 1px solid rgba(255, 107, 53, 0.45);
+  /* Dark scrim base + coral fill layered via two backgrounds so the
+     0.45 coral always sits on a darkened base regardless of hero. */
+  background:
+    linear-gradient(rgba(255, 107, 53, 0.45), rgba(255, 107, 53, 0.45)),
+    rgba(15, 17, 23, 0.30);
+  border: 1px solid rgba(255, 107, 53, 0.55);
   color: var(--brand-default);
   cursor: pointer;
-  pointer-events: auto;
   transition:
     background 140ms ease-out,
     border-color 140ms ease-out,
@@ -629,8 +627,13 @@ html, body {
   -webkit-backdrop-filter: blur(8px);
 }
 .me-action-btn:hover {
-  background: rgba(255, 107, 53, 0.32);
+  background:
+    linear-gradient(rgba(255, 107, 53, 0.58), rgba(255, 107, 53, 0.58)),
+    rgba(15, 17, 23, 0.30);
   border-color: var(--brand-default);
+}
+.me-action-btn:active {
+  transform: scale(0.96);
 }
 .me-action-btn:focus-visible {
   outline: 2px solid var(--brand-default);
@@ -651,23 +654,12 @@ html, body {
   display: inline-block;
 }
 
-/* Studio button — vertically centered against the WHOLE session card.
-   Combined translateY(-50%) with the active scale so press states don't
-   stomp the centering. */
-.me-action-btn.is-studio {
-  top: 50%;
-  transform: translateY(-50%);
-}
-.me-action-btn.is-studio:active {
-  transform: translateY(-50%) scale(0.96);
-}
-
-/* Artifact button — docked at the bottom-right of the card. */
-.me-action-btn.is-artifacts {
-  bottom: 12px;
-}
-.me-action-btn.is-artifacts:active {
-  transform: scale(0.96);
+/* Zero-size top spacer on non-owner rows (#567) so the column's
+   space-between still pins the lone Artifacts button to the bottom. */
+.me-action-spacer {
+  display: block;
+  width: 0;
+  height: 0;
 }
 
 /* The Artifacts button's down-arrow rotates 180° on the expanded state. */
