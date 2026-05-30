@@ -573,6 +573,98 @@ class PublishResult {
   }
 }
 
+/// Outcome of [UploadService._resolvePublishContext] — the publish
+/// preamble (Phase 1 "preparing": practice resolution, cost preview,
+/// client-name resolution, consent gates, file pre-flight, balance
+/// pre-check), and of the inner [UploadService._reserveCredit] phase.
+///
+/// EXACTLY ONE of [earlyResult] / [context] is non-null:
+///   * [earlyResult] non-null → the orchestrator must `return` it
+///     verbatim. Covers every pre-credit-consumption early exit
+///     (needs-consent, unconsented-treatments, preflight-failed,
+///     insufficient-credits). The `throw StateError` cases are NOT
+///     funnelled through this class — the helper re-throws them
+///     directly so they propagate out of [UploadService.uploadPlan]
+///     exactly as the inline body did.
+///   * [context] non-null → preamble passed; the orchestrator
+///     proceeds into the credit-consuming try/catch with these
+///     resolved values.
+///
+/// Pure plumbing split — the helper performs the same side effects
+/// (`_recordFailure`, `emit`, storage backfill) in the same order as
+/// the original inline preamble.
+class _PreamblePhaseResult {
+  final PublishResult? earlyResult;
+  final _PublishContext? context;
+  const _PreamblePhaseResult.early(PublishResult result)
+      : earlyResult = result,
+        context = null;
+  const _PreamblePhaseResult.proceed(_PublishContext ctx)
+      : earlyResult = null,
+        context = ctx;
+}
+
+/// Resolved, validated inputs carried from the publish preamble into the
+/// credit-consuming phases. Behaviour-preserving container for the locals
+/// the original single-method body computed before its `try` block.
+class _PublishContext {
+  final String trainerId;
+  final String practiceId;
+  final String? sessionPracticeId;
+  final String? cachedPracticeId;
+  final String effectiveClientName;
+  final int nonRestCount;
+  final int creditsToCharge;
+  final bool consentPreflightSkipped;
+  final int? balance;
+  final int newVersion;
+  const _PublishContext({
+    required this.trainerId,
+    required this.practiceId,
+    required this.sessionPracticeId,
+    required this.cachedPracticeId,
+    required this.effectiveClientName,
+    required this.nonRestCount,
+    required this.creditsToCharge,
+    required this.consentPreflightSkipped,
+    required this.balance,
+    required this.newVersion,
+  });
+}
+
+/// Mutable cross-phase state that the credit-consuming phases inside the
+/// orchestrator's try/catch share. These are the exact locals the
+/// original single-method body declared just before its `try` block —
+/// hoisted into a holder so the extracted phase methods can read/mutate
+/// them while the orchestrator's catch still owns the refund + orphan
+/// cleanup decisions.
+///
+///   * [creditConsumed] — set true once `publish_plan_artifacts` returns
+///     `ok`; the catch refunds iff this is true.
+///   * [planVersionBumped] — set true after the version-bump upsert; the
+///     catch reports `remoteVersionMayHaveAdvanced` from this.
+///   * [uploadedPaths] — storage objects uploaded so far; the catch
+///     removes them as orphans on failure.
+///   * [filesUploaded] / [filesTotal] — the progress-sheet "N of M files"
+///     counters, mutated across the media-bucket AND raw-archive passes
+///     so the subtitle advances seamlessly across both buckets.
+class _PublishState {
+  bool creditConsumed = false;
+  bool planVersionBumped = false;
+  final List<String> uploadedPaths = <String>[];
+  int filesUploaded = 0;
+  int filesTotal = 0;
+}
+
+/// Result of [UploadService._uploadMedia] — the per-exercise media + thumb
+/// URL maps the exercise-upsert phase needs. The shared [_PublishState]
+/// counters + [_PublishState.uploadedPaths] are mutated in place.
+class _MediaUploadResult {
+  final Map<String, String> mediaUrls;
+  final Map<String, String?> thumbUrls;
+  const _MediaUploadResult({required this.mediaUrls, required this.thumbUrls});
+}
+
 /// Handles uploading a completed plan to Supabase and generating a
 /// shareable link.
 ///
@@ -677,6 +769,340 @@ class UploadService {
       }
     }
 
+    // Phase 1 — Preparing. Pre-flight, consent gates, balance check.
+    // Resolves the practice, authoritative credit cost, live client
+    // name, runs every pre-credit-consumption gate, and either returns
+    // an early [PublishResult] (verbatim) or a [_PublishContext] to
+    // carry forward. The `StateError` throws inside propagate out of
+    // here unchanged.
+    final preamble = await _resolvePublishContext(session, emit: emit);
+    if (preamble.earlyResult != null) {
+      return preamble.earlyResult!;
+    }
+    final ctx = preamble.context!;
+    // Catch-block locals — read only by the orphan-cleanup + refund +
+    // failure-payload code below. The remaining context fields
+    // (nonRestCount, consentPreflightSkipped, balance) are consumed
+    // inside the phase methods via `ctx`.
+    final trainerId = ctx.trainerId;
+    final practiceId = ctx.practiceId;
+    final effectiveClientName = ctx.effectiveClientName;
+    final creditsToCharge = ctx.creditsToCharge;
+    final newVersion = ctx.newVersion;
+
+    // Cross-phase mutable state shared with the credit-consuming phases.
+    // `creditConsumed` / `planVersionBumped` gate the refund + version
+    // reporting in the catch; `uploadedPaths` is the orphan-cleanup
+    // list; `filesUploaded` / `filesTotal` drive the progress sheet.
+    final state = _PublishState();
+    // Refund confirmation marker. Null means "refund path not entered".
+    // false means "refund attempted but completion unknown/failed".
+    bool? refundApplied;
+
+    // Phase 2 — Reserving credit. Wraps client upsert + plan ensure +
+    // consume_credit. Emitted just before the try block so a hard
+    // throw in any of those steps lands the sheet on the reserving-
+    // credit row.
+    emit(PublishProgress.markActive(PublishPhase.reservingCredit));
+
+    try {
+      // Phase 2 — Reserving credit (Step 3 + Step 4). Resolves/creates
+      // the clients row, ensures the plan row for the FK, atomically
+      // consumes credits via `publish_plan_artifacts`, and bumps the
+      // version. Returns the resolved clientId on success, or an early
+      // [PublishResult] (client-upsert network failure / refused-by-RPC
+      // insufficient credits) the orchestrator must return verbatim —
+      // both early paths leave `state.creditConsumed` false, so the
+      // catch's refund compensator is correctly skipped.
+      final reserve = await _reserveCredit(
+        session,
+        ctx: ctx,
+        state: state,
+        kinds: kinds,
+        emit: emit,
+      );
+      if (reserve.early != null) {
+        return reserve.early!;
+      }
+
+      // Phase 3 — Upload media (Step 5). Uploads the line-drawing media +
+      // thumbnail variants to the public `media` bucket (metadata-only
+      // fast-path or full slow-path), advancing the shared
+      // `state.filesUploaded` / `state.filesTotal` counters and appending
+      // every uploaded object to `state.uploadedPaths`. On any per-file
+      // failure it throws [PublishFailedException] — the orchestrator's
+      // catch refunds + cleans up. Returns the per-exercise media + thumb
+      // URL maps the exercise-upsert phase needs.
+      final media = await _uploadMedia(
+        session,
+        state: state,
+        emit: emit,
+      );
+      final mediaUrls = media.mediaUrls;
+      final thumbUrls = media.thumbUrls;
+
+      // ----------------------------------------------------------------
+      // Step 7.5 (PR-C order): atomic raw-archive upload.
+      //
+      // PR-C (2026-05-15) reorders this BEFORE the exercise upsert so a
+      // raw-archive failure can throw [PublishFailedException], unwind
+      // the credit refund + media-bucket cleanup, and leave the
+      // `exercises` table untouched. The pre-PR-C order ran exercise
+      // upsert first and treated raw uploads as best-effort; the new
+      // [PublishProgressSheet] needs every upload to be required so the
+      // failure state is meaningful.
+      //
+      // Closure shares the same `filesUploaded` / `filesTotal` ints with
+      // the media-bucket loop above, so the sheet's "N of M files"
+      // counter advances seamlessly across both buckets.
+      // ----------------------------------------------------------------
+      final optionalArtifactFailureList = await _uploadRawArchives(
+        session: session,
+        practiceId: practiceId,
+        onSuccessfulTick: () {
+          state.filesUploaded += 1;
+          emit(PublishProgress.uploadTick(
+            filesUploaded: state.filesUploaded,
+            filesTotal: state.filesTotal,
+          ));
+        },
+      );
+
+      // PR-C: any raw-archive failure is now terminal. Throw and let the
+      // outer catch refund the credit + clean up the media bucket. The
+      // exception carries the per-file failure list so the sheet's
+      // "Show which files →" link can open [UploadDiagnosticSheet]
+      // without re-fetching.
+      if (optionalArtifactFailureList.isNotEmpty) {
+        throw PublishFailedException(
+          phase: PublishPhase.uploadingTreatments,
+          failures: optionalArtifactFailureList,
+          filesUploaded: state.filesUploaded,
+          filesTotal: state.filesTotal,
+        );
+      }
+      final optionalArtifactsHadFailures =
+          optionalArtifactFailureList.isNotEmpty;
+
+      // PR-C — uploads complete; transition to the "Saving plan" row.
+      emit(PublishProgress.markActive(PublishPhase.savingPlan));
+
+      // Phase 5 — Upsert exercise rows (Step 6). Builds the per-exercise
+      // payload (carrying the resolved media + thumb URLs) and atomically
+      // replaces the plan's `exercises` rows in one server-side
+      // transaction. Returns the server's synthetic single-set fallback
+      // IDs for surfacing on the success result.
+      final fallbackSetIds = await _upsertExercises(
+        session,
+        mediaUrls: mediaUrls,
+        thumbUrls: thumbUrls,
+      );
+
+      // PR-C — Step 7.5 (raw-archive upload) moved up to run BEFORE the
+      // exercise upsert above so failures throw before persisting plan
+      // state. See the new atomic-upload block higher in this method.
+
+      // Phase 6 — Finalise (Step 8 + success persist). Writes the
+      // best-effort `plan_issuances` audit row, persists the new local
+      // session state, clears `thumbnailsDirty`, broadcasts the balance,
+      // and returns [PublishResult.success]. No throws originate here
+      // except from the swallowed best-effort writes (which can't escape
+      // loudSwallow), so the orchestrator's catch is unaffected.
+      return await _finalise(
+        session,
+        ctx: ctx,
+        fallbackSetIds: fallbackSetIds,
+        optionalArtifactsHadFailures: optionalArtifactsHadFailures,
+        optionalArtifactFailureList: optionalArtifactFailureList,
+        emit: emit,
+      );
+    } catch (e) {
+      // Clean up any storage objects we uploaded before the failure so a
+      // retry doesn't stack more orphans. Wrapped in its own try/catch —
+      // a cleanup failure must NOT mask the original error surfaced to
+      // the user via [PublishResult.networkFailed].
+      if (state.uploadedPaths.isNotEmpty) {
+        await loudSwallow(
+          () => _api.removeMedia(paths: state.uploadedPaths),
+          kind: 'orphan_cleanup_failed',
+          source: 'UploadService.uploadPlan',
+          severity: 'warn',
+          message:
+              'orphan cleanup failed for ${state.uploadedPaths.length} path(s) '
+              'after publish failure — leaving objects in bucket',
+          meta: {
+            'plan_id': session.id,
+            'practice_id': practiceId,
+            'orphan_count': state.uploadedPaths.length,
+          },
+          // Cleanup is best-effort; the publish already failed and we
+          // must preserve that original error up the stack.
+          swallow: true,
+        );
+      }
+
+      // If we already consumed credits, compensate with a refund row so
+      // the ledger stays balanced — otherwise the bio is charged for a
+      // plan that never published.
+      //
+      // PR-C — atomicity demands the refund actually lands. Retry once
+      // on transient error so a single network blip can't strand the
+      // practitioner with a debit and no plan. The underlying
+      // `refund_credit` RPC is idempotent on `plan_id`, so a double-fire
+      // is safe.
+      if (state.creditConsumed) {
+        refundApplied = await _refundCredits(
+          practiceId: practiceId,
+          planId: session.id,
+          credits: creditsToCharge,
+        );
+        if (refundApplied != true) {
+          // Single retry — most refund misses are transient socket
+          // drops. The RPC's idempotency guard means a second call
+          // against an already-refunded plan is a no-op.
+          refundApplied = await _refundCredits(
+            practiceId: practiceId,
+            planId: session.id,
+            credits: creditsToCharge,
+          );
+        }
+      }
+
+      // Wave 16 / Milestone V server-side backstop: if the pre-flight
+      // was skipped or the consent rows changed between the pre-flight
+      // and `consume_credit`, the RPC raises SQLSTATE P0003. Translate
+      // that into the same PublishResult the pre-flight produces so
+      // the UI has exactly one code path for unblock. Re-query the
+      // violations so the sheet can group them; if the re-query fails
+      // (it shouldn't — same auth context that just got a server
+      // error) we fall through with an empty list + the client name.
+      if (e is PostgrestException && e.code == 'P0003') {
+        emit(PublishProgress.failure(phase: PublishPhase.reservingCredit));
+        List<UnconsentedTreatment> violations = const [];
+        try {
+          violations = await _api.validatePlanTreatmentConsent(
+            planId: session.id,
+          );
+        } catch (_) {
+          // Fall through with empty list — the sheet still renders
+          // a sensible "client has not consented to all treatments"
+          // message and the Back-to-Studio CTA works.
+        }
+        final exc = UnconsentedTreatmentsException(
+          violations: violations,
+          clientName: effectiveClientName,
+        );
+        await _recordFailure(session, exc.toString());
+        return PublishResult.unconsentedTreatments(exc);
+      }
+
+      // PR-C — atomic-upload terminal failure. Emit the failure
+      // snapshot pointing at the uploading-treatments row and return
+      // the per-file failure list via [PublishResult.networkFailed]'s
+      // error payload so the sheet's "Show which files →" link can
+      // hand the same records to [UploadDiagnosticSheet].
+      if (e is PublishFailedException) {
+        // PR-C reactive-failures fix — carry the per-file diagnostic
+        // list on the same stream event that flips `failed=true`. The
+        // progress sheet reads from this snapshot so the "Show which
+        // files →" tap-target appears on the same rebuild as the
+        // coral failure row. Previously the host's setState pushed
+        // failures out-of-band after `uploadPlan` returned, by which
+        // point the sheet widget had already captured `failures: []`
+        // at construction.
+        emit(PublishProgress.failure(
+          phase: e.phase,
+          filesUploaded: e.filesUploaded,
+          filesTotal: e.filesTotal,
+          failures: e.failures,
+        ));
+        await _recordFailure(session, e.userMessage);
+        // Wrap as PublishFailurePayload so the existing
+        // [PublishResult.networkFailed] path still works for callers
+        // that don't know about the atomic-upload exception. The
+        // diagnostic list flows through `optionalArtifactFailures`
+        // even though the publish is terminal — the sheet's
+        // tap-through reads from the result's payload.
+        final payload = PublishFailurePayload(
+          userMessage: e.userMessage,
+          detail: 'Atomic upload failed for ${e.failures.length} file(s).',
+          refundLikelyAttempted: state.creditConsumed,
+          refundOutcomeUnknown: state.creditConsumed && refundApplied != true,
+          remoteVersionMayHaveAdvanced: state.planVersionBumped,
+          remoteVersionCandidate: state.planVersionBumped ? newVersion : null,
+          leafExceptionType: 'PublishFailedException',
+          innerMessage: e.userMessage,
+        );
+        return PublishResult._(
+          success: false,
+          error: payload,
+          optionalArtifactsHadFailures: true,
+          optionalArtifactFailures: List.unmodifiable(e.failures),
+        );
+      }
+
+      // PR-C — non-atomic-upload failures still land on the failing
+      // phase row in the sheet. Best-effort guess: if uploads had
+      // already begun (filesUploaded > 0 OR uploadedPaths non-empty)
+      // the failure belongs to the upload phase; otherwise it
+      // belongs to the saving-plan phase (replacePlanExercises is
+      // the only network call between upload completion and the
+      // best-effort audit row).
+      final inferredFailedPhase = state.uploadedPaths.isNotEmpty
+          ? PublishPhase.uploadingTreatments
+          : (state.creditConsumed
+              ? PublishPhase.savingPlan
+              : PublishPhase.reservingCredit);
+
+      final payload = PublishFailurePayload.fromPublishCatch(
+        caught: e,
+        practiceId: practiceId,
+        trainerId: trainerId,
+        refundLikelyAttempted: state.creditConsumed,
+        refundOutcomeUnknown: state.creditConsumed && refundApplied != true,
+        remoteVersionMayHaveAdvanced: state.planVersionBumped,
+        remoteVersionCandidate: state.planVersionBumped ? newVersion : null,
+      );
+
+      // Fix A (publish-diagnostic-surface, 2026-05-16) — carry the
+      // diagnostic payload on the same failure event so the sheet's
+      // "Show error details →" fallback tap-target appears
+      // synchronously with the coral failure row. Same flow shape as
+      // the per-file failure list above; the sheet decides which
+      // tap-target to render based on which field is populated.
+      final errorDetails = PublishErrorDetails(
+        phase: inferredFailedPhase,
+        exceptionType: payload.leafExceptionType ?? e.runtimeType.toString(),
+        userMessage: payload.userMessage,
+        detail: payload.detail,
+        clipboardText: payload.toClipboardText(),
+      );
+      emit(PublishProgress.failure(
+        phase: inferredFailedPhase,
+        errorDetails: errorDetails,
+      ));
+
+      await _recordFailure(session, payload.toClipboardText());
+      return PublishResult.networkFailed(error: payload);
+    }
+  }
+
+  /// Phase 1 — Preparing. The publish preamble, lifted verbatim from the
+  /// original [uploadPlan] body: practice resolution + backfill,
+  /// authoritative credit-cost preview, live client-name resolution, the
+  /// consent-confirmation gate, the treatment-consent pre-flight, the
+  /// local-file pre-flight, and the credit-balance pre-check.
+  ///
+  /// Returns a [_PreamblePhaseResult]: `early` carries a [PublishResult]
+  /// the orchestrator must return verbatim (needs-consent /
+  /// unconsented-treatments / preflight-failed / insufficient-credits);
+  /// `context` carries the resolved values for the credit-consuming
+  /// phases. The two `StateError` throws ("Not signed in", "no practice
+  /// found") propagate out unchanged — exactly as the inline body did.
+  Future<_PreamblePhaseResult> _resolvePublishContext(
+    Session session, {
+    required void Function(PublishProgress) emit,
+  }) async {
     // Phase 1 — Preparing. Pre-flight, consent gates, balance check.
     emit(PublishProgress.markActive(PublishPhase.preparing));
     // Milestone B: the AuthGate guarantees a signed-in user at this point,
@@ -810,8 +1236,10 @@ class UploadService {
     if (session.clientId != null && session.clientId!.isNotEmpty) {
       final cached = await _storage.getCachedClientById(session.clientId!);
       if (cached != null && cached.consentConfirmedAt == null) {
-        return PublishResult.needsConsentConfirmation(
-          cached.toPracticeClient(),
+        return _PreamblePhaseResult.early(
+          PublishResult.needsConsentConfirmation(
+            cached.toPracticeClient(),
+          ),
         );
       }
     }
@@ -854,7 +1282,9 @@ class UploadService {
           clientName: effectiveClientName,
         );
         await _recordFailure(session, exc.toString());
-        return PublishResult.unconsentedTreatments(exc);
+        return _PreamblePhaseResult.early(
+          PublishResult.unconsentedTreatments(exc),
+        );
       }
     } catch (e) {
       // Swallow — the server-side consume_credit guard remains the
@@ -883,7 +1313,9 @@ class UploadService {
         session,
         'Missing local file(s) for exercise(s): ${missing.join(', ')}',
       );
-      return PublishResult.preflightFailed(missing: missing);
+      return _PreamblePhaseResult.early(
+        PublishResult.preflightFailed(missing: missing),
+      );
     }
 
     // ------------------------------------------------------------------
@@ -898,480 +1330,690 @@ class UploadService {
         session,
         'Insufficient credits: have $balance, need $creditsToCharge',
       );
-      return PublishResult.insufficientCredits(
-        balance: balance,
-        required: creditsToCharge,
-        practiceId: practiceId,
+      return _PreamblePhaseResult.early(
+        PublishResult.insufficientCredits(
+          balance: balance,
+          required: creditsToCharge,
+          practiceId: practiceId,
+        ),
       );
     }
 
     final newVersion = session.version + 1;
 
-    // Tracks whether we've consumed credits so catch blocks can refund.
-    bool creditConsumed = false;
-    // Step-4 marker: once true, cloud `plans.version` may already be ahead of
-    // local SQLite when a later step fails and returns networkFailed.
-    bool planVersionBumped = false;
-    // Refund confirmation marker. Null means "refund path not entered".
-    // false means "refund attempted but completion unknown/failed".
-    bool? refundApplied;
+    return _PreamblePhaseResult.proceed(_PublishContext(
+      trainerId: trainerId,
+      practiceId: practiceId,
+      sessionPracticeId: sessionPracticeId,
+      cachedPracticeId: cachedPracticeId,
+      effectiveClientName: effectiveClientName,
+      nonRestCount: nonRestCount,
+      creditsToCharge: creditsToCharge,
+      consentPreflightSkipped: consentPreflightSkipped,
+      balance: balance,
+      newVersion: newVersion,
+    ));
+  }
 
-    // Tracks storage paths we've successfully uploaded so the catch block
-    // can clean them up on a partial-publish failure. Otherwise the retry
-    // path stacks orphaned objects in the `media` bucket every time.
-    final uploadedPaths = <String>[];
+  /// Phase 2 — Reserving credit (Step 3 + Step 4), lifted verbatim from
+  /// the original [uploadPlan] try-body. Resolves/creates the clients
+  /// row, ensures the plan row exists (FK target for `consume_credit`),
+  /// atomically consumes credits via `publish_plan_artifacts`, and bumps
+  /// the plan version + stamps `sent_at`.
+  ///
+  /// Sets [state.creditConsumed] true the instant the RPC reports `ok`,
+  /// and [state.planVersionBumped] true after the version-bump upsert —
+  /// the EXACT markers the orchestrator's catch reads to decide whether
+  /// to refund + whether the remote version may have advanced.
+  ///
+  /// Returns `early` non-null on the two pre-credit early exits (client
+  /// upsert network/collision failure → networkFailed; RPC-refused →
+  /// insufficientCredits). Both leave `state.creditConsumed` false so a
+  /// later throw triggers no refund — identical to the inline body. On
+  /// success returns the resolved `clientId`.
+  Future<({PublishResult? early, String? clientId})> _reserveCredit(
+    Session session, {
+    required _PublishContext ctx,
+    required _PublishState state,
+    required List<String> kinds,
+    required void Function(PublishProgress) emit,
+  }) async {
+    final practiceId = ctx.practiceId;
+    final effectiveClientName = ctx.effectiveClientName;
+    final nonRestCount = ctx.nonRestCount;
+    final creditsToCharge = ctx.creditsToCharge;
+    final balance = ctx.balance;
+    final newVersion = ctx.newVersion;
 
-    // Phase 2 — Reserving credit. Wraps client upsert + plan ensure +
-    // consume_credit. Emitted just before the try block so a hard
-    // throw in any of those steps lands the sheet on the reserving-
-    // credit row.
-    emit(PublishProgress.markActive(PublishPhase.reservingCredit));
+    // ----------------------------------------------------------------
+    // Step 3: Consume credits atomically BEFORE any plan mutation.
+    //
+    // Ordering rationale (aligned with the method docstring, 2026-04-18):
+    // the prior ordering upserted `plans` (bumping `version`) first and
+    // only called `consume_credit` afterward. If the RPC failed for any
+    // reason other than `insufficient_credits` (network blip, RLS edge
+    // case, transient DB error) the version was bumped server-side even
+    // though no credits were taken. `creditConsumed` stayed false so the
+    // refund compensator was (correctly) skipped, but a retry would then
+    // re-upsert with `newVersion = session.version + 1` AGAIN, double-
+    // bumping the version relative to what the user sees locally.
+    //
+    // New order: consume first. If the RPC raises, no plan state has
+    // changed on Supabase and a retry computes the same `newVersion`
+    // again — idempotent from the client's perspective.
+    //
+    // FK caveat: `credit_ledger.plan_id` has a FK to `plans.id`
+    // (ON DELETE SET NULL, but the INSERT still requires the referenced
+    // row to exist). On a re-publish the plan row already exists, so
+    // the FK is satisfied. On a brand-new plan the FK would fail — so
+    // we pre-insert a minimal plan row first with the CURRENT version
+    // (not the bumped one). That row carries the practice_id the RLS
+    // policies need, satisfies the FK, and does NOT claim a version
+    // bump the client hasn't earned yet. The version bump happens in
+    // Step 4 after consume_credit succeeds.
+    // ----------------------------------------------------------------
 
+    // Step 3a: resolve (or create) the clients row for this plan's
+    // clientName. Without this, plans.client_id stays null, which
+    // blocks get_plan_full from issuing the grayscale / original
+    // signed URLs (the RPC needs a client to check video_consent
+    // against).
+    //
+    // Hard failure: if the upsert throws we MUST bail before
+    // consume_credit runs. Previously we swallowed the error inside
+    // ApiClient.upsertClient and continued with a null client_id —
+    // the plan still "published" but the web player couldn't surface
+    // B&W / Original treatments even after consent. The most common
+    // throw is SQLSTATE 23505 "a deleted client already uses that
+    // name — restore it instead", which the practitioner can only
+    // fix by restoring from the recycle bin or renaming the client;
+    // retrying the publish as-is will loop forever.
+    //
+    // Ordering: runs BEFORE consume_credit (step 3b) so a throw
+    // here means no credits were taken and no refund is needed.
+    // Prefer the ID-first RPC when the session already knows its
+    // clientId — `upsert_client_with_id` looks up by id and returns
+    // early if a live row exists, bypassing the name-collision check
+    // entirely. That matters when a soft-deleted client in this
+    // practice happens to share a name with the one we're about to
+    // publish: `upsert_client` would raise 23505, while
+    // `upsert_client_with_id` just resolves by id. Falls back to the
+    // name-only RPC for legacy sessions with no clientId.
+    final String? clientId;
     try {
-      // ----------------------------------------------------------------
-      // Step 3: Consume credits atomically BEFORE any plan mutation.
-      //
-      // Ordering rationale (aligned with the method docstring, 2026-04-18):
-      // the prior ordering upserted `plans` (bumping `version`) first and
-      // only called `consume_credit` afterward. If the RPC failed for any
-      // reason other than `insufficient_credits` (network blip, RLS edge
-      // case, transient DB error) the version was bumped server-side even
-      // though no credits were taken. `creditConsumed` stayed false so the
-      // refund compensator was (correctly) skipped, but a retry would then
-      // re-upsert with `newVersion = session.version + 1` AGAIN, double-
-      // bumping the version relative to what the user sees locally.
-      //
-      // New order: consume first. If the RPC raises, no plan state has
-      // changed on Supabase and a retry computes the same `newVersion`
-      // again — idempotent from the client's perspective.
-      //
-      // FK caveat: `credit_ledger.plan_id` has a FK to `plans.id`
-      // (ON DELETE SET NULL, but the INSERT still requires the referenced
-      // row to exist). On a re-publish the plan row already exists, so
-      // the FK is satisfied. On a brand-new plan the FK would fail — so
-      // we pre-insert a minimal plan row first with the CURRENT version
-      // (not the bumped one). That row carries the practice_id the RLS
-      // policies need, satisfies the FK, and does NOT claim a version
-      // bump the client hasn't earned yet. The version bump happens in
-      // Step 4 after consume_credit succeeds.
-      // ----------------------------------------------------------------
-
-      // Step 3a: resolve (or create) the clients row for this plan's
-      // clientName. Without this, plans.client_id stays null, which
-      // blocks get_plan_full from issuing the grayscale / original
-      // signed URLs (the RPC needs a client to check video_consent
-      // against).
-      //
-      // Hard failure: if the upsert throws we MUST bail before
-      // consume_credit runs. Previously we swallowed the error inside
-      // ApiClient.upsertClient and continued with a null client_id —
-      // the plan still "published" but the web player couldn't surface
-      // B&W / Original treatments even after consent. The most common
-      // throw is SQLSTATE 23505 "a deleted client already uses that
-      // name — restore it instead", which the practitioner can only
-      // fix by restoring from the recycle bin or renaming the client;
-      // retrying the publish as-is will loop forever.
-      //
-      // Ordering: runs BEFORE consume_credit (step 3b) so a throw
-      // here means no credits were taken and no refund is needed.
-      // Prefer the ID-first RPC when the session already knows its
-      // clientId — `upsert_client_with_id` looks up by id and returns
-      // early if a live row exists, bypassing the name-collision check
-      // entirely. That matters when a soft-deleted client in this
-      // practice happens to share a name with the one we're about to
-      // publish: `upsert_client` would raise 23505, while
-      // `upsert_client_with_id` just resolves by id. Falls back to the
-      // name-only RPC for legacy sessions with no clientId.
-      final String? clientId;
-      try {
-        final knownClientId = session.clientId;
-        if (knownClientId != null && knownClientId.isNotEmpty) {
-          clientId = await _api.upsertClientWithId(
-            clientId: knownClientId,
-            practiceId: practiceId,
-            name: effectiveClientName,
-          );
-        } else {
-          clientId = await _api.upsertClient(
-            practiceId: practiceId,
-            name: effectiveClientName,
-          );
-        }
-      } catch (e) {
-        final String userMessage;
-        if (e is PostgrestException &&
-            e.code == '23505' &&
-            (e.message.toLowerCase().contains('already uses that name') ||
-                e.message.toLowerCase().contains('restore it instead'))) {
-          userMessage =
-              'This client name collides with a deleted client. Open the '
-              'recycle bin and restore it, or rename before republishing.';
-        } else {
-          userMessage =
-              'Could not register client with server — check connection '
-              'and retry.';
-        }
-        await _recordFailure(session, userMessage);
-        // Fix A (publish-diagnostic-surface, 2026-05-16) — surface the
-        // client-linkage failure through the progress sheet so the
-        // practitioner can read the diagnostic. The sheet's "Show error
-        // details" tap-target opens [UploadErrorDetailsSheet] with the
-        // clipboard payload below.
-        final detail =
-            e is PostgrestException ? 'PostgREST ${e.code}: ${e.message}' : null;
-        final errorDetails = PublishErrorDetails(
-          phase: PublishPhase.reservingCredit,
-          exceptionType: e.runtimeType.toString(),
-          userMessage: userMessage,
-          detail: detail,
-          clipboardText: '$userMessage\n---\n'
-              'type: ${e.runtimeType}\n'
-              '${detail ?? e.toString()}',
+      final knownClientId = session.clientId;
+      if (knownClientId != null && knownClientId.isNotEmpty) {
+        clientId = await _api.upsertClientWithId(
+          clientId: knownClientId,
+          practiceId: practiceId,
+          name: effectiveClientName,
         );
-        emit(PublishProgress.failure(
-          phase: PublishPhase.reservingCredit,
-          errorDetails: errorDetails,
-        ));
-        return PublishResult.networkFailed(
-          error: PublishFailureMessage(userMessage),
+      } else {
+        clientId = await _api.upsertClient(
+          practiceId: practiceId,
+          name: effectiveClientName,
         );
       }
-
-      // Step 3b: ensure a plan row exists so consume_credit's FK is
-      // satisfied on first-ever publish. On re-publish this is a no-op
-      // `ON CONFLICT DO NOTHING` (implemented as an upsert that omits
-      // every mutable column — PostgREST writes back the same values on
-      // conflict). The version stays at `session.version` here.
-      await _api.upsertPlan({
-        'id': session.id,
-        'client_name': effectiveClientName,
-        'client_id': clientId,
-        'title': session.displayTitle,
-        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
-        'circuit_cycles': session.circuitCycles,
-        'circuit_names': session.circuitNames,
-        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': nonRestCount,
-        // IMPORTANT: do NOT bump version here — only after consume_credit.
-        'version': session.version,
-        // Wave 39.4 — emit UTC. Postgres timestamptz columns interpret
-        // any naked-offset ISO string in the connection's TZ; the audit
-        // trail and dashboard timestamps both read these as authored,
-        // so non-UTC writes drift across viewers. Always toUtc() before
-        // toIso8601String().
-        'created_at': session.createdAt.toUtc().toIso8601String(),
-        'practice_id': practiceId,
-        // Wave 27 — NULL means "use the surface default" on the cloud side
-        // too; the reset button explicitly writes null so a re-publish
-        // restores the default-rendered view.
-        'crossfade_lead_ms': session.crossfadeLeadMs,
-        'crossfade_fade_ms': session.crossfadeFadeMs,
-      });
-
-      // Step 3b: atomic multi-kind publish. Wave 3 (artifact-system,
-      // 2026-05-26) — replaces the legacy direct `consume_credit` call.
-      // `publish_plan_artifacts` sums the per-kind prices, calls
-      // `consume_credit` once for the paid total (which still applies
-      // the prepaid-unlock fast-path + self-trainer free path
-      // server-side), and upserts one `plan_artifacts` row + matching
-      // `plan_issuances` audit row per published kind — all in the
-      // same transaction. Source of truth for whether the publish can
-      // proceed: any rejection ({ok: false}) leaves the plan row at
-      // its previous version (no bump, no sent_at update). On RPC
-      // raise, same deal.
-      //
-      // Legacy callers pass `kinds: ['plan_url']` which is functionally
-      // identical to the old single-kind consume_credit path the RPC
-      // is replacing — the consume_credit call inside publish_plan_artifacts
-      // burns exactly the same `paid_sum_int` credits.
-      final publishMap = await _api.publishPlanArtifacts(
-        practiceId: practiceId,
-        planId: session.id,
-        kinds: kinds,
+    } catch (e) {
+      final String userMessage;
+      if (e is PostgrestException &&
+          e.code == '23505' &&
+          (e.message.toLowerCase().contains('already uses that name') ||
+              e.message.toLowerCase().contains('restore it instead'))) {
+        userMessage =
+            'This client name collides with a deleted client. Open the '
+            'recycle bin and restore it, or rename before republishing.';
+      } else {
+        userMessage =
+            'Could not register client with server — check connection '
+            'and retry.';
+      }
+      await _recordFailure(session, userMessage);
+      // Fix A (publish-diagnostic-surface, 2026-05-16) — surface the
+      // client-linkage failure through the progress sheet so the
+      // practitioner can read the diagnostic. The sheet's "Show error
+      // details" tap-target opens [UploadErrorDetailsSheet] with the
+      // clipboard payload below.
+      final detail =
+          e is PostgrestException ? 'PostgREST ${e.code}: ${e.message}' : null;
+      final errorDetails = PublishErrorDetails(
+        phase: PublishPhase.reservingCredit,
+        exceptionType: e.runtimeType.toString(),
+        userMessage: userMessage,
+        detail: detail,
+        clipboardText: '$userMessage\n---\n'
+            'type: ${e.runtimeType}\n'
+            '${detail ?? e.toString()}',
       );
-      final ok = publishMap.ok;
-      if (!ok) {
-        final int resolvedBalance = publishMap.balance ?? (balance ?? 0);
-        await _recordFailure(
-          session,
-          'publish_plan_artifacts refused: have $resolvedBalance, '
-          'need $creditsToCharge (kinds=${kinds.join(',')})',
-        );
-        return PublishResult.insufficientCredits(
+      emit(PublishProgress.failure(
+        phase: PublishPhase.reservingCredit,
+        errorDetails: errorDetails,
+      ));
+      return (
+        early: PublishResult.networkFailed(
+          error: PublishFailureMessage(userMessage),
+        ),
+        clientId: null,
+      );
+    }
+
+    // Step 3b: ensure a plan row exists so consume_credit's FK is
+    // satisfied on first-ever publish. On re-publish this is a no-op
+    // `ON CONFLICT DO NOTHING` (implemented as an upsert that omits
+    // every mutable column — PostgREST writes back the same values on
+    // conflict). The version stays at `session.version` here.
+    await _api.upsertPlan({
+      'id': session.id,
+      'client_name': effectiveClientName,
+      'client_id': clientId,
+      'title': session.displayTitle,
+      // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
+      'circuit_cycles': session.circuitCycles,
+      'circuit_names': session.circuitNames,
+      'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+      'exercise_count': nonRestCount,
+      // IMPORTANT: do NOT bump version here — only after consume_credit.
+      'version': session.version,
+      // Wave 39.4 — emit UTC. Postgres timestamptz columns interpret
+      // any naked-offset ISO string in the connection's TZ; the audit
+      // trail and dashboard timestamps both read these as authored,
+      // so non-UTC writes drift across viewers. Always toUtc() before
+      // toIso8601String().
+      'created_at': session.createdAt.toUtc().toIso8601String(),
+      'practice_id': practiceId,
+      // Wave 27 — NULL means "use the surface default" on the cloud side
+      // too; the reset button explicitly writes null so a re-publish
+      // restores the default-rendered view.
+      'crossfade_lead_ms': session.crossfadeLeadMs,
+      'crossfade_fade_ms': session.crossfadeFadeMs,
+    });
+
+    // Step 3b: atomic multi-kind publish. Wave 3 (artifact-system,
+    // 2026-05-26) — replaces the legacy direct `consume_credit` call.
+    // `publish_plan_artifacts` sums the per-kind prices, calls
+    // `consume_credit` once for the paid total (which still applies
+    // the prepaid-unlock fast-path + self-trainer free path
+    // server-side), and upserts one `plan_artifacts` row + matching
+    // `plan_issuances` audit row per published kind — all in the
+    // same transaction. Source of truth for whether the publish can
+    // proceed: any rejection ({ok: false}) leaves the plan row at
+    // its previous version (no bump, no sent_at update). On RPC
+    // raise, same deal.
+    //
+    // Legacy callers pass `kinds: ['plan_url']` which is functionally
+    // identical to the old single-kind consume_credit path the RPC
+    // is replacing — the consume_credit call inside publish_plan_artifacts
+    // burns exactly the same `paid_sum_int` credits.
+    final publishMap = await _api.publishPlanArtifacts(
+      practiceId: practiceId,
+      planId: session.id,
+      kinds: kinds,
+    );
+    final ok = publishMap.ok;
+    if (!ok) {
+      final int resolvedBalance = publishMap.balance ?? (balance ?? 0);
+      await _recordFailure(
+        session,
+        'publish_plan_artifacts refused: have $resolvedBalance, '
+        'need $creditsToCharge (kinds=${kinds.join(',')})',
+      );
+      return (
+        early: PublishResult.insufficientCredits(
           balance: resolvedBalance,
           required: creditsToCharge,
           practiceId: practiceId,
-        );
-      }
-      creditConsumed = true;
-      dev.log(
-        'publish_plan_artifacts ok: kinds=${kinds.join(',')} '
-        'published=${publishMap.published.join(',')} '
-        'paid_sum=${publishMap.paidSum} '
-        'plan=${session.id} practice=$practiceId',
-        name: 'UploadService.uploadPlan',
+        ),
+        clientId: null,
       );
+    }
+    state.creditConsumed = true;
+    dev.log(
+      'publish_plan_artifacts ok: kinds=${kinds.join(',')} '
+      'published=${publishMap.published.join(',')} '
+      'paid_sum=${publishMap.paidSum} '
+      'plan=${session.id} practice=$practiceId',
+      name: 'UploadService.uploadPlan',
+    );
 
-      // ----------------------------------------------------------------
-      // Step 4: Now that credits are consumed, bump the plan version and
-      // stamp sent_at. This is the only place `newVersion` is written;
-      // any later failure (media upload, exercise upsert) triggers the
-      // refund compensator below.
-      // ----------------------------------------------------------------
-      await _api.upsertPlan({
-        'id': session.id,
-        'client_name': effectiveClientName,
-        'client_id': clientId,
-        'title': session.displayTitle,
-        'circuit_cycles': session.circuitCycles,
-        'circuit_names': session.circuitNames,
-        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': nonRestCount,
-        'version': newVersion,
-        // Wave 39.4 — UTC wire format (see comment in upsertPlan above).
-        'created_at': session.createdAt.toUtc().toIso8601String(),
-        'sent_at': DateTime.now().toUtc().toIso8601String(),
-        'practice_id': practiceId,
-        'crossfade_lead_ms': session.crossfadeLeadMs,
-        'crossfade_fade_ms': session.crossfadeFadeMs,
-      });
-      planVersionBumped = true;
+    // ----------------------------------------------------------------
+    // Step 4: Now that credits are consumed, bump the plan version and
+    // stamp sent_at. This is the only place `newVersion` is written;
+    // any later failure (media upload, exercise upsert) triggers the
+    // refund compensator below.
+    // ----------------------------------------------------------------
+    await _api.upsertPlan({
+      'id': session.id,
+      'client_name': effectiveClientName,
+      'client_id': clientId,
+      'title': session.displayTitle,
+      'circuit_cycles': session.circuitCycles,
+      'circuit_names': session.circuitNames,
+      'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+      'exercise_count': nonRestCount,
+      'version': newVersion,
+      // Wave 39.4 — UTC wire format (see comment in upsertPlan above).
+      'created_at': session.createdAt.toUtc().toIso8601String(),
+      'sent_at': DateTime.now().toUtc().toIso8601String(),
+      'practice_id': practiceId,
+      'crossfade_lead_ms': session.crossfadeLeadMs,
+      'crossfade_fade_ms': session.crossfadeFadeMs,
+    });
+    state.planVersionBumped = true;
 
-      // ----------------------------------------------------------------
-      // Step 5: Upload media files.
-      //
-      // Fast-path: if EVERY non-rest exercise already has
-      // `rawArchiveUploadedAt` set, all files were uploaded in a prior
-      // publish and nothing was re-captured. Skip ALL upload loops —
-      // zero list calls, zero uploads, zero network for files. Just
-      // build the URL map from the known path pattern.
-      //
-      // Atomic-media-bucket extension (Fix B, 2026-05-16) — each
-      // `_api.uploadMedia` call is wrapped in per-file try/catch. On
-      // failure we build an [UploadFailureRecord] and add it to
-      // [mediaFailures]; the loop continues so a single broken file
-      // doesn't mask others. After both branches complete, if any
-      // record is set we throw [PublishFailedException] with the same
-      // shape the raw-archive pass uses — the outer catch refunds the
-      // credit, cleans up the partially-uploaded paths, and the
-      // progress sheet's "Show which files →" tap-target reads the
-      // failure list from the throw.
-      // ----------------------------------------------------------------
-      // PR-C — start uploading-treatments phase. Per-file ticks emit
-      // via `emit(PublishProgress.uploadTick(...))` after each
-      // successful upload. The total is an upper bound (line-drawing
-      // bucket + raw-archive variants); the metadata-only fast-path
-      // can leave it at zero, in which case the sheet renders the row
-      // as "complete in 0s" with no progress bar.
-      emit(PublishProgress.markActive(PublishPhase.uploadingTreatments));
-      int filesUploaded = 0;
-      // Best-effort total estimate — counts files that COULD upload
-      // (one per non-rest exercise per variant). The actual run may
-      // skip some because they already exist in storage; the sheet's
-      // "N of M files" is a worst-case ceiling, the bar still fills
-      // as ticks land.
-      int filesTotal = 0;
+    return (early: null, clientId: clientId);
+  }
 
-      final mediaUrls = <String, String>{}; // exerciseId -> media URL
-      final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
+  /// Phase 3 — Upload media (Step 5), lifted verbatim from the original
+  /// [uploadPlan] try-body. Uploads the line-drawing main media +
+  /// thumbnail variants to the public `media` bucket via the
+  /// metadata-only fast-path (every exercise already cloud-resident) or
+  /// the full slow-path.
+  ///
+  /// Mutates [state.filesUploaded] / [state.filesTotal] (the progress
+  /// sheet's "N of M files" counters, carried on into the raw-archive
+  /// pass) and appends every uploaded object to [state.uploadedPaths]
+  /// (the orphan-cleanup list). On any per-file failure it throws
+  /// [PublishFailedException] — exactly as the inline body did, so the
+  /// orchestrator's catch refunds + cleans up + surfaces the diagnostic.
+  ///
+  /// Returns the per-exercise media + thumb URL maps the exercise-upsert
+  /// phase needs.
+  Future<_MediaUploadResult> _uploadMedia(
+    Session session, {
+    required _PublishState state,
+    required void Function(PublishProgress) emit,
+  }) async {
+    // ----------------------------------------------------------------
+    // Step 5: Upload media files.
+    //
+    // Fast-path: if EVERY non-rest exercise already has
+    // `rawArchiveUploadedAt` set, all files were uploaded in a prior
+    // publish and nothing was re-captured. Skip ALL upload loops —
+    // zero list calls, zero uploads, zero network for files. Just
+    // build the URL map from the known path pattern.
+    //
+    // Atomic-media-bucket extension (Fix B, 2026-05-16) — each
+    // `_api.uploadMedia` call is wrapped in per-file try/catch. On
+    // failure we build an [UploadFailureRecord] and add it to
+    // [mediaFailures]; the loop continues so a single broken file
+    // doesn't mask others. After both branches complete, if any
+    // record is set we throw [PublishFailedException] with the same
+    // shape the raw-archive pass uses — the outer catch refunds the
+    // credit, cleans up the partially-uploaded paths, and the
+    // progress sheet's "Show which files →" tap-target reads the
+    // failure list from the throw.
+    // ----------------------------------------------------------------
+    // PR-C — start uploading-treatments phase. Per-file ticks emit
+    // via `emit(PublishProgress.uploadTick(...))` after each
+    // successful upload. The total is an upper bound (line-drawing
+    // bucket + raw-archive variants); the metadata-only fast-path
+    // can leave it at zero, in which case the sheet renders the row
+    // as "complete in 0s" with no progress bar.
+    emit(PublishProgress.markActive(PublishPhase.uploadingTreatments));
 
-      // Fix B (publish-diagnostic-surface, 2026-05-16) — per-file
-      // failure records for the media bucket. Same shape as the
-      // raw-archive collector inside `_uploadRawArchives`. After the
-      // upload branches below complete, if non-empty we throw
-      // [PublishFailedException] so the outer catch refunds the
-      // credit and the progress sheet's "Show which files →" link
-      // reads the records via the throw.
-      final mediaFailures = <UploadFailureRecord>[];
+    final mediaUrls = <String, String>{}; // exerciseId -> media URL
+    final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
 
-      final nonRestExercises =
-          session.exercises.where((e) => !e.isRest).toList();
-      // Fast-path eligibility: every non-rest exercise must have its raw
-      // archive already uploaded AND no pending thumb-regeneration.
-      // `thumbnailsDirty` is set by `ConversionService.regenerateHeroThumbnails`
-      // when the practitioner moves the Hero star or drags the hero crop;
-      // honouring it here forces the normal upload loop to run so the
-      // re-generated `_thumb.jpg` / `_thumb_color.jpg` / `_thumb_line.jpg`
-      // variants get re-uploaded (the existing-file check is overridden
-      // for dirty exercises in the per-thumb upload blocks below).
-      //
-      // The 2026-05-16 hero-thumb staleness fix — without this, dragging
-      // the Hero star regenerated thumbs locally but the publish skipped
-      // the upload because the raw archive was already in cloud.
-      //
-      // S-C2 follow-up (2026-05-22): the fast-path also bails for any
-      // Safe Mode capture. The derived variants in cloud might still
-      // be the pre-fix un-safe bake, so we need to run the slow path
-      // (which force-overwrites them) to be sure. For a fresh Safe Mode
-      // capture this is a no-op anyway (`rawArchiveUploadedAt` is null).
-      final allPreviouslyUploaded = nonRestExercises.isNotEmpty &&
-          nonRestExercises
-              .every((e) =>
-                  e.rawArchiveUploadedAt != null &&
-                  !e.thumbnailsDirty &&
-                  !e.safeModeActive);
-      // Snapshot the exercise order ONCE so every failure record reports
-      // a stable 0-based slot even if `session.exercises` is mutated
-      // elsewhere mid-publish. Mirrors the same map inside
-      // [_uploadRawArchives].
-      final mediaIndexByExerciseId = <String, int>{
-        for (var i = 0; i < session.exercises.length; i++)
-          session.exercises[i].id: i,
-      };
-      final mediaNameByExerciseId = <String, String?>{
-        for (final ex in session.exercises) ex.id: ex.name,
-      };
+    // Fix B (publish-diagnostic-surface, 2026-05-16) — per-file
+    // failure records for the media bucket. Same shape as the
+    // raw-archive collector inside `_uploadRawArchives`. After the
+    // upload branches below complete, if non-empty we throw
+    // [PublishFailedException] so the outer catch refunds the
+    // credit and the progress sheet's "Show which files →" link
+    // reads the records via the throw.
+    final mediaFailures = <UploadFailureRecord>[];
 
-      // Count the files this publish might upload (used for the sheet's
-      // "N of M files" subtitle). Order:
-      //   * media bucket: main mp4/jpg per exercise + _thumb.jpg + _thumb_line.jpg + _thumb_bw.jpg (photos)
-      //   * raw-archive bucket: raw mp4 / raw jpg + segmented + _thumb_color + mask
-      // Fast-path metadata-only republishes only refresh _thumb_line +
-      // _thumb_bw if missing, so we count one possible variant per
-      // exercise there (plus one extra for photos).
-      if (allPreviouslyUploaded) {
-        // Just the line-thumb backfill candidate per exercise. Photos
-        // also potentially carry a `_thumb_bw.jpg` to backfill, so
-        // count that on top.
-        filesTotal = nonRestExercises.length;
-        for (final ex in nonRestExercises) {
-          if (ex.mediaType.name == 'photo') filesTotal += 1;
-        }
-      } else {
-        for (final ex in nonRestExercises) {
-          filesTotal += 1; // main media
-          if (ex.absoluteThumbnailPath != null) {
-            filesTotal += 2; // _thumb + _thumb_line
-            if (ex.mediaType.name == 'photo') filesTotal += 1; // _thumb_bw
-          }
-        }
-      }
-      // Raw-archive variants — every variant is now required (PR-A).
-      // Count what's plausibly on disk; the upload pass below will
-      // skip whichever variants are missing.
+    final nonRestExercises =
+        session.exercises.where((e) => !e.isRest).toList();
+    // Fast-path eligibility: every non-rest exercise must have its raw
+    // archive already uploaded AND no pending thumb-regeneration.
+    // `thumbnailsDirty` is set by `ConversionService.regenerateHeroThumbnails`
+    // when the practitioner moves the Hero star or drags the hero crop;
+    // honouring it here forces the normal upload loop to run so the
+    // re-generated `_thumb.jpg` / `_thumb_color.jpg` / `_thumb_line.jpg`
+    // variants get re-uploaded (the existing-file check is overridden
+    // for dirty exercises in the per-thumb upload blocks below).
+    //
+    // The 2026-05-16 hero-thumb staleness fix — without this, dragging
+    // the Hero star regenerated thumbs locally but the publish skipped
+    // the upload because the raw archive was already in cloud.
+    //
+    // S-C2 follow-up (2026-05-22): the fast-path also bails for any
+    // Safe Mode capture. The derived variants in cloud might still
+    // be the pre-fix un-safe bake, so we need to run the slow path
+    // (which force-overwrites them) to be sure. For a fresh Safe Mode
+    // capture this is a no-op anyway (`rawArchiveUploadedAt` is null).
+    final allPreviouslyUploaded = nonRestExercises.isNotEmpty &&
+        nonRestExercises
+            .every((e) =>
+                e.rawArchiveUploadedAt != null &&
+                !e.thumbnailsDirty &&
+                !e.safeModeActive);
+    // Snapshot the exercise order ONCE so every failure record reports
+    // a stable 0-based slot even if `session.exercises` is mutated
+    // elsewhere mid-publish. Mirrors the same map inside
+    // [_uploadRawArchives].
+    final mediaIndexByExerciseId = <String, int>{
+      for (var i = 0; i < session.exercises.length; i++)
+        session.exercises[i].id: i,
+    };
+    final mediaNameByExerciseId = <String, String?>{
+      for (final ex in session.exercises) ex.id: ex.name,
+    };
+
+    // Count the files this publish might upload (used for the sheet's
+    // "N of M files" subtitle). Order:
+    //   * media bucket: main mp4/jpg per exercise + _thumb.jpg + _thumb_line.jpg + _thumb_bw.jpg (photos)
+    //   * raw-archive bucket: raw mp4 / raw jpg + segmented + _thumb_color + mask
+    // Fast-path metadata-only republishes only refresh _thumb_line +
+    // _thumb_bw if missing, so we count one possible variant per
+    // exercise there (plus one extra for photos).
+    if (allPreviouslyUploaded) {
+      // Just the line-thumb backfill candidate per exercise. Photos
+      // also potentially carry a `_thumb_bw.jpg` to backfill, so
+      // count that on top.
+      state.filesTotal = nonRestExercises.length;
       for (final ex in nonRestExercises) {
-        if (ex.archiveFilePath != null && ex.archiveFilePath!.isNotEmpty) {
-          filesTotal += 1;
-        }
-        if (ex.segmentedRawFilePath != null &&
-            ex.segmentedRawFilePath!.isNotEmpty) {
-          filesTotal += 1;
-        }
-        if (ex.mediaType.name == 'photo' && ex.rawFilePath.isNotEmpty) {
-          filesTotal += 1;
-        }
+        if (ex.mediaType.name == 'photo') state.filesTotal += 1;
+      }
+    } else {
+      for (final ex in nonRestExercises) {
+        state.filesTotal += 1; // main media
         if (ex.absoluteThumbnailPath != null) {
-          filesTotal += 1; // _thumb_color
-        }
-        if (ex.maskFilePath != null && ex.maskFilePath!.isNotEmpty) {
-          filesTotal += 1;
+          state.filesTotal += 2; // _thumb + _thumb_line
+          if (ex.mediaType.name == 'photo') state.filesTotal += 1; // _thumb_bw
         }
       }
-      emit(PublishProgress.uploadTick(
-        filesUploaded: 0,
-        filesTotal: filesTotal,
-      ));
+    }
+    // Raw-archive variants — every variant is now required (PR-A).
+    // Count what's plausibly on disk; the upload pass below will
+    // skip whichever variants are missing.
+    for (final ex in nonRestExercises) {
+      if (ex.archiveFilePath != null && ex.archiveFilePath!.isNotEmpty) {
+        state.filesTotal += 1;
+      }
+      if (ex.segmentedRawFilePath != null &&
+          ex.segmentedRawFilePath!.isNotEmpty) {
+        state.filesTotal += 1;
+      }
+      if (ex.mediaType.name == 'photo' && ex.rawFilePath.isNotEmpty) {
+        state.filesTotal += 1;
+      }
+      if (ex.absoluteThumbnailPath != null) {
+        state.filesTotal += 1; // _thumb_color
+      }
+      if (ex.maskFilePath != null && ex.maskFilePath!.isNotEmpty) {
+        state.filesTotal += 1;
+      }
+    }
+    emit(PublishProgress.uploadTick(
+      filesUploaded: 0,
+      filesTotal: state.filesTotal,
+    ));
 
-      if (allPreviouslyUploaded) {
-        debugPrint('uploadPlan: metadata-only republish — skipping main file uploads');
-        // Variant-thumb backfill (Wave Three-Treatment-Thumbs, 2026-05-05).
-        // Plans previously published with builds before PR #263 don't have
-        // `_thumb_line.jpg` in storage. Always run an existence-check +
-        // upload pass for the variant so older plans get the file
-        // populated on the next publish — independent of whether the main
-        // mp4 / _thumb.jpg already exist.
-        final existingFiles = <String>{};
-        try {
-          final listing = await _api.listMedia(prefix: session.id);
-          for (final item in listing) {
-            existingFiles.add('${session.id}/${item.name}');
-          }
-        } catch (_) {}
+    if (allPreviouslyUploaded) {
+      debugPrint('uploadPlan: metadata-only republish — skipping main file uploads');
+      // Variant-thumb backfill (Wave Three-Treatment-Thumbs, 2026-05-05).
+      // Plans previously published with builds before PR #263 don't have
+      // `_thumb_line.jpg` in storage. Always run an existence-check +
+      // upload pass for the variant so older plans get the file
+      // populated on the next publish — independent of whether the main
+      // mp4 / _thumb.jpg already exist.
+      final existingFiles = <String>{};
+      try {
+        final listing = await _api.listMedia(prefix: session.id);
+        for (final item in listing) {
+          existingFiles.add('${session.id}/${item.name}');
+        }
+      } catch (_) {}
 
-        // Per-exercise records of which thumb variants this fast-path
-        // re-uploaded for a dirty exercise. After the media-bucket pass
-        // completes (and only THEN, so a mid-loop failure doesn't claim
-        // a clean upload), the matching dirty-clear write happens in a
-        // second pass below.
-        final dirtyThumbUploadsByExercise = <String, bool>{};
+      // Per-exercise records of which thumb variants this fast-path
+      // re-uploaded for a dirty exercise. After the media-bucket pass
+      // completes (and only THEN, so a mid-loop failure doesn't claim
+      // a clean upload), the matching dirty-clear write happens in a
+      // second pass below.
+      final dirtyThumbUploadsByExercise = <String, bool>{};
 
-        for (final exercise in nonRestExercises) {
-          final ext = p.extension(
-            exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath,
-          );
-          final storagePath = '${session.id}/${exercise.id}$ext';
-          mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
-          final thumbAbs = exercise.absoluteThumbnailPath;
-          if (thumbAbs != null) {
-            thumbUrls[exercise.id] = _api.publicMediaUrl(
-                path: '${session.id}/${exercise.id}_thumb.jpg');
+      for (final exercise in nonRestExercises) {
+        final ext = p.extension(
+          exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath,
+        );
+        final storagePath = '${session.id}/${exercise.id}$ext';
+        mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
+        final thumbAbs = exercise.absoluteThumbnailPath;
+        if (thumbAbs != null) {
+          thumbUrls[exercise.id] = _api.publicMediaUrl(
+              path: '${session.id}/${exercise.id}_thumb.jpg');
 
-            // 2026-05-16 hero-thumb staleness fix — when this exercise's
-            // thumbs were regenerated (`thumbnailsDirty=true`), re-upload
-            // `_thumb.jpg` here in the fast-path too. Belt-and-braces:
-            // the Phase D step-1 fast-path eligibility check already
-            // disables the fast-path for any dirty exercise, so this
-            // block typically never runs while the fix is intact. Kept
-            // so a future regression of the eligibility check doesn't
-            // silently re-introduce the stale-thumb bug. uploadMedia
-            // uses `upsert: true` so re-upload is a silent overwrite.
-            if (exercise.thumbnailsDirty) {
-              final thumbFile = File(thumbAbs);
-              if (await thumbFile.exists()) {
-                final thumbStoragePath =
-                    '${session.id}/${exercise.id}_thumb.jpg';
-                try {
-                  await _api.uploadMedia(
-                      path: thumbStoragePath, file: thumbFile);
-                  uploadedPaths.add(thumbStoragePath);
-                  filesUploaded += 1;
-                  dirtyThumbUploadsByExercise[exercise.id] = true;
-                  emit(PublishProgress.uploadTick(
-                    filesUploaded: filesUploaded,
-                    filesTotal: filesTotal,
-                  ));
-                } catch (uploadErr) {
-                  mediaFailures.add(UploadFailureRecord(
-                    kind: 'media_thumb_upload_failed',
-                    storagePath: thumbStoragePath,
-                    localPath: thumbAbs,
-                    fileExists: thumbFile.existsSync(),
-                    exerciseId: exercise.id,
-                    exerciseIndex: mediaIndexByExerciseId[exercise.id],
-                    exerciseName: mediaNameByExerciseId[exercise.id],
-                  ));
-                  debugPrint(
-                    'uploadPlan FAILED kind=media_thumb_upload_failed '
-                    '(fast-path dirty) path=$thumbStoragePath '
-                    'local=$thumbAbs err=$uploadErr',
-                  );
-                }
+          // 2026-05-16 hero-thumb staleness fix — when this exercise's
+          // thumbs were regenerated (`thumbnailsDirty=true`), re-upload
+          // `_thumb.jpg` here in the fast-path too. Belt-and-braces:
+          // the Phase D step-1 fast-path eligibility check already
+          // disables the fast-path for any dirty exercise, so this
+          // block typically never runs while the fix is intact. Kept
+          // so a future regression of the eligibility check doesn't
+          // silently re-introduce the stale-thumb bug. uploadMedia
+          // uses `upsert: true` so re-upload is a silent overwrite.
+          if (exercise.thumbnailsDirty) {
+            final thumbFile = File(thumbAbs);
+            if (await thumbFile.exists()) {
+              final thumbStoragePath =
+                  '${session.id}/${exercise.id}_thumb.jpg';
+              try {
+                await _api.uploadMedia(
+                    path: thumbStoragePath, file: thumbFile);
+                state.uploadedPaths.add(thumbStoragePath);
+                state.filesUploaded += 1;
+                dirtyThumbUploadsByExercise[exercise.id] = true;
+                emit(PublishProgress.uploadTick(
+                  filesUploaded: state.filesUploaded,
+                  filesTotal: state.filesTotal,
+                ));
+              } catch (uploadErr) {
+                mediaFailures.add(UploadFailureRecord(
+                  kind: 'media_thumb_upload_failed',
+                  storagePath: thumbStoragePath,
+                  localPath: thumbAbs,
+                  fileExists: thumbFile.existsSync(),
+                  exerciseId: exercise.id,
+                  exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                  exerciseName: mediaNameByExerciseId[exercise.id],
+                ));
+                debugPrint(
+                  'uploadPlan FAILED kind=media_thumb_upload_failed '
+                  '(fast-path dirty) path=$thumbStoragePath '
+                  'local=$thumbAbs err=$uploadErr',
+                );
               }
             }
+          }
 
-            // Backfill `_thumb_line.jpg` (always) and `_thumb_bw.jpg`
-            // (photos only) — same per-variant upload contract via
-            // [_uploadThumbVariantToMedia]. Each helper call handles
-            // the replaceFirst no-op guard, exists()-on-disk check,
-            // existingFiles + thumbnailsDirty override, success
-            // accounting (`uploadedPaths.add`, dirty-bookkeeping for
-            // the clear-pass below), and per-file failure recording.
+          // Backfill `_thumb_line.jpg` (always) and `_thumb_bw.jpg`
+          // (photos only) — same per-variant upload contract via
+          // [_uploadThumbVariantToMedia]. Each helper call handles
+          // the replaceFirst no-op guard, exists()-on-disk check,
+          // existingFiles + thumbnailsDirty override, success
+          // accounting (`uploadedPaths.add`, dirty-bookkeeping for
+          // the clear-pass below), and per-file failure recording.
+          await _uploadThumbVariantToMedia(
+            exercise: exercise,
+            variant: 'line',
+            thumbAbsOrRelative: thumbAbs,
+            storagePathPrefix: session.id,
+            existingFiles: existingFiles,
+            uploadedPaths: state.uploadedPaths,
+            mediaFailures: mediaFailures,
+            mediaIndexByExerciseId: mediaIndexByExerciseId,
+            mediaNameByExerciseId: mediaNameByExerciseId,
+            dirtyThumbUploadsByExercise: dirtyThumbUploadsByExercise,
+            onSuccessTick: () {
+              state.filesUploaded += 1;
+              emit(PublishProgress.uploadTick(
+                filesUploaded: state.filesUploaded,
+                filesTotal: state.filesTotal,
+              ));
+            },
+          );
+          if (exercise.mediaType.name == 'photo') {
             await _uploadThumbVariantToMedia(
               exercise: exercise,
-              variant: 'line',
+              variant: 'bw',
               thumbAbsOrRelative: thumbAbs,
               storagePathPrefix: session.id,
               existingFiles: existingFiles,
-              uploadedPaths: uploadedPaths,
+              uploadedPaths: state.uploadedPaths,
               mediaFailures: mediaFailures,
               mediaIndexByExerciseId: mediaIndexByExerciseId,
               mediaNameByExerciseId: mediaNameByExerciseId,
               dirtyThumbUploadsByExercise: dirtyThumbUploadsByExercise,
               onSuccessTick: () {
-                filesUploaded += 1;
+                state.filesUploaded += 1;
                 emit(PublishProgress.uploadTick(
-                  filesUploaded: filesUploaded,
-                  filesTotal: filesTotal,
+                  filesUploaded: state.filesUploaded,
+                  filesTotal: state.filesTotal,
+                ));
+              },
+            );
+          }
+        }
+      }
+
+      // 2026-05-16 hero-thumb staleness fix — clear `thumbnailsDirty`
+      // for every dirty exercise whose media-bucket thumbs were
+      // successfully re-uploaded in this fast-path. The raw-archive
+      // `_thumb_color.jpg` is handled separately in `_uploadRawArchives`
+      // (which doesn't clear the flag, so the next publish would
+      // re-upload all three thumbs if the clear here didn't fire);
+      // accept that asymmetry — re-uploading three small JPGs once
+      // more on the next publish is cheap insurance.
+      for (final entry in dirtyThumbUploadsByExercise.entries) {
+        final exercise =
+            session.exercises.firstWhere((e) => e.id == entry.key);
+        await loudSwallow(
+          () => _storage.saveExercise(
+            exercise.copyWith(thumbnailsDirty: false),
+          ),
+          kind: 'thumbnails_dirty_clear_failed',
+          source: 'UploadService.uploadPlan.fastPath',
+          severity: 'info',
+          swallow: true,
+        );
+      }
+    } else {
+      // Some exercises are new — list + upload as needed.
+      final existingFiles = <String>{};
+      try {
+        final listing = await _api.listMedia(prefix: session.id);
+        for (final item in listing) {
+          existingFiles.add('${session.id}/${item.name}');
+        }
+      } catch (_) {}
+
+      for (final exercise in nonRestExercises) {
+        final filePath =
+            exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath;
+        final file = File(filePath);
+        final ext = p.extension(filePath);
+        final storagePath = '${session.id}/${exercise.id}$ext';
+        if (!existingFiles.contains(storagePath)) {
+          try {
+            await _api.uploadMedia(path: storagePath, file: file);
+            state.uploadedPaths.add(storagePath);
+            state.filesUploaded += 1;
+            emit(PublishProgress.uploadTick(
+              filesUploaded: state.filesUploaded,
+              filesTotal: state.filesTotal,
+            ));
+          } catch (uploadErr) {
+            // Fix B — record per-file failure; loop continues so
+            // siblings get a chance to upload. Main mp4/jpg variant.
+            mediaFailures.add(UploadFailureRecord(
+              kind: 'media_main_upload_failed',
+              storagePath: storagePath,
+              localPath: filePath,
+              fileExists: file.existsSync(),
+              exerciseId: exercise.id,
+              exerciseIndex: mediaIndexByExerciseId[exercise.id],
+              exerciseName: mediaNameByExerciseId[exercise.id],
+            ));
+            debugPrint(
+              'uploadPlan FAILED kind=media_main_upload_failed '
+              'path=$storagePath local=$filePath err=$uploadErr',
+            );
+          }
+        }
+        mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
+
+        final thumbPath = exercise.absoluteThumbnailPath;
+        if (thumbPath != null) {
+          final thumbFile = File(thumbPath);
+          if (await thumbFile.exists()) {
+            final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
+            // 2026-05-16 hero-thumb staleness fix — when
+            // `thumbnailsDirty` is true (Hero star moved or crop
+            // dragged), force re-upload even if the path already
+            // exists in storage. `uploadMedia` uses `upsert: true`
+            // so overwrite is a silent idempotent operation.
+            //
+            // S-C2 follow-up (2026-05-22): also force re-upload when
+            // Safe Mode applies. `_thumb.jpg` is the practitioner-
+            // facing canonical thumb (B&W); regenerated from safe
+            // pixels so the cloud copy must overwrite the un-safe
+            // bake.
+            if (!existingFiles.contains(thumbStoragePath) ||
+                exercise.thumbnailsDirty ||
+                exercise.safeModeActive) {
+              try {
+                await _api.uploadMedia(
+                    path: thumbStoragePath, file: thumbFile);
+                state.uploadedPaths.add(thumbStoragePath);
+                state.filesUploaded += 1;
+                emit(PublishProgress.uploadTick(
+                  filesUploaded: state.filesUploaded,
+                  filesTotal: state.filesTotal,
+                ));
+              } catch (uploadErr) {
+                // Fix B — record _thumb.jpg failure.
+                mediaFailures.add(UploadFailureRecord(
+                  kind: 'media_thumb_upload_failed',
+                  storagePath: thumbStoragePath,
+                  localPath: thumbPath,
+                  fileExists: thumbFile.existsSync(),
+                  exerciseId: exercise.id,
+                  exerciseIndex: mediaIndexByExerciseId[exercise.id],
+                  exerciseName: mediaNameByExerciseId[exercise.id],
+                ));
+                debugPrint(
+                  'uploadPlan FAILED kind=media_thumb_upload_failed '
+                  'path=$thumbStoragePath local=$thumbPath err=$uploadErr',
+                );
+              }
+            }
+            thumbUrls[exercise.id] =
+                _api.publicMediaUrl(path: thumbStoragePath);
+
+            // Wave Three-Treatment-Thumbs (2026-05-05) — upload the
+            // LINE-DRAWING JPG (`_thumb_line.jpg`, always) and the
+            // bytes-baked B&W sibling (`_thumb_bw.jpg`, photos only)
+            // via the shared [_uploadThumbVariantToMedia] helper. No
+            // `dirtyThumbUploadsByExercise` map here — the slow-path
+            // clears `thumbnailsDirty` in a single global pass after
+            // all upload loops complete.
+            await _uploadThumbVariantToMedia(
+              exercise: exercise,
+              variant: 'line',
+              thumbAbsOrRelative: thumbPath,
+              storagePathPrefix: session.id,
+              existingFiles: existingFiles,
+              uploadedPaths: state.uploadedPaths,
+              mediaFailures: mediaFailures,
+              mediaIndexByExerciseId: mediaIndexByExerciseId,
+              mediaNameByExerciseId: mediaNameByExerciseId,
+              onSuccessTick: () {
+                state.filesUploaded += 1;
+                emit(PublishProgress.uploadTick(
+                  filesUploaded: state.filesUploaded,
+                  filesTotal: state.filesTotal,
                 ));
               },
             );
@@ -1379,684 +2021,340 @@ class UploadService {
               await _uploadThumbVariantToMedia(
                 exercise: exercise,
                 variant: 'bw',
-                thumbAbsOrRelative: thumbAbs,
-                storagePathPrefix: session.id,
-                existingFiles: existingFiles,
-                uploadedPaths: uploadedPaths,
-                mediaFailures: mediaFailures,
-                mediaIndexByExerciseId: mediaIndexByExerciseId,
-                mediaNameByExerciseId: mediaNameByExerciseId,
-                dirtyThumbUploadsByExercise: dirtyThumbUploadsByExercise,
-                onSuccessTick: () {
-                  filesUploaded += 1;
-                  emit(PublishProgress.uploadTick(
-                    filesUploaded: filesUploaded,
-                    filesTotal: filesTotal,
-                  ));
-                },
-              );
-            }
-          }
-        }
-
-        // 2026-05-16 hero-thumb staleness fix — clear `thumbnailsDirty`
-        // for every dirty exercise whose media-bucket thumbs were
-        // successfully re-uploaded in this fast-path. The raw-archive
-        // `_thumb_color.jpg` is handled separately in `_uploadRawArchives`
-        // (which doesn't clear the flag, so the next publish would
-        // re-upload all three thumbs if the clear here didn't fire);
-        // accept that asymmetry — re-uploading three small JPGs once
-        // more on the next publish is cheap insurance.
-        for (final entry in dirtyThumbUploadsByExercise.entries) {
-          final exercise =
-              session.exercises.firstWhere((e) => e.id == entry.key);
-          await loudSwallow(
-            () => _storage.saveExercise(
-              exercise.copyWith(thumbnailsDirty: false),
-            ),
-            kind: 'thumbnails_dirty_clear_failed',
-            source: 'UploadService.uploadPlan.fastPath',
-            severity: 'info',
-            swallow: true,
-          );
-        }
-      } else {
-        // Some exercises are new — list + upload as needed.
-        final existingFiles = <String>{};
-        try {
-          final listing = await _api.listMedia(prefix: session.id);
-          for (final item in listing) {
-            existingFiles.add('${session.id}/${item.name}');
-          }
-        } catch (_) {}
-
-        for (final exercise in nonRestExercises) {
-          final filePath =
-              exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath;
-          final file = File(filePath);
-          final ext = p.extension(filePath);
-          final storagePath = '${session.id}/${exercise.id}$ext';
-          if (!existingFiles.contains(storagePath)) {
-            try {
-              await _api.uploadMedia(path: storagePath, file: file);
-              uploadedPaths.add(storagePath);
-              filesUploaded += 1;
-              emit(PublishProgress.uploadTick(
-                filesUploaded: filesUploaded,
-                filesTotal: filesTotal,
-              ));
-            } catch (uploadErr) {
-              // Fix B — record per-file failure; loop continues so
-              // siblings get a chance to upload. Main mp4/jpg variant.
-              mediaFailures.add(UploadFailureRecord(
-                kind: 'media_main_upload_failed',
-                storagePath: storagePath,
-                localPath: filePath,
-                fileExists: file.existsSync(),
-                exerciseId: exercise.id,
-                exerciseIndex: mediaIndexByExerciseId[exercise.id],
-                exerciseName: mediaNameByExerciseId[exercise.id],
-              ));
-              debugPrint(
-                'uploadPlan FAILED kind=media_main_upload_failed '
-                'path=$storagePath local=$filePath err=$uploadErr',
-              );
-            }
-          }
-          mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
-
-          final thumbPath = exercise.absoluteThumbnailPath;
-          if (thumbPath != null) {
-            final thumbFile = File(thumbPath);
-            if (await thumbFile.exists()) {
-              final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
-              // 2026-05-16 hero-thumb staleness fix — when
-              // `thumbnailsDirty` is true (Hero star moved or crop
-              // dragged), force re-upload even if the path already
-              // exists in storage. `uploadMedia` uses `upsert: true`
-              // so overwrite is a silent idempotent operation.
-              //
-              // S-C2 follow-up (2026-05-22): also force re-upload when
-              // Safe Mode applies. `_thumb.jpg` is the practitioner-
-              // facing canonical thumb (B&W); regenerated from safe
-              // pixels so the cloud copy must overwrite the un-safe
-              // bake.
-              if (!existingFiles.contains(thumbStoragePath) ||
-                  exercise.thumbnailsDirty ||
-                  exercise.safeModeActive) {
-                try {
-                  await _api.uploadMedia(
-                      path: thumbStoragePath, file: thumbFile);
-                  uploadedPaths.add(thumbStoragePath);
-                  filesUploaded += 1;
-                  emit(PublishProgress.uploadTick(
-                    filesUploaded: filesUploaded,
-                    filesTotal: filesTotal,
-                  ));
-                } catch (uploadErr) {
-                  // Fix B — record _thumb.jpg failure.
-                  mediaFailures.add(UploadFailureRecord(
-                    kind: 'media_thumb_upload_failed',
-                    storagePath: thumbStoragePath,
-                    localPath: thumbPath,
-                    fileExists: thumbFile.existsSync(),
-                    exerciseId: exercise.id,
-                    exerciseIndex: mediaIndexByExerciseId[exercise.id],
-                    exerciseName: mediaNameByExerciseId[exercise.id],
-                  ));
-                  debugPrint(
-                    'uploadPlan FAILED kind=media_thumb_upload_failed '
-                    'path=$thumbStoragePath local=$thumbPath err=$uploadErr',
-                  );
-                }
-              }
-              thumbUrls[exercise.id] =
-                  _api.publicMediaUrl(path: thumbStoragePath);
-
-              // Wave Three-Treatment-Thumbs (2026-05-05) — upload the
-              // LINE-DRAWING JPG (`_thumb_line.jpg`, always) and the
-              // bytes-baked B&W sibling (`_thumb_bw.jpg`, photos only)
-              // via the shared [_uploadThumbVariantToMedia] helper. No
-              // `dirtyThumbUploadsByExercise` map here — the slow-path
-              // clears `thumbnailsDirty` in a single global pass after
-              // all upload loops complete.
-              await _uploadThumbVariantToMedia(
-                exercise: exercise,
-                variant: 'line',
                 thumbAbsOrRelative: thumbPath,
                 storagePathPrefix: session.id,
                 existingFiles: existingFiles,
-                uploadedPaths: uploadedPaths,
+                uploadedPaths: state.uploadedPaths,
                 mediaFailures: mediaFailures,
                 mediaIndexByExerciseId: mediaIndexByExerciseId,
                 mediaNameByExerciseId: mediaNameByExerciseId,
                 onSuccessTick: () {
-                  filesUploaded += 1;
+                  state.filesUploaded += 1;
                   emit(PublishProgress.uploadTick(
-                    filesUploaded: filesUploaded,
-                    filesTotal: filesTotal,
+                    filesUploaded: state.filesUploaded,
+                    filesTotal: state.filesTotal,
                   ));
                 },
               );
-              if (exercise.mediaType.name == 'photo') {
-                await _uploadThumbVariantToMedia(
-                  exercise: exercise,
-                  variant: 'bw',
-                  thumbAbsOrRelative: thumbPath,
-                  storagePathPrefix: session.id,
-                  existingFiles: existingFiles,
-                  uploadedPaths: uploadedPaths,
-                  mediaFailures: mediaFailures,
-                  mediaIndexByExerciseId: mediaIndexByExerciseId,
-                  mediaNameByExerciseId: mediaNameByExerciseId,
-                  onSuccessTick: () {
-                    filesUploaded += 1;
-                    emit(PublishProgress.uploadTick(
-                      filesUploaded: filesUploaded,
-                      filesTotal: filesTotal,
-                    ));
-                  },
-                );
-              }
             }
           }
         }
       }
+    }
 
-      // Fix B (publish-diagnostic-surface, 2026-05-16) — atomic media
-      // bucket. If any per-file upload failed above, throw the same
-      // exception shape the raw-archive pass uses. The outer catch
-      // refunds the credit, cleans up the partially-uploaded paths,
-      // and the progress sheet's "Show which files →" link reads the
-      // records via the throw.
-      if (mediaFailures.isNotEmpty) {
-        throw PublishFailedException(
-          phase: PublishPhase.uploadingTreatments,
-          failures: mediaFailures,
-          filesUploaded: filesUploaded,
-          filesTotal: filesTotal,
-        );
-      }
-
-      // ----------------------------------------------------------------
-      // Step 7.5 (PR-C order): atomic raw-archive upload.
-      //
-      // PR-C (2026-05-15) reorders this BEFORE the exercise upsert so a
-      // raw-archive failure can throw [PublishFailedException], unwind
-      // the credit refund + media-bucket cleanup, and leave the
-      // `exercises` table untouched. The pre-PR-C order ran exercise
-      // upsert first and treated raw uploads as best-effort; the new
-      // [PublishProgressSheet] needs every upload to be required so the
-      // failure state is meaningful.
-      //
-      // Closure shares the same `filesUploaded` / `filesTotal` ints with
-      // the media-bucket loop above, so the sheet's "N of M files"
-      // counter advances seamlessly across both buckets.
-      // ----------------------------------------------------------------
-      final optionalArtifactFailureList = await _uploadRawArchives(
-        session: session,
-        practiceId: practiceId,
-        onSuccessfulTick: () {
-          filesUploaded += 1;
-          emit(PublishProgress.uploadTick(
-            filesUploaded: filesUploaded,
-            filesTotal: filesTotal,
-          ));
-        },
+    // Fix B (publish-diagnostic-surface, 2026-05-16) — atomic media
+    // bucket. If any per-file upload failed above, throw the same
+    // exception shape the raw-archive pass uses. The outer catch
+    // refunds the credit, cleans up the partially-uploaded paths,
+    // and the progress sheet's "Show which files →" link reads the
+    // records via the throw.
+    if (mediaFailures.isNotEmpty) {
+      throw PublishFailedException(
+        phase: PublishPhase.uploadingTreatments,
+        failures: mediaFailures,
+        filesUploaded: state.filesUploaded,
+        filesTotal: state.filesTotal,
       );
+    }
 
-      // PR-C: any raw-archive failure is now terminal. Throw and let the
-      // outer catch refund the credit + clean up the media bucket. The
-      // exception carries the per-file failure list so the sheet's
-      // "Show which files →" link can open [UploadDiagnosticSheet]
-      // without re-fetching.
-      if (optionalArtifactFailureList.isNotEmpty) {
-        throw PublishFailedException(
-          phase: PublishPhase.uploadingTreatments,
-          failures: optionalArtifactFailureList,
-          filesUploaded: filesUploaded,
-          filesTotal: filesTotal,
-        );
-      }
-      final optionalArtifactsHadFailures =
-          optionalArtifactFailureList.isNotEmpty;
+    return _MediaUploadResult(mediaUrls: mediaUrls, thumbUrls: thumbUrls);
+  }
 
-      // PR-C — uploads complete; transition to the "Saving plan" row.
-      emit(PublishProgress.markActive(PublishPhase.savingPlan));
+  /// Phase 5 — Upsert exercise rows (Step 6), lifted verbatim from the
+  /// original [uploadPlan] try-body. Builds the per-exercise payload
+  /// (carrying the resolved [mediaUrls] / [thumbUrls]) and atomically
+  /// replaces the plan's `exercises` rows via `replace_plan_exercises`
+  /// (DELETE + INSERT in one server-side transaction). Returns the
+  /// server's synthetic single-set fallback exercise IDs.
+  Future<List<String>> _upsertExercises(
+    Session session, {
+    required Map<String, String> mediaUrls,
+    required Map<String, String?> thumbUrls,
+  }) async {
+    // ----------------------------------------------------------------
+    // Step 6: Upsert exercise rows (batched). FK to plans is satisfied
+    // from Step 4.
+    // ----------------------------------------------------------------
+    // Per-set PLAN wave — payload now carries a nested `sets` array
+    // per video/photo exercise. Rest exercises emit an empty `sets`
+    // array (the RPC ignores it for media_type='rest'). Each set
+    // serialises as {position, reps, hold_seconds, weight_kg,
+    // breather_seconds_after}.
+    final exerciseRows = session.exercises
+        .map((e) => {
+              'id': e.id,
+              'plan_id': session.id,
+              'position': e.position,
+              'name': e.name,
+              'media_url': mediaUrls[e.id],
+              'thumbnail_url': thumbUrls[e.id],
+              'media_type': e.mediaType.name,
+              'sets': e.sets.map((s) => s.toJson()).toList(growable: false),
+              'notes': e.notes,
+              'circuit_id': e.circuitId,
+              'include_audio': e.includeAudio,
+              // Sticky treatment preference (Milestone O). null is
+              // "default = line"; non-null is the practitioner's
+              // explicit choice persisted from the Studio card tiles
+              // / plan preview / _MediaViewer. Round-trips through the
+              // exercises.preferred_treatment column; get_plan_full
+              // is expected to surface it on subsequent reads.
+              'preferred_treatment': e.preferredTreatment?.wireValue,
+              // Per-exercise prep-countdown override (Milestone P /
+              // Wave 3). null = use global default (5s); positive int
+              // = practitioner override set via the Studio card's
+              // "Prep seconds" inline field. Surfaces on the web
+              // player via get_plan_full (emitted by to_jsonb(e)).
+              'prep_seconds': e.prepSeconds,
+              // Soft-trim window (Wave 20 / Milestone X). Both null
+              // = no trim, full clip plays. When set, mobile preview
+              // + web player clamp playback to [start, end] and loop
+              // within that window; same trim applies across all
+              // three treatments. Surfaces on the web player via
+              // get_plan_full (emitted by to_jsonb(e)).
+              'start_offset_ms': e.startOffsetMs,
+              'end_offset_ms': e.endOffsetMs,
+              // Wave 24 — number of reps captured in the source
+              // video. NULL = legacy / pre-migration row (player
+              // treats as 1 rep per loop). Fresh captures seed to 3
+              // via withPersistenceDefaults().
+              'video_reps_per_loop': e.videoRepsPerLoop,
+              // Wave 28 — landscape orientation metadata. aspect_ratio
+              // is the effective playback aspect AFTER any practitioner
+              // rotation (single source of truth — consumers don't
+              // re-derive from natural dimensions + rotation).
+              'aspect_ratio': e.aspectRatio,
+              'rotation_quarters': e.rotationQuarters,
+              // Per-set PLAN rest-fix (schema_wave_per_set_dose_rest_fix.sql).
+              // Only meaningful for media_type='rest'; null for video/photo.
+              // The Wave-1 migration dropped exercises.hold_seconds (which
+              // had been the rest-duration carrier for rest rows); this
+              // restores the cloud round-trip via a dedicated rest_seconds
+              // column. Mobile-side the value lives on
+              // ExerciseCapture.restHoldSeconds (SQLite v33).
+              'rest_seconds': e.restHoldSeconds,
+              // Wave 42 — per-exercise practitioner body-focus default.
+              // null = render with body-focus ON (the pre-Wave-42
+              // default; legacy rows stay unchanged on first open).
+              // true / false = explicit practitioner choice. Replaces
+              // the legacy per-device flag in the mobile preview that
+              // never reached publish. Surfaces on the web player via
+              // get_plan_full (emitted by to_jsonb(e)); the player
+              // layers per-exercise CLIENT overrides on top via
+              // localStorage homefit.overrides::{planId}.
+              'body_focus': e.bodyFocus,
+              // Wave Hero — practitioner-picked Hero frame offset (ms
+              // into the raw video). Drives every practitioner-facing
+              // thumbnail surface AND the web player's prep-phase
+              // overlay + video poster. NULL = legacy / pre-migration
+              // row (consumers fall through to motion-peak heuristic).
+              // Surfaces on the web player via get_plan_full (emitted
+              // by to_jsonb(e)).
+              'focus_frame_offset_ms': e.focusFrameOffsetMs,
+              // Wave Lobby (PR 1/N) — practitioner-authored 1:1 Hero
+              // crop offset, normalized 0.0..1.0 along the source
+              // media's free axis (X for landscape, Y for portrait;
+              // see Wave 28 aspect_ratio / rotation_quarters). NULL
+              // = unset (consumers default to 0.5 / centred). No
+              // consumer reads this yet — landed for round-trip
+              // parity ahead of the editor + lobby PRs.
+              'hero_crop_offset': e.heroCropOffset,
+              // Safe Mode completion (2026-05-21). Round-trips both
+              // audit fields through `replace_plan_exercises` so the
+              // portal audit feed can show which captures were
+              // taken inside an enforcing premises polygon. false /
+              // null when Safe Mode was off — matches the cloud
+              // column defaults exactly.
+              'safe_mode_active': e.safeModeActive,
+              'captured_in_premises_id': e.capturedInPremisesId,
+              // Self-trainer wave PR #5 (2026-05-25). Tri-state
+              // bool stamped at conversion time by
+              // ConversionService._runSelfVerification. NULL = not
+              // checked (no reference embedding registered, OR
+              // legacy capture pre-wave); 0 = mismatch / no face /
+              // pipeline error; 1 = MobileFaceNet matched the
+              // registered self. Round-trips through
+              // replace_plan_exercises so the publish-cost preview
+              // in PR #6 can aggregate it at the session level.
+              'self_verified': e.selfVerified,
+            })
+        .toList();
 
-      // ----------------------------------------------------------------
-      // Step 6: Upsert exercise rows (batched). FK to plans is satisfied
-      // from Step 4.
-      // ----------------------------------------------------------------
-      // Per-set PLAN wave — payload now carries a nested `sets` array
-      // per video/photo exercise. Rest exercises emit an empty `sets`
-      // array (the RPC ignores it for media_type='rest'). Each set
-      // serialises as {position, reps, hold_seconds, weight_kg,
-      // breather_seconds_after}.
-      final exerciseRows = session.exercises
-          .map((e) => {
-                'id': e.id,
-                'plan_id': session.id,
-                'position': e.position,
-                'name': e.name,
-                'media_url': mediaUrls[e.id],
-                'thumbnail_url': thumbUrls[e.id],
-                'media_type': e.mediaType.name,
-                'sets': e.sets.map((s) => s.toJson()).toList(growable: false),
-                'notes': e.notes,
-                'circuit_id': e.circuitId,
-                'include_audio': e.includeAudio,
-                // Sticky treatment preference (Milestone O). null is
-                // "default = line"; non-null is the practitioner's
-                // explicit choice persisted from the Studio card tiles
-                // / plan preview / _MediaViewer. Round-trips through the
-                // exercises.preferred_treatment column; get_plan_full
-                // is expected to surface it on subsequent reads.
-                'preferred_treatment': e.preferredTreatment?.wireValue,
-                // Per-exercise prep-countdown override (Milestone P /
-                // Wave 3). null = use global default (5s); positive int
-                // = practitioner override set via the Studio card's
-                // "Prep seconds" inline field. Surfaces on the web
-                // player via get_plan_full (emitted by to_jsonb(e)).
-                'prep_seconds': e.prepSeconds,
-                // Soft-trim window (Wave 20 / Milestone X). Both null
-                // = no trim, full clip plays. When set, mobile preview
-                // + web player clamp playback to [start, end] and loop
-                // within that window; same trim applies across all
-                // three treatments. Surfaces on the web player via
-                // get_plan_full (emitted by to_jsonb(e)).
-                'start_offset_ms': e.startOffsetMs,
-                'end_offset_ms': e.endOffsetMs,
-                // Wave 24 — number of reps captured in the source
-                // video. NULL = legacy / pre-migration row (player
-                // treats as 1 rep per loop). Fresh captures seed to 3
-                // via withPersistenceDefaults().
-                'video_reps_per_loop': e.videoRepsPerLoop,
-                // Wave 28 — landscape orientation metadata. aspect_ratio
-                // is the effective playback aspect AFTER any practitioner
-                // rotation (single source of truth — consumers don't
-                // re-derive from natural dimensions + rotation).
-                'aspect_ratio': e.aspectRatio,
-                'rotation_quarters': e.rotationQuarters,
-                // Per-set PLAN rest-fix (schema_wave_per_set_dose_rest_fix.sql).
-                // Only meaningful for media_type='rest'; null for video/photo.
-                // The Wave-1 migration dropped exercises.hold_seconds (which
-                // had been the rest-duration carrier for rest rows); this
-                // restores the cloud round-trip via a dedicated rest_seconds
-                // column. Mobile-side the value lives on
-                // ExerciseCapture.restHoldSeconds (SQLite v33).
-                'rest_seconds': e.restHoldSeconds,
-                // Wave 42 — per-exercise practitioner body-focus default.
-                // null = render with body-focus ON (the pre-Wave-42
-                // default; legacy rows stay unchanged on first open).
-                // true / false = explicit practitioner choice. Replaces
-                // the legacy per-device flag in the mobile preview that
-                // never reached publish. Surfaces on the web player via
-                // get_plan_full (emitted by to_jsonb(e)); the player
-                // layers per-exercise CLIENT overrides on top via
-                // localStorage homefit.overrides::{planId}.
-                'body_focus': e.bodyFocus,
-                // Wave Hero — practitioner-picked Hero frame offset (ms
-                // into the raw video). Drives every practitioner-facing
-                // thumbnail surface AND the web player's prep-phase
-                // overlay + video poster. NULL = legacy / pre-migration
-                // row (consumers fall through to motion-peak heuristic).
-                // Surfaces on the web player via get_plan_full (emitted
-                // by to_jsonb(e)).
-                'focus_frame_offset_ms': e.focusFrameOffsetMs,
-                // Wave Lobby (PR 1/N) — practitioner-authored 1:1 Hero
-                // crop offset, normalized 0.0..1.0 along the source
-                // media's free axis (X for landscape, Y for portrait;
-                // see Wave 28 aspect_ratio / rotation_quarters). NULL
-                // = unset (consumers default to 0.5 / centred). No
-                // consumer reads this yet — landed for round-trip
-                // parity ahead of the editor + lobby PRs.
-                'hero_crop_offset': e.heroCropOffset,
-                // Safe Mode completion (2026-05-21). Round-trips both
-                // audit fields through `replace_plan_exercises` so the
-                // portal audit feed can show which captures were
-                // taken inside an enforcing premises polygon. false /
-                // null when Safe Mode was off — matches the cloud
-                // column defaults exactly.
-                'safe_mode_active': e.safeModeActive,
-                'captured_in_premises_id': e.capturedInPremisesId,
-                // Self-trainer wave PR #5 (2026-05-25). Tri-state
-                // bool stamped at conversion time by
-                // ConversionService._runSelfVerification. NULL = not
-                // checked (no reference embedding registered, OR
-                // legacy capture pre-wave); 0 = mismatch / no face /
-                // pipeline error; 1 = MobileFaceNet matched the
-                // registered self. Round-trips through
-                // replace_plan_exercises so the publish-cost preview
-                // in PR #6 can aggregate it at the session level.
-                'self_verified': e.selfVerified,
-              })
-          .toList();
-
-      // Atomic replace-all — DELETE + INSERT in one transaction server-side.
-      // Per-set PLAN wave: the RPC also rewrites the per-exercise child
-      // rows in `exercise_sets` and returns a list of fallback exercise
-      // IDs whose incoming `sets` array was missing/empty. Surface
-      // those to the caller via [PublishResult.fallbackSetExerciseIds].
-      final replaceResult = await _api.replacePlanExercises(
-        planId: session.id,
-        rows: exerciseRows,
+    // Atomic replace-all — DELETE + INSERT in one transaction server-side.
+    // Per-set PLAN wave: the RPC also rewrites the per-exercise child
+    // rows in `exercise_sets` and returns a list of fallback exercise
+    // IDs whose incoming `sets` array was missing/empty. Surface
+    // those to the caller via [PublishResult.fallbackSetExerciseIds].
+    final replaceResult = await _api.replacePlanExercises(
+      planId: session.id,
+      rows: exerciseRows,
+    );
+    // The list is propagated all the way to the success result. We
+    // copy into a local so the closure capture below is explicit.
+    final fallbackSetIds = replaceResult.fallbackSetExerciseIds;
+    if (fallbackSetIds.isNotEmpty) {
+      debugPrint(
+        'uploadPlan: server applied synthetic single-set fallback for '
+        '${fallbackSetIds.length} exercise(s): ${fallbackSetIds.join(", ")}',
       );
-      // The list is propagated all the way to the success result. We
-      // copy into a local so the closure capture below is explicit.
-      final fallbackSetIds = replaceResult.fallbackSetExerciseIds;
-      if (fallbackSetIds.isNotEmpty) {
-        debugPrint(
-          'uploadPlan: server applied synthetic single-set fallback for '
-          '${fallbackSetIds.length} exercise(s): ${fallbackSetIds.join(", ")}',
-        );
-      }
+    }
+    return fallbackSetIds;
+  }
 
-      // PR-C — Step 7.5 (raw-archive upload) moved up to run BEFORE the
-      // exercise upsert above so failures throw before persisting plan
-      // state. See the new atomic-upload block higher in this method.
+  /// Phase 6 — Finalise (Step 8 + success persist), lifted verbatim from
+  /// the original [uploadPlan] try-body. Writes the best-effort
+  /// `plan_issuances` audit row, persists the new local session state,
+  /// clears `thumbnailsDirty`, broadcasts the post-consume balance, and
+  /// returns [PublishResult.success]. Every network write here is wrapped
+  /// in `loudSwallow` / fire-and-forget, so nothing escapes to the
+  /// orchestrator's catch.
+  Future<PublishResult> _finalise(
+    Session session, {
+    required _PublishContext ctx,
+    required List<String> fallbackSetIds,
+    required bool optionalArtifactsHadFailures,
+    required List<UploadFailureRecord> optionalArtifactFailureList,
+    required void Function(PublishProgress) emit,
+  }) async {
+    final practiceId = ctx.practiceId;
+    final trainerId = ctx.trainerId;
+    final nonRestCount = ctx.nonRestCount;
+    final creditsToCharge = ctx.creditsToCharge;
+    final consentPreflightSkipped = ctx.consentPreflightSkipped;
+    final newVersion = ctx.newVersion;
 
-      // PR-C — exercises persisted; transition to the "Finalising" row.
-      emit(PublishProgress.markActive(PublishPhase.finalising));
+    // PR-C — exercises persisted; transition to the "Finalising" row.
+    emit(PublishProgress.markActive(PublishPhase.finalising));
 
-      // ----------------------------------------------------------------
-      // Step 8: append an audit row to `plan_issuances`. Records who
-      // published which plan-version at what size for what credit cost.
-      // The ledger is already authoritative via consume_credit; this row
-      // exists for billing history / support queries. If the insert fails
-      // (e.g. schema migration not applied yet) we swallow — the ledger
-      // is consistent and the bio must not be blocked by an audit hiccup.
-      // ----------------------------------------------------------------
-      // Wave 39 — when the prepaid-unlock fast path fired in step 3b,
-      // surface the cleared timestamp on the audit row so the portal's
-      // /audit page can render the "Prepaid via unlock at {date}" subtitle
-      // and reverse-link the matching `credit.consumption` unlock row.
-      // NULL on regular publishes.
-      // Wave 3 — was the pre-publish local cache flagged as prepaid?
-      // `publish_plan_artifacts` doesn't propagate `prepaid_unlock_at`
-      // through its return shape (consume_credit applies the
-      // fast-path internally + clears the column), so we read the
-      // local pre-call snapshot here. If the publish was covered by a
-      // prior `unlock_plan_for_edit`, the audit row gets the same
-      // `prepaid_unlock_at` flag the legacy path wrote and the local
-      // session state mirrors the server-side first_opened_at /
-      // last_opened_at clear.
-      final localPrepaidUnlockAtIso =
-          session.unlockCreditPrepaidAt?.toUtc().toIso8601String();
-      final issuanceRow = <String, dynamic>{
+    // ----------------------------------------------------------------
+    // Step 8: append an audit row to `plan_issuances`. Records who
+    // published which plan-version at what size for what credit cost.
+    // The ledger is already authoritative via consume_credit; this row
+    // exists for billing history / support queries. If the insert fails
+    // (e.g. schema migration not applied yet) we swallow — the ledger
+    // is consistent and the bio must not be blocked by an audit hiccup.
+    // ----------------------------------------------------------------
+    // Wave 39 — when the prepaid-unlock fast path fired in step 3b,
+    // surface the cleared timestamp on the audit row so the portal's
+    // /audit page can render the "Prepaid via unlock at {date}" subtitle
+    // and reverse-link the matching `credit.consumption` unlock row.
+    // NULL on regular publishes.
+    // Wave 3 — was the pre-publish local cache flagged as prepaid?
+    // `publish_plan_artifacts` doesn't propagate `prepaid_unlock_at`
+    // through its return shape (consume_credit applies the
+    // fast-path internally + clears the column), so we read the
+    // local pre-call snapshot here. If the publish was covered by a
+    // prior `unlock_plan_for_edit`, the audit row gets the same
+    // `prepaid_unlock_at` flag the legacy path wrote and the local
+    // session state mirrors the server-side first_opened_at /
+    // last_opened_at clear.
+    final localPrepaidUnlockAtIso =
+        session.unlockCreditPrepaidAt?.toUtc().toIso8601String();
+    final issuanceRow = <String, dynamic>{
+      'plan_id': session.id,
+      'practice_id': practiceId,
+      'trainer_id': trainerId,
+      'version': newVersion,
+      'exercise_count': nonRestCount,
+      'credits_charged': creditsToCharge,
+      // Wave 39.4 — UTC wire format. Audit page renders this in the
+      // viewer's timezone; non-UTC writes drift by host TZ offset.
+      'issued_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    if (localPrepaidUnlockAtIso != null && localPrepaidUnlockAtIso.isNotEmpty) {
+      issuanceRow['prepaid_unlock_at'] = localPrepaidUnlockAtIso;
+    }
+    await loudSwallow(
+      () => _api.insertPlanIssuance(issuanceRow),
+      kind: 'plan_issuance_audit_failed',
+      source: 'UploadService.uploadPlan',
+      severity: 'warn',
+      meta: {
         'plan_id': session.id,
         'practice_id': practiceId,
-        'trainer_id': trainerId,
         'version': newVersion,
-        'exercise_count': nonRestCount,
         'credits_charged': creditsToCharge,
-        // Wave 39.4 — UTC wire format. Audit page renders this in the
-        // viewer's timezone; non-UTC writes drift by host TZ offset.
-        'issued_at': DateTime.now().toUtc().toIso8601String(),
-      };
-      if (localPrepaidUnlockAtIso != null && localPrepaidUnlockAtIso.isNotEmpty) {
-        issuanceRow['prepaid_unlock_at'] = localPrepaidUnlockAtIso;
-      }
+      },
+      // Audit write is best-effort; ledger is the source of truth for
+      // billing. Do not fail the publish on its behalf.
+      swallow: true,
+    );
+
+    // ----------------------------------------------------------------
+    // Success — persist new local state.
+    // ----------------------------------------------------------------
+    final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${session.id}';
+    final now = DateTime.now();
+    // Wave 39.1 — when consume_credit hit the prepaid-unlock fast
+    // path, the cloud-side function ALSO cleared first_opened_at +
+    // last_opened_at to restart the 14-day grace clock. Mirror that
+    // locally so the bottom-bar lock chip flips back to "Not yet
+    // opened" immediately, instead of waiting for the next reconcile
+    // (and instead of misleadingly showing a residual lock between
+    // the publish and the reconcile).
+    // Wave 3 — local-cache signal. The server side cleared the
+    // unlock flag in the same transaction as part of consume_credit's
+    // prepaid fast-path; mirror that locally by clearing
+    // first_opened_at / last_opened_at to restart the 14-day grace
+    // clock. Read from the pre-call snapshot since
+    // publish_plan_artifacts doesn't propagate the prepaid timestamp.
+    final unlockPaid = session.unlockCreditPrepaidAt != null;
+    final updated = session.copyWith(
+      sentAt: now,
+      planUrl: planUrl,
+      version: newVersion,
+      lastPublishedAt: now,
+      // Wave 29 — server-side `consume_credit` cleared the prepaid
+      // unlock flag in the same transaction (whether it was the
+      // prepaid fast-path OR a normal charge that happened to follow
+      // an unlock-then-charge race). Mirror that locally so
+      // `_isPlanLocked` flips back to true once the post-open grace
+      // window has elapsed.
+      clearUnlockCreditPrepaidAt: true,
+      clearFirstOpenedAt: unlockPaid,
+      clearLastOpenedAt: unlockPaid,
+    );
+    await _storage.saveSession(updated);
+    await _recordSuccess(session.id);
+
+    // 2026-05-16 hero-thumb staleness fix — every non-rest exercise's
+    // thumbs were re-uploaded in the loops above when dirty (or were
+    // never dirty in the first place). Clear the flag now so the next
+    // publish can use the fast-path again. Done here in the success
+    // path so a failure between the upload and this point leaves the
+    // flag set; the next publish retry will re-upload.
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      if (!exercise.thumbnailsDirty) continue;
       await loudSwallow(
-        () => _api.insertPlanIssuance(issuanceRow),
-        kind: 'plan_issuance_audit_failed',
-        source: 'UploadService.uploadPlan',
-        severity: 'warn',
-        meta: {
-          'plan_id': session.id,
-          'practice_id': practiceId,
-          'version': newVersion,
-          'credits_charged': creditsToCharge,
-        },
-        // Audit write is best-effort; ledger is the source of truth for
-        // billing. Do not fail the publish on its behalf.
+        () => _storage.saveExercise(
+          exercise.copyWith(thumbnailsDirty: false),
+        ),
+        kind: 'thumbnails_dirty_clear_failed',
+        source: 'UploadService.uploadPlan.success',
+        severity: 'info',
         swallow: true,
       );
-
-      // ----------------------------------------------------------------
-      // Success — persist new local state.
-      // ----------------------------------------------------------------
-      final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${session.id}';
-      final now = DateTime.now();
-      // Wave 39.1 — when consume_credit hit the prepaid-unlock fast
-      // path, the cloud-side function ALSO cleared first_opened_at +
-      // last_opened_at to restart the 14-day grace clock. Mirror that
-      // locally so the bottom-bar lock chip flips back to "Not yet
-      // opened" immediately, instead of waiting for the next reconcile
-      // (and instead of misleadingly showing a residual lock between
-      // the publish and the reconcile).
-      // Wave 3 — local-cache signal. The server side cleared the
-      // unlock flag in the same transaction as part of consume_credit's
-      // prepaid fast-path; mirror that locally by clearing
-      // first_opened_at / last_opened_at to restart the 14-day grace
-      // clock. Read from the pre-call snapshot since
-      // publish_plan_artifacts doesn't propagate the prepaid timestamp.
-      final unlockPaid = session.unlockCreditPrepaidAt != null;
-      final updated = session.copyWith(
-        sentAt: now,
-        planUrl: planUrl,
-        version: newVersion,
-        lastPublishedAt: now,
-        // Wave 29 — server-side `consume_credit` cleared the prepaid
-        // unlock flag in the same transaction (whether it was the
-        // prepaid fast-path OR a normal charge that happened to follow
-        // an unlock-then-charge race). Mirror that locally so
-        // `_isPlanLocked` flips back to true once the post-open grace
-        // window has elapsed.
-        clearUnlockCreditPrepaidAt: true,
-        clearFirstOpenedAt: unlockPaid,
-        clearLastOpenedAt: unlockPaid,
-      );
-      await _storage.saveSession(updated);
-      await _recordSuccess(session.id);
-
-      // 2026-05-16 hero-thumb staleness fix — every non-rest exercise's
-      // thumbs were re-uploaded in the loops above when dirty (or were
-      // never dirty in the first place). Clear the flag now so the next
-      // publish can use the fast-path again. Done here in the success
-      // path so a failure between the upload and this point leaves the
-      // flag set; the next publish retry will re-upload.
-      for (final exercise in session.exercises) {
-        if (exercise.isRest) continue;
-        if (!exercise.thumbnailsDirty) continue;
-        await loudSwallow(
-          () => _storage.saveExercise(
-            exercise.copyWith(thumbnailsDirty: false),
-          ),
-          kind: 'thumbnails_dirty_clear_failed',
-          source: 'UploadService.uploadPlan.success',
-          severity: 'info',
-          swallow: true,
-        );
-      }
-
-      // Wave 29 — broadcast the post-consume balance so the Home
-      // credits chip ticks down without waiting for the next pullAll.
-      // Fire-and-forget; failure is invisible to the publish path.
-      unawaited(SyncService.instance.refreshCreditBalance(practiceId));
-
-      // PR-C — every row now green; the sheet shows the 1-second
-      // "All set" beat then auto-dismisses.
-      emit(PublishProgress.allDone());
-
-      return PublishResult.success(
-        url: planUrl,
-        version: newVersion,
-        creditsCharged: creditsToCharge,
-        fallbackSetExerciseIds: fallbackSetIds,
-        optionalArtifactsHadFailures: optionalArtifactsHadFailures,
-        optionalArtifactFailures: optionalArtifactFailureList,
-        consentPreflightSkipped: consentPreflightSkipped,
-      );
-    } catch (e) {
-      // Clean up any storage objects we uploaded before the failure so a
-      // retry doesn't stack more orphans. Wrapped in its own try/catch —
-      // a cleanup failure must NOT mask the original error surfaced to
-      // the user via [PublishResult.networkFailed].
-      if (uploadedPaths.isNotEmpty) {
-        await loudSwallow(
-          () => _api.removeMedia(paths: uploadedPaths),
-          kind: 'orphan_cleanup_failed',
-          source: 'UploadService.uploadPlan',
-          severity: 'warn',
-          message:
-              'orphan cleanup failed for ${uploadedPaths.length} path(s) '
-              'after publish failure — leaving objects in bucket',
-          meta: {
-            'plan_id': session.id,
-            'practice_id': practiceId,
-            'orphan_count': uploadedPaths.length,
-          },
-          // Cleanup is best-effort; the publish already failed and we
-          // must preserve that original error up the stack.
-          swallow: true,
-        );
-      }
-
-      // If we already consumed credits, compensate with a refund row so
-      // the ledger stays balanced — otherwise the bio is charged for a
-      // plan that never published.
-      //
-      // PR-C — atomicity demands the refund actually lands. Retry once
-      // on transient error so a single network blip can't strand the
-      // practitioner with a debit and no plan. The underlying
-      // `refund_credit` RPC is idempotent on `plan_id`, so a double-fire
-      // is safe.
-      if (creditConsumed) {
-        refundApplied = await _refundCredits(
-          practiceId: practiceId,
-          planId: session.id,
-          credits: creditsToCharge,
-        );
-        if (refundApplied != true) {
-          // Single retry — most refund misses are transient socket
-          // drops. The RPC's idempotency guard means a second call
-          // against an already-refunded plan is a no-op.
-          refundApplied = await _refundCredits(
-            practiceId: practiceId,
-            planId: session.id,
-            credits: creditsToCharge,
-          );
-        }
-      }
-
-      // Wave 16 / Milestone V server-side backstop: if the pre-flight
-      // was skipped or the consent rows changed between the pre-flight
-      // and `consume_credit`, the RPC raises SQLSTATE P0003. Translate
-      // that into the same PublishResult the pre-flight produces so
-      // the UI has exactly one code path for unblock. Re-query the
-      // violations so the sheet can group them; if the re-query fails
-      // (it shouldn't — same auth context that just got a server
-      // error) we fall through with an empty list + the client name.
-      if (e is PostgrestException && e.code == 'P0003') {
-        emit(PublishProgress.failure(phase: PublishPhase.reservingCredit));
-        List<UnconsentedTreatment> violations = const [];
-        try {
-          violations = await _api.validatePlanTreatmentConsent(
-            planId: session.id,
-          );
-        } catch (_) {
-          // Fall through with empty list — the sheet still renders
-          // a sensible "client has not consented to all treatments"
-          // message and the Back-to-Studio CTA works.
-        }
-        final exc = UnconsentedTreatmentsException(
-          violations: violations,
-          clientName: effectiveClientName,
-        );
-        await _recordFailure(session, exc.toString());
-        return PublishResult.unconsentedTreatments(exc);
-      }
-
-      // PR-C — atomic-upload terminal failure. Emit the failure
-      // snapshot pointing at the uploading-treatments row and return
-      // the per-file failure list via [PublishResult.networkFailed]'s
-      // error payload so the sheet's "Show which files →" link can
-      // hand the same records to [UploadDiagnosticSheet].
-      if (e is PublishFailedException) {
-        // PR-C reactive-failures fix — carry the per-file diagnostic
-        // list on the same stream event that flips `failed=true`. The
-        // progress sheet reads from this snapshot so the "Show which
-        // files →" tap-target appears on the same rebuild as the
-        // coral failure row. Previously the host's setState pushed
-        // failures out-of-band after `uploadPlan` returned, by which
-        // point the sheet widget had already captured `failures: []`
-        // at construction.
-        emit(PublishProgress.failure(
-          phase: e.phase,
-          filesUploaded: e.filesUploaded,
-          filesTotal: e.filesTotal,
-          failures: e.failures,
-        ));
-        await _recordFailure(session, e.userMessage);
-        // Wrap as PublishFailurePayload so the existing
-        // [PublishResult.networkFailed] path still works for callers
-        // that don't know about the atomic-upload exception. The
-        // diagnostic list flows through `optionalArtifactFailures`
-        // even though the publish is terminal — the sheet's
-        // tap-through reads from the result's payload.
-        final payload = PublishFailurePayload(
-          userMessage: e.userMessage,
-          detail: 'Atomic upload failed for ${e.failures.length} file(s).',
-          refundLikelyAttempted: creditConsumed,
-          refundOutcomeUnknown: creditConsumed && refundApplied != true,
-          remoteVersionMayHaveAdvanced: planVersionBumped,
-          remoteVersionCandidate: planVersionBumped ? newVersion : null,
-          leafExceptionType: 'PublishFailedException',
-          innerMessage: e.userMessage,
-        );
-        return PublishResult._(
-          success: false,
-          error: payload,
-          optionalArtifactsHadFailures: true,
-          optionalArtifactFailures: List.unmodifiable(e.failures),
-        );
-      }
-
-      // PR-C — non-atomic-upload failures still land on the failing
-      // phase row in the sheet. Best-effort guess: if uploads had
-      // already begun (filesUploaded > 0 OR uploadedPaths non-empty)
-      // the failure belongs to the upload phase; otherwise it
-      // belongs to the saving-plan phase (replacePlanExercises is
-      // the only network call between upload completion and the
-      // best-effort audit row).
-      final inferredFailedPhase = uploadedPaths.isNotEmpty
-          ? PublishPhase.uploadingTreatments
-          : (creditConsumed
-              ? PublishPhase.savingPlan
-              : PublishPhase.reservingCredit);
-
-      final payload = PublishFailurePayload.fromPublishCatch(
-        caught: e,
-        practiceId: practiceId,
-        trainerId: trainerId,
-        refundLikelyAttempted: creditConsumed,
-        refundOutcomeUnknown: creditConsumed && refundApplied != true,
-        remoteVersionMayHaveAdvanced: planVersionBumped,
-        remoteVersionCandidate: planVersionBumped ? newVersion : null,
-      );
-
-      // Fix A (publish-diagnostic-surface, 2026-05-16) — carry the
-      // diagnostic payload on the same failure event so the sheet's
-      // "Show error details →" fallback tap-target appears
-      // synchronously with the coral failure row. Same flow shape as
-      // the per-file failure list above; the sheet decides which
-      // tap-target to render based on which field is populated.
-      final errorDetails = PublishErrorDetails(
-        phase: inferredFailedPhase,
-        exceptionType: payload.leafExceptionType ?? e.runtimeType.toString(),
-        userMessage: payload.userMessage,
-        detail: payload.detail,
-        clipboardText: payload.toClipboardText(),
-      );
-      emit(PublishProgress.failure(
-        phase: inferredFailedPhase,
-        errorDetails: errorDetails,
-      ));
-
-      await _recordFailure(session, payload.toClipboardText());
-      return PublishResult.networkFailed(error: payload);
     }
+
+    // Wave 29 — broadcast the post-consume balance so the Home
+    // credits chip ticks down without waiting for the next pullAll.
+    // Fire-and-forget; failure is invisible to the publish path.
+    unawaited(SyncService.instance.refreshCreditBalance(practiceId));
+
+    // PR-C — every row now green; the sheet shows the 1-second
+    // "All set" beat then auto-dismisses.
+    emit(PublishProgress.allDone());
+
+    return PublishResult.success(
+      url: planUrl,
+      version: newVersion,
+      creditsCharged: creditsToCharge,
+      fallbackSetExerciseIds: fallbackSetIds,
+      optionalArtifactsHadFailures: optionalArtifactsHadFailures,
+      optionalArtifactFailures: optionalArtifactFailureList,
+      consentPreflightSkipped: consentPreflightSkipped,
+    );
   }
 
   /// Upload one per-exercise thumbnail variant (`_thumb_<variant>.jpg`)
