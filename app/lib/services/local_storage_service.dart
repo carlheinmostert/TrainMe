@@ -28,7 +28,7 @@ class LocalStorageService {
   /// so version-check assertions read the source of truth rather than a
   /// hardcoded literal that goes stale on the next bump.
   @visibleForTesting
-  static const int dbVersion = 51;
+  static const int dbVersion = 52;
 
   Database? _db;
 
@@ -1495,6 +1495,43 @@ class LocalStorageService {
       await _addColumnIfMissing(db, 'exercises', 'last_edited_at', 'INTEGER');
     }
 
+    if (oldVersion < 52) {
+      // My Workouts empty-list repair (2026-05-30) — self-heal stale
+      // Self-client identity on long-lived UPDATE installs.
+      //
+      // The Self-client row (`clients.user_id = auth.uid()`, name "Me")
+      // is what `getCachedSelfClient` resolves via
+      // `user_id = ? AND deleted = 0`, and the My Workouts body filters
+      // sessions by that id. On a device whose local DB was first cached
+      // BEFORE the v48 `user_id` column-add, that column landed NULL with
+      // no backfill; a delete→undelete cycle could likewise leave a stale
+      // local `deleted = 1`. Either strands the Self-client so My Workouts
+      // renders empty while the Clients tab (practice-scoped, ignores
+      // user_id) looks fine.
+      //
+      // `_pullClients` → `replaceCachedClientsForPractice` now repairs the
+      // identity columns on every pull (even for dirty rows), but a
+      // device that is offline at launch — or that never re-pulls before
+      // the practitioner opens My Workouts — would still show empty until
+      // the next sync. This one-shot UPDATE clears the stale local
+      // `deleted` flag so a previously-undeleted Self-client resurfaces
+      // immediately, before any network round-trip.
+      //
+      // We can only repair `deleted` here (the NULL `user_id` genuinely
+      // isn't known locally and must come from the cloud via the pull
+      // path above). Scope is deliberately narrow: only rows that ALREADY
+      // carry a non-NULL `user_id` — i.e. confirmed Self-clients. A
+      // practitioner can never locally soft-delete their own Self-client
+      // (the delete-client UI is client-scoped, and the Self-client is
+      // not surfaced there), so resetting `deleted = 0` for a row with a
+      // `user_id` cannot resurrect a legitimately-removed client.
+      await db.update(
+        'cached_clients',
+        <String, Object?>{'deleted': 0},
+        where: 'user_id IS NOT NULL AND deleted = 1',
+      );
+    }
+
     if (oldVersion < 51) {
       // Serialize MediaType / ConversionStatus by NAME, not ordinal (#572).
       //
@@ -2484,8 +2521,33 @@ class LocalStorageService {
       for (final c in clients) {
         if (dirtyIds.contains(c.id)) {
           // Row is mid-sync locally — don't clobber the user's pending
-          // edit with the server's stale view. SyncService will flush
-          // and then another pull will overwrite cleanly.
+          // edit (name / consent) with the server's stale view.
+          // SyncService will flush and then another pull will overwrite
+          // cleanly.
+          //
+          // BUT the cloud is authoritative for two columns the user can
+          // never edit locally: the Self-client identity (`user_id`) and
+          // the live/tombstone state (`deleted`). On an update-install
+          // that crossed the v48 column-add, the Self-client row can be
+          // stranded with a NULL local `user_id` (never backfilled) or a
+          // stale local `deleted = 1` (delete→undelete cycle). The
+          // wholesale skip would leave those stale forever, so
+          // `getCachedSelfClient` (filters `user_id = ? AND deleted = 0`)
+          // returns null and "My Workouts" renders empty even though the
+          // cloud has the row + the sessions. Repair just those two
+          // identity columns from the cloud row WITHOUT touching the
+          // pending name / consent edit, and WITHOUT clearing `dirty` (the
+          // flush still needs to run). See the my_workouts hydration
+          // regression test.
+          batch.update(
+            'cached_clients',
+            <String, Object?>{
+              'user_id': c.userId,
+              'deleted': c.deleted ? 1 : 0,
+            },
+            where: 'id = ?',
+            whereArgs: [c.id],
+          );
           continue;
         }
         batch.insert(
