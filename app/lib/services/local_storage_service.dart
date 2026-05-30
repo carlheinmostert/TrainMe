@@ -2675,6 +2675,26 @@ class LocalStorageService {
     );
   }
 
+  /// All last-known credit balances, keyed by practice id. Used to hydrate
+  /// the in-memory balance notifier on app boot so the Home credits chip
+  /// paints an instant value before the first network round-trip lands.
+  /// Returns an empty map when the cache is cold.
+  Future<Map<String, int>> getAllCachedCreditBalances() async {
+    final rows = await db.query(
+      'cached_credit_balance',
+      columns: ['practice_id', 'balance'],
+    );
+    final out = <String, int>{};
+    for (final r in rows) {
+      final pid = r['practice_id'];
+      final bal = r['balance'];
+      if (pid is String && bal is int) {
+        out[pid] = bal;
+      }
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------------------
   // Offline-first — pending_ops
   // ---------------------------------------------------------------------------

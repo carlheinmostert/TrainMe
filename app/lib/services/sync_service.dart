@@ -1665,22 +1665,9 @@ class SyncService {
   /// instant value even before the first network round-trip lands.
   Future<void> _seedCreditBalances() async {
     try {
-      final rows = await _storage.db.query(
-        'cached_credit_balance',
-        columns: ['practice_id', 'balance'],
-      );
-      if (rows.isEmpty) return;
-      final next = <String, int?>{};
-      for (final r in rows) {
-        final pid = r['practice_id'];
-        final bal = r['balance'];
-        if (pid is String && bal is int) {
-          next[pid] = bal;
-        }
-      }
-      if (next.isNotEmpty) {
-        creditBalances.value = next;
-      }
+      final cached = await _storage.getAllCachedCreditBalances();
+      if (cached.isEmpty) return;
+      creditBalances.value = <String, int?>{...cached};
     } catch (e) {
       debugPrint('SyncService._seedCreditBalances: $e');
     }
