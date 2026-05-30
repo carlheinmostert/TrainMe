@@ -24,14 +24,14 @@ The first argument selects the mode (default is the sweep):
 
 - **sweep** (default) — `/manage-issues [owner/repo]` runs the unattended state machine. **Never merges.**
 - **dry-run** — `/manage-issues dry-run [owner/repo]` runs the full read + decide pass but makes **no state changes**: instead of acting, it posts/refreshes a "what I'd do" proposal comment on each issue (see [Dry run](#dry-run)). Safe to run as often as you like.
-- **merge** — `/manage-issues merge [owner/repo]` runs the sweep *with merge authorised* (key 2 of the two-key merge model — see [Merge mode](#merge-mode)). Merges only PRs Carl has already approved. Add **`cascade`** (`/manage-issues merge cascade [repo]`) to run a **merge train** — keep merging the ready set, re-evaluating after each round, until the queue drains or only Carl-blocked PRs remain.
+- **merge** — `/manage-issues merge [owner/repo]` runs the sweep *with merge authorised* (see [Merge mode](#merge-mode)). Merges the **To-merge** queue — every `awaiting-merge` PR that's CI-green + cleanly mergeable (drag a card to **Hold** to exclude one). Add **`cascade`** (`/manage-issues merge cascade [repo]`) to run a **merge train** — keep merging the ready set, re-evaluating after each round, until the queue drains or only Carl-blocked PRs remain.
 - **init** — `/manage-issues init [owner/repo]` reconciles a repo to the desired state. Runbook: [`init.md`](init.md). Run once per repo before sweeping.
 
 ## Non-negotiable safety rules
 
 These hold on every repo, every run. Violating the letter is violating the spirit.
 
-- **Never merge in the default sweep.** Merging happens *only* in **merge mode**, and even then only PRs that are Carl-approved + CI-green + cleanly mergeable + targeting the integration branch. **Never `main`, never force-merge, never force-push.** Never delete branches. Prod promotion is out of scope (separate gated flow).
+- **Never merge in the default sweep.** Merging happens *only* in **merge mode**, and even then only PRs in the **To-merge** lane (`awaiting-merge`) that are CI-green + cleanly mergeable + targeting the integration branch (drag a card to **Hold** to exclude). **Never `main`, never force-merge, never force-push.** Never delete branches. Prod promotion is out of scope (separate gated flow).
 - **Never deploy or install to a device** (`feedback_ask_before_mobile_deployment`). Opening a PR is the ceiling; the sweep never builds to the phone.
 - **Never touch** CI/CD configs, workflows, secrets, or `.env` files.
 - **Code path only on understood repos** — otherwise triage, grill, spec, hand to Carl.
@@ -79,7 +79,7 @@ Each sweep, after reading config, the parent reconciles the board (the sub-agent
 
 1. **Adopt:** any open issue not yet a card → `addProjectV2ItemById(projectId, contentId)`.
 2. **Consume command columns first** (Carl's inputs — these are read *before* state logic): for every card whose **Stage** is a command value, treat it as that command and act, then move the card to the resulting real-state column:
-   - **`Go`** → approve/advance, routed by the card's label: `awaiting-design-approval`/`awaiting-fix-approval` → build; `awaiting-validation` → close (validation pass → Done); `awaiting-merge` → merge **iff merge mode**, else leave approved + report "approved, awaiting a merge pass". A `needs-info` card in `Go` is a no-op (comment to answer it, not Go).
+   - **`Go`** → approve/advance, routed by the card's label: `awaiting-design-approval`/`awaiting-fix-approval` → build; `awaiting-validation` → close (validation pass → Done). (`awaiting-merge` cards don't need `Go` — they merge via **merge mode** over the whole To-merge lane.) A `needs-info` card in `Go` is a no-op (comment to answer it, not Go).
    - **`Hold`** → add `status:hold` → Hold column.
    - **`Done`** → close the issue (`/close` equivalent) → Done.
 3. **Mirror:** for every other card, set its Stage to match its label-state per the table above. (A known GitHub quirk: the board-view grouping index can lag a field-value change; the data is correct.)
@@ -186,7 +186,7 @@ A merged PR does **not** close its issue (it used `Refs #N`). On detecting the m
 
 ## Merge mode
 
-Default sweeps never merge. **Two keys:** (1) Carl approves a specific PR — `/go`/`Go` on its `awaiting-merge` card, or a GitHub PR approval; (2) the run is invoked as `/manage-issues merge`. Only with **both** does the bot merge, and only PRs that are **approved + CI-green + cleanly mergeable + targeting the integration branch** — never `main`, never force. A merged PR flows to `status:awaiting-validation`. Approved-but-not-merged (no merge mode) stays put, reported as "approved, awaiting a merge pass".
+Default sweeps never merge. **Merge mode is the single key:** running `/manage-issues merge` authorises merging the **To-merge lane** — every `awaiting-merge` PR that is **CI-green + cleanly mergeable + targeting the integration branch**. No per-PR approval is needed: a PR reaching `awaiting-merge` *is* the queue (Carl approved the work that built it, or it cleared the auto-build checklist). **Exclude** a PR by dragging its card to **Hold** (red/conflicting PRs are skipped automatically). Never `main`, never force. A merged PR flows to `status:awaiting-validation` (Carl's test gate). A run with merge mode **off** never merges, whatever's in the lane.
 
 ### Cascade (merge train)
 
@@ -194,7 +194,7 @@ Default sweeps never merge. **Two keys:** (1) Carl approves a specific PR — `/
 
 ```
 repeat:
-  ready = your-approved + CI-green + cleanly-mergeable + integration-branch PRs
+  ready = To-merge lane (awaiting-merge, not in Hold) + CI-green + cleanly-mergeable + integration-branch
   if ready is empty → break
   merge each (in dependency order — honour declared chains in the issue comments)
   for any approved PR that is behind staging but NOT conflicting:
@@ -249,7 +249,7 @@ Plain-English (`feedback_explanation_level`): a table (issue · action · new st
 - **Posting a comment without the marker** → next sweep mistakes it for a logger reply. Always append `<!-- managed-issue-bot -->`.
 - **Running on an un-init'd repo** → fail loud ("run init first"); never self-bootstrap or guess the board.
 - **Auto-building a bug that isn't a slam dunk** → must clear all five checklist points, else `awaiting-fix-approval`.
-- **Merging in a default sweep** → only in `merge` mode, only Carl-approved + green + mergeable + integration branch.
+- **Merging in a default sweep** → only in `merge` mode, only the To-merge lane (green + mergeable + integration branch); `Hold` excludes.
 - **Auto-resolving a conflict in `cascade`** → never. Only **conflict-free** branch-updates are allowed (no force-push, no true rebase); a conflicting PR is flagged "blocked on you" and skipped — that's where the train stops.
 - **Mirroring over a card sitting in `Go` / `Hold` / `Done`** → never. Those are Carl's *pending commands*, consumed in board-sync **step 2**; the **step 3** mirror only touches *non-command* cards. Overwriting a Go/Hold/Done card silently discards his input (a re-sync that loops every card must respect this).
 - **Using `Fixes #N`** → use `Refs #N`; validation closes, not merge.

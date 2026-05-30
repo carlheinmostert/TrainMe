@@ -90,7 +90,7 @@ stateDiagram-v2
 
     note right of AWAITING_MERGE
       Merge happens only by you (manually) or by the bot
-      in merge mode (two keys). Either way the bot detects
+      in merge mode. Either way the bot detects
       the merge and moves the issue on — merge no longer
       closes it.
     end note
@@ -163,17 +163,15 @@ AWAITING_VALIDATION instead.
 
 Default: **the bot never merges.** Built PRs sit in AWAITING_MERGE.
 
-**Two keys:**
-1. **You approve which** (per issue) — `/go` on the issue, approve the PR, or move
-   the card. This *marks* it; it merges nothing.
-2. **Merge mode authorises the act** (per run) — only when you run in merge mode
-   does the bot merge your-approved PRs.
-
-Even in merge mode it only merges PRs that are **approved + CI-green + cleanly
-mergeable + targeting `staging`**. Never `main`, never force. Prod promotion stays
-its own separate gated thing (`homefit-promote-staging-to-main`). Merge mode is
-off in every run by default, including the Routine. A merged PR still lands in
-AWAITING_VALIDATION.
+**Merge mode is the single key.** Running `/manage-issues merge` (or `merge
+cascade`) merges the **whole To-merge lane** — every `awaiting-merge` PR that's
+**CI-green + cleanly mergeable + targeting `staging`**. No per-PR approval:
+reaching `awaiting-merge` *is* the queue (you approved the work that built it, or
+it cleared the auto-build checklist). **Exclude** a PR by dragging its card to
+**Hold** (red/conflicting PRs skip automatically). Never `main`, never force. Prod
+promotion stays its own separate gated thing (`homefit-promote-staging-to-main`).
+Merge mode is off in every run by default, including the Routine. A merged PR
+still lands in AWAITING_VALIDATION.
 
 **Cascade (merge train).** `/manage-issues merge cascade` runs merge mode as a
 fixpoint loop: merge the ready set → re-evaluate (a merge can unblock the next) →
