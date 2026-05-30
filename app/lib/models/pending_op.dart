@@ -82,7 +82,7 @@ String _opTypeToWire(PendingOpType t) {
   }
 }
 
-PendingOpType? _opTypeFromWire(String s) {
+PendingOpType? _opTypeFromWire(String? s) {
   switch (s) {
     case 'upsert_client':
       return PendingOpType.upsertClient;
@@ -134,21 +134,52 @@ class PendingOp {
     this.lastError,
   });
 
+  /// Re-hydrate a queued op from its SQLite row.
+  ///
+  /// Throws [ArgumentError] when `op_type` is null or doesn't map to a
+  /// known [PendingOpType]. Silently coercing an unrecognised op-type to
+  /// [PendingOpType.upsertClient] (the historical behaviour) is a
+  /// data-corruption hazard: a row written by a newer build — or a future
+  /// op type read by an older build — would be replayed as an
+  /// upsert-client call against whatever payload happened to be stored,
+  /// dropping the real intent and potentially re-creating deleted records.
+  /// The caller ([LocalStorageService.getPendingOps]) catches this, logs
+  /// it loudly, and dead-letters the bad row so the rest of the FIFO queue
+  /// still drains. See issue ERR-002.
   factory PendingOp.fromMap(Map<String, dynamic> row) {
+    final opTypeWire = row['op_type'] as String?;
+    final type = _opTypeFromWire(opTypeWire);
+    if (type == null) {
+      throw ArgumentError.value(
+        opTypeWire,
+        'op_type',
+        'Unknown PendingOp type (row id=${row['id']})',
+      );
+    }
+
     final payloadRaw = row['payload'] as String? ?? '{}';
     Map<String, dynamic> payload;
     try {
       final decoded = jsonDecode(payloadRaw);
       payload = decoded is Map<String, dynamic>
           ? decoded
-          : (decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{});
-    } catch (_) {
+          : (decoded is Map
+              ? Map<String, dynamic>.from(decoded)
+              : <String, dynamic>{});
+    } catch (e) {
+      // Don't silently yield an empty payload — a malformed JSON blob means
+      // the op can't be replayed faithfully. Surface it so the bad row is
+      // diagnosable rather than firing an RPC with a blank payload.
+      debugPrint(
+        'PendingOp.fromMap: malformed payload JSON for op_type=$opTypeWire '
+        'id=${row['id']}: $e',
+      );
       payload = <String, dynamic>{};
     }
-    final type = _opTypeFromWire(row['op_type'] as String? ?? '');
+
     return PendingOp(
       id: row['id'] as String,
-      type: type ?? PendingOpType.upsertClient,
+      type: type,
       payload: payload,
       createdAt: row['created_at'] as int,
       attempts: row['attempts'] as int? ?? 0,

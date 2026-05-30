@@ -2685,12 +2685,37 @@ class LocalStorageService {
 
   /// FIFO read of every pending op, oldest first. Used by SyncService
   /// to drain the queue.
+  ///
+  /// A row that fails to deserialize — e.g. an unknown `op_type` written by
+  /// a newer build, or a corrupt row — is dead-lettered (logged + deleted)
+  /// rather than throwing out of this method. Throwing here would brick the
+  /// ENTIRE FIFO drain (SyncService.flush wraps the whole `getPendingOps`
+  /// call in one try), so one bad row would block every healthy queued op
+  /// forever. Dropping the bad row keeps the queue draining. See issue
+  /// ERR-002.
   Future<List<PendingOp>> getPendingOps() async {
     final rows = await db.query(
       'pending_ops',
       orderBy: 'created_at ASC',
     );
-    return rows.map((r) => PendingOp.fromMap(r)).toList(growable: false);
+    final ops = <PendingOp>[];
+    for (final row in rows) {
+      try {
+        ops.add(PendingOp.fromMap(row));
+      } catch (e) {
+        // Dead-letter the undeserialisable row so it can never silently
+        // replay as the wrong operation and never wedges the drain.
+        final badId = row['id'] as String?;
+        debugPrint(
+          'LocalStorageService.getPendingOps: dropping undeserialisable '
+          'pending op id=$badId op_type=${row['op_type']}: $e',
+        );
+        if (badId != null) {
+          await deletePendingOp(badId);
+        }
+      }
+    }
+    return List<PendingOp>.unmodifiable(ops);
   }
 
   /// Count of pending ops. Cheap scalar used for the "N pending" chip
