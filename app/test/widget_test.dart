@@ -92,8 +92,21 @@ void main() {
         home: ClientSessionsScreen(client: client, storage: storage),
       ),
     );
-    // Let the async _loadSessions() complete and the list paint.
-    await tester.pumpAndSettle();
+    // Drive frames until the async _loadSessions() resolves and the
+    // loading spinner clears. We can't use pumpAndSettle() here: while
+    // _loading is true the screen shows a CircularProgressIndicator,
+    // whose rotation is an indefinite animation that never settles, so
+    // pumpAndSettle spins until the 10-minute test timeout. Pump a
+    // bounded number of explicit frames instead — _loadSessions only
+    // awaits in-memory SQLite reads (no user signed in → no network),
+    // so it resolves within a couple of microtask turns; 30 × 100 ms is
+    // generous head-room.
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+        break;
+      }
+    }
   }
 
   testWidgets(
