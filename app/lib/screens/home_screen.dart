@@ -302,6 +302,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _stats = stats;
       if (outcome.anySucceeded) {
         _lastSyncedMs = DateTime.now().millisecondsSinceEpoch;
+        // Force MyWorkoutsScreen to re-read the freshly-synced cache. Its
+        // _load() runs once in initState against the pre-sync (empty) cache
+        // and only re-queries when this token changes — mirrors how the
+        // Clients list above refreshes after the pull lands.
+        _workoutsReloadToken += 1;
       }
       _cacheEmptyAndOffline = clients.isEmpty && offlineNow;
       _syncFailed = syncFailed;
