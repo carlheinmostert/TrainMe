@@ -83,34 +83,16 @@ Future<T?> loudSwallow<T>(
   try {
     return await body();
   } catch (e, st) {
-    // Fire-and-forget the server-side log. NEVER await it — the caller
-    // must see its result (or rethrow) on the original timeline.
-    unawaited(_postErrorLog(
+    _handleSwallow(
+      label: 'loudSwallow',
+      error: e,
+      stackTrace: st,
       severity: severity,
       kind: kind,
       source: source,
-      message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
-    ));
-    // Always leave a local breadcrumb. Release-build safe (unlike debugPrint).
-    unawaited(_appendLocalLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      stackTop: _stackTop(st),
+      message: message,
       meta: meta,
-    ));
-    // In debug mode also shout to console so the author sees it during
-    // development without having to tail a file.
-    if (kDebugMode) {
-      // ignore: avoid_print
-      debugPrint('[loudSwallow $severity/$kind @ $source] $e');
-    }
+    );
     if (!swallow) rethrow;
     return null;
   }
@@ -131,28 +113,16 @@ void loudSwallowSync(
   try {
     body();
   } catch (e, st) {
-    unawaited(_postErrorLog(
+    _handleSwallow(
+      label: 'loudSwallowSync',
+      error: e,
+      stackTrace: st,
       severity: severity,
       kind: kind,
       source: source,
-      message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
-    ));
-    unawaited(_appendLocalLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      stackTop: _stackTop(st),
+      message: message,
       meta: meta,
-    ));
-    if (kDebugMode) {
-      debugPrint('[loudSwallowSync $severity/$kind @ $source] $e');
-    }
+    );
     if (!swallow) rethrow;
   }
 }
@@ -160,6 +130,55 @@ void loudSwallowSync(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/// Shared error-handling body for [loudSwallow] and [loudSwallowSync]. Fires
+/// the server-side log and the local breadcrumb (both fire-and-forget), then
+/// shouts to the debug console. This is the ONLY behaviour that differs from
+/// "do nothing" when a swallow site catches — kept in one place so a future
+/// change (crash reporter, log-format tweak, retry) lands in both helpers at
+/// once. The [label] only changes the debug-console prefix so each helper's
+/// console line stays distinguishable. Synchronous + never rethrows — the
+/// rethrow / return decision stays with each public helper so their semantics
+/// are unchanged.
+void _handleSwallow({
+  required String label,
+  required Object error,
+  required StackTrace stackTrace,
+  required String severity,
+  required String kind,
+  required String source,
+  String? message,
+  Map<String, Object?>? meta,
+}) {
+  // Fire-and-forget the server-side log. NEVER await it — the caller must see
+  // its result (or rethrow) on the original timeline.
+  unawaited(_postErrorLog(
+    severity: severity,
+    kind: kind,
+    source: source,
+    message: message ?? error.toString(),
+    meta: {
+      ...?meta,
+      'stack_top': _stackTop(stackTrace),
+      'error_type': error.runtimeType.toString(),
+    },
+  ));
+  // Always leave a local breadcrumb. Release-build safe (unlike debugPrint).
+  unawaited(_appendLocalLog(
+    severity: severity,
+    kind: kind,
+    source: source,
+    message: message ?? error.toString(),
+    stackTop: _stackTop(stackTrace),
+    meta: meta,
+  ));
+  // In debug mode also shout to console so the author sees it during
+  // development without having to tail a file.
+  if (kDebugMode) {
+    // ignore: avoid_print
+    debugPrint('[$label $severity/$kind @ $source] $error');
+  }
+}
 
 /// First few lines of the stack trace. We ship a trimmed prefix (not the
 /// full trace) in both the RPC call and the local log so payload sizes
