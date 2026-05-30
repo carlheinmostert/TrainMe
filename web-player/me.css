@@ -827,15 +827,11 @@ html, body {
   outline: 2px solid var(--brand-default);
   outline-offset: 2px;
 }
-.me-artifact-card.is-front {
-  border-color: var(--brand-default);
-  box-shadow: 0 0 0 1px var(--brand-default) inset, 0 2px 8px rgba(255, 107, 53, 0.18);
-}
-.me-artifact-card.is-front .me-artifact-card-pill {
-  background: var(--brand-default);
-  color: #1c0a02;
-  border-color: transparent;
-}
+/* #568 — artifact cards can only be OPENED, not selected. The front
+   card no longer gets a coral border + coral glow + coral-filled pill;
+   every card uses the neutral surface-border so none reads as
+   "selected". Mirrors the Flutter `_ArtifactCard` twin. The `.is-front`
+   class is still emitted by me.js but carries no distinct styling. */
 
 .me-artifact-card-glyph {
   width: 44px;
