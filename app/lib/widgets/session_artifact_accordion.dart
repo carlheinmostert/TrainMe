@@ -487,7 +487,6 @@ class _SessionArtifactAccordionState extends State<SessionArtifactAccordion> {
             child: expanded
                 ? _ArtifactStack(
                     statuses: published,
-                    planVersion: widget.session.version,
                     brandAccent: widget.brandAccent,
                     reduceMotion: reduceMotion,
                     onPlayPlanUrl: widget.onPlayPlanUrl,
@@ -912,11 +911,6 @@ class _CollapseAwareAnimatedSizeState
 /// the bottom card retreats first.
 class _ArtifactStack extends StatelessWidget {
   final List<PlanArtifactStatus> statuses;
-
-  /// The owning plan's version (0 = never published, 1 = first publish,
-  /// then incremented on each republish). Rendered as `Published · v{N}`
-  /// on each artifact card's status pill — mirrors the web `/me` twin.
-  final int planVersion;
   final Color? brandAccent;
   final bool reduceMotion;
   final VoidCallback? onPlayPlanUrl;
@@ -925,7 +919,6 @@ class _ArtifactStack extends StatelessWidget {
 
   const _ArtifactStack({
     required this.statuses,
-    required this.planVersion,
     required this.brandAccent,
     required this.reduceMotion,
     this.onPlayPlanUrl,
@@ -963,7 +956,6 @@ class _ArtifactStack extends StatelessWidget {
                       reduceMotion: reduceMotion,
                       child: _ArtifactCard(
                         status: statuses[i],
-                        planVersion: planVersion,
                         isFront: i == 0,
                         brandAccent: brandAccent,
                         onTap: () => _dispatchPlay(statuses[i]),
@@ -1143,16 +1135,12 @@ class _RailAnimatorState extends State<_RailAnimator>
 /// Single artifact card row.
 class _ArtifactCard extends StatelessWidget {
   final PlanArtifactStatus status;
-
-  /// Owning plan version, rendered as `Published · v{N}` on the status pill.
-  final int planVersion;
   final bool isFront;
   final Color? brandAccent;
   final VoidCallback onTap;
 
   const _ArtifactCard({
     required this.status,
-    required this.planVersion,
     required this.isFront,
     required this.brandAccent,
     required this.onTap,
@@ -1174,8 +1162,14 @@ class _ArtifactCard extends StatelessWidget {
         ? _accent.withValues(alpha: 0.16)
         : AppColors.rest.withValues(alpha: 0.16);
     final pillFg = paid ? _accent : AppColors.rest;
+    // #565 — per-artefact version. Each card reads the version stamped on
+    // ITS OWN plan_artifacts row (the plan/session version at this
+    // artefact's last publish), not the plan-level current version. Two
+    // artefacts published together show the same number; they diverge when
+    // one is republished without the other. 0 = legacy / never-published →
+    // bare "Published".
     final pillText =
-        planVersion > 0 ? 'Published · v$planVersion' : 'Published';
+        status.version > 0 ? 'Published · v${status.version}' : 'Published';
 
     return Material(
       color: AppColors.surfaceRaised,
