@@ -3125,9 +3125,14 @@ body.is-fullscreen .playpause-toggle {
   display: block;
 }
 
-/* Video frames stream natively at the source aspect ratio. Keep
-   `object-fit: cover` for `<video>` so the playing frames crop to the
-   1:1 slot instead of stretching to fill it. */
+/* Video frames stream natively at the source aspect ratio, so the
+   `<video>` element keeps `object-fit: cover` to crop to the 1:1 slot.
+   Image (`<img>.lobby-hero-media`) cropping is deliberately NOT declared
+   here: per the hero-resolver single-source rule (docs/HERO_RESOLVER.md)
+   all `<img>` hero cropping must flow through the resolver (which bakes a
+   1:1 data URL), never a blanket CSS rule on the img selector. The
+   printable-guide PDF export path (#585) gets its image crop from the
+   resolver, since html2canvas ignores CSS object-fit anyway. */
 video.lobby-hero-media {
   object-fit: cover;
 }
