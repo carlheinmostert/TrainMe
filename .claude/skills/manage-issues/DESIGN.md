@@ -173,6 +173,14 @@ its own separate gated thing (`homefit-promote-staging-to-main`). Merge mode is
 off in every run by default, including the Routine. A merged PR still lands in
 AWAITING_VALIDATION.
 
+**Cascade (merge train).** `/manage-issues merge cascade` runs merge mode as a
+fixpoint loop: merge the ready set → re-evaluate (a merge can unblock the next) →
+repeat until a full pass merges nothing. For an approved PR that's merely *behind*
+staging (not conflicting), it does a **clean branch-update** (`gh pr update-branch`,
+no force-push — succeeds only if conflict-free) so CI re-runs and it merges on a
+later pass. A PR whose update would conflict is flagged "blocked on you — needs
+manual rebase" and skipped. The train stops when only Carl-blocked PRs remain.
+
 ## Capture discipline (intake)
 
 Keeps live sessions focused: tangents go to GitHub, not into the conversation.

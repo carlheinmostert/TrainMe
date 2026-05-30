@@ -24,7 +24,7 @@ The first argument selects the mode (default is the sweep):
 
 - **sweep** (default) — `/manage-issues [owner/repo]` runs the unattended state machine. **Never merges.**
 - **dry-run** — `/manage-issues dry-run [owner/repo]` runs the full read + decide pass but makes **no state changes**: instead of acting, it posts/refreshes a "what I'd do" proposal comment on each issue (see [Dry run](#dry-run)). Safe to run as often as you like.
-- **merge** — `/manage-issues merge [owner/repo]` runs the sweep *with merge authorised* (key 2 of the two-key merge model — see [Merge mode](#merge-mode)). Merges only PRs Carl has already approved.
+- **merge** — `/manage-issues merge [owner/repo]` runs the sweep *with merge authorised* (key 2 of the two-key merge model — see [Merge mode](#merge-mode)). Merges only PRs Carl has already approved. Add **`cascade`** (`/manage-issues merge cascade [repo]`) to run a **merge train** — keep merging the ready set, re-evaluating after each round, until the queue drains or only Carl-blocked PRs remain.
 - **init** — `/manage-issues init [owner/repo]` reconciles a repo to the desired state. Runbook: [`init.md`](init.md). Run once per repo before sweeping.
 
 ## Non-negotiable safety rules
@@ -188,6 +188,26 @@ A merged PR does **not** close its issue (it used `Refs #N`). On detecting the m
 
 Default sweeps never merge. **Two keys:** (1) Carl approves a specific PR — `/go`/`Go` on its `awaiting-merge` card, or a GitHub PR approval; (2) the run is invoked as `/manage-issues merge`. Only with **both** does the bot merge, and only PRs that are **approved + CI-green + cleanly mergeable + targeting the integration branch** — never `main`, never force. A merged PR flows to `status:awaiting-validation`. Approved-but-not-merged (no merge mode) stays put, reported as "approved, awaiting a merge pass".
 
+### Cascade (merge train)
+
+`/manage-issues merge cascade` runs merge mode as a **fixpoint loop** — because merging one PR can make the next mergeable, it keeps going until nothing moves:
+
+```
+repeat:
+  ready = your-approved + CI-green + cleanly-mergeable + integration-branch PRs
+  if ready is empty → break
+  merge each (in dependency order — honour declared chains in the issue comments)
+  for any approved PR that is behind staging but NOT conflicting:
+    clean branch-update it (gh pr update-branch — merges staging in, NO force-push;
+    succeeds only if conflict-free) → CI re-runs → it becomes mergeable on a later pass
+  re-fetch PR states (a merge may unblock — or newly conflict — others)
+until a full pass merges nothing (fixpoint)
+```
+
+**Clean-only, never force.** A *true* rebase needs a force-push (forbidden), so "rebase if clean" is done as a **branch-update that only applies when conflict-free** (a merge commit on the PR branch — harmless on the integration branch). A PR whose update would conflict is **flagged "blocked on you — needs manual rebase"** and skipped: that's a Carl-input blockage, exactly where the train is meant to stop.
+
+**Stops at** the fixpoint (a whole pass merges nothing) — typically when every remaining PR is blocked on you (un-approved, conflicting, failing CI, or awaiting a decision). A hard max-iteration cap backstops runaway loops. Each merge still flows to `status:awaiting-validation`. The end report lists every un-merged PR with the single reason it's stuck on you.
+
 ## Dry run
 
 `dry-run` mode runs the entire read + decide pass — config, board-sync *plan*, command detection, per-issue decisions, throttle — but performs **no state changes**: no labels, no board moves, no branches, no PRs, no merges, no closes. Its *only* write is a proposal comment per issue.
@@ -219,6 +239,7 @@ Plain-English (`feedback_explanation_level`): a table (issue · action · new st
 - **Running on an un-init'd repo** → fail loud ("run init first"); never self-bootstrap or guess the board.
 - **Auto-building a bug that isn't a slam dunk** → must clear all five checklist points, else `awaiting-fix-approval`.
 - **Merging in a default sweep** → only in `merge` mode, only Carl-approved + green + mergeable + integration branch.
+- **Auto-resolving a conflict in `cascade`** → never. Only **conflict-free** branch-updates are allowed (no force-push, no true rebase); a conflicting PR is flagged "blocked on you" and skipped — that's where the train stops.
 - **Using `Fixes #N`** → use `Refs #N`; validation closes, not merge.
 - **Forgetting to un-assign on exit** → the inbox/Needs you column won't self-clear. Remove Carl/author the moment the ball leaves their court.
 - **Reading `/go` + notes as "changes requested"** → `/go`/`Go` always advances; fold notes in.
