@@ -956,7 +956,6 @@ class _ArtifactStack extends StatelessWidget {
                       reduceMotion: reduceMotion,
                       child: _ArtifactCard(
                         status: statuses[i],
-                        isFront: i == 0,
                         brandAccent: brandAccent,
                         onTap: () => _dispatchPlay(statuses[i]),
                       ),
@@ -1135,13 +1134,11 @@ class _RailAnimatorState extends State<_RailAnimator>
 /// Single artifact card row.
 class _ArtifactCard extends StatelessWidget {
   final PlanArtifactStatus status;
-  final bool isFront;
   final Color? brandAccent;
   final VoidCallback onTap;
 
   const _ArtifactCard({
     required this.status,
-    required this.isFront,
     required this.brandAccent,
     required this.onTap,
   });
@@ -1153,7 +1150,10 @@ class _ArtifactCard extends StatelessWidget {
     final theme = _ArtifactCardTheme.forKind(status.kind, accent: _accent);
     final paid = status.wasPaid;
     final isUnknown = theme.isUnknown;
-    final borderColor = isFront ? _accent : AppColors.surfaceBorder;
+    // #568 — artifact cards can only be OPENED, not selected. Every card uses
+    // the neutral surfaceBorder (no front-card coral border + no coral glow)
+    // so none reads as "selected". Mirrors the web `/me` twin.
+    const borderColor = AppColors.surfaceBorder;
     // Unified status pill — every minted artifact reads "Published" (the
     // sage "Live" variant is retired, mirroring the web `/me` twin). Paid
     // kinds keep the coral tint; free kinds use the calm sage tint so the
@@ -1182,17 +1182,8 @@ class _ArtifactCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: borderColor,
-              width: isFront ? 1.4 : 1,
+              width: 1,
             ),
-            boxShadow: isFront
-                ? [
-                    BoxShadow(
-                      color: _accent.withValues(alpha: 0.18),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : const [],
           ),
           padding: const EdgeInsets.symmetric(
             horizontal: 14,
