@@ -199,6 +199,26 @@
              artifact (a live page at /h/{planId}). Share-as-PDF is now
              window.print() on the handout itself. -->
 
+        <!-- Persistent mute toggle for the lobby (#586). Reaches the
+             SAME plan-scoped mute override as the deck #btn-mute + the
+             gear "Mute" row (onChromeMuteClick → setOverride('muted', …)
+             → applyMuteStateToAllVideos), so audio is toggleable before
+             the workout starts. updateMuteToggle() keeps the icon +
+             aria-pressed in sync with the effective mute state. -->
+        <button id="lobby-mute-btn" class="lobby-mute-btn" type="button"
+                aria-label="Unmute audio" aria-pressed="true">
+          <svg class="mute-icon-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+          <svg class="mute-icon-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <line x1="23" y1="9" x2="17" y2="15"/>
+            <line x1="17" y1="9" x2="23" y2="15"/>
+          </svg>
+        </button>
+
         <button id="lobby-gear-btn" class="lobby-gear-btn" type="button"
                 aria-label="Playback settings"
                 aria-haspopup="dialog"
@@ -368,8 +388,30 @@
         </svg>
       </button>
 
-      <!-- Play/pause toggle (top-right; YouTube-style icon swap). Hidden
-           outside workout mode; the icon mirrors current playback state. -->
+      <!-- Persistent mute toggle (TOP of the right-edge chrome stack;
+           always visible on BOTH the lobby and the deck — issue #586).
+           Drives the SAME plan-scoped mute override the gear "Mute" row
+           uses (clientOverride.muted via onChromeMuteClick →
+           setOverride('muted', …) → applyMuteStateToAllVideos), so this
+           button, the gear row, and the actual <video>.muted state stay
+           in lock-step. updateMuteToggle() swaps the speaker-on/off icon
+           + aria-pressed to mirror the current effective mute state. -->
+      <button id="btn-mute" class="mute-toggle" aria-label="Unmute audio" aria-pressed="true">
+        <svg class="mute-icon-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        </svg>
+        <svg class="mute-icon-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <line x1="23" y1="9" x2="17" y2="15"/>
+          <line x1="17" y1="9" x2="23" y2="15"/>
+        </svg>
+      </button>
+
+      <!-- Play/pause toggle (top-right, BELOW mute; YouTube-style icon
+           swap). Hidden outside workout mode; the icon mirrors current
+           playback state. -->
       <button id="btn-playpause" class="playpause-toggle" aria-label="Pause workout" aria-pressed="false" hidden>
         <svg class="pp-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
           <polygon points="6 3 20 12 6 21 6 3"/>

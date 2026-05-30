@@ -911,6 +911,13 @@ const $btnPlayPauseIconPlay = $btnPlayPause
 const $btnPlayPauseIconPause = $btnPlayPause
   ? $btnPlayPause.querySelector('.pp-icon-pause')
   : null;
+// Persistent mute toggles (#586) — deck chrome + lobby CTA bar. Both
+// drive the SAME plan-scoped mute override the gear "Mute" row uses
+// (onChromeMuteClick → setOverride('muted', …) → applyMuteStateToAllVideos),
+// and both are repainted by updateMuteToggle() so their speaker icon +
+// aria-pressed always mirror the effective mute state.
+const $btnMute = document.getElementById('btn-mute');
+const $lobbyMuteBtn = document.getElementById('lobby-mute-btn');
 const $restCountdownOverlay = document.getElementById('rest-countdown-overlay');
 const $restCountdownNumber = document.getElementById('rest-countdown-number');
 const $cardNotes = document.getElementById('card-notes');
@@ -2413,6 +2420,9 @@ function goTo(index) {
   // on every slide flip.
   paintGearPanel();
   applyMuteStateToAllVideos();
+  // Keep the persistent mute toggle in sync as the deck advances — the
+  // pre-override per-exercise default can differ slide to slide.
+  updateMuteToggle();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -3518,6 +3528,7 @@ function startWorkout() {
   // persisted mute preference to all videos. Renders initially muted for
   // Safari autoplay; this call unmutes where appropriate.
   applyMuteStateToAllVideos();
+  updateMuteToggle();
 
   // v79-hardening (MEDIUM 2): auto-dismiss the consent banner when
   // "Start Workout" is tapped. Treat undecided as "declined for this
@@ -4506,7 +4517,68 @@ function onGearMuteClick() {
   const next = !currentEffective;
   setOverride('muted', next);
   applyMuteStateToAllVideos();
+  updateMuteToggle();
   paintAllGearPanels();
+}
+
+/**
+ * Reference slide for the persistent mute toggle's effective-state read.
+ * Deck context (workout mode) → the active slide, matching the deck gear
+ * popover. Lobby context (pre-workout) → the first non-rest video, matching
+ * the lobby gear popover's reference. The mute override is plan-scoped, so
+ * once the client toggles, every surface resolves to the same value; this
+ * only differs pre-toggle where the practitioner default is per-exercise.
+ */
+function muteReferenceSlide() {
+  if (!slides || !slides.length) return null;
+  if (isWorkoutMode) return slides[currentIndex] || null;
+  for (let i = 0; i < slides.length; i++) {
+    const s = slides[i];
+    if (s && s.media_type === 'video') return s;
+  }
+  for (let i = 0; i < slides.length; i++) {
+    const s = slides[i];
+    if (s && s.media_type !== 'rest') return s;
+  }
+  return slides[currentIndex] || null;
+}
+
+/**
+ * Persistent mute toggle handler (#586) — shared by the deck `#btn-mute`
+ * and the lobby `#lobby-mute-btn`. Reuses the EXACT same plan-scoped mute
+ * path as the gear "Mute" row: setOverride('muted', …) →
+ * applyMuteStateToAllVideos(). Then repaints this control + both gear
+ * panels so every mute surface (persistent buttons, gear rows, actual
+ * <video>.muted) stays in lock-step.
+ */
+function onChromeMuteClick(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  const referenceSlide = muteReferenceSlide();
+  const currentEffective = !!getEffective(referenceSlide, 'muted');
+  setOverride('muted', !currentEffective);
+  applyMuteStateToAllVideos();
+  updateMuteToggle();
+  paintAllGearPanels();
+}
+
+/**
+ * Repaint the persistent mute toggles (deck + lobby) from the effective
+ * mute state. Swaps the speaker-on / speaker-off icon and sets
+ * aria-pressed (pressed = muted). Called on toggle, on slide advance, and
+ * whenever the gear row / reset changes the mute override — so the
+ * standalone control never drifts from the gear row or the <video> state.
+ */
+function updateMuteToggle() {
+  const muted = !!getEffective(muteReferenceSlide(), 'muted');
+  [$btnMute, $lobbyMuteBtn].forEach((btn) => {
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+    btn.setAttribute('aria-label', muted ? 'Unmute audio' : 'Mute audio');
+    const iconOn = btn.querySelector('.mute-icon-on');
+    const iconOff = btn.querySelector('.mute-icon-off');
+    toggleHiddenAttr(iconOn, muted);
+    toggleHiddenAttr(iconOff, !muted);
+  });
 }
 
 /**
@@ -4615,6 +4687,7 @@ function onGearResetClick() {
     }
   }
   applyMuteStateToAllVideos();
+  updateMuteToggle();
   rebindVideoSources();
   try { rebindPrepOverlays(); } catch (_) { /* deck not yet primed */ }
   paintAllGearPanels();
@@ -5855,6 +5928,14 @@ async function init() {
     // Workout timer events
     $startWorkoutBtn.addEventListener('click', startWorkout);
     $workoutCloseBtn.addEventListener('click', exitWorkout);
+
+    // Persistent mute toggles (#586) — deck chrome + lobby CTA bar. Both
+    // call the shared onChromeMuteClick handler, which drives the same
+    // plan-scoped mute override the gear "Mute" row uses. Seed the icon /
+    // aria state once so the buttons render correctly before any toggle.
+    if ($btnMute) $btnMute.addEventListener('click', onChromeMuteClick);
+    if ($lobbyMuteBtn) $lobbyMuteBtn.addEventListener('click', onChromeMuteClick);
+    updateMuteToggle();
 
     // Fullscreen toggle — body.is-fullscreen drives ambient mode CSS.
     if ($btnFullscreen) {
