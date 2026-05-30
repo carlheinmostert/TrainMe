@@ -16,6 +16,7 @@
     }
   },
   "phoneCursorPath": "docs/phone-build.json",
+  "notifyEmail": "carlhein@me.com",
   "queueCeiling": 15,
   "maxNewPrsPerSweep": 5
 }

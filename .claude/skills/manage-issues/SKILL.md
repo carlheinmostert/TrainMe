@@ -15,7 +15,7 @@ This skill is a **state machine** whose inbox/control surface is a **GitHub Proj
 
 - `$REPO` — `owner/repo`. Defaults to the current repo (`gh repo view --json nameWithOwner -q .nameWithOwner`).
 - `$OWNER` — the human whose commands the bot obeys and who holds the developer gates. Read from `.github/managed-issues.json`; defaults to `carlheinmostert`.
-- **`.github/managed-issues.json`** — the per-repo config written by `init` (project IDs, Stage option IDs, integration branch, queue ceiling, phone-cursor path). The sweep reads this first.
+- **`.github/managed-issues.json`** — the per-repo config written by `init` (project IDs, Stage option IDs, integration branch, queue ceiling, phone-cursor path, notify email). The sweep reads this first.
 - Everything else is read live from the issues + board.
 
 ## Modes
@@ -50,7 +50,7 @@ Before anything, the parent reads `.github/managed-issues.json`:
 CFG=$(gh api repos/$REPO/contents/.github/managed-issues.json --jq '.content' 2>/dev/null | base64 -d) || true
 ```
 
-If it's missing or unparseable, the repo **isn't initialised** → **fail loud**: report "run `/manage-issues init $REPO` first" and stop. Do **not** self-bootstrap labels or guess a board. From a valid config, load: `project.id`, `project.stageFieldId`, `project.options{}`, `owner`, `integrationBranch`, `queueCeiling`, `maxNewPrsPerSweep`, `phoneCursorPath`.
+If it's missing or unparseable, the repo **isn't initialised** → **fail loud**: report "run `/manage-issues init $REPO` first" and stop. Do **not** self-bootstrap labels or guess a board. From a valid config, load: `project.id`, `project.stageFieldId`, `project.options{}`, `owner`, `integrationBranch`, `queueCeiling`, `maxNewPrsPerSweep`, `phoneCursorPath`, `notifyEmail`.
 
 ## State model (labels) + board mapping
 
@@ -207,6 +207,17 @@ until a full pass merges nothing (fixpoint)
 **Clean-only, never force.** A *true* rebase needs a force-push (forbidden), so "rebase if clean" is done as a **branch-update that only applies when conflict-free** (a merge commit on the PR branch — harmless on the integration branch). A PR whose update would conflict is **flagged "blocked on you — needs manual rebase"** and skipped: that's a Carl-input blockage, exactly where the train is meant to stop.
 
 **Stops at** the fixpoint (a whole pass merges nothing) — typically when every remaining PR is blocked on you (un-approved, conflicting, failing CI, or awaiting a decision). A hard max-iteration cap backstops runaway loops. Each merge still flows to `status:awaiting-validation`. The end report lists every un-merged PR with the single reason it's stuck on you.
+
+### Email brief (merge runs)
+
+At the end of any `merge` / `merge cascade` run that **did something** (merged ≥1 PR, or left items waiting on you), email a brief to **`notifyEmail`** from the config. A pure no-op run stays silent. Delegate the send like any mutation; use the available email channel — locally the Gmail/IMAP MCP, in the cloud Routine an account-integration email connector or the Resend SMTP. If **no** email channel is reachable, **fail loud** in the end report ("couldn't send the brief — no email channel"), don't silently skip.
+
+Subject: `manage-issues — {repo}: {N} merged, {M} waiting on you`. Body (plain text, scannable):
+- **Merged this run** — each `#PR — title` + link, and the issue it advanced.
+- **Clean-updated** — PRs brought current (CI re-running; merge next pass).
+- **Now waiting for you to test** — issues moved to validation, with where to test (web URL / "build to phone — build N").
+- **Blocked on you** — each remaining PR + the one reason it's stuck (`/go` / conflict / failing CI / decision).
+- The board link.
 
 ## Dry run
 

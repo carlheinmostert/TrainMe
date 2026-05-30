@@ -181,6 +181,12 @@ no force-push — succeeds only if conflict-free) so CI re-runs and it merges on
 later pass. A PR whose update would conflict is flagged "blocked on you — needs
 manual rebase" and skipped. The train stops when only Carl-blocked PRs remain.
 
+**Email brief.** A `merge` / `merge cascade` run that did something emails Carl a
+brief (merged this run · clean-updated · now waiting to test · blocked on you ·
+board link) to the config's `notifyEmail`. Locally via the Gmail/IMAP MCP; in the
+cloud Routine via an account-integration email connector or the Resend SMTP. No
+email channel → fail loud, don't skip.
+
 ## Capture discipline (intake)
 
 Keeps live sessions focused: tangents go to GitHub, not into the conversation.

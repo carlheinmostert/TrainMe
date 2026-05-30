@@ -185,6 +185,7 @@ checks). Commit it.
     }
   },
   "phoneCursorPath": "docs/phone-build.json",
+  "notifyEmail": "carl@example.com",   // where merge-run email briefs go
   "queueCeiling": 15,
   "maxNewPrsPerSweep": 5
 }
