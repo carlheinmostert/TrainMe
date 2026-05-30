@@ -18,7 +18,7 @@
 //   1. Opening the DB at v37 (older schema, no `hero_crop_offset`).
 //   2. Manually `ALTER TABLE exercises ADD COLUMN hero_crop_offset REAL`
 //      to mirror what the broken on-disk DB looked like.
-//   3. Closing + reopening at the current _dbVersion so onUpgrade fires.
+//   3. Closing + reopening at the current dbVersion so onUpgrade fires.
 // The reopen MUST succeed (used to throw "duplicate column name").
 
 import 'package:flutter_test/flutter_test.dart';
@@ -76,7 +76,7 @@ void main() {
         await db.close();
 
         // Step 3 — reopen via the production service at the current
-        // _dbVersion. Without the idempotent helper this throws
+        // dbVersion. Without the idempotent helper this throws
         // `DatabaseException: duplicate column name: hero_crop_offset`.
         // With the helper, the v38 branch sees the column already
         // present and no-ops the ADD; user_version stamps to current.
@@ -98,8 +98,14 @@ void main() {
         );
 
         // Sanity: user_version landed at the current schema version.
+        // Read the version from the source of truth (LocalStorageService.
+        // dbVersion) so this assertion self-updates on the next migration
+        // bump instead of failing with a misleading "Expected: 51" message.
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 51);
+        expect(
+          version.first['user_version'],
+          LocalStorageService.dbVersion,
+        );
 
         await svc.close();
       },
@@ -116,7 +122,10 @@ void main() {
           factory: databaseFactoryFfi,
         );
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 51);
+        expect(
+          version.first['user_version'],
+          LocalStorageService.dbVersion,
+        );
 
         // Spot-check a few of the columns the v3+ migration branches
         // touch — they must all be present after _createTables.
