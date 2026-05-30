@@ -32,7 +32,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+// Hide gotrue's `Session` (re-exported by supabase_flutter) so the app's
+// own `raidme/models/session.dart` `Session` resolves unambiguously below.
+import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import 'package:raidme/models/cached_client.dart';
 import 'package:raidme/models/client.dart';
