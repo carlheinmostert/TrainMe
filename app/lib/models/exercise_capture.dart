@@ -12,6 +12,59 @@ enum MediaType { photo, video, rest }
 /// Tracks the line drawing conversion state of a capture.
 enum ConversionStatus { pending, converting, done, failed }
 
+/// Defensively decode a stored [MediaType] from a SQLite cell (#572).
+///
+/// SQLite columns are dynamically typed, so the persisted value may be
+/// either the NEW name-string (`'photo'` / `'video'` / `'rest'`) or — on
+/// pre-migration rows that escaped the v51 backfill — a legacy INTEGER
+/// ordinal. We handle both, plus stringified ints (`'1'`), and fall back
+/// to a safe default rather than throwing on an unknown value.
+MediaType _mediaTypeFromStored(Object? raw) {
+  if (raw is int) {
+    return (raw >= 0 && raw < MediaType.values.length)
+        ? MediaType.values[raw]
+        : MediaType.photo;
+  }
+  if (raw is String) {
+    final asInt = int.tryParse(raw);
+    if (asInt != null) {
+      return (asInt >= 0 && asInt < MediaType.values.length)
+          ? MediaType.values[asInt]
+          : MediaType.photo;
+    }
+    for (final v in MediaType.values) {
+      if (v.name == raw) return v;
+    }
+  }
+  // Unknown / null — photo is the safest non-rest default (rest would
+  // wrongly suppress conversion + media handling).
+  return MediaType.photo;
+}
+
+/// Defensively decode a stored [ConversionStatus] from a SQLite cell
+/// (#572). See [_mediaTypeFromStored] for the legacy-int / name handling.
+ConversionStatus _conversionStatusFromStored(Object? raw) {
+  if (raw is int) {
+    return (raw >= 0 && raw < ConversionStatus.values.length)
+        ? ConversionStatus.values[raw]
+        : ConversionStatus.pending;
+  }
+  if (raw is String) {
+    final asInt = int.tryParse(raw);
+    if (asInt != null) {
+      return (asInt >= 0 && asInt < ConversionStatus.values.length)
+          ? ConversionStatus.values[asInt]
+          : ConversionStatus.pending;
+    }
+    for (final v in ConversionStatus.values) {
+      if (v.name == raw) return v;
+    }
+  }
+  // Unknown / null — pending is the safe default (re-runs conversion
+  // rather than wrongly treating a row as done).
+  return ConversionStatus.pending;
+}
+
 /// A single captured exercise — one photo or video from the session.
 ///
 /// Immutable value object. Create a new instance via [copyWith] when updating
@@ -623,9 +676,8 @@ class ExerciseCapture {
       rawFilePath: map['raw_file_path'] as String,
       convertedFilePath: map['converted_file_path'] as String?,
       thumbnailPath: map['thumbnail_path'] as String?,
-      mediaType: MediaType.values[map['media_type'] as int],
-      conversionStatus:
-          ConversionStatus.values[map['conversion_status'] as int],
+      mediaType: _mediaTypeFromStored(map['media_type']),
+      conversionStatus: _conversionStatusFromStored(map['conversion_status']),
       sets: sets,
       restHoldSeconds: map['rest_hold_seconds'] as int?,
       notes: map['notes'] as String?,
@@ -684,8 +736,13 @@ class ExerciseCapture {
       'raw_file_path': rawFilePath,
       'converted_file_path': convertedFilePath,
       'thumbnail_path': thumbnailPath,
-      'media_type': mediaType.index,
-      'conversion_status': conversionStatus.index,
+      // Serialize enums by NAME, not ordinal (#572). Names are stable
+      // across reorders / insertions of new enum values; ordinals are not.
+      // Legacy integer-ordinal rows are migrated to names by the SQLite
+      // backfill (local_storage_service `_dbVersion` v51) and decoded
+      // defensively by `_mediaTypeFromStored` / `_conversionStatusFromStored`.
+      'media_type': mediaType.name,
+      'conversion_status': conversionStatus.name,
       'rest_hold_seconds': restHoldSeconds,
       'notes': notes,
       'name': name,
