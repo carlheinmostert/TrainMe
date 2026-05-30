@@ -373,20 +373,20 @@
   /**
    * Build one bundle as a session-accordion row.
    *
-   * Markup (2026-05-27 afternoon iteration — replaces the chevron-only
-   * tap zone with two stacked action buttons):
+   * Markup (#567 — true 3-column card body with a dedicated actions
+   * column as column 3; Studio/Edit top-right, Artifacts bottom-right):
    *   <article class="me-session-row" data-has-artifacts="true|false">
    *     <div class="me-session-peek"></div>             // depth cue
    *     <div class="me-session-card">                   // body row
-   *       <div class="me-session-card-body">
-   *         <div class="me-session-glyph">N</div>       // exercise count
-   *         <div class="me-session-meta">
+   *       <div class="me-session-card-body">            // 3-col flex
+   *         <div class="me-session-glyph">N</div>       // col 1: count
+   *         <div class="me-session-meta">               // col 2: content
    *           <h3 class="me-session-title">...</h3>
    *           <p class="me-session-sub">...</p>
    *           <div class="me-session-provenance">...</div>
    *         </div>
-   *         <div class="me-action-stack">              // two pill buttons
-   *           <button class="me-action-btn is-studio">  // top: Studio
+   *         <div class="me-action-stack">              // col 3: actions
+   *           <button class="me-action-btn is-studio">  // top: Studio/Edit
    *             <svg>pencil</svg><span>...</span>       //      pencil + ›
    *           </button>
    *           <button class="me-action-btn is-artifacts"> // bottom: expand
@@ -507,6 +507,14 @@
         + '</svg>'
         + '<span class="me-action-arrow" aria-hidden="true">›</span>';
       $actionStack.appendChild($studioBtn);
+    } else {
+      // #567 — non-owner rows have no Studio/Edit button. Drop a
+      // zero-size spacer at the top so the column's `space-between` still
+      // pins the Artifacts button to the bottom-right.
+      const $spacer = document.createElement('span');
+      $spacer.className = 'me-action-spacer';
+      $spacer.setAttribute('aria-hidden', 'true');
+      $actionStack.appendChild($spacer);
     }
 
     const $artifactsBtn = document.createElement('button');
@@ -524,14 +532,14 @@
       + '<span class="me-action-arrow" aria-hidden="true">▾</span>';
     $actionStack.appendChild($artifactsBtn);
 
-    // 2026-05-27 evening iteration — the action stack is no longer a
-    // child of the card body; it absolutely-positions OVER the entire
-    // session card (Studio button vertically centered, Artifact button
-    // bottom-right) and the card-body's right padding reserves room for
-    // it. Attaching to .me-session-card (the card root, which is
-    // position:relative) anchors the absolute coordinates correctly.
+    // #567 — the action stack is now the THIRD flex column of the card
+    // body (a dedicated fixed-width actions column) rather than an
+    // absolute overlay. Studio/Edit pins to the top-right, Artifacts to
+    // the bottom-right (CSS `justify-content: space-between` on the
+    // column). R-10 twin of mobile's _ActionsColumn — the buttons no
+    // longer drift with the title/meta length.
+    $cardBody.appendChild($actionStack);
     $card.appendChild($cardBody);
-    $card.appendChild($actionStack);
     $row.appendChild($card);
 
     // Empty-state slider — rendered as a sibling of the artifact stack.

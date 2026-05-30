@@ -15,17 +15,23 @@
 // again. The browsing surfaces gain a subtle depth cue when artifacts exist
 // and an in-place vertical expand.
 //
-// 2026-05-27 evening iteration (this rev) — three refinements on top of the
+// #567 (2026-05-30) — the two action buttons now live INSIDE the session
+// card's dedicated, fixed-width actions column (column 3 of the card's
+// 3-column row) instead of as an absolute overlay that drifted with the
+// card content:
+//   - Edit button:     pinned TOP-right of the actions column.
+//   - Artifact button:  pinned BOTTOM-right of the actions column.
+// The column fills the full card height (SessionCard's Row is laid out
+// with `CrossAxisAlignment.stretch`), so `MainAxisAlignment.spaceBetween`
+// drives the top/bottom pinning. Coral fill raised to 0.45 alpha + a dark
+// scrim under each pill so they read on any filmstrip hero. The buttons no
+// longer drift with title/meta length.
+//
+// 2026-05-27 evening iteration — three refinements on top of the
 // afternoon iteration:
 //
-//   1. Buttons are now absolutely positioned OVER the entire session card,
-//      not stacked in the card-body trailing slot:
-//        - Studio button: vertically centered against the whole card
-//          (floats over the filmstrip). Backdrop-blurred for readability.
-//        - Artifact button: docked at the bottom-right of the card (~12dp
-//          bottom inset). Chevron-down naturally points to where the stack
-//          will emerge.
-//      Vertical separation between the two buttons is now ~80-100dp.
+//   1. (superseded by #567 — buttons were absolutely positioned OVER the
+//      card; they now ride the dedicated actions column, see above.)
 //
 //   2. Artifact button is ALWAYS visible (including on unpublished sessions
 //      with zero artifacts). Tapping it on a zero-artifact session reveals
@@ -187,17 +193,12 @@ const List<double> _kCardDepthOffsets = <double>[-1.8, -2.8, -3.8, -4.8];
 /// Approximate artifact-card height for the depth-fraction translation.
 const double _kCardHeightForDepth = 68.0;
 
-/// Right offset for the absolutely-positioned action buttons.
-const double _kActionButtonRightInset = 10.0;
-
-/// Bottom offset for the Artifact action button.
-const double _kArtifactButtonBottomInset = 12.0;
-
 /// Wrap a [SessionCard] with the artifact-stack expansion affordance.
 ///
-/// Every session card mounts two absolutely-positioned action buttons:
-///   - Studio button vertically centered on the entire card.
-///   - Artifact button docked at the bottom-right (~12dp bottom inset).
+/// Every session card mounts two action buttons in the card's dedicated
+/// fixed-width actions column (column 3, #567):
+///   - Edit button pinned top-right of the column.
+///   - Artifact button pinned bottom-right of the column.
 ///
 /// Both are always visible. When [artifactStatuses] is non-null AND
 /// contains at least one published row, tapping the Artifact button
@@ -366,11 +367,12 @@ class _SessionArtifactAccordionState extends State<SessionArtifactAccordion> {
     final emptyDuration =
         reduceMotion ? Duration.zero : _kEmptyStateDuration;
 
-    // Action overlay — two absolutely-positioned buttons painted OVER
-    // the entire session card (filmstrip + body span). Wrapped in an
-    // IgnorePointer-style pass-through so the card body stays tappable
-    // through any gaps between the buttons.
-    final actionOverlay = _ActionOverlay(
+    // #567 — the two action buttons now live INSIDE the session card's
+    // dedicated, fixed-width actions column (column 3) rather than as an
+    // absolute overlay that drifted with the card content. The column
+    // fills the full card height (SessionCard's Row is `stretch`), so we
+    // pin Edit top-right + Artifacts bottom-right within it.
+    final actionsColumn = _ActionsColumn(
       expanded: expanded,
       hasArtifacts: hasArtifacts,
       chevronDuration: chevronDuration,
@@ -381,9 +383,9 @@ class _SessionArtifactAccordionState extends State<SessionArtifactAccordion> {
       onArtifact: () => _onArtifactButtonTap(hasArtifacts),
     );
 
-    // Stack the SessionCard, peek card (when artifacts exist), and the
-    // action overlay. The overlay floats over EVERYTHING including the
-    // filmstrip; the peek floats BEHIND the card.
+    // Stack the SessionCard and the peek card (when artifacts exist). The
+    // peek floats BEHIND the card; the action buttons are now part of the
+    // card's own actions column (no separate overlay layer — #567).
     final cardWithOverlays = Stack(
       clipBehavior: Clip.none,
       children: [
@@ -429,25 +431,10 @@ class _SessionArtifactAccordionState extends State<SessionArtifactAccordion> {
             sourceTag: widget.sourceTag,
             sharedByEmail: widget.sharedByEmail,
             onRenamed: widget.onRenamed,
-            // No trailingOverride — the action buttons live in the
-            // overlay layer above this card, not in the trailing slot.
-            // The default static chevron is also suppressed so the
-            // overlay button is the sole visual affordance on the right
-            // edge.
-            trailingOverride: const _NullTrailing(),
-          ),
-        ),
-        // Action button overlay. Positioned to ignore pointer events
-        // outside the buttons themselves so the card stays tappable.
-        Positioned.fill(
-          child: Padding(
-            padding: hasArtifacts
-                ? const EdgeInsets.only(
-                    right: _kPeekOffsetX,
-                    bottom: _kPeekOffsetY,
-                  )
-                : EdgeInsets.zero,
-            child: actionOverlay,
+            // #567 — the Edit + Artifacts buttons ride in the card's
+            // dedicated actions column (col 3) via trailingOverride. The
+            // default static chevron is suppressed.
+            trailingOverride: actionsColumn,
           ),
         ),
       ],
@@ -501,39 +488,30 @@ class _SessionArtifactAccordionState extends State<SessionArtifactAccordion> {
   }
 }
 
-/// Marker widget used to suppress the SessionCard's default chevron in
-/// the trailing slot. The accordion's overlay paints the action buttons
-/// directly over the card so the slot itself should be empty (a SizedBox
-/// of zero size collapses the row's chevron column without disturbing
-/// the spacing — the title column already takes up the available width).
-class _NullTrailing extends StatelessWidget {
-  const _NullTrailing();
-
-  @override
-  Widget build(BuildContext context) => const SizedBox(width: 0, height: 0);
-}
-
-/// Two absolutely-positioned action buttons drawn OVER the session card.
+/// Dedicated actions column (#567) — the two action buttons stacked in
+/// the session card's fixed-width column 3 rather than absolutely
+/// positioned over the card.
 ///
-/// Studio button — vertically centered against the full card height.
-/// Backdrop-blurred so it stays readable over the filmstrip.
+///   - Edit button     — pinned TOP-right of the column.
+///   - Artifacts button — pinned BOTTOM-right of the column.
 ///
-/// Artifact button — docked at the bottom-right (~12dp bottom inset),
-/// chevron-down points to where the accordion stack will emerge below.
+/// The column fills the full card height (SessionCard's Row is laid out
+/// with `CrossAxisAlignment.stretch`), so `MainAxisAlignment.spaceBetween`
+/// drives Edit to the top and Artifacts to the bottom. Both buttons are
+/// right-aligned (`CrossAxisAlignment.end`). Carl's accepted default
+/// mapping is Edit-top / Artifacts-bottom — not flipped.
 ///
-/// The outer Stack uses `clipBehavior: Clip.none` so the buttons can
-/// extend right up to the card edge. `IgnorePointer` on the wrapper
-/// is implicit because both child positions reserve their tap zones via
-/// the buttons' own `InkWell`s; the empty regions between the buttons
-/// stay tappable on the card body underneath.
-class _ActionOverlay extends StatelessWidget {
+/// Buttons are always visible. Tapping the Artifact button on a row with
+/// zero published artifacts reveals an empty-state slider (handled by the
+/// parent); on a row WITH artifacts it toggles the accordion.
+class _ActionsColumn extends StatelessWidget {
   final bool expanded;
   final bool hasArtifacts;
   final Duration chevronDuration;
   final VoidCallback onStudio;
   final VoidCallback onArtifact;
 
-  const _ActionOverlay({
+  const _ActionsColumn({
     required this.expanded,
     required this.hasArtifacts,
     required this.chevronDuration,
@@ -543,43 +521,34 @@ class _ActionOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.max,
       children: [
-        // Studio button — vertically centered against the whole card.
-        Positioned(
-          right: _kActionButtonRightInset,
-          top: 0,
-          bottom: 0,
-          child: Center(
-            child: _ActionButton(
-              tooltip: 'Open in Studio',
-              icon: Icons.edit_outlined,
-              arrowGlyph: '›', // single right-pointing angle quote.
-              arrowRotation: 0.0,
-              arrowRotationDuration: chevronDuration,
-              backdropBlur: true,
-              onTap: onStudio,
-            ),
-          ),
+        // Edit — pinned top-right.
+        _ActionButton(
+          tooltip: 'Open in Studio',
+          icon: Icons.edit_outlined,
+          arrowGlyph: '›', // single right-pointing angle quote.
+          arrowRotation: 0.0,
+          arrowRotationDuration: chevronDuration,
+          backdropBlur: true,
+          onTap: onStudio,
         ),
-        // Artifact button — docked at the bottom-right of the card.
-        Positioned(
-          right: _kActionButtonRightInset,
-          bottom: _kArtifactButtonBottomInset,
-          child: _ActionButton(
-            tooltip: hasArtifacts
-                ? (expanded
-                    ? 'Hide published artifacts'
-                    : 'Show published artifacts')
-                : 'Artifacts — none yet',
-            icon: _stackedCardsIcon,
-            arrowGlyph: '▾', // black down-pointing small triangle.
-            arrowRotation: expanded ? 1.0 : 0.0,
-            arrowRotationDuration: chevronDuration,
-            backdropBlur: true,
-            onTap: onArtifact,
-          ),
+        // Artifacts — pinned bottom-right.
+        _ActionButton(
+          tooltip: hasArtifacts
+              ? (expanded
+                  ? 'Hide published artifacts'
+                  : 'Show published artifacts')
+              : 'Artifacts — none yet',
+          icon: _stackedCardsIcon,
+          arrowGlyph: '▾', // black down-pointing small triangle.
+          arrowRotation: expanded ? 1.0 : 0.0,
+          arrowRotationDuration: chevronDuration,
+          backdropBlur: true,
+          onTap: onArtifact,
         ),
       ],
     );
@@ -623,9 +592,11 @@ class _ActionButtonState extends State<_ActionButton> {
   @override
   Widget build(BuildContext context) {
     final scale = _pressed ? 0.96 : 1.0;
-    // Heavier coral tint (0.18 alpha) when the button paints over the
-    // filmstrip — matches mockup's `rgba(255,107,53,0.18)` + backdrop-blur.
-    final bgAlpha = widget.backdropBlur ? 0.18 : 0.10;
+    // #567 legibility — raise the coral fill to 0.45 alpha (was 0.18) so
+    // the pill reads as a solid coral chip on ANY filmstrip hero behind
+    // it, and lay a subtle dark scrim UNDER the coral so light cells
+    // can't wash it out. backdrop-blur stays for extra separation.
+    final bgAlpha = widget.backdropBlur ? 0.45 : 0.10;
     return Semantics(
       button: true,
       label: widget.tooltip,
@@ -633,57 +604,69 @@ class _ActionButtonState extends State<_ActionButton> {
         scale: scale,
         duration: const Duration(milliseconds: 100),
         curve: Curves.easeOut,
+        // Dark scrim layer beneath the coral fill — same rgba(15,17,23)
+        // surface tone as the card veil, at 0.30, so the coral always
+        // sits on a darkened base regardless of the hero behind it.
         child: Material(
-          color: AppColors.primary.withValues(alpha: bgAlpha),
+          color: widget.backdropBlur
+              ? const Color(0x4D0F1117) // rgba(15,17,23,0.30) scrim
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
-          child: InkWell(
+          child: Material(
+            color: AppColors.primary.withValues(alpha: bgAlpha),
             borderRadius: BorderRadius.circular(10),
-            onTap: widget.onTap,
-            onHighlightChanged: (h) {
-              if (mounted) setState(() => _pressed = h);
-            },
-            splashColor: AppColors.primary.withValues(alpha: 0.22),
-            highlightColor: AppColors.primary.withValues(alpha: 0.18),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.45),
-                  width: 1,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: widget.onTap,
+              onHighlightChanged: (h) {
+                if (mounted) setState(() => _pressed = h);
+              },
+              splashColor: AppColors.primary.withValues(alpha: 0.22),
+              highlightColor: AppColors.primary.withValues(alpha: 0.18),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.55),
+                    width: 1,
+                  ),
                 ),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    widget.icon,
-                    size: 16,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 5),
-                  TweenAnimationBuilder<double>(
-                    tween:
-                        Tween<double>(begin: 0.0, end: widget.arrowRotation),
-                    duration: widget.arrowRotationDuration,
-                    curve: _kSnappySpring,
-                    builder: (context, t, _) {
-                      return Transform.rotate(
-                        angle: t * 3.14159265,
-                        child: Text(
-                          widget.arrowGlyph,
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            height: 1.0,
-                            color: AppColors.primary,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      widget.icon,
+                      size: 16,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    TweenAnimationBuilder<double>(
+                      tween: Tween<double>(
+                        begin: 0.0,
+                        end: widget.arrowRotation,
+                      ),
+                      duration: widget.arrowRotationDuration,
+                      curve: _kSnappySpring,
+                      builder: (context, t, _) {
+                        return Transform.rotate(
+                          angle: t * 3.14159265,
+                          child: Text(
+                            widget.arrowGlyph,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              height: 1.0,
+                              color: AppColors.primary,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
