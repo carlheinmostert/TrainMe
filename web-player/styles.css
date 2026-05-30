@@ -3125,10 +3125,12 @@ body.is-fullscreen .playpause-toggle {
   display: block;
 }
 
-/* Video frames stream natively at the source aspect ratio. Keep
-   `object-fit: cover` for `<video>` so the playing frames crop to the
-   1:1 slot instead of stretching to fill it. */
-video.lobby-hero-media {
+/* Hero media (both `<img>` and `<video>`) crops to the 1:1 slot via
+   `object-fit: cover` instead of stretching to fill it. On already-hydrated
+   1:1 images this is a no-op; it only changes the un-hydrated/raw fallback
+   from stretch to centre-crop, which the runtime re-cropping (PR #364) never
+   reaches in the printable-guide PDF export path (#585). */
+.lobby-hero-media {
   object-fit: cover;
 }
 
