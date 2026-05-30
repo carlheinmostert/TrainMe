@@ -22,7 +22,13 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 51;
+
+  /// Current SQLite schema version. Bumped on every column-add / table-add
+  /// migration. Exposed for the migration regression suite under `app/test/`
+  /// so version-check assertions read the source of truth rather than a
+  /// hardcoded literal that goes stale on the next bump.
+  @visibleForTesting
+  static const int dbVersion = 51;
 
   Database? _db;
 
@@ -42,7 +48,7 @@ class LocalStorageService {
 
     _db = await openDatabase(
       dbPath,
-      version: _dbVersion,
+      version: dbVersion,
       onCreate: _createTables,
       onUpgrade: _migrateTables,
     );
@@ -62,7 +68,7 @@ class LocalStorageService {
     svc._db = await factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: _dbVersion,
+        version: dbVersion,
         onCreate: svc._createTables,
         onUpgrade: svc._migrateTables,
       ),
