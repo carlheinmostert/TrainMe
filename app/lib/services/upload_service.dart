@@ -681,14 +681,35 @@ class UploadService {
   /// [ApiClient]. See `docs/DATA_ACCESS_LAYER.md` — direct
   /// `Supabase.instance.client.*` calls are no longer permitted from
   /// this file.
-  ApiClient get _api => ApiClient.instance;
+  ///
+  /// Injected via the constructor (issue #571) so tests can supply a
+  /// fake [ApiClient] without reaching for the global singleton.
+  /// Production call sites that omit `api` get [ApiClient.instance]
+  /// exactly as before — no behaviour change (the prior getter returned
+  /// the same stable singleton on every read).
+  final ApiClient _api;
 
   // The private `raw-archive` bucket is the canonical home for the 720p
   // raw copies; upload goes via [ApiClient.uploadRawArchive], which
   // defines [ApiClient.rawArchiveBucket]. Keeping the name only in the
   // data-access layer preserves the single-source-of-truth rule.
 
-  UploadService({required LocalStorageService storage}) : _storage = storage;
+  /// Production constructor. [storage] is required as before; [api]
+  /// defaults to the shared [ApiClient.instance] so existing call sites
+  /// keep their exact wiring. Pass [api] only from tests.
+  UploadService({required LocalStorageService storage, ApiClient? api})
+      : _storage = storage,
+        _api = api ?? ApiClient.instance;
+
+  /// Test-only seam (issue #571). Injects both collaborators so a fake
+  /// [ApiClient] and [LocalStorageService] can be supplied without
+  /// touching the global singletons. No production code path calls this.
+  @visibleForTesting
+  UploadService.withDependencies({
+    required ApiClient api,
+    required LocalStorageService storage,
+  })  : _api = api,
+        _storage = storage;
 
   /// Read the current credit balance for [practiceId] via the
   /// `practice_credit_balance` Postgres function. Returns null on any error

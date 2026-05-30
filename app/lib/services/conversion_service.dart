@@ -307,18 +307,51 @@ class ConversionService extends ChangeNotifier {
   /// [LocalStorageService] without colliding with whatever real
   /// instance an integration test may have spun up. Production code
   /// must continue to call [initialize] / [instance].
+  ///
+  /// Issue #571 — optional [videoChannel] / [thumbChannel] seams let a
+  /// test inject fake native channels. Both default to the real channel
+  /// names so existing single-arg callers are unchanged.
   @visibleForTesting
-  factory ConversionService.forTest(LocalStorageService storage) {
-    return ConversionService._(storage: storage);
+  factory ConversionService.forTest(
+    LocalStorageService storage, {
+    MethodChannel? videoChannel,
+    MethodChannel? thumbChannel,
+  }) {
+    return ConversionService._(
+      storage: storage,
+      videoChannel: videoChannel,
+      thumbChannel: thumbChannel,
+    );
   }
 
-  /// Native iOS platform channel for video conversion.
+  /// Default native iOS platform channel for video conversion.
   /// Uses AVAssetReader/Writer for H.264/265 I/O and Accelerate for
   /// pixel processing -- bypasses OpenCV's codec limitations on iOS.
-  static const _videoChannel = MethodChannel('com.raidme.video_converter');
+  ///
+  /// Kept as a named constant (issue #571) so the injectable
+  /// [_videoChannel] field defaults to the exact same channel — no
+  /// behaviour change for production callers.
+  static const _defaultVideoChannel =
+      MethodChannel('com.raidme.video_converter');
 
-  /// Simple native frame extraction channel (AVAssetImageGenerator).
-  static const _thumbChannel = MethodChannel('com.raidme.native_thumb');
+  /// Default simple native frame extraction channel
+  /// (AVAssetImageGenerator). Backs the injectable [_thumbChannel]
+  /// field's default — see [_defaultVideoChannel].
+  static const _defaultThumbChannel =
+      MethodChannel('com.raidme.native_thumb');
+
+  /// Native video-conversion channel (issue #571). Defaults to
+  /// [_defaultVideoChannel] in the production constructor; tests can
+  /// inject a fake [MethodChannel] (e.g. via
+  /// `TestDefaultBinaryMessengerBinding`) without touching the real
+  /// native side. Was a `static const`; now an instance field so the
+  /// seam exists — every reference inside this service reads from here,
+  /// so production dispatch is unchanged.
+  final MethodChannel _videoChannel;
+
+  /// Native frame-extraction channel (issue #571). Defaults to
+  /// [_defaultThumbChannel]; see [_videoChannel] for the rationale.
+  final MethodChannel _thumbChannel;
 
   /// Safe Mode v2 video — per-frame progress stream from the native
   /// pipeline (2026-05-25). The native `SafeModeV2VideoProcessor`
@@ -420,8 +453,13 @@ class ConversionService extends ChangeNotifier {
   Stream<SafeModeV2VideoProgress> get onSafeModeV2VideoProgress =>
       _safeVideoProgressController.stream;
 
-  ConversionService._({required LocalStorageService storage})
-      : _storage = storage {
+  ConversionService._({
+    required LocalStorageService storage,
+    MethodChannel? videoChannel,
+    MethodChannel? thumbChannel,
+  })  : _storage = storage,
+        _videoChannel = videoChannel ?? _defaultVideoChannel,
+        _thumbChannel = thumbChannel ?? _defaultThumbChannel {
     // Listen for progress updates from the native video converter.
     _videoChannel.setMethodCallHandler(_handleNativeCallback);
   }

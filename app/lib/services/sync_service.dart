@@ -78,7 +78,23 @@ import 'local_storage_service.dart';
 ///   an error and we treat the device as online-optimistic — the first
 ///   RPC call decides.
 class SyncService {
-  SyncService({required LocalStorageService storage}) : _storage = storage;
+  /// Production constructor. [storage] is required as before; [api]
+  /// defaults to the shared [ApiClient.instance] so existing callers
+  /// (`configure` + the startup bootstrap) keep their exact wiring —
+  /// no behaviour change. Pass [api] only from tests (issue #571).
+  SyncService({required LocalStorageService storage, ApiClient? api})
+      : _storage = storage,
+        _api = api ?? ApiClient.instance;
+
+  /// Test-only seam (issue #571). Injects both collaborators so a fake
+  /// [ApiClient] and [LocalStorageService] can be supplied without
+  /// touching the global singletons. No production code path calls this.
+  @visibleForTesting
+  SyncService.withDependencies({
+    required ApiClient api,
+    required LocalStorageService storage,
+  })  : _api = api,
+        _storage = storage;
 
   static SyncService? _instance;
 
@@ -103,6 +119,15 @@ class SyncService {
   }
 
   final LocalStorageService _storage;
+
+  /// Injected data-access surface (issue #571). Defaults to the shared
+  /// [ApiClient.instance] in the production constructor so every cloud
+  /// call routes through the same singleton as before; tests can swap
+  /// in a fake. Direct `ApiClient.instance.*` references inside this
+  /// service were rerouted through this field — no behaviour change
+  /// (the singleton is stable for the process lifetime).
+  final ApiClient _api;
+
   final Uuid _uuid = const Uuid();
 
   /// Direct read access to the local cache layer. Exposed so UI widgets
@@ -155,7 +180,7 @@ class SyncService {
   Future<void> refreshCreditBalance(String practiceId) async {
     if (practiceId.isEmpty) return;
     try {
-      final balance = await ApiClient.instance.practiceCreditBalance(
+      final balance = await _api.practiceCreditBalance(
         practiceId: practiceId,
       );
       if (balance == null) return;
@@ -234,7 +259,7 @@ class SyncService {
     // sign-ins haven't bound a practice yet; the bootstrap path does
     // that separately).
     try {
-      _authSub = ApiClient.instance.raw.auth.onAuthStateChange.listen(
+      _authSub = _api.raw.auth.onAuthStateChange.listen(
         (state) {
           if (state.event == AuthChangeEvent.signedIn ||
               state.event == AuthChangeEvent.tokenRefreshed) {
@@ -342,18 +367,18 @@ class SyncService {
 
   Future<_BranchOutcome> _pullPractices() async {
     try {
-      final memberships = await ApiClient.instance.listMyPractices();
+      final memberships = await _api.listMyPractices();
       // listMyPractices doesn't carry joined_at — we re-fetch via the
       // raw practice_members query below so the cache can order by
       // joined_at. Kept in one place to avoid broadening ApiClient.
       // Tolerate either shape: if the richer query fails, fall back
       // to "use nowMs as joined_at stand-in, same for all rows".
-      final userId = ApiClient.instance.currentUserId;
+      final userId = _api.currentUserId;
       Map<String, int> joinedAtByPracticeId = <String, int>{};
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       if (userId != null) {
         try {
-          final rows = await ApiClient.instance.raw
+          final rows = await _api.raw
               .from('practice_members')
               .select('practice_id, joined_at')
               .eq('trainer_id', userId);
@@ -471,7 +496,7 @@ class SyncService {
       bool anyError = false;
       for (final c in clients) {
         try {
-          final slots = await ApiClient.instance.getClientFaceEmbeddings(
+          final slots = await _api.getClientFaceEmbeddings(
             clientId: c.id,
           );
           // Replace the local slot set even when the cloud returns
@@ -516,7 +541,7 @@ class SyncService {
     int nowMs,
   ) async {
     try {
-      final balance = await ApiClient.instance.practiceCreditBalance(
+      final balance = await _api.practiceCreditBalance(
         practiceId: practiceId,
       );
       if (balance == null) {
@@ -540,7 +565,7 @@ class SyncService {
 
   Future<_BranchOutcome> _backfillSessionClientIds(String practiceId) async {
     try {
-      final links = await ApiClient.instance.listPlanClientLinks(practiceId);
+      final links = await _api.listPlanClientLinks(practiceId);
       if (links.isEmpty) return _BranchOutcome.ok;
       await _storage.backfillSessionClientIds(
         links
@@ -578,7 +603,7 @@ class SyncService {
   /// `feedback_mobile_preview_local_only.md`).
   Future<_BranchOutcome> _pullSessions(String practiceId) async {
     try {
-      final cloudPlans = await ApiClient.instance.listPracticePlans(practiceId);
+      final cloudPlans = await _api.listPracticePlans(practiceId);
       if (cloudPlans.isEmpty) {
         dev.log(
           'pullSessions practice=$practiceId — 0 cloud plans returned',
@@ -702,7 +727,7 @@ class SyncService {
     // signed in (unlikely — pullAll is gated by membership), the row
     // lands with NULL and the Home query's NULL-or-current branch still
     // surfaces it.
-    final createdByUserId = ApiClient.instance.currentUserId;
+    final createdByUserId = _api.currentUserId;
 
     return model.Session(
       id: id,
@@ -1373,7 +1398,7 @@ class SyncService {
         if (clientId == null || practiceId == null || name == null) {
           return true; // drop malformed op
         }
-        final returned = await ApiClient.instance.upsertClientWithId(
+        final returned = await _api.upsertClientWithId(
           clientId: clientId,
           practiceId: practiceId,
           name: name,
@@ -1405,7 +1430,7 @@ class SyncService {
         final clientId = op.payload['client_id'] as String?;
         final newName = op.payload['new_name'] as String?;
         if (clientId == null || newName == null) return true;
-        await ApiClient.instance.renameClient(
+        await _api.renameClient(
           clientId: clientId,
           newName: newName,
         );
@@ -1426,7 +1451,7 @@ class SyncService {
         if (clientId == null || grayscale == null || colour == null) {
           return true;
         }
-        final ok = await ApiClient.instance.setClientVideoConsent(
+        final ok = await _api.setClientVideoConsent(
           clientId: clientId,
           lineAllowed: true,
           grayscaleAllowed: grayscale,
@@ -1457,7 +1482,7 @@ class SyncService {
         final avatarPath = pathRaw is String && pathRaw.isNotEmpty
             ? pathRaw
             : null;
-        await ApiClient.instance.setClientAvatar(
+        await _api.setClientAvatar(
           clientId: clientId,
           avatarPath: avatarPath,
         );
@@ -1467,7 +1492,7 @@ class SyncService {
       case PendingOpType.deleteClient:
         final clientId = op.payload['client_id'] as String?;
         if (clientId == null) return true;
-        await ApiClient.instance.deleteClient(clientId: clientId);
+        await _api.deleteClient(clientId: clientId);
         // Mark the cached row clean; it stays with `deleted=1` so reads
         // skip it. A subsequent pull will remove it once the server
         // state settles (list_practice_clients filters deleted rows).
@@ -1477,7 +1502,7 @@ class SyncService {
       case PendingOpType.restoreClient:
         final clientId = op.payload['client_id'] as String?;
         if (clientId == null) return true;
-        await ApiClient.instance.restoreClient(clientId: clientId);
+        await _api.restoreClient(clientId: clientId);
         await _markCachedClientClean(clientId);
         return true;
 
@@ -1501,7 +1526,7 @@ class SyncService {
         final planId = op.payload['plan_id'] as String?;
         final newTitle = op.payload['new_title'] as String?;
         if (planId == null || newTitle == null) return true;
-        await ApiClient.instance.renameSession(
+        await _api.renameSession(
           planId: planId,
           newTitle: newTitle,
         );
@@ -1548,7 +1573,7 @@ class SyncService {
                 ? Map<String, dynamic>.from(metaRaw)
                 : null);
         try {
-          await ApiClient.instance.recordCaptureEvent(
+          await _api.recordCaptureEvent(
             practiceId: practiceId,
             premisesId: premisesId,
             kind: kind,
