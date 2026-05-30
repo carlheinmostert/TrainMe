@@ -251,6 +251,7 @@ Plain-English (`feedback_explanation_level`): a table (issue · action · new st
 - **Auto-building a bug that isn't a slam dunk** → must clear all five checklist points, else `awaiting-fix-approval`.
 - **Merging in a default sweep** → only in `merge` mode, only Carl-approved + green + mergeable + integration branch.
 - **Auto-resolving a conflict in `cascade`** → never. Only **conflict-free** branch-updates are allowed (no force-push, no true rebase); a conflicting PR is flagged "blocked on you" and skipped — that's where the train stops.
+- **Mirroring over a card sitting in `Go` / `Hold` / `Done`** → never. Those are Carl's *pending commands*, consumed in board-sync **step 2**; the **step 3** mirror only touches *non-command* cards. Overwriting a Go/Hold/Done card silently discards his input (a re-sync that loops every card must respect this).
 - **Using `Fixes #N`** → use `Refs #N`; validation closes, not merge.
 - **Forgetting to un-assign on exit** → the inbox/Needs you column won't self-clear. Remove Carl/author the moment the ball leaves their court.
 - **Reading `/go` + notes as "changes requested"** → `/go`/`Go` always advances; fold notes in.
