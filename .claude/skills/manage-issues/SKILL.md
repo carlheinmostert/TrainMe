@@ -210,7 +210,7 @@ until a full pass merges nothing (fixpoint)
 
 ### Email brief (merge runs)
 
-At the end of any `merge` / `merge cascade` run that **did something** (merged ≥1 PR, or left items waiting on you), email a brief to **`notifyEmail`** from the config. A pure no-op run stays silent. Delegate the send like any mutation; use the available email channel — locally the Gmail/IMAP MCP, in the cloud Routine an account-integration email connector or the Resend SMTP. If **no** email channel is reachable, **fail loud** in the end report ("couldn't send the brief — no email channel"), don't silently skip.
+At the end of any `merge` / `merge cascade` run that **did something** (merged ≥1 PR, or left items waiting on you), email a brief to **`notifyEmail`** from the config. A pure no-op run stays silent. Delegate the send like any mutation; send via **Gmail** (`gmail_send_email`) — Carl's Gmail is connected **both locally and in the cloud Routine** (his account integration). If the Gmail channel is somehow unreachable, **fail loud** in the end report ("couldn't send the brief — no email channel"), don't silently skip.
 
 Subject: `manage-issues — {repo}: {N} merged, {M} waiting on you`. Body (plain text, scannable):
 - **Merged this run** — each `#PR — title` + link, and the issue it advanced.
