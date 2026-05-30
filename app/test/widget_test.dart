@@ -40,15 +40,38 @@ import 'package:raidme/models/cached_client.dart';
 import 'package:raidme/models/client.dart';
 import 'package:raidme/models/session.dart';
 import 'package:raidme/screens/client_sessions_screen.dart';
+import 'package:raidme/services/conversion_service.dart';
 import 'package:raidme/services/local_storage_service.dart';
 
 void main() {
   setUpAll(() async {
-    TestWidgetsFlutterBinding.ensureInitialized();
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
     sqfliteFfiInit();
     // Supabase persists its session via SharedPreferences; seed an empty
     // store so initialize() doesn't reach the platform channel.
     SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    // The headless flutter_tester harness has no native side, so any
+    // EventChannel.receiveBroadcastStream() the screen activates throws
+    // MissingPluginException (caught by the services library, but it
+    // litters the log and — more importantly — leaves the stream in an
+    // error state). Stub every EventChannel `listen`/`cancel` so the
+    // platform-stream activation is a clean no-op. This covers the
+    // connectivity_plus status stream and the Safe Mode v2 native
+    // progress channel that the session-card filmstrip subscribes to.
+    final messenger = binding.defaultBinaryMessenger;
+    const channels = <String>[
+      'dev.fluttercommunity.plus/connectivity_status',
+      'homefit-safe-mode-v2-video-progress',
+      'homefit/face-enrolment-pose-stream',
+    ];
+    for (final name in channels) {
+      messenger.setMockMethodCallHandler(
+        MethodChannel(name),
+        (call) async => null,
+      );
+    }
+
     // Dummy local config — the client is lazy and only connects on an
     // actual RPC/auth call, which the unauthenticated + unpublished paths
     // under test never make.
@@ -56,6 +79,22 @@ void main() {
       url: 'http://localhost:54321',
       anonKey: 'test-anon-key',
     );
+
+    // The screen (and the session-card filmstrip it mounts) reads the
+    // [ConversionService] singleton in initState/build to subscribe to
+    // conversion-update + Safe-Mode-removal streams. Without an
+    // initialized singleton, `ConversionService.instance` throws an
+    // assertion while the widget tree builds, never completing pumpWidget.
+    // Initialize it against a throwaway in-memory store; the streams it
+    // exposes are plain broadcast controllers that simply never fire in
+    // these unauthenticated + unpublished smoke flows. setUpAll runs once
+    // per suite, so a single initialize() is enough to satisfy every
+    // ConversionService.instance read the screen makes.
+    final conversionStore = await LocalStorageService.openForTest(
+      path: inMemoryDatabasePath,
+      factory: databaseFactoryFfi,
+    );
+    ConversionService.initialize(conversionStore);
   });
 
   /// A client whose consent has been explicitly set (so the consent sheet
