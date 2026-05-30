@@ -65,8 +65,8 @@ If it's missing or unparseable, the repo **isn't initialised** → **fail loud**
 | **AWAITING_FIX_APPROVAL** | `status:awaiting-fix-approval` | Carl | Needs you |
 | **BUILDING** | `status:building` | bot | Building |
 | **AWAITING_PR** | `status:awaiting-pr` | bot | Building |
-| **AWAITING_MERGE** | `status:awaiting-merge` | Carl | Needs you |
-| **AWAITING_VALIDATION** | `status:awaiting-validation` | Carl | Needs you |
+| **AWAITING_MERGE** | `status:awaiting-merge` | Carl | To merge |
+| **AWAITING_VALIDATION** | `status:awaiting-validation` | Carl | To test |
 | **HELP_WANTED** | `help wanted` | Carl | Needs you |
 | **HOLD** | `status:hold` | Carl | Hold |
 | **RESOLVED** | *closed* | — | Done |

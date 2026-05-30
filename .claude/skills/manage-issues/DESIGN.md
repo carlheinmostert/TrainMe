@@ -114,9 +114,11 @@ Your inbox is a GitHub **Projects board**, reviewed from the GitHub mobile app
 (verified: board view + Status editing work on mobile via long-press → edit
 field; not drag, but instant).
 
-- **Columns:** `Triage` · `Needs you` (combined) · `Go` · `Building` · `Hold` · `Done`.
-- **One combined "Needs you" column** is your inbox — approvals, merges, replies,
-  tests all pile here; each card's label says which action it wants.
+- **Columns:** `Triage` · `Needs you` (decisions) · `Go` · `Building` · `To merge` · `To test` · `Hold` · `Done`.
+- **"Needs you"** is your *decisions* inbox — approvals, needs-info, help-wanted.
+  **Merge** (`To merge`) and **test** (`To test`) get their own lanes so those
+  batch activities — which you do on your own schedule — don't clutter the
+  decide-now pile.
 - **Dragging a card to `Go` is the universal "approve / advance" — you never pick
   the next state.** The bot reads the card's label and routes it: a design/fix
   approval → build; a validation card → close (pass); a merge card → merge (in

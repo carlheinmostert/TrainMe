@@ -22,8 +22,8 @@ run on a repo that hasn't been init'd (it reads `.github/managed-issues.json`).
   `status:awaiting-merge`, `status:awaiting-validation`, `status:hold` — plus the
   native `bug`, `enhancement`, `help wanted`.
 - **Board**: a Projects v2 board with a single-select **"Stage"** field whose
-  options are the columns `Triage` · `Needs you` · `Go` · `Building` · `Hold` ·
-  `Done`. (`Go` is a *command* column — Carl drags an item there to approve/advance
+  options are the columns `Triage` · `Needs you` · `Go` · `Building` · `To merge` ·
+  `To test` · `Hold` · `Done`. (`Go` is a *command* column — Carl drags an item there to approve/advance
   it without choosing the next state; the sweep reads it and routes — see the
   sweep's board-sync logic.)
   (We create our own field because the default "Status" field's options can't be
@@ -81,9 +81,11 @@ done
        name:"Stage",
        singleSelectOptions:[
          {name:"Triage",    color:GRAY,   description:"Bot classifying / waiting for budget"},
-         {name:"Needs you", color:YELLOW, description:"Your inbox: approve / merge / test / reply"},
+         {name:"Needs you", color:YELLOW, description:"Your decisions: approve / answer / unblock"},
          {name:"Go",        color:PURPLE, description:"Approve / advance — bot routes to the right next state"},
          {name:"Building",  color:BLUE,   description:"Bot building"},
+         {name:"To merge",  color:PINK,   description:"Ready to merge — your merge queue"},
+         {name:"To test",   color:RED,    description:"Merged + deployed — your validation queue"},
          {name:"Hold",      color:ORANGE, description:"Parked — hands off"},
          {name:"Done",      color:GREEN,  description:"Resolved"}
        ]
@@ -126,8 +128,8 @@ its report**; it cannot perform them.
 1. Open the project. On the view tab, click the **⌄** and switch the layout to **Board**.
 2. Open the view's **⋯ / settings → "Column field" (or "Group by") → `Stage`**.
 
-The board then shows the Stage columns (Triage / Needs you / Building / Hold /
-Done) with cards draggable between them. (Cards also show GitHub's built-in
+The board then shows the Stage columns (Triage / Needs you / Go / Building / To
+merge / To test / Hold / Done) with cards draggable between them. (Cards also show GitHub's built-in
 "Status" chip — cosmetic; hide it via the view's field-visibility settings if it
 distracts.)
 
