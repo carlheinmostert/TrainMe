@@ -343,7 +343,8 @@ class ApiClient {
           })
           .whereType<PracticeMembership>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.listMyPractices failed: $e');
       return const [];
     }
   }
@@ -367,7 +368,8 @@ class ApiClient {
       if (result is num) return result.toInt();
       if (result is String) return int.tryParse(result);
       return null;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.practiceCreditBalance($practiceId) failed: $e');
       return null;
     }
   }
@@ -404,7 +406,8 @@ class ApiClient {
           })
           .whereType<PlanClientLink>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.listPlanClientLinks($practiceId) failed: $e');
       return const [];
     }
   }
@@ -597,7 +600,8 @@ class ApiClient {
         () => raw.rpc('refund_credit', params: {'p_plan_id': planId}),
       );
       return result == true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.refundCredit($planId) failed: $e');
       return false;
     }
   }
@@ -1346,13 +1350,7 @@ class ApiClient {
         params: {'p_practice_id': practiceId},
       ),
     );
-    Map<String, dynamic>? row;
-    if (result is Map<String, dynamic>) {
-      row = result;
-    } else if (result is List && result.isNotEmpty) {
-      final first = result.first;
-      if (first is Map<String, dynamic>) row = first;
-    }
+    final row = _parseMapFromRpcResult(result);
     if (row == null) {
       throw StateError('referral_dashboard_stats returned no row');
     }
@@ -1377,13 +1375,7 @@ class ApiClient {
           params: {'p_plan_id': planId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _parseMapFromRpcResult(result);
       if (row == null) return null;
       return PlanAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1405,13 +1397,7 @@ class ApiClient {
           params: {'p_client_id': clientId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _parseMapFromRpcResult(result);
       if (row == null) return null;
       return ClientAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1496,24 +1482,11 @@ class ReferralStats {
   );
 
   factory ReferralStats.fromJson(Map<String, dynamic> json) {
-    num asNum(dynamic v) {
-      if (v is num) return v;
-      if (v is String) return num.tryParse(v) ?? 0;
-      return 0;
-    }
-
-    int asInt(dynamic v) {
-      if (v is int) return v;
-      if (v is num) return v.toInt();
-      if (v is String) return int.tryParse(v) ?? 0;
-      return 0;
-    }
-
     return ReferralStats(
-      rebateBalanceCredits: asNum(json['rebate_balance_credits']),
-      lifetimeRebateCredits: asNum(json['lifetime_rebate_credits']),
-      refereeCount: asInt(json['referee_count']),
-      qualifyingSpendTotalZar: asNum(json['qualifying_spend_total_zar']),
+      rebateBalanceCredits: _asNum(json['rebate_balance_credits']),
+      lifetimeRebateCredits: _asNum(json['lifetime_rebate_credits']),
+      refereeCount: _asInt(json['referee_count']),
+      qualifyingSpendTotalZar: _asNum(json['qualifying_spend_total_zar']),
     );
   }
 }
@@ -1719,10 +1692,29 @@ class ClientAnalyticsSummary {
   }
 }
 
+/// Extracts a single row from an RPC result that PostgREST may return as
+/// either a bare [Map<String, dynamic>] (scalar/record return) or a
+/// [List] whose first element is the row (table-valued return). Returns
+/// null on any shape mismatch so callers can treat null as "no data".
+Map<String, dynamic>? _parseMapFromRpcResult(dynamic result) {
+  if (result is Map<String, dynamic>) return result;
+  if (result is List && result.isNotEmpty) {
+    final first = result.first;
+    if (first is Map<String, dynamic>) return first;
+  }
+  return null;
+}
+
 int _asInt(dynamic v) {
   if (v is int) return v;
   if (v is num) return v.toInt();
   if (v is String) return int.tryParse(v) ?? 0;
+  return 0;
+}
+
+num _asNum(dynamic v) {
+  if (v is num) return v;
+  if (v is String) return num.tryParse(v) ?? 0;
   return 0;
 }
 
