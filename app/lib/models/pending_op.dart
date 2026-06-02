@@ -130,10 +130,18 @@ class PendingOp {
     } catch (_) {
       payload = <String, dynamic>{};
     }
-    final type = _opTypeFromWire(row['op_type'] as String? ?? '');
+    final rawType = row['op_type'] as String? ?? '';
+    final type = _opTypeFromWire(rawType);
+    if (type == null) {
+      throw ArgumentError.value(
+        rawType,
+        'op_type',
+        'Unknown PendingOpType wire value — row id=${row['id']}',
+      );
+    }
     return PendingOp(
       id: row['id'] as String,
-      type: type ?? PendingOpType.upsertClient,
+      type: type,
       payload: payload,
       createdAt: row['created_at'] as int,
       attempts: row['attempts'] as int? ?? 0,
