@@ -70,6 +70,28 @@ export function rfc1738Encode(value: string): string {
 }
 
 /**
+ * Serialise a PayFast payload to `key=value&key=value` in insertion order.
+ * Fields with undefined/null/empty values are omitted. When
+ * `includeSignature` is false (the default) the `signature` key is also
+ * omitted — used when building the base string to sign. When true the
+ * `signature` key is included — used when building the final redirect URL.
+ */
+function serialisePayload(
+  payload: PayFastPayload & { signature?: string },
+  includeSignature = false,
+): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'signature' && !includeSignature) continue;
+    if (value === undefined || value === null) continue;
+    const stringValue = String(value).trim();
+    if (stringValue === '') continue;
+    parts.push(`${key}=${rfc1738Encode(stringValue)}`);
+  }
+  return parts.join('&');
+}
+
+/**
  * Build the `key=value&key=value` string used for BOTH the signature base
  * and the redirect querystring. Order is significant — we iterate the
  * object's own keys, which in JS preserves insertion order.
@@ -78,15 +100,7 @@ export function buildSignatureBase(
   payload: PayFastPayload,
   passphrase?: string,
 ): string {
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(payload)) {
-    if (key === 'signature') continue;
-    if (value === undefined || value === null) continue;
-    const stringValue = String(value).trim();
-    if (stringValue === '') continue;
-    parts.push(`${key}=${rfc1738Encode(stringValue)}`);
-  }
-  let base = parts.join('&');
+  let base = serialisePayload(payload);
   if (passphrase && passphrase.trim() !== '') {
     base += `&passphrase=${rfc1738Encode(passphrase.trim())}`;
   }
@@ -122,14 +136,7 @@ export function buildCheckoutUrl(
   };
   // Re-serialise using the same RFC1738 encoder so the browser's redirect
   // URL and PayFast's signature base use the same encoding for every value.
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(signed)) {
-    if (value === undefined || value === null) continue;
-    const stringValue = String(value).trim();
-    if (stringValue === '') continue;
-    parts.push(`${key}=${rfc1738Encode(stringValue)}`);
-  }
-  return `${endpoint}?${parts.join('&')}`;
+  return `${endpoint}?${serialisePayload(signed, true)}`;
 }
 
 /** Per PayFast docs — sandbox + production server IPs for ITN source checks. */
