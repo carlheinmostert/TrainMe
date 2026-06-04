@@ -113,6 +113,12 @@ export async function POST(request: Request) {
   const appUrl = getAppUrl();
   const { merchantId, merchantKey, passphrase, sandbox } = getMerchantConfig();
   if (!merchantId || !merchantKey) {
+    // eslint-disable-next-line no-console
+    console.error('[credits/purchase] PayFast merchant credentials not configured', {
+      sandbox,
+      hasMerchantId: !!merchantId,
+      hasMerchantKey: !!merchantKey,
+    });
     return NextResponse.json(
       { error: 'PayFast merchant credentials not configured' },
       { status: 500 },

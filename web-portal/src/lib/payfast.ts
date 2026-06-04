@@ -147,7 +147,11 @@ export const PAYFAST_IP_BLOCKS = [
 
 export function isSandboxEnabled(): boolean {
   const flag = (process.env.PAYFAST_SANDBOX ?? 'true').toLowerCase();
-  return flag !== 'false' && flag !== '0' && flag !== 'no';
+  // Whitelist: only explicit truthy values enable sandbox. Unset/unknown
+  // defaults to sandbox (via ?? 'true') which is safe for local dev.
+  // A garbage value like "xyz" is treated as prod (not sandbox), which
+  // causes the missing-credential check in the purchase route to fire.
+  return flag === 'true' || flag === '1' || flag === 'yes';
 }
 
 /** Merchant config — falls back to PayFast's public sandbox creds. */

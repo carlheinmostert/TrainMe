@@ -1397,6 +1397,10 @@ class UploadService {
                 filesUploaded: filesUploaded,
                 filesTotal: filesTotal,
               ));
+              // Only stamp the URL after a confirmed successful upload —
+              // a failed upload leaves no file in storage, so stamping
+              // the URL would give the RPC a 404-destined link.
+              mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
             } catch (uploadErr) {
               // Fix B — record per-file failure; loop continues so
               // siblings get a chance to upload. Main mp4/jpg variant.
@@ -1414,8 +1418,10 @@ class UploadService {
                 'path=$storagePath local=$filePath err=$uploadErr',
               );
             }
+          } else {
+            // File already in storage from a prior publish — URL is valid.
+            mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
           }
-          mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
 
           final thumbPath = exercise.absoluteThumbnailPath;
           if (thumbPath != null) {
@@ -1438,6 +1444,8 @@ class UploadService {
                     filesUploaded: filesUploaded,
                     filesTotal: filesTotal,
                   ));
+                  thumbUrls[exercise.id] =
+                      _api.publicMediaUrl(path: thumbStoragePath);
                 } catch (uploadErr) {
                   // Fix B — record _thumb.jpg failure.
                   mediaFailures.add(UploadFailureRecord(
@@ -1454,9 +1462,11 @@ class UploadService {
                     'path=$thumbStoragePath local=$thumbPath err=$uploadErr',
                   );
                 }
+              } else {
+                // Already in storage and not dirty — URL is valid.
+                thumbUrls[exercise.id] =
+                    _api.publicMediaUrl(path: thumbStoragePath);
               }
-              thumbUrls[exercise.id] =
-                  _api.publicMediaUrl(path: thumbStoragePath);
 
               // Wave Three-Treatment-Thumbs (2026-05-05) — upload the
               // LINE-DRAWING JPG (`_thumb_line.jpg`, always) and the

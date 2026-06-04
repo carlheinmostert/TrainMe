@@ -31,11 +31,16 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = await getServerClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (error) {
+    let authErrorMessage: string | null = null;
+    try {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) authErrorMessage = error.message;
+    } catch (err) {
+      authErrorMessage = err instanceof Error ? err.message : 'auth exchange failed';
+    }
+    if (authErrorMessage) {
       return NextResponse.redirect(
-        `${origin}/?auth_error=${encodeURIComponent(error.message)}`,
+        `${origin}/?auth_error=${encodeURIComponent(authErrorMessage)}`,
       );
     }
 
