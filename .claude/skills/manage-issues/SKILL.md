@@ -168,7 +168,7 @@ Build can't complete → remove `status:building`, `help wanted`, assign Carl, c
 
 ## Validation
 
-A merged PR does **not** close its issue (it used `Refs #N`). On detecting the merge, the sweep moves the issue to `status:awaiting-validation` (Needs you) and posts a **test note** scoped to the surface. **Only Carl's validation closes it:** `Go`/`/go`/`/close` at this state → close (Done); a prose failure → re-open as a fresh defect (new fix/PR — a merged PR can't be reopened).
+A merged PR does **not** close its issue (it used `Refs #N`). On detecting the merge, the sweep moves the issue to `status:awaiting-validation` (Needs you) and posts a **test note** scoped to the surface. **Only Carl's validation closes it:** `Go`/`/go`/`/close` at this state → close (Done); a prose failure → re-open as a fresh defect (new fix/PR — a merged PR can't be reopened). **Exception (interactive only):** if Carl, while testing, asks for a **"hotfix" / "quick fix" / "triage"** of the change, skip the full re-open-and-rebuild ceremony and use [Hotfix mode](#hotfix-mode-interactive-only).
 
 **The test note is a numbered test list, posted as a comment on the issue itself** (carrying the `<!-- managed-issue-bot -->` marker) — one per issue, not a consolidated list in the conversation. Write it as **numbered steps Carl walks through to validate that issue's change**, scoped to *what actually changed* in that PR (not generic regression). Keep it simple: each step is one concrete check with a clear pass/fail. End with how to record the result (`/go` or `/close` to pass, reply with details to fail). Prepend the build/surface preamble (below) as step 1 when relevant (e.g. "Build the app to your phone — you're on build {cursor}, this is newer"). A test-only or no-visible-surface change still gets a short list that says so and ends in `/close`.
 
@@ -185,6 +185,23 @@ A merged PR does **not** close its issue (it used `Refs #N`). On detecting the m
 - The ship step does the reconcile (see that skill): after install it stamps the new cursor and flips every in-build mobile `awaiting-validation` issue's note to "test now", linking the build's numbered test list — which *is* the validation worklist.
 
 **Optional (either surface):** the sweep may smoke-test on the iOS simulator first and annotate "passed on sim — needs your eyes on device for X", thinning the manual list.
+
+## Hotfix mode (interactive only)
+
+When Carl is **actively testing** and asks for a **"hotfix"**, **"quick fix"**, or to **"triage"** a specific change — typically while giving feedback on something already merged — skip the full state-machine ceremony: **no fix-proposal/`/go` gate, no `awaiting-merge` gate, no re-open-as-fresh-defect dance.** Give him a tight fix → build → test loop instead.
+
+**Interactive only.** This mode exists only when Carl is in the loop, watching. The **unattended sweep NEVER hotfixes** — with no human watching it always takes the full process. ("Triage" from the sweep still means classify; "triage X" from Carl mid-feedback means hotfix it.)
+
+The loop (parent orchestrates, a sub-agent does the code/branch/build, per `feedback_delegate_coding`):
+1. **Diagnose + fix** directly on a short-lived **hotfix branch off the integration branch** (`fix/hotfix-...`). No proposal, no approval gate.
+2. **Build + bench-verify, then stop at "ready."** Build and simulator/bench-verify the fix, then tell Carl it's **built and ready to deploy** — do **not** auto-install. Device install still needs his explicit go (`feedback_ask_before_mobile_deployment` holds in hotfix mode too).
+3. **He deploys + tests on device.** On his go, install to his phone; he tests.
+4. **Iterate on the same branch.** Not right? Another quick fix on the *same* hotfix branch → rebuild → (deploy on his go) → retest. No new PR/issue per loop.
+5. **Land on pass.** Once Carl confirms it works on device, **merge the hotfix branch into the integration branch and close the issue** — his device test *was* the validation, so there's no separate validation gate. A short note on the issue is enough; skip the formal proposal/validation-comment ceremony.
+
+**Sensitive zones stay gated.** A hotfix touching crypto, biometrics, or the capture/obscure pipeline is still fast-built for Carl to test, but its merge is **flagged review-before-merge** — built + tested in the loop, but it waits for Carl's merge rather than auto-landing on his device pass. Everything else (UI, contained logic) merges on the device pass.
+
+**Board stays lightweight:** the issue sits in `status:building` (Building) while iterating, then closes on Carl's device pass (or moves to `status:awaiting-merge` for a sensitive-zone hotfix awaiting his merge). Don't route it through the design/fix-approval lanes.
 
 ## Merge mode
 
