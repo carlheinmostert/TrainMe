@@ -183,6 +183,7 @@ A merged PR does **not** close its issue (it used `Refs #N`). On detecting the m
 - If the merged fix's commit is **an ancestor of the cursor SHA** (`git merge-base --is-ancestor <fixSha> <cursorSha>`; `fixSha` = the PR's merge commit) → it's **on the phone** → the note reads "**test now — build {build}**".
 - Otherwise → "**awaiting build** — build this to your phone, then validate." The sweep **never** builds or installs.
 - The ship step does the reconcile (see that skill): after install it stamps the new cursor and flips every in-build mobile `awaiting-validation` issue's note to "test now", linking the build's numbered test list — which *is* the validation worklist.
+- **Build-number label.** Every issue in **To test** carries a **`build-N`** label naming the build that contains its fix — the build Carl needs on his phone to test it — so he can glance at the board and tell what's testable on the build he's running. The device-install step applies it: when build N is installed, for each `awaiting-validation` issue whose fix is in build N (its merge commit is an ancestor of the build's SHA), create the `build-N` label if missing, add it, and strip any stale `build-*`. An issue merged into To test before any built number contains it carries no `build-*` (its note reads "awaiting build") until the next install stamps it.
 
 **Optional (either surface):** the sweep may smoke-test on the iOS simulator first and annotate "passed on sim — needs your eyes on device for X", thinning the manual list.
 
