@@ -72,7 +72,7 @@ stateDiagram-v2
     note right of AWAITING_FIX_APPROVAL
       Bug-side twin of design approval. A bug that fails
       the auto-build checklist (broad, judgment-heavy,
-      sensitive zone, or touches the player) gets a
+      sensitive zone, or spans a coupled surface) gets a
       written diagnosis + proposed fix and waits for
       Carl's /go. Only slam-dunk contained bugs skip it
       and build straight away.
@@ -171,7 +171,7 @@ confidence", because the bot can't produce a calibrated probability:
 2. **Contained to one unit** — single file/function, no cross-module or cross-surface ripple.
 3. **Mechanical, not a judgment call** — wrong constant, missing `await`/null-check, off-by-one, typo, wrong field. Not new logic, a refactor, or a UX choice.
 4. **Outside the review-before-merge zones** — publish flow, conversion listener, SyncService pull, any `CREATE OR REPLACE FUNCTION` on a client RPC.
-5. **Doesn't touch the player** — R-10 makes a player fix a mobile *and* web change, so it isn't contained.
+5. **Single-surface** — the fix stays on one surface; a change that forces a matching change on a coupled surface isn't contained.
 
 Any failure → `AWAITING_FIX_APPROVAL` (diagnosis + proposed fix, assigned to Carl).
 

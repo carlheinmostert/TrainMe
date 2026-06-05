@@ -193,8 +193,8 @@ checks). Commit it.
 }
 ```
 
-Commit direct to the default branch (config is repo wiring, like a spec). For
-TrainMe, integration branch is `staging` per `CLAUDE.md`.
+Commit direct to the default branch (config is repo wiring, like a spec). The
+integration branch is taken from `CLAUDE.md` (e.g. `staging`).
 
 ## Step 5 — report
 

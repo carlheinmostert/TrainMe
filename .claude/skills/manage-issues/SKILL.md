@@ -148,7 +148,7 @@ A bug auto-builds **only if all five hold** (the concrete stand-in for "high con
 2. **Contained to one unit** — single file/function, no cross-surface ripple.
 3. **Mechanical, not a judgment call** — wrong constant, missing `await`/null-check, off-by-one, typo. Not new logic/refactor/UX choice.
 4. **Outside the review-before-merge zones** (`feedback_sensitive_code_review_before_merge`).
-5. **Doesn't touch the player** — R-10 makes a player fix a mobile+web change, so not contained.
+5. **Single-surface** — the fix stays on one surface; if it forces a matching change on a coupled surface (e.g. a shared module another client depends on), it isn't contained.
 
 Any failure → `status:awaiting-fix-approval` (diagnosis + proposed fix, assigned to Carl).
 
@@ -156,9 +156,9 @@ Any failure → `status:awaiting-fix-approval` (diagnosis + proposed fix, assign
 
 Only on an **understood repo**. Every mutation below is performed by a sub-agent.
 
-1. **Read conventions** (`CLAUDE.md`/`AGENTS.md`): integration branch (TrainMe = `staging`, else default), branch prefixes (`fix/`/`feat/`), test/lint, review-before-merge zones. (Read-only.)
+1. **Read conventions** (`CLAUDE.md`/`AGENTS.md`): integration branch (from `integrationBranch` in config, e.g. `staging`, else the default branch), branch prefixes (`fix/`/`feat/`), test/lint, review-before-merge zones. (Read-only.)
 2. **Delegate coding** to a worktree-isolated sub-agent (repo-relative paths only). First act: set `status:building`, remove other `status:` labels. Branch from the integration branch (`feedback_branch_sub_agent_from_staging`); code, test, commit, push; flip `status:building` → `status:awaiting-pr`; **do not open the PR yet**.
-3. **Parent verify (read-only):** real diff, conflict-marker scan (`gotcha_test_scripts_index_cascade` — must be 0), migration sanity. Worktree Dart builds emit false-positive URI/analyzer errors (no `flutter pub get`) — environment noise, not a regression. Empty/bogus → re-delegate or escalate.
+3. **Parent verify (read-only):** real diff, conflict-marker scan (must be 0), migration sanity. Worktree builds can emit false-positive module/analyzer errors when the project generator or dependency fetch hasn't run in the throwaway worktree — environment noise, not a regression. Empty/bogus → re-delegate or escalate.
 4. **Delegate closeout:** open a **ready (non-draft) PR — never `--draft`** (the design/fix was already approved at the `/go` gate, so the PR enters `awaiting-merge` ready to merge) targeting the **integration branch from config (`integrationBranch`), never the default branch**, with **`Refs #N`** (not `Fixes #N` — merge must not auto-close; validation closes). Add `ios-impact` if it touched Dart/Swift/`pubspec`. Flag any review-before-merge zone in the PR body. Then assign **Carl**, set `status:awaiting-merge`, remove `status:awaiting-pr`, post the **single** consolidated comment with the PR link. Never merge.
 5. **Parent verify (read-only):** PR open against the integration branch, labels right, issue `status:awaiting-merge` + assigned to Carl, comment carries the marker.
 
@@ -170,16 +170,18 @@ Build can't complete → remove `status:building`, `help wanted`, assign Carl, c
 
 A merged PR does **not** close its issue (it used `Refs #N`). On detecting the merge, the sweep moves the issue to `status:awaiting-validation` (Needs you) and posts a **test note** scoped to the surface. **Only Carl's validation closes it:** `Go`/`/go`/`/close` at this state → close (Done); a prose failure → re-open as a fresh defect (new fix/PR — a merged PR can't be reopened).
 
+**The test note is a numbered test list, posted as a comment on the issue itself** (carrying the `<!-- managed-issue-bot -->` marker) — one per issue, not a consolidated list in the conversation. Write it as **numbered steps Carl walks through to validate that issue's change**, scoped to *what actually changed* in that PR (not generic regression). Keep it simple: each step is one concrete check with a clear pass/fail. End with how to record the result (`/go` or `/close` to pass, reply with details to fail). Prepend the build/surface preamble (below) as step 1 when relevant (e.g. "Build the app to your phone — you're on build {cursor}, this is newer"). A test-only or no-visible-surface change still gets a short list that says so and ends in `/close`.
+
 **Which surface** (from the PR's labels/files):
 - **`ios-impact`** (Dart/Swift/`pubspec`) → **mobile** → the phone-cursor path.
-- otherwise → **web** (portal/player) → the Vercel-deploy path.
+- otherwise → **web** → the Vercel-deploy path.
 - both → post both notes; fully validated only when both are confirmed.
 
 **Web validation (automatic):** the sweep confirms the merge commit's Vercel deployment succeeded (`gh api repos/$REPO/deployments?sha=<mergeSha>` → its `statuses_url` shows `success` + the target URL; or the commit's check/status for the Vercel deploy) and writes the **live staging URL** + what to check into the test note. Carl tests in a browser; pass → `/go`/`/close`.
 
-**Mobile validation (build cursor):** the sweep reads the phone cursor at `phoneCursorPath` (default `docs/phone-build.json`): `{ "sha", "build", "branch", "installedAt" }` — the SHA + build number of the last build Carl installed, stamped by `homefit-ship-to-phone`.
+**Mobile validation (build cursor):** the sweep reads the phone cursor at `phoneCursorPath` (default `docs/phone-build.json`): `{ "sha", "build", "branch", "installedAt" }` — the SHA + build number of the last build Carl installed, stamped by the device-install step.
 - If the merged fix's commit is **an ancestor of the cursor SHA** (`git merge-base --is-ancestor <fixSha> <cursorSha>`; `fixSha` = the PR's merge commit) → it's **on the phone** → the note reads "**test now — build {build}**".
-- Otherwise → "**awaiting build** — run `homefit-ship-to-phone` to put this on your phone, then validate." The sweep **never** builds or installs.
+- Otherwise → "**awaiting build** — build this to your phone, then validate." The sweep **never** builds or installs.
 - The ship step does the reconcile (see that skill): after install it stamps the new cursor and flips every in-build mobile `awaiting-validation` issue's note to "test now", linking the build's numbered test list — which *is* the validation worklist.
 
 **Optional (either surface):** the sweep may smoke-test on the iOS simulator first and annotate "passed on sim — needs your eyes on device for X", thinning the manual list.
@@ -242,7 +244,7 @@ Triage/grill/spec/fix-proposals are uncapped; only autonomous code is throttled,
 
 ## End-of-run report
 
-Plain-English (`feedback_explanation_level`): a table (issue · action · new state/column); PRs opened (awaiting merge); issues now in Needs you wanting your `Go`/test; anything escalated (`help wanted`); queue depth vs ceiling; anything that failed and why.
+Plain-English (`feedback_explanation_level`): a table (issue · action · new state/column); PRs opened (awaiting merge); issues now in Needs you wanting your `Go`/test; anything escalated (`help wanted`); queue depth vs ceiling; anything that failed and why. For issues that entered **To test** this run, name them and link their per-issue numbered test-list comments (see [Validation](#validation)) — the lists live on the issues, not inlined here.
 
 ## Common mistakes
 
@@ -263,5 +265,5 @@ Plain-English (`feedback_explanation_level`): a table (issue · action · new st
 
 - `feedback_delegate_coding` · `feedback_agent_worktree_isolation` · `feedback_branch_sub_agent_from_staging` · `feedback_branch_naming_discipline`
 - `feedback_ask_before_mobile_deployment` · `feedback_no_silent_fallbacks` · `feedback_explanation_level`
-- `feedback_sensitive_code_review_before_merge` · `gotcha_test_scripts_index_cascade`
+- `feedback_sensitive_code_review_before_merge`
 - `gotcha_gh_pr_merge_silent_success` (verify PR/issue/board state after each mutating call)

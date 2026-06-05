@@ -145,7 +145,7 @@ AWAITING_VALIDATION instead.
 - **Mobile changes:** "deployed" can't be detected — it needs a build on your
   phone. So the **build number is a manual cursor**:
   - Merged mobile fixes sit tagged **"awaiting build."**
-  - When *you* run the ship step (`homefit-ship-to-phone`, at your Mac — the sweep
+  - When *you* run the ship step (the device-install step, at your Mac — the sweep
     never installs), it builds, installs, and **stamps the cursor** (SHA + build N)
     into the config.
   - The bot then flips every merged mobile fix now contained in that build to
@@ -169,7 +169,7 @@ cascade`) merges the **whole To-merge lane** — every `awaiting-merge` PR that'
 reaching `awaiting-merge` *is* the queue (you approved the work that built it, or
 it cleared the auto-build checklist). **Exclude** a PR by dragging its card to
 **Hold** (red/conflicting PRs skip automatically). Never `main`, never force. Prod
-promotion stays its own separate gated thing (`homefit-promote-staging-to-main`).
+promotion stays its own separate gated thing (a separate promote-to-main step).
 Merge mode is off in every run by default, including the Routine. A merged PR
 still lands in AWAITING_VALIDATION.
 
@@ -258,14 +258,14 @@ the first time.)
 Four staged commits to main, each independently sanity-checkable:
 
 1. **`init` + config file** — the foundation everything else reads (labels, board,
-   memory rule, `.github/managed-issues.json`). Verifiable: run it on TrainMe,
+   memory rule, `.github/managed-issues.json`). Verifiable: run it on a real repo,
    confirm the board + labels + config appear.
 2. **State-machine rewrite** in `manage-issues` — new states (AWAITING_VALIDATION),
    board sync, merge mode, depends-on-init, `Refs #N`. Verifiable: a dry sweep on
-   TrainMe.
+   a real repo.
 3. **Intake skill + memory rule** — the capturer + the CLAUDE.md trigger.
    Verifiable: trigger a capture in a session, see the issue land in TRIAGE.
-4. **Validation wiring** — phone cursor + `homefit-ship-to-phone` reconcile + web
+4. **Validation wiring** — phone cursor + ship-to-phone reconcile + web
    Vercel-deploy detection. Verifiable: merge something, watch it reach your test
    inbox correctly per surface.
 
