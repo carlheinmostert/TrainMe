@@ -192,11 +192,13 @@ When Carl is **actively testing** and asks for a **"hotfix"**, **"quick fix"**, 
 
 **Interactive only.** This mode exists only when Carl is in the loop, watching. The **unattended sweep NEVER hotfixes** — with no human watching it always takes the full process. ("Triage" from the sweep still means classify; "triage X" from Carl mid-feedback means hotfix it.)
 
-The loop (parent orchestrates, a sub-agent does the code/branch/build, per `feedback_delegate_coding`):
-1. **Diagnose + fix** directly on a short-lived **hotfix branch off the integration branch** (`fix/hotfix-...`). No proposal, no approval gate.
+**Collect first — don't code per item.** While testing, Carl typically fires off *several* pieces of feedback in a row. Do **NOT** start coding on each one as it lands. Capture each into a running hotfix list and briefly acknowledge it's parked (e.g. "got it — parked: <item>") so he knows it registered and can amend or drop it. Keep accumulating, taking **no code action**, until **Carl gives the go signal** ("fix them" / "go" / "do them now" / "that's all" / similar). Only then start the fix pass — and implement the **whole accumulated batch together**, not item-by-item. Restate the list when you begin so he can confirm scope.
+
+The fix pass (parent orchestrates, a sub-agent does the code/branch/build, per `feedback_delegate_coding`):
+1. **Implement the whole accumulated batch** directly on a short-lived **hotfix branch off the integration branch** (`fix/hotfix-...`). No proposal, no approval gate.
 2. **Build + bench-verify, then stop at "ready."** Build and simulator/bench-verify the fix, then tell Carl it's **built and ready to deploy** — do **not** auto-install. Device install still needs his explicit go (`feedback_ask_before_mobile_deployment` holds in hotfix mode too).
 3. **He deploys + tests on device.** On his go, install to his phone; he tests.
-4. **Iterate on the same branch.** Not right? Another quick fix on the *same* hotfix branch → rebuild → (deploy on his go) → retest. No new PR/issue per loop.
+4. **Iterate in batches.** More feedback after testing? Collect the next round the same way (no code until he says go), then fix that batch on the *same* hotfix branch → rebuild → (deploy on his go) → retest. No new PR/issue per loop.
 5. **Land on pass.** Once Carl confirms it works on device, **merge the hotfix branch into the integration branch and close the issue** — his device test *was* the validation, so there's no separate validation gate. A short note on the issue is enough; skip the formal proposal/validation-comment ceremony.
 
 **Sensitive zones stay gated.** A hotfix touching crypto, biometrics, or the capture/obscure pipeline is still fast-built for Carl to test, but its merge is **flagged review-before-merge** — built + tested in the loop, but it waits for Carl's merge rather than auto-landing on his device pass. Everything else (UI, contained logic) merges on the device pass.
