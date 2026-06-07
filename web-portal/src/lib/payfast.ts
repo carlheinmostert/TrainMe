@@ -150,7 +150,12 @@ export function isSandboxEnabled(): boolean {
   return flag !== 'false' && flag !== '0' && flag !== 'no';
 }
 
-/** Merchant config — falls back to PayFast's public sandbox creds. */
+/**
+ * Merchant config. In production, both PAYFAST_MERCHANT_ID and
+ * PAYFAST_MERCHANT_KEY must be set — omitting them is a misconfiguration that
+ * would route real payments to no-one. In sandbox mode the public PayFast test
+ * credentials are used as a fallback so local dev works without any env vars.
+ */
 export function getMerchantConfig(): {
   merchantId: string;
   merchantKey: string;
@@ -158,13 +163,33 @@ export function getMerchantConfig(): {
   sandbox: boolean;
 } {
   const sandbox = isSandboxEnabled();
+  if (!sandbox) {
+    const merchantId = process.env.PAYFAST_MERCHANT_ID;
+    const merchantKey = process.env.PAYFAST_MERCHANT_KEY;
+    if (!merchantId || merchantId.trim() === '') {
+      throw new Error(
+        'PAYFAST_MERCHANT_ID is not set and PAYFAST_SANDBOX is disabled. ' +
+          'Configure it in the Vercel project environment variables (production env).',
+      );
+    }
+    if (!merchantKey || merchantKey.trim() === '') {
+      throw new Error(
+        'PAYFAST_MERCHANT_KEY is not set and PAYFAST_SANDBOX is disabled. ' +
+          'Configure it in the Vercel project environment variables (production env).',
+      );
+    }
+    return {
+      merchantId,
+      merchantKey,
+      passphrase: process.env.PAYFAST_PASSPHRASE ?? '',
+      sandbox: false,
+    };
+  }
   return {
-    merchantId:
-      process.env.PAYFAST_MERCHANT_ID ?? (sandbox ? '10000100' : ''),
-    merchantKey:
-      process.env.PAYFAST_MERCHANT_KEY ?? (sandbox ? '46f0cd694581a' : ''),
+    merchantId: process.env.PAYFAST_MERCHANT_ID ?? '10000100',
+    merchantKey: process.env.PAYFAST_MERCHANT_KEY ?? '46f0cd694581a',
     passphrase: process.env.PAYFAST_PASSPHRASE ?? '',
-    sandbox,
+    sandbox: true,
   };
 }
 
