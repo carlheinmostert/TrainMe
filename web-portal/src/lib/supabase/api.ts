@@ -1606,7 +1606,7 @@ export class PortalReferralApi {
       p_code: code,
     });
     if (error || !data) {
-      return { inviter_display_name: null, code_valid: true };
+      return { inviter_display_name: null, code_valid: false };
     }
     const row = Array.isArray(data) ? data[0] : data;
     return {
