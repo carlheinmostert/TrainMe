@@ -241,7 +241,11 @@ async function networkFirstStrategy(request) {
     // Network failed, try cache (only media would be there now)
     const cached = await cache.match(request);
     if (cached) return cached;
-    throw err;
+    // Return a synthetic 503 rather than re-throwing. Re-throwing from
+    // respondWith() can terminate the service worker in Chrome, which
+    // would break all subsequent cached-asset delivery for the session.
+    // The app's "No internet connection" screen handles non-OK responses.
+    return new Response(null, { status: 503, statusText: 'Service Unavailable' });
   }
 }
 
@@ -268,7 +272,7 @@ async function networkFirstAppShellStrategy(request) {
       const fallback = await cache.match('/index.html');
       if (fallback) return fallback;
     }
-    throw err;
+    return new Response(null, { status: 503, statusText: 'Service Unavailable' });
   }
 }
 
@@ -300,7 +304,7 @@ async function networkRevalidateStrategy(request) {
   } catch (err) {
     const cached = await cache.match(request);
     if (cached) return cached;
-    throw err;
+    return new Response(null, { status: 503, statusText: 'Service Unavailable' });
   }
 }
 
@@ -335,7 +339,7 @@ async function cacheFirstStrategy(request) {
       const fallback = await caches.match('/index.html');
       if (fallback) return fallback;
     }
-    throw err;
+    return new Response(null, { status: 503, statusText: 'Service Unavailable' });
   }
 }
 
