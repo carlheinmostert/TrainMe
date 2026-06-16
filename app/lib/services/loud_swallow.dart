@@ -83,34 +83,11 @@ Future<T?> loudSwallow<T>(
   try {
     return await body();
   } catch (e, st) {
-    // Fire-and-forget the server-side log. NEVER await it — the caller
-    // must see its result (or rethrow) on the original timeline.
-    unawaited(_postErrorLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
-    ));
-    // Always leave a local breadcrumb. Release-build safe (unlike debugPrint).
-    unawaited(_appendLocalLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      stackTop: _stackTop(st),
-      meta: meta,
-    ));
-    // In debug mode also shout to console so the author sees it during
-    // development without having to tail a file.
-    if (kDebugMode) {
-      // ignore: avoid_print
-      debugPrint('[loudSwallow $severity/$kind @ $source] $e');
-    }
+    _recordException(
+      e: e, st: st, severity: severity, kind: kind,
+      source: source, message: message, meta: meta,
+      label: 'loudSwallow',
+    );
     if (!swallow) rethrow;
     return null;
   }
@@ -131,29 +108,55 @@ void loudSwallowSync(
   try {
     body();
   } catch (e, st) {
-    unawaited(_postErrorLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
-    ));
-    unawaited(_appendLocalLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      stackTop: _stackTop(st),
-      meta: meta,
-    ));
-    if (kDebugMode) {
-      debugPrint('[loudSwallowSync $severity/$kind @ $source] $e');
-    }
+    _recordException(
+      e: e, st: st, severity: severity, kind: kind,
+      source: source, message: message, meta: meta,
+      label: 'loudSwallowSync',
+    );
     if (!swallow) rethrow;
+  }
+}
+
+/// Shared exception-recording logic for both [loudSwallow] and
+/// [loudSwallowSync]. Posts to the server-side `log_error` RPC and to the
+/// local diagnostics.log breadcrumb, then emits a debug-only console line.
+void _recordException({
+  required Object e,
+  required StackTrace st,
+  required String severity,
+  required String kind,
+  required String source,
+  String? message,
+  Map<String, Object?>? meta,
+  required String label,
+}) {
+  // Fire-and-forget the server-side log. NEVER await it — the caller
+  // must see its result (or rethrow) on the original timeline.
+  unawaited(_postErrorLog(
+    severity: severity,
+    kind: kind,
+    source: source,
+    message: message ?? e.toString(),
+    meta: {
+      ...?meta,
+      'stack_top': _stackTop(st),
+      'error_type': e.runtimeType.toString(),
+    },
+  ));
+  // Always leave a local breadcrumb. Release-build safe (unlike debugPrint).
+  unawaited(_appendLocalLog(
+    severity: severity,
+    kind: kind,
+    source: source,
+    message: message ?? e.toString(),
+    stackTop: _stackTop(st),
+    meta: meta,
+  ));
+  // In debug mode also shout to console so the author sees it during
+  // development without having to tail a file.
+  if (kDebugMode) {
+    // ignore: avoid_print
+    debugPrint('[$label $severity/$kind @ $source] $e');
   }
 }
 
