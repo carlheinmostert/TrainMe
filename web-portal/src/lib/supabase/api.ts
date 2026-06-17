@@ -82,21 +82,6 @@ export type MemberRow = {
 };
 
 /**
- * Row shape returned by `list_practice_members_with_profile` (Wave 5 RPC,
- * SECURITY DEFINER). Same columns as MemberRow plus identity fields
- * resolved via auth.users. Used by the audit filter dropdown + members
- * admin surfaces.
- */
-export type MemberProfileRow = {
-  trainerId: string;
-  email: string;
-  fullName: string;
-  role: 'owner' | 'practitioner';
-  joinedAt: string;
-  isCurrentUser: boolean;
-};
-
-/**
  * A published session visible to the caller. See `list_practice_sessions`
  * RPC (`supabase/schema_milestone_h_list_practice_sessions.sql`). The
  * trainer fields are populated from the most recent `plan_issuances` row
@@ -267,21 +252,14 @@ export class PortalApi {
    */
   async listPracticeMembersWithProfile(
     practiceId: string,
-  ): Promise<MemberProfileRow[]> {
+  ): Promise<MemberProfile[]> {
     const { data, error } = await this.supabase.rpc(
       'list_practice_members_with_profile',
       { p_practice_id: practiceId },
     );
     if (error || !data) return [];
     const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
-    return rows.map((r) => ({
-      trainerId: String(r.trainer_id ?? ''),
-      email: String(r.email ?? ''),
-      fullName: String(r.full_name ?? ''),
-      role: (r.role === 'owner' ? 'owner' : 'practitioner'),
-      joinedAt: String(r.joined_at ?? ''),
-      isCurrentUser: Boolean(r.is_current_user),
-    }));
+    return rows.map(mapMemberProfileRow);
   }
 
   /**
@@ -1023,7 +1001,7 @@ export function createPortalMembersApi(
  * [PortalMembersApi.listMembersAndPending] so the field coercions
  * (empty-string fallbacks, role narrowing) live in one place.
  */
-function mapMemberProfileRow(r: Record<string, unknown>): MemberProfile {
+export function mapMemberProfileRow(r: Record<string, unknown>): MemberProfile {
   return {
     trainerId: String(r.trainer_id ?? ''),
     email: String(r.email ?? ''),
@@ -1450,7 +1428,7 @@ function mapAuditRow(r: Record<string, unknown>): AuditRow {
 /** Numeric columns come back as strings (Postgres numeric type) in the JSON
  *  payload. Coerce to number, but preserve null vs 0 — many audit rows
  *  legitimately have null credit deltas (e.g. plan.publish). */
-function coerceNumberOrNull(v: unknown): number | null {
+export function coerceNumberOrNull(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v === 'string') {
@@ -1654,7 +1632,7 @@ function isMissingRpc(err: { code?: string; message?: string }): boolean {
  * layer enforces that it can't be false). Unknown jsonb shapes fall back
  * to the conservative default (line drawing only).
  */
-function normaliseConsent(raw: unknown): ClientVideoConsent {
+export function normaliseConsent(raw: unknown): ClientVideoConsent {
   if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
     return {
@@ -1674,7 +1652,7 @@ function normaliseConsent(raw: unknown): ClientVideoConsent {
  * `list_sessions_for_client` — the two RPCs return the same columns so
  * there's no need to duplicate the string-coercion ritual.
  */
-function mapPracticeSessionRow(r: Record<string, unknown>): PracticeSession {
+export function mapPracticeSessionRow(r: Record<string, unknown>): PracticeSession {
   return {
     id: String(r.id ?? ''),
     title: String(r.title ?? ''),
