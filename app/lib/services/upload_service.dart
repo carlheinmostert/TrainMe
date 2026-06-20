@@ -1187,14 +1187,14 @@ class UploadService {
         // count that on top.
         filesTotal = nonRestExercises.length;
         for (final ex in nonRestExercises) {
-          if (ex.mediaType.name == 'photo') filesTotal += 1;
+          if (ex.mediaType == MediaType.photo) filesTotal += 1;
         }
       } else {
         for (final ex in nonRestExercises) {
           filesTotal += 1; // main media
           if (ex.absoluteThumbnailPath != null) {
             filesTotal += 2; // _thumb + _thumb_line
-            if (ex.mediaType.name == 'photo') filesTotal += 1; // _thumb_bw
+            if (ex.mediaType == MediaType.photo) filesTotal += 1; // _thumb_bw
           }
         }
       }
@@ -1209,7 +1209,7 @@ class UploadService {
             ex.segmentedRawFilePath!.isNotEmpty) {
           filesTotal += 1;
         }
-        if (ex.mediaType.name == 'photo' && ex.rawFilePath.isNotEmpty) {
+        if (ex.mediaType == MediaType.photo && ex.rawFilePath.isNotEmpty) {
           filesTotal += 1;
         }
         if (ex.absoluteThumbnailPath != null) {
@@ -1327,7 +1327,7 @@ class UploadService {
                 ));
               },
             );
-            if (exercise.mediaType.name == 'photo') {
+            if (exercise.mediaType == MediaType.photo) {
               await _uploadThumbVariantToMedia(
                 exercise: exercise,
                 variant: 'bw',
@@ -1483,7 +1483,7 @@ class UploadService {
                   ));
                 },
               );
-              if (exercise.mediaType.name == 'photo') {
+              if (exercise.mediaType == MediaType.photo) {
                 await _uploadThumbVariantToMedia(
                   exercise: exercise,
                   variant: 'bw',
@@ -1563,9 +1563,6 @@ class UploadService {
           filesTotal: filesTotal,
         );
       }
-      final optionalArtifactsHadFailures =
-          optionalArtifactFailureList.isNotEmpty;
-
       // PR-C — uploads complete; transition to the "Saving plan" row.
       emit(PublishProgress.markActive(PublishPhase.savingPlan));
 
@@ -1794,7 +1791,7 @@ class UploadService {
         version: newVersion,
         creditsCharged: creditsToCharge,
         fallbackSetExerciseIds: fallbackSetIds,
-        optionalArtifactsHadFailures: optionalArtifactsHadFailures,
+        optionalArtifactsHadFailures: false,
         optionalArtifactFailures: optionalArtifactFailureList,
         consentPreflightSkipped: consentPreflightSkipped,
       );
@@ -2379,7 +2376,7 @@ class UploadService {
     // an idempotent silent overwrite (no exception, no failure record).
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
-      if (exercise.mediaType.name != 'photo') continue;
+      if (exercise.mediaType != MediaType.photo) continue;
       final rawRel = exercise.rawFilePath;
       if (rawRel.isEmpty) continue;
       final absRaw = exercise.absoluteRawFilePath;
@@ -2396,10 +2393,9 @@ class UploadService {
       // the file content is fine, the bucket only cares about the path
       // segment for RLS, and get_plan_full's signed URL hard-codes
       // .jpg as the suffix.
-      final normalisedExt =
-          (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
-              ? '.jpg'
-              : '.jpg';
+      // get_plan_full hard-codes .jpg in signed URLs, so all photo raw
+      // archives are keyed as .jpg regardless of the source format.
+      const normalisedExt = '.jpg';
       final mime = (ext == '.png')
           ? 'image/png'
           : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
