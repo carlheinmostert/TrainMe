@@ -377,21 +377,18 @@ class AuthService {
     try {
       final bootstrapPracticeId = await _api.bootstrapPracticeForUser();
 
-      // Read the persisted value and verify it still corresponds to a
-      // current membership. Kicking this off in parallel with the
-      // bootstrap would shave a round-trip, but sequential is easier to
-      // reason about and the bootstrap itself has to finish before we
-      // could decide the fallback anyway.
-      String? persisted;
+      // Obtain SharedPreferences once and reuse the instance for both the
+      // read and the write, avoiding a redundant plugin round-trip.
+      SharedPreferences? prefs;
       try {
-        final prefs = await SharedPreferences.getInstance();
-        persisted = prefs.getString(_selectedPracticeIdPrefsKey);
+        prefs = await SharedPreferences.getInstance();
       } catch (e) {
         debugPrint(
-          'AuthService.ensurePracticeMembership: reading persisted '
-          'practice id failed, falling back to bootstrap: $e',
+          'AuthService.ensurePracticeMembership: SharedPreferences unavailable, '
+          'falling back to bootstrap: $e',
         );
       }
+      final persisted = prefs?.getString(_selectedPracticeIdPrefsKey);
 
       String? chosen = bootstrapPracticeId;
       if (persisted != null && persisted.isNotEmpty) {
@@ -415,8 +412,7 @@ class AuthService {
       // launch, even when the bootstrap RPC was the tiebreaker.
       if (chosen != null && chosen.isNotEmpty) {
         try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(_selectedPracticeIdPrefsKey, chosen);
+          await prefs?.setString(_selectedPracticeIdPrefsKey, chosen);
         } catch (e) {
           debugPrint(
             'AuthService.ensurePracticeMembership: persisting winner '
