@@ -302,7 +302,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // and can derive it deterministically: `amount_zar / credits`. Passing
   // it in avoids having to store a price table in the DB just for rebate
   // math.
-  const costPerCreditZar = Number(pending.amount_zar) / Number(pending.credits);
+  const creditCount = Number(pending.credits);
+  if (!creditCount || creditCount <= 0) {
+    console.error('payfast-webhook: pending payment has invalid credits count', pending.id, pending.credits);
+    return json({ error: 'invalid credit count on payment' }, 500);
+  }
+  const costPerCreditZar = Number(pending.amount_zar) / creditCount;
 
   const { error: rebateErr } = await admin.rpc(
     'record_purchase_with_rebates',

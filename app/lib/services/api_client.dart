@@ -343,7 +343,8 @@ class ApiClient {
           })
           .whereType<PracticeMembership>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e, st) {
+      dev.log('ApiClient.listMyPractices failed', error: e, stackTrace: st);
       return const [];
     }
   }
@@ -404,7 +405,8 @@ class ApiClient {
           })
           .whereType<PlanClientLink>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e, st) {
+      dev.log('ApiClient.listPlanClientLinks failed', error: e, stackTrace: st);
       return const [];
     }
   }
@@ -597,7 +599,8 @@ class ApiClient {
         () => raw.rpc('refund_credit', params: {'p_plan_id': planId}),
       );
       return result == true;
-    } catch (_) {
+    } catch (e, st) {
+      dev.log('ApiClient.refundCredit failed for plan $planId', error: e, stackTrace: st);
       return false;
     }
   }
@@ -680,8 +683,8 @@ class ApiClient {
         return Map<String, dynamic>.from(result);
       }
       return null;
-    } catch (e) {
-      debugPrint('ApiClient.getPlanPublishState failed for $planId: $e');
+    } catch (e, st) {
+      dev.log('ApiClient.getPlanPublishState failed for $planId', error: e, stackTrace: st);
       return null;
     }
   }

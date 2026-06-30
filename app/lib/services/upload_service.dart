@@ -1238,7 +1238,9 @@ class UploadService {
           for (final item in listing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        } catch (e, st) {
+          dev.log('uploadPlan: listMedia failed on fast-path; treating bucket as empty', error: e, stackTrace: st);
+        }
 
         // Per-exercise records of which thumb variants this fast-path
         // re-uploaded for a dirty exercise. After the media-bucket pass
@@ -1380,7 +1382,9 @@ class UploadService {
           for (final item in listing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        } catch (e, st) {
+          dev.log('uploadPlan: listMedia failed on slow-path; treating bucket as empty', error: e, stackTrace: st);
+        }
 
         for (final exercise in nonRestExercises) {
           final filePath =

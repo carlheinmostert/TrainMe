@@ -1122,7 +1122,7 @@ export class AdminApi {
       .insert(ledgerRow);
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: flipErr } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1131,6 +1131,7 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (flipErr) console.error('[PortalApi] applyPendingPayment: status flip failed', flipErr);
 
     return { applied: true };
   }
@@ -1170,7 +1171,7 @@ export class AdminApi {
     );
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: flipErr } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1179,6 +1180,7 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (flipErr) console.error('[PortalApi] applyPendingPaymentWithRebates: status flip failed', flipErr);
 
     return { applied: true };
   }
@@ -1606,7 +1608,7 @@ export class PortalReferralApi {
       p_code: code,
     });
     if (error || !data) {
-      return { inviter_display_name: null, code_valid: true };
+      return { inviter_display_name: null, code_valid: false };
     }
     const row = Array.isArray(data) ? data[0] : data;
     return {
@@ -1781,7 +1783,7 @@ export class PortalShareKitApi {
         p_practice_id: practiceId,
         p_channel: channel,
         p_event_kind: eventKind,
-        p_meta: meta ? (meta as never) : undefined,
+        p_meta: meta ?? undefined,
       });
     } catch {
       // Swallow — analytics must never break the share UX. If the RPC is

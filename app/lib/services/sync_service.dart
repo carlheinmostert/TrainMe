@@ -1200,9 +1200,9 @@ class SyncService {
   Future<bool> _applyOp(PendingOp op) async {
     switch (op.type) {
       case PendingOpType.upsertClient:
-        final clientId = op.payload['client_id'] as String?;
-        final practiceId = op.payload['practice_id'] as String?;
-        final name = op.payload['name'] as String?;
+        final clientId = op.payload['client_id']?.toString();
+        final practiceId = op.payload['practice_id']?.toString();
+        final name = op.payload['name']?.toString();
         if (clientId == null || practiceId == null || name == null) {
           return true; // drop malformed op
         }
@@ -1235,8 +1235,8 @@ class SyncService {
         return true;
 
       case PendingOpType.renameClient:
-        final clientId = op.payload['client_id'] as String?;
-        final newName = op.payload['new_name'] as String?;
+        final clientId = op.payload['client_id']?.toString();
+        final newName = op.payload['new_name']?.toString();
         if (clientId == null || newName == null) return true;
         await ApiClient.instance.renameClient(
           clientId: clientId,
@@ -1246,7 +1246,7 @@ class SyncService {
         return true;
 
       case PendingOpType.setConsent:
-        final clientId = op.payload['client_id'] as String?;
+        final clientId = op.payload['client_id']?.toString();
         final grayscale = op.payload['grayscale_allowed'] as bool?;
         final colour = op.payload['colour_allowed'] as bool?;
         // Wave 30 — optional. When the queued op pre-dates the upgrade
@@ -1284,7 +1284,7 @@ class SyncService {
         // monogram (signed URL on a missing object 404s, our UI catches
         // and falls through). Acceptable trade for keeping the local
         // path source-of-truth alive.
-        final clientId = op.payload['client_id'] as String?;
+        final clientId = op.payload['client_id']?.toString();
         if (clientId == null) return true;
         final pathRaw = op.payload['avatar_path'];
         final avatarPath = pathRaw is String && pathRaw.isNotEmpty
@@ -1298,7 +1298,7 @@ class SyncService {
         return true;
 
       case PendingOpType.deleteClient:
-        final clientId = op.payload['client_id'] as String?;
+        final clientId = op.payload['client_id']?.toString();
         if (clientId == null) return true;
         await ApiClient.instance.deleteClient(clientId: clientId);
         // Mark the cached row clean; it stays with `deleted=1` so reads
@@ -1308,15 +1308,15 @@ class SyncService {
         return true;
 
       case PendingOpType.restoreClient:
-        final clientId = op.payload['client_id'] as String?;
+        final clientId = op.payload['client_id']?.toString();
         if (clientId == null) return true;
         await ApiClient.instance.restoreClient(clientId: clientId);
         await _markCachedClientClean(clientId);
         return true;
 
       case PendingOpType.setExerciseDefault:
-        final clientId = op.payload['client_id'] as String?;
-        final field = op.payload['field'] as String?;
+        final clientId = op.payload['client_id']?.toString();
+        final field = op.payload['field']?.toString();
         // `value` is intentionally dynamic — the RPC's p_value JSONB
         // accepts bool / num / String / null transparently (the
         // supabase-flutter client JSON-encodes whatever we pass).
@@ -1331,8 +1331,8 @@ class SyncService {
         return true;
 
       case PendingOpType.renameSession:
-        final planId = op.payload['plan_id'] as String?;
-        final newTitle = op.payload['new_title'] as String?;
+        final planId = op.payload['plan_id']?.toString();
+        final newTitle = op.payload['new_title']?.toString();
         if (planId == null || newTitle == null) return true;
         await ApiClient.instance.renameSession(
           planId: planId,

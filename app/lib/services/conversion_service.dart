@@ -1591,7 +1591,7 @@ class ConversionService extends ChangeNotifier {
           'inputPath': rawPath,
           'outputPath': archivePath,
         },
-      );
+      ).timeout(const Duration(minutes: 5));
 
       if (result == null || result['success'] != true) {
         debugPrint('Archive compression returned unexpected result for ${done.id}: $result');

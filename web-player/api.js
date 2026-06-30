@@ -398,7 +398,7 @@
       );
     } catch (err) {
       // Engagement signal is non-critical — log + continue.
-      try { console.warn('[homefit] record_plan_opened failed:', err); } catch (_) {}
+      console.warn('[homefit] record_plan_opened failed:', err);
     }
   }
 
@@ -442,7 +442,7 @@
       // The RPC returns the UUID directly (scalar) or null.
       return result || null;
     } catch (err) {
-      try { console.warn('[homefit] start_analytics_session failed:', err); } catch (_) {}
+      console.warn('[homefit] start_analytics_session failed:', err);
       return null;
     }
   }
@@ -477,7 +477,7 @@
         },
       );
     } catch (err) {
-      try { console.warn('[homefit] log_analytics_event failed:', err); } catch (_) {}
+      console.warn('[homefit] log_analytics_event failed:', err);
     }
   }
 
@@ -505,7 +505,7 @@
         },
       );
     } catch (err) {
-      try { console.warn('[homefit] set_analytics_consent failed:', err); } catch (_) {}
+      console.warn('[homefit] set_analytics_consent failed:', err);
     }
   }
 
@@ -534,7 +534,7 @@
         },
       );
     } catch (err) {
-      try { console.warn('[homefit] revoke_analytics_consent failed:', err); } catch (_) {}
+      console.warn('[homefit] revoke_analytics_consent failed:', err);
     }
   }
 
@@ -587,8 +587,8 @@
       }
       return { ok: true };
     } catch (err) {
-      try { console.warn('[homefit] client_self_grant_consent failed:', err); } catch (_) {}
-      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
+      console.warn('[homefit] client_self_grant_consent failed:', err);
+      return { ok: false, reason: 'network', detail: String(err?.message ?? err) };
     }
   }
 
@@ -622,7 +622,7 @@
       if (rows && !Array.isArray(rows)) return rows;
       return null;
     } catch (err) {
-      try { console.warn('[homefit] get_plan_sharing_context failed:', err); } catch (_) {}
+      console.warn('[homefit] get_plan_sharing_context failed:', err);
       return null;
     }
   }
@@ -638,7 +638,5 @@
     clientSelfGrantConsent,
     isLocalSurface,
     getLocalPlanId,
-    SUPABASE_URL,
-    SUPABASE_ANON_KEY,
   });
 })();
