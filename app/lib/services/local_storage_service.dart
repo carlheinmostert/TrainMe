@@ -48,6 +48,14 @@ class LocalStorageService {
     );
   }
 
+  /// Exposes the current SQLite schema version for test assertions.
+  ///
+  /// Use this instead of hardcoding the version number in tests so that
+  /// assertions stay in sync with production automatically when `_dbVersion`
+  /// increments.
+  @visibleForTesting
+  static int get testCurrentVersion => _dbVersion;
+
   /// Test-only factory — opens the DB at a caller-supplied path with the
   /// same onCreate hook as production. Used by the regression suite
   /// under `app/test/` to spin up an in-memory SQLite instance (via
