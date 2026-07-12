@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart';
 
 import '../models/cached_client.dart';
@@ -5,6 +7,7 @@ import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
 import '../models/treatment.dart';
 import 'client_defaults_api.dart';
+import 'loud_swallow.dart';
 import 'sync_service.dart';
 
 /// Sticky per-client exercise defaults.
@@ -244,17 +247,17 @@ class StickyDefaults {
     } else {
       overlay[field] = value;
     }
-    SyncService.instance
-        .queueSetExerciseDefault(
-      clientId: clientId,
-      field: field,
-      value: value,
-    )
-        .then((_) {
-      // Success path is quiet.
-    }, onError: (e) {
-      debugPrint('StickyDefaults.recordOverride($field) failed: $e');
-    });
+    unawaited(loudSwallow(
+      () => SyncService.instance.queueSetExerciseDefault(
+        clientId: clientId,
+        field: field,
+        value: value,
+      ),
+      kind: 'queue_set_exercise_default_failed',
+      source: 'StickyDefaults.recordOverride',
+      meta: {'field': field},
+      swallow: true,
+    ));
   }
 
   /// Compare any two exercise snapshots and queue every sticky-field

@@ -1233,12 +1233,17 @@ class UploadService {
         // populated on the next publish — independent of whether the main
         // mp4 / _thumb.jpg already exist.
         final existingFiles = <String>{};
-        try {
-          final listing = await _api.listMedia(prefix: session.id);
-          for (final item in listing) {
+        final thumbListing = await loudSwallow(
+          () => _api.listMedia(prefix: session.id),
+          kind: 'list_media_failed',
+          source: 'UploadService._uploadThumbnails',
+          swallow: true,
+        );
+        if (thumbListing != null) {
+          for (final item in thumbListing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        }
 
         // Per-exercise records of which thumb variants this fast-path
         // re-uploaded for a dirty exercise. After the media-bucket pass
@@ -1375,12 +1380,17 @@ class UploadService {
       } else {
         // Some exercises are new — list + upload as needed.
         final existingFiles = <String>{};
-        try {
-          final listing = await _api.listMedia(prefix: session.id);
-          for (final item in listing) {
+        final mediaListing = await loudSwallow(
+          () => _api.listMedia(prefix: session.id),
+          kind: 'list_media_failed',
+          source: 'UploadService._uploadMedia',
+          swallow: true,
+        );
+        if (mediaListing != null) {
+          for (final item in mediaListing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        }
 
         for (final exercise in nonRestExercises) {
           final filePath =
@@ -2136,14 +2146,17 @@ class UploadService {
 
     // Some exercises need uploading. List existing files once.
     final existingRaw = <String>{};
-    try {
-      final listing = await _api.listRawArchive(
-        prefix: '$practiceId/${session.id}',
-      );
-      for (final item in listing) {
+    final rawListing = await loudSwallow(
+      () => _api.listRawArchive(prefix: '$practiceId/${session.id}'),
+      kind: 'list_raw_archive_failed',
+      source: 'UploadService._uploadRawArchives',
+      swallow: true,
+    );
+    if (rawListing != null) {
+      for (final item in rawListing) {
         existingRaw.add('$practiceId/${session.id}/${item.name}');
       }
-    } catch (_) {}
+    }
 
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;

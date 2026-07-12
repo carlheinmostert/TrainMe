@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supa show Session;
 
 import '../config.dart';
 import 'api_client.dart';
+import 'loud_swallow.dart';
 
 /// Thin wrapper around [supabase.auth] that centralises sign-in, sign-out,
 /// and the practice-membership bootstrap logic.
@@ -266,25 +269,29 @@ class AuthService {
   /// selection (which would silently point them at a practice they
   /// aren't a member of until bootstrap runs).
   Future<void> signOut() async {
-    try {
-      await _googleSignIn.signOut();
-    } catch (e) {
-      // If the user never signed in with Google this session, signOut
-      // can throw. Harmless — ignore.
-      debugPrint('AuthService.signOut: GoogleSignIn.signOut swallowed: $e');
-    }
+    // If the user never signed in with Google this session, signOut
+    // can throw. Harmless — ignore.
+    await loudSwallow(
+      () => _googleSignIn.signOut(),
+      kind: 'google_sign_out_failed',
+      source: 'AuthService.signOut',
+      swallow: true,
+    );
     await _api.signOut();
     currentPracticeId.value = null;
     bootstrapError.value = null;
     // Explicit user-initiated sign-out — clear any stale session-expired
     // banner so it doesn't persist into the sign-in screen.
     _api.sessionExpired.value = false;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_selectedPracticeIdPrefsKey);
-    } catch (e) {
-      debugPrint('AuthService.signOut: clearing selected practice failed: $e');
-    }
+    await loudSwallow(
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_selectedPracticeIdPrefsKey);
+      },
+      kind: 'prefs_clear_failed',
+      source: 'AuthService.signOut',
+      swallow: true,
+    );
   }
 
   /// Notifier for the last bootstrap-membership error, or null on success.
@@ -337,12 +344,15 @@ class AuthService {
     if (currentPracticeId.value != practiceId) {
       currentPracticeId.value = practiceId;
     }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_selectedPracticeIdPrefsKey, practiceId);
-    } catch (e) {
-      debugPrint('AuthService.selectPractice: persist failed: $e');
-    }
+    await loudSwallow(
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_selectedPracticeIdPrefsKey, practiceId);
+      },
+      kind: 'prefs_persist_failed',
+      source: 'AuthService.selectPractice',
+      swallow: true,
+    );
   }
 
   /// Ensure the signed-in user is a member of at least one practice.
@@ -377,21 +387,14 @@ class AuthService {
     try {
       final bootstrapPracticeId = await _api.bootstrapPracticeForUser();
 
-      // Read the persisted value and verify it still corresponds to a
-      // current membership. Kicking this off in parallel with the
-      // bootstrap would shave a round-trip, but sequential is easier to
-      // reason about and the bootstrap itself has to finish before we
-      // could decide the fallback anyway.
-      String? persisted;
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        persisted = prefs.getString(_selectedPracticeIdPrefsKey);
-      } catch (e) {
-        debugPrint(
-          'AuthService.ensurePracticeMembership: reading persisted '
-          'practice id failed, falling back to bootstrap: $e',
-        );
-      }
+      // Fetch SharedPreferences once for both the read and the write below.
+      final prefs = await loudSwallow(
+        SharedPreferences.getInstance,
+        kind: 'prefs_get_instance_failed',
+        source: 'AuthService.ensurePracticeMembership',
+        swallow: true,
+      );
+      final persisted = prefs?.getString(_selectedPracticeIdPrefsKey);
 
       String? chosen = bootstrapPracticeId;
       if (persisted != null && persisted.isNotEmpty) {
@@ -413,16 +416,14 @@ class AuthService {
 
       // Persist the winner so every surface reads the same id next
       // launch, even when the bootstrap RPC was the tiebreaker.
-      if (chosen != null && chosen.isNotEmpty) {
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(_selectedPracticeIdPrefsKey, chosen);
-        } catch (e) {
-          debugPrint(
-            'AuthService.ensurePracticeMembership: persisting winner '
-            'failed: $e',
-          );
-        }
+      if (chosen != null && chosen.isNotEmpty && prefs != null) {
+        final chosenId = chosen;
+        await loudSwallow(
+          () => prefs.setString(_selectedPracticeIdPrefsKey, chosenId),
+          kind: 'prefs_persist_failed',
+          source: 'AuthService.ensurePracticeMembership',
+          swallow: true,
+        );
       }
 
       debugPrint(
@@ -434,8 +435,13 @@ class AuthService {
       // but now the UI has a signal via [bootstrapError] and can offer a
       // manual Retry. See home_screen._BootstrapErrorBanner.
       bootstrapError.value = e.toString();
-      debugPrint('AuthService.ensurePracticeMembership failed: $e');
-      debugPrint('$stack');
+      unawaited(loudSwallow(
+        () => Future.error(e, stack),
+        kind: 'practice_membership_bootstrap_failed',
+        source: 'AuthService.ensurePracticeMembership',
+        severity: 'error',
+        swallow: true,
+      ));
     }
   }
 }

@@ -1,7 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'api_client.dart';
+import 'loud_swallow.dart';
 
 /// Thin RPC wrapper for the sticky per-client exercise defaults
 /// (Milestone R / Wave 8).
@@ -117,17 +117,21 @@ class ClientDefaultsApi {
     required String field,
     required Object? value,
   }) async {
-    try {
-      await setClientExerciseDefault(
-        clientId: clientId,
-        field: field,
-        value: value,
-      );
-      return true;
-    } catch (e) {
-      debugPrint('ClientDefaultsApi.setClientExerciseDefault failed: $e');
-      return false;
-    }
+    final result = await loudSwallow(
+      () async {
+        await setClientExerciseDefault(
+          clientId: clientId,
+          field: field,
+          value: value,
+        );
+        return true;
+      },
+      kind: 'set_client_exercise_default_failed',
+      source: 'ClientDefaultsApi.trySetClientExerciseDefault',
+      meta: {'field': field, 'client_id': clientId},
+      swallow: true,
+    );
+    return result ?? false;
   }
 
   /// Fetch the raw `list_practice_clients` payload including the new
