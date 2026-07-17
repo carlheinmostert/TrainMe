@@ -229,7 +229,7 @@ class SyncService {
           'boot — ${ops.length} pending ops in queue',
           name: 'SyncService',
         );
-        for (final op in ops.take(30)) {
+        for (final op in ops.take(_maxAttempts)) {
           dev.log(
             '  ${op.type.name} id=${op.id} attempts=${op.attempts} '
             'last_error=${op.lastError ?? "(none)"}',

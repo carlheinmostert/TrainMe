@@ -290,8 +290,10 @@ class ConversionService extends ChangeNotifier {
 
   /// Access the singleton instance. Must call [initialize] first.
   static ConversionService get instance {
-    assert(_instance != null,
-        'ConversionService.initialize() must be called before accessing instance');
+    if (_instance == null) {
+      throw StateError(
+          'ConversionService.initialize() must be called before accessing instance');
+    }
     return _instance!;
   }
 
@@ -2561,6 +2563,7 @@ class ConversionService extends ChangeNotifier {
       if (!_updateController.isClosed) {
         _updateController.add(updated);
       }
+      notifyListeners();
       debugPrint(
           'Archived raw video for ${done.id}: $archivePath '
           '(${result["sizeBytes"]} bytes)');
