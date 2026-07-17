@@ -2884,10 +2884,7 @@ class UploadService {
       // the file content is fine, the bucket only cares about the path
       // segment for RLS, and get_plan_full's signed URL hard-codes
       // .jpg as the suffix.
-      final normalisedExt =
-          (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
-              ? '.jpg'
-              : '.jpg';
+      const normalisedExt = '.jpg';
       final mime = (ext == '.png')
           ? 'image/png'
           : (ext == '.heic' ? 'image/heic' : 'image/jpeg');

@@ -2462,7 +2462,7 @@ export class PortalReferralApi {
       p_practice_id: practiceId,
     });
     if (error) {
-      if (isMissingRpc(error)) return true;
+      if (isMissingRpc(error)) return false;
       return false;
     }
     return data === true;
@@ -2542,7 +2542,7 @@ export class PortalReferralApi {
       p_code: code,
     });
     if (error || !data) {
-      return { inviter_display_name: null, code_valid: true };
+      return { inviter_display_name: null, code_valid: false };
     }
     const row = Array.isArray(data) ? data[0] : data;
     return {
