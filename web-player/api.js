@@ -141,6 +141,14 @@
   const SUPABASE_URL = _cfg.supabaseUrl;
   const SUPABASE_ANON_KEY = _cfg.supabaseAnonKey;
 
+  function _anonHeaders() {
+    return {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    };
+  }
+
   /**
    * Wave 4 Phase 1 — unified player prototype.
    *
@@ -161,7 +169,7 @@
       const host = window.location.hostname;
       // Wave 4 Phase 1: Dart `shelf` loopback → 127.0.0.1 / localhost.
       // Wave 4 Phase 2: `homefit-local://plan/...` custom scheme → 'plan'.
-      if (host !== '127.0.0.1' && host !== 'localhost' && host !== 'plan') return false;
+      if (host !== '127.0.0.1' && host !== 'localhost' && !host.startsWith('127.') && host !== '0.0.0.0' && host !== 'plan') return false;
       const params = new URLSearchParams(window.location.search || '');
       return params.get('src') === 'local';
     } catch (_) {
@@ -349,11 +357,7 @@
       `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
       {
         method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: _anonHeaders(),
         body: JSON.stringify({ p_plan_id: planId }),
       },
     );
@@ -401,11 +405,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/record_artifact_opened`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_plan_id: planId, p_kind: kind }),
         },
       );
@@ -452,11 +452,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/record_plan_opened`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -490,11 +486,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/start_analytics_session`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_user_agent_bucket: userAgentBucket || 'other',
@@ -526,11 +518,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_event_kind: eventKind,
@@ -557,11 +545,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/set_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_granted: !!granted,
@@ -586,11 +570,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/revoke_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_session_id: sessionId || null,
@@ -633,11 +613,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_kind: kind,
@@ -671,11 +647,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -718,11 +690,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_practice_profile`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_slug: slug }),
         },
       );
@@ -790,11 +758,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_practice_public_members`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_practice_id: practiceId }),
         },
       );
@@ -860,11 +824,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/report_premises`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_premises_id: premisesId,
             p_reason: String(reason).slice(0, 500),
@@ -907,11 +867,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_premises_active_roster`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_practice_slug: String(practiceSlug).toLowerCase(),
             p_premises_slug: String(premisesSlug).toLowerCase(),
@@ -949,11 +905,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/report_session`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_reason: String(reason).slice(0, 500),
@@ -1294,11 +1246,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_live_sessions`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_practice_slug: String(practiceSlug).toLowerCase(),
             p_premises_slug: String(premisesSlug).toLowerCase(),
