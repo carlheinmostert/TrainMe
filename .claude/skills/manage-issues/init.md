@@ -28,8 +28,7 @@ run on a repo that hasn't been init'd (it reads `.github/managed-issues.json`).
   sweep's board-sync logic.)
   (We create our own field because the default "Status" field's options can't be
   edited via API.)
-- **Memory rule**: a managed section in the repo's `CLAUDE.md` carrying the
-  always-on intake trigger.
+- **CLAUDE.md**: untouched. init never writes to it (see Step 3).
 - **Config**: `.github/managed-issues.json` capturing the wiring + a `version`.
 
 ## Step 1 — labels
@@ -138,34 +137,23 @@ the Board view already configured and have init `gh project copy` it (copy
 preserves views), then re-read the new field/option IDs into the config — this
 avoids the manual view step on every new repo.
 
-## Step 3 — the CLAUDE.md memory rule
+## Step 3 — CLAUDE.md (do not touch)
 
-Write/refresh a marked managed section in the repo's `CLAUDE.md` so the proactive
-intake trigger is always loaded (and travels to the cloud Routine). Idempotent:
-replace everything between the markers, leave the rest untouched.
+init **does not write to `CLAUDE.md`.** Earlier versions installed a marked
+`managed-issues:intake` section instructing every session to file its
+mid-session findings as GitHub issues. Carl rejected that rule twice. The
+standing rule is the opposite:
 
-```
-<!-- managed-issues:intake start -->
-## Issue intake discipline (managed-issues)
+> Findings come back into the conversation as stack items. If I want them to be
+> deferred as issues, I will make a recommendation as such.
 
-During any working session in this repo, do not let new features/bugs/ideas
-derail the task at hand. When something raised is a **distinct, scope-expanding
-unit of work** (not a clarification, sub-step, or correction of the current task):
+So: do not create `CLAUDE.md`, do not append to it, do not restore the
+`<!-- managed-issues:intake -->` markers, and do not write an equivalent
+unmarked section. If you find those markers in a repo, report them in Step 5
+and leave them alone — removing them is Carl's call, not init's.
 
-- Dispatch the **`manage-issues-intake` skill in a background sub-agent** to file
-  it as a GitHub issue (rich, front-loaded body; **bare in TRIAGE** — no labels,
-  no assignee), then carry on. Announce in one line ("Filed #N — parking it, back
-  to X"). A one-word veto from Carl pulls it back (close the issue).
-- Explicit triggers: **park / log / capture / "file an issue"**. Default **one
-  issue per distinct item**; on a burst, **"park these as one"** bundles them
-  into a single checklist issue.
-- Never block the conversation to ask permission first: file + notice + continue.
-
-The sweep (`manage-issues`) classifies and routes from there.
-<!-- managed-issues:intake end -->
-```
-
-If the repo has no `CLAUDE.md`, create one with just this section.
+Intake is on-demand only, on Carl's explicit "park it" / "log it" / "file an
+issue". Nothing in this skill installs a standing instruction to file.
 
 ## Step 4 — the config file
 

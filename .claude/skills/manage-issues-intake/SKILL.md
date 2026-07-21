@@ -1,6 +1,6 @@
 ---
 name: manage-issues-intake
-description: Capture a tangent — a new feature, bug, or idea that surfaced mid-session — into a rich, front-loaded GitHub issue, so the live session stays focused and the work gets handled in batch by the manage-issues sweep. Use proactively whenever something raised is a distinct, scope-expanding unit of work (not part of the current task), or on an explicit "park it" / "log it" / "capture it" / "file an issue for that".
+description: Capture a tangent — a new feature, bug, or idea that surfaced mid-session — into a rich, front-loaded GitHub issue, so the live session stays focused and the work gets handled in batch by the manage-issues sweep. Use ONLY on Carl's explicit "park it" / "log it" / "capture it" / "file an issue for that". Never fire proactively — findings return to the conversation as stack items, and Carl decides what becomes an issue.
 ---
 
 # manage-issues-intake
@@ -11,9 +11,15 @@ The **capture** half of the managed-issues system. It files a session tangent as
 
 ## When it fires
 
-- **Proactively** — when something raised in a session is a **distinct, scope-expanding unit of work**: not a clarification, not a sub-step of the current task, not a correction of what's being worked on. (The always-on trigger lives in the repo's `CLAUDE.md`, installed by `manage-issues init`.)
-- **On explicit request** — "park it", "log it", "capture it", "file an issue for that". By default **one issue per distinct item**; if Carl rattles off several at once he can say **"park these as one"** and intake bundles that burst into a single checklist issue.
-- Either way: **file it, drop a one-line notice, and continue** — "Filed #123 (dark-mode export) — parking it, back to the migration." Never block the conversation to ask permission. A one-word veto from Carl pulls it back (close the issue).
+- **On explicit request only** — "park it", "log it", "capture it", "file an
+  issue for that", from Carl. By default **one issue per distinct item**; if he
+  rattles off several at once he can say **"park these as one"** and intake
+  bundles that burst into a single checklist issue.
+- **Never proactively.** A session's own judgement that something is
+  scope-expanding is not a trigger. Findings go back into the conversation as
+  stack items; Carl decides what gets deferred to an issue. This binds
+  sub-agents too — a sub-agent reports findings to its parent and never files.
+- Once he has asked: file it, drop a one-line notice, and continue.
 
 ## How it runs
 
@@ -37,7 +43,7 @@ The **capture** half of the managed-issues system. It files a session tangent as
 
 - **Comply with `manage-issues`:** bare TRIAGE — no `status:` label, no `bug`/`enhancement`, no assignee. The sweep owns classification, labels, board placement, and assignment.
 - **Capture, don't solve.** Don't diagnose a fix, don't start coding, don't classify. Just record the work so future-you (the sweep) or Carl can act with full context.
-- **Don't derail.** File + one-line notice + continue. The proactive bar is "distinct, scope-expanding" — when unsure whether something is a tangent or part of the task, ask in one line or err toward leaving the session alone.
+- **Don't derail.** File + one-line notice + continue. There is no proactive bar, because there is no proactive filing. If you think something deserves an issue, say so in the conversation and let Carl call it.
 - Repo-relative paths in the body.
 
 ## Encodes
