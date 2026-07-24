@@ -619,13 +619,11 @@ function fmtCreditDelta(n: number): string {
   const sign = n > 0 ? '+' : '';
   // Strip trailing zeros on fractional values but keep integers clean.
   const rounded = Math.round(n * 10000) / 10000;
-  if (Number.isInteger(rounded)) return `${sign}${rounded}`;
   return `${sign}${rounded}`;
 }
 
 function fmtBalance(n: number): string {
   const rounded = Math.round(n * 10000) / 10000;
-  if (Number.isInteger(rounded)) return `${rounded}`;
   return `${rounded}`;
 }
 

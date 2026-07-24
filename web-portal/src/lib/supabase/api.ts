@@ -1096,13 +1096,17 @@ export class AdminApi {
    * sent). Returns null when not found; callers decide the UX.
    */
   async findPendingPayment(pid: string): Promise<PendingPaymentRow | null> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from('pending_payments')
       .select(
         'id, practice_id, credits, amount_zar, status, bundle_key, pf_payment_id, notes, completed_at, created_at',
       )
       .eq('id', pid)
       .maybeSingle();
+    if (error) {
+      console.error('[AdminApi] findPendingPayment error', pid, error.message);
+      return null;
+    }
     return (data as PendingPaymentRow | null) ?? null;
   }
 
@@ -1122,7 +1126,7 @@ export class AdminApi {
       .insert(ledgerRow);
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: statusErr } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1131,6 +1135,9 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (statusErr) {
+      console.error('[AdminApi] pending_payments status flip failed', pid, statusErr.message);
+    }
 
     return { applied: true };
   }
@@ -1170,7 +1177,7 @@ export class AdminApi {
     );
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: statusErr2 } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1179,6 +1186,9 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (statusErr2) {
+      console.error('[AdminApi] pending_payments status flip failed', pid, statusErr2.message);
+    }
 
     return { applied: true };
   }

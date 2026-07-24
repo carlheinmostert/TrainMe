@@ -1377,13 +1377,7 @@ class ApiClient {
           params: {'p_plan_id': planId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _firstRowOrNull(result);
       if (row == null) return null;
       return PlanAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1405,13 +1399,7 @@ class ApiClient {
           params: {'p_client_id': clientId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _firstRowOrNull(result);
       if (row == null) return null;
       return ClientAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1420,6 +1408,20 @@ class ApiClient {
       );
       return null;
     }
+  }
+
+  /// Normalises an RPC result that can be either a bare `Map` or a single-row
+  /// `List<Map>` (Supabase returns both shapes depending on the function's
+  /// RETURNS type). Returns the first/only row, or `null` if the result is
+  /// empty or an unexpected shape.
+  static Map<String, dynamic>? _firstRowOrNull(dynamic result) {
+    if (result is Map<String, dynamic>) return result;
+    if (result is List &&
+        result.isNotEmpty &&
+        result.first is Map<String, dynamic>) {
+      return result.first as Map<String, dynamic>;
+    }
+    return null;
   }
 
   // ==========================================================================

@@ -2399,7 +2399,7 @@ class UploadService {
       final normalisedExt =
           (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
               ? '.jpg'
-              : '.jpg';
+              : '.mp4';
       final mime = (ext == '.png')
           ? 'image/png'
           : (ext == '.heic' ? 'image/heic' : 'image/jpeg');

@@ -38,8 +38,10 @@ class ConversionService extends ChangeNotifier {
 
   /// Access the singleton instance. Must call [initialize] first.
   static ConversionService get instance {
-    assert(_instance != null,
-        'ConversionService.initialize() must be called before accessing instance');
+    if (_instance == null) {
+      throw StateError(
+          'ConversionService.initialize() must be called before accessing instance.');
+    }
     return _instance!;
   }
 

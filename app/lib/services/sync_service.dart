@@ -252,9 +252,8 @@ class SyncService {
             }
           }
         },
-        onError: (_) {
-          // Plugin errored — don't die; connectivity listener is the
-          // fallback drain trigger.
+        onError: (Object e, StackTrace s) {
+          debugPrint('SyncService: auth stream error: $e');
         },
       );
     } catch (e) {
@@ -267,6 +266,7 @@ class SyncService {
     _connectivitySub = null;
     _authSub?.cancel();
     _authSub = null;
+    _instance = null;
   }
 
   static bool _isOffline(List<ConnectivityResult> results) {
