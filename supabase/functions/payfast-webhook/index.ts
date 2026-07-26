@@ -54,6 +54,16 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ??
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ??
   Deno.env.get('SERVICE_ROLE_KEY') ?? '';
 
+// Create the admin client once at module load time rather than on every
+// request. A new createClient() per request wastes the connection pool and
+// adds measurable latency on every ITN. The client is safe to share across
+// concurrent requests — Supabase-js is stateless for service-role use.
+const admin = SUPABASE_URL && SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+  : null;
+
 // Optional: bypass IP check in non-production for local ngrok testing.
 const SKIP_IP_CHECK =
   (Deno.env.get('PAYFAST_SKIP_IP_CHECK') ?? '').toLowerCase() === 'true';
@@ -225,13 +235,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // --- 4. Look up intent + amount match ---------------------------------
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  if (!admin) {
     console.error('[payfast-webhook] service role env missing');
     return new Response('server misconfigured', { status: 500 });
   }
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
 
   if (!mPaymentId) {
     return new Response('missing m_payment_id', { status: 400 });
@@ -261,12 +268,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // the intent accordingly.
   if (paymentStatus !== 'COMPLETE') {
     const newStatus = paymentStatus === 'CANCELLED' ? 'cancelled' : 'failed';
-    await admin.from('pending_payments').update({
+    const { error: cancelErr } = await admin.from('pending_payments').update({
       status: newStatus,
       pf_payment_id: pfPaymentId || null,
       completed_at: new Date().toISOString(),
       notes: `PayFast payment_status=${paymentStatus}`,
     }).eq('id', mPaymentId).eq('status', 'pending');
+    if (cancelErr) {
+      console.error('[payfast-webhook] failed to mark payment as', newStatus, cancelErr);
+    }
     return new Response('ok', { status: 200 });
   }
 
@@ -302,13 +312,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // and can derive it deterministically: `amount_zar / credits`. Passing
   // it in avoids having to store a price table in the DB just for rebate
   // math.
-  const costPerCreditZar = Number(pending.amount_zar) / Number(pending.credits);
+  const credits = Number(pending.credits);
+  if (!credits || credits <= 0) {
+    console.error('[payfast-webhook] pending_payments.credits is zero or invalid', { mPaymentId, credits });
+    return new Response('invalid credit count', { status: 500 });
+  }
+  const costPerCreditZar = Number(pending.amount_zar) / credits;
 
   const { error: rebateErr } = await admin.rpc(
     'record_purchase_with_rebates',
     {
       p_practice_id:          pending.practice_id,
-      p_credits:              pending.credits,
+      p_credits:              credits,
       p_amount_zar:           pending.amount_zar,
       p_payfast_payment_id:   pfPaymentId || null,
       p_bundle_key:           pending.bundle_key ?? null,
