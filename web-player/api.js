@@ -602,6 +602,7 @@
    */
   async function getPlanSharingContext(planId) {
     if (!planId) return null;
+    if (isLocalSurface()) return null;
     try {
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
