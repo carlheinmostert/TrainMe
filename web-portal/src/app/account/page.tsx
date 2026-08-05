@@ -62,11 +62,7 @@ export default async function AccountPage({
   const activePractice =
     practices.find((p) => p.id === activePracticeId) ?? practices[0] ?? null;
 
-  // Practitioners on the active practice can't rename it. Default to
-  // false when there's no membership (edge case — user w/ no practices).
-  const canRenamePractice = activePractice
-    ? (practices.find((p) => p.id === activePractice.id)?.role === 'owner')
-    : false;
+  const canRenamePractice = isOwner && activePractice !== null;
 
   return (
     <main className="flex min-h-screen flex-col">
