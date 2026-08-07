@@ -141,6 +141,17 @@
   const SUPABASE_URL = _cfg.supabaseUrl;
   const SUPABASE_ANON_KEY = _cfg.supabaseAnonKey;
 
+  // Single source for PostgREST auth headers. Every anon RPC call in this
+  // module uses these three headers — extracted here so a key rotation or
+  // header rename only needs one change, not one per function.
+  function _rpcHeaders() {
+    return {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    };
+  }
+
   /**
    * Wave 4 Phase 1 — unified player prototype.
    *
@@ -318,13 +329,7 @@
     if (!payload || !payload.plan) throw new Error('Plan not found');
     const exercises = (payload.exercises || []).map(_normaliseExercise);
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    // PR #7 (plan_artifacts) — always present, possibly empty. Embedded
-    // preview bridge (unified_preview_scheme_bridge.dart) does not emit
-    // artifacts today, so default to []. Keeps the embedded + cloud
-    // surfaces shape-identical for downstream readers (no callers in v1;
-    // future PRs surface artifacts on the lobby).
-    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
-    return { ...payload, exercises, artifacts };
+    return { ...payload, exercises };
   }
 
   /**
@@ -349,11 +354,7 @@
       `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
       {
         method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: _rpcHeaders(),
         body: JSON.stringify({ p_plan_id: planId }),
       },
     );
@@ -368,65 +369,7 @@
     const exercises = (payload.exercises || []).map(_normaliseExercise);
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-    // PR #7 (plan_artifacts) — top-level sibling of plan + exercises.
-    // Each entry: { kind, status, output_url, generated_at, metadata }.
-    // For kind='plan_url' the output_url is NULL by design (URL is
-    // computed client-side as session.homefit.studio/p/{plan_id});
-    // future kinds (reel, pdf) will populate output_url with a signed
-    // URL. Always returned as an array — defensive default for legacy
-    // RPC responses or backfill misses (treat as empty).
-    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
-
-    return { ...payload, exercises, artifacts };
-  }
-
-  /**
-   * `record_artifact_opened(p_plan_id, p_kind)` — artifact-system Wave 1
-   * SECURITY DEFINER RPC. Per-artifact analogue of `record_plan_opened`;
-   * idempotently stamps `plan_artifacts.first_opened_at` on the
-   * (plan_id, kind) row. Drives the per-artifact engagement signal that
-   * ADR 0028's edit-lock arming (Wave 3) reads.
-   *
-   * Anonymous-callable per ADR 0024. Best-effort: errors are caught +
-   * logged; the page still renders if this round-trip fails.
-   *
-   * Skipped on the local surface (mobile preview WebView) — practitioner
-   * rehearsal isn't a real client open.
-   */
-  async function recordArtifactOpened(planId, kind) {
-    if (!planId || !kind) return;
-    if (isLocalSurface()) return;
-    try {
-      await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/record_artifact_opened`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ p_plan_id: planId, p_kind: kind }),
-        },
-      );
-    } catch (err) {
-      try { console.warn('[homefit] record_artifact_opened failed:', err); } catch (_) {}
-    }
-  }
-
-  /**
-   * `getHandoutForPlan(planId)` — convenience alias over `getPlanFull`
-   * for the workout-handout surface at /h/{planId} (ADR 0025). Wave 1
-   * doesn't need a separate RPC — `get_plan_full` already returns the
-   * artifacts array including the `handout` row (when published) with
-   * `published_at` + `first_opened_at`. The alias exists so the handout
-   * page reads through a name that reflects intent. Future waves that
-   * need handout-specific projections (e.g. an OG-card route that
-   * returns ONLY the first non-rest exercise + plan title) can hang a
-   * specialised RPC off this alias without rewriting the caller.
-   */
-  async function getHandoutForPlan(planId) {
-    return getPlanFull(planId);
+    return { ...payload, exercises };
   }
 
   /**
@@ -452,11 +395,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/record_plan_opened`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -490,11 +429,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/start_analytics_session`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_user_agent_bucket: userAgentBucket || 'other',
@@ -526,11 +461,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_event_kind: eventKind,
@@ -557,11 +488,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/set_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_granted: !!granted,
@@ -586,11 +513,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/revoke_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_session_id: sessionId || null,
@@ -633,11 +556,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_kind: kind,
@@ -671,11 +590,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _rpcHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -691,672 +606,8 @@
     }
   }
 
-  /**
-   * `get_practice_profile(p_slug)` — anonymous SECURITY DEFINER RPC that
-   * returns the public profile + non-deleted premises for a directory-
-   * listed practice. Used by the `/v/{slug}` page.
-   *
-   * Returns `null` when the slug is not found OR the practice has not
-   * opted into the directory (public_profile_listed=false). The page
-   * surfaces that as a 404-equivalent message — Supabase deliberately
-   * doesn't distinguish "no such slug" from "not listed" so we don't
-   * leak the existence of unlisted slugs.
-   */
-  async function getPracticeProfile(slug) {
-    if (!slug || typeof slug !== 'string') return null;
-    if (isLocalSurface()) return null; // No local equivalent.
-    // Q-H3 fix (synthesis 2026-05-21): distinguish "not found" (HTTP 200
-    // + empty rows OR 404) from transient failures (5xx, network, JSON
-    // parse). Both used to collapse into `return null`, and v.js mapped
-    // every null to the "Practice not found" page — misleading when the
-    // real cause was offline / Supabase down. Now: return null only for
-    // genuine not-found, throw a typed Error for transient failures so
-    // the caller can show a retry UI.
-    let response;
-    try {
-      response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/get_practice_profile`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ p_slug: slug }),
-        },
-      );
-    } catch (e) {
-      // Network drop / DNS / CORS preflight failure — never reached the
-      // server. Tag the error so the caller can branch on it.
-      const err = new Error('Network unreachable: ' + (e && e.message ? e.message : String(e)));
-      err.transient = true;
-      err.status = 0;
-      throw err;
-    }
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      // 4xx that isn't 404, or any 5xx — treat as transient. Anon
-      // contract shouldn't 401/403 here; if it does, that's a server
-      // misconfiguration worth retrying after a redeploy.
-      const err = new Error('Profile RPC failed: HTTP ' + response.status);
-      err.transient = response.status >= 500 || response.status === 429;
-      err.status = response.status;
-      throw err;
-    }
-    let rows;
-    try {
-      rows = await response.json();
-    } catch (e) {
-      const err = new Error('Profile RPC JSON parse failed: ' + (e && e.message ? e.message : String(e)));
-      err.transient = true;
-      err.status = response.status;
-      throw err;
-    }
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    const row = rows[0];
-    return {
-      practiceId: row.practice_id,
-      practiceName: row.practice_name,
-      slug: row.slug,
-      logoUrl: row.logo_url || null,
-      blurb: row.blurb || null,
-      premises: Array.isArray(row.premises) ? row.premises : [],
-      // Public Profile v2 — branding + advertising fields.
-      brandColor: row.brand_color || null,
-      tagline: row.tagline || null,
-      specialties: Array.isArray(row.specialties) ? row.specialties : [],
-      contactEmail: row.contact_email || null,
-      contactWhatsapp: row.contact_whatsapp || null,
-      contactWebsite: row.contact_website || null,
-    };
-  }
-
-  /**
-   * `get_practice_public_members(p_practice_id)` — anonymous SECURITY
-   * DEFINER RPC that returns the practitioner display names + roles for
-   * a listed practice. Returns an empty array when the practice has not
-   * opted into the directory (`public_profile_listed=false`), matching
-   * the privacy behavior of `get_practice_profile`.
-   *
-   * No email / no trainer_id ever leaves the DB; only display_name +
-   * role. The web player renders initials avatars from display_name.
-   */
-  async function getPracticePublicMembers(practiceId) {
-    if (!practiceId || typeof practiceId !== 'string') return [];
-    if (isLocalSurface()) return [];
-    try {
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/get_practice_public_members`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ p_practice_id: practiceId }),
-        },
-      );
-      if (!response.ok) return [];
-      const rows = await response.json();
-      if (!Array.isArray(rows)) return [];
-      return rows.map((r) => ({
-        displayName: r.display_name || null,
-        role: r.role || null,
-      }));
-    } catch (_) {
-      return [];
-    }
-  }
-
-  /**
-   * `report_premises(p_premises_id, p_reason)` — anonymous SECURITY
-   * DEFINER RPC. Lands in `premises_reports` for Carl to triage.
-   *
-   * Returns the new report id on success, null on failure (the caller
-   * just renders a toast either way — no point distinguishing).
-   */
-  // S-H2 fix (synthesis 2026-05-21): derive a stable browser-side
-  // fingerprint for rate-limiting report_premises. The hash is a
-  // best-effort identifier (UA + viewport rounded to 200px buckets +
-  // language + timezone offset) — not a tracking primitive. Stored only
-  // server-side in premises_reports, used by the trailing-hour
-  // rate-limit check inside the RPC.
-  async function _reporterFingerprint() {
-    try {
-      const parts = [
-        navigator.userAgent || '',
-        navigator.language || '',
-        String(new Date().getTimezoneOffset()),
-        String(Math.round((screen && screen.width) || 0 / 200) * 200),
-        String(Math.round((screen && screen.height) || 0 / 200) * 200),
-      ].join('|');
-      // SubtleCrypto SHA-256 — available everywhere we care about.
-      if (window.crypto && window.crypto.subtle) {
-        const buf = new TextEncoder().encode(parts);
-        const hashBuf = await window.crypto.subtle.digest('SHA-256', buf);
-        return Array.from(new Uint8Array(hashBuf))
-          .map((b) => b.toString(16).padStart(2, '0'))
-          .join('')
-          .slice(0, 32);
-      }
-      // Defensive fallback — non-crypto hash, still distinguishes
-      // unrelated browsers.
-      let h = 0;
-      for (let i = 0; i < parts.length; i++) h = ((h << 5) - h + parts.charCodeAt(i)) | 0;
-      return 'fb:' + Math.abs(h).toString(16);
-    } catch (_) {
-      return '';
-    }
-  }
-
-  async function reportPremises(premisesId, reason) {
-    if (!premisesId || !reason) return null;
-    if (isLocalSurface()) return null;
-    try {
-      const fingerprint = await _reporterFingerprint();
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/report_premises`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_premises_id: premisesId,
-            p_reason: String(reason).slice(0, 500),
-            p_reporter_fingerprint: fingerprint,
-          }),
-        },
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      return typeof data === 'string' ? data : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Per-capture audit log + 24h roster (2026-05-23, PR A)
-  // -------------------------------------------------------------------
-  // Anonymous SECURITY DEFINER RPC. Returns the per-practitioner roster
-  // for the resolved (practice-slug, premises-slug) over the trailing
-  // window (default 24h). Each row has `currently_active` (heartbeat
-  // <= 60s on `active_capture_sessions`) plus an `events` jsonb timeline
-  // of `{kind, started_at, ended_at}` rows most-recent-first, so the
-  // timeline popover renders without a second round-trip.
-  //
-  // Returns [] for not-found / not-listed practice or premises (mirrors
-  // get_practice_profile's privacy posture — doesn't leak the existence
-  // of unlisted slugs).
-  //
-  // KNOWN: until PR B (the mobile write path) ships, this returns an
-  // empty array even on a real venue. The web-player renders the empty
-  // state gracefully (no drawer pill).
-  async function getPremisesActiveRoster(practiceSlug, premisesSlug, lookbackHours) {
-    if (!practiceSlug || !premisesSlug || isLocalSurface()) return [];
-    const hours = Number.isFinite(Number(lookbackHours))
-      ? Math.max(1, Math.min(168, Math.floor(Number(lookbackHours))))
-      : 24;
-    try {
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/get_premises_active_roster`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_practice_slug: String(practiceSlug).toLowerCase(),
-            p_premises_slug: String(premisesSlug).toLowerCase(),
-            p_lookback_hours: hours,
-          }),
-        },
-      );
-      if (!response.ok) return [];
-      const rows = await response.json();
-      if (!Array.isArray(rows)) return [];
-      return rows.map((r) => ({
-        trainerId: r.trainer_id,
-        firstName: r.first_name || null,
-        lastName: r.last_name || null,
-        avatarUrl: r.avatar_url || null,
-        currentlyActive: r.currently_active === true,
-        lastEventAt: r.last_event_at,
-        eventCount24h: Number.isFinite(Number(r.event_count_24h))
-          ? Number(r.event_count_24h)
-          : 0,
-        events: Array.isArray(r.events) ? r.events : [],
-      }));
-    } catch (_) {
-      return [];
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Safe Mode Transparency — Phase D (2026-05-22)
-  // -------------------------------------------------------------------
-  async function reportSession(sessionId, reason, fingerprint) {
-    if (!sessionId || !reason || isLocalSurface()) return null;
-    try {
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/report_session`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_session_id: sessionId,
-            p_reason: String(reason).slice(0, 500),
-            p_reporter_fingerprint: fingerprint || '',
-          }),
-        },
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      return typeof data === 'string' ? data : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Artifact-system Wave 2 — claim flow + consumer identity (2026-05-26)
-  // -------------------------------------------------------------------
-  //
-  // Five authenticated RPCs that drive the consumer-side /me + /me/data
-  // surfaces. The auth bearer is the Supabase consumer session JWT (set
-  // by signInWithOtp + the magic-link callback). Whenever a session is
-  // present, the helpers below send `Authorization: Bearer <jwt>` so the
-  // SECURITY DEFINER RPCs see a non-null auth.uid().
-  //
-  // See `docs/ARTIFACT_SYSTEM.md` (Identity & claiming) + ADRs 0024 +
-  // 0026. The migration that creates the underlying RPCs is
-  // `supabase/migrations/20260526173515_artifact_system_claim.sql`.
-  //
-  // Auth token handling: we keep a module-local `_consumerAccessToken`
-  // updated by signIn / signOut / restoreSession so the RPC callers
-  // don't need to thread the token through every callsite. The token
-  // also lands in localStorage under HOMEFIT_CONSUMER_SESSION_KEY for
-  // page-reload survival (Supabase emits a #access_token=... hash on
-  // magic-link return which we capture in restoreSession).
-
-  const HOMEFIT_CONSUMER_SESSION_KEY = 'homefit.consumer.session.v1';
-  let _consumerAccessToken = null;
-  let _consumerRefreshToken = null;
-
-  function _persistSession(session) {
-    try {
-      if (session && session.access_token) {
-        _consumerAccessToken  = session.access_token;
-        _consumerRefreshToken = session.refresh_token || null;
-        localStorage.setItem(
-          HOMEFIT_CONSUMER_SESSION_KEY,
-          JSON.stringify({
-            access_token:  session.access_token,
-            refresh_token: session.refresh_token || null,
-            // Best-effort expiry hint — Supabase JWTs are 1h by default;
-            // we store the absolute deadline for restoreSession to detect
-            // staleness. If `expires_in` is present (signInWithOtp does
-            // not return one synchronously) we use it, else add 1h.
-            expires_at: session.expires_at
-              || (Math.floor(Date.now() / 1000) + (session.expires_in || 3600)),
-          }),
-        );
-      } else {
-        _consumerAccessToken  = null;
-        _consumerRefreshToken = null;
-        localStorage.removeItem(HOMEFIT_CONSUMER_SESSION_KEY);
-      }
-    } catch (_) {
-      // localStorage can fail in private-browsing — silently fall back
-      // to in-memory only. The session won't survive reload but the
-      // current page works.
-    }
-  }
-
-  function restoreConsumerSession() {
-    // Two paths:
-    //   1. Magic-link callback — `#access_token=...&refresh_token=...&...`
-    //      lands in window.location.hash. We parse, persist, then clean
-    //      the URL via history.replaceState so a refresh doesn't re-fire
-    //      the side effects.
-    //   2. Existing session — localStorage has a non-expired JSON blob.
-    try {
-      const hash = (window.location.hash || '').replace(/^#/, '');
-      if (hash && hash.indexOf('access_token=') !== -1) {
-        const params = new URLSearchParams(hash);
-        const accessToken  = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
-        const expiresIn    = Number(params.get('expires_in')) || 3600;
-        if (accessToken) {
-          _persistSession({
-            access_token:  accessToken,
-            refresh_token: refreshToken,
-            expires_in:    expiresIn,
-          });
-          // Strip the fragment so reload doesn't repeat. Keeps the
-          // claim-target query string (?claim=<planId>) intact.
-          try {
-            const url = new URL(window.location.href);
-            url.hash = '';
-            history.replaceState({}, document.title, url.toString());
-          } catch (_) { /* best-effort */ }
-          return _consumerAccessToken;
-        }
-      }
-
-      const raw = localStorage.getItem(HOMEFIT_CONSUMER_SESSION_KEY);
-      if (!raw) return null;
-      const blob = JSON.parse(raw);
-      if (!blob || !blob.access_token) return null;
-      // Treat anything older than the stored expires_at as stale. We
-      // don't proactively refresh in Wave 2 — the user will see a fresh
-      // "sign in again" form when the JWT 401s, and signInWithOtp is a
-      // one-tap recovery. Wave fast-follow can layer a refresh-token
-      // round-trip if the friction shows up.
-      if (blob.expires_at && Number(blob.expires_at) * 1000 < Date.now()) {
-        _persistSession(null);
-        return null;
-      }
-      _consumerAccessToken  = blob.access_token;
-      _consumerRefreshToken = blob.refresh_token || null;
-      return _consumerAccessToken;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function _consumerHeaders(extra) {
-    const headers = {
-      'apikey':        SUPABASE_ANON_KEY,
-      'Content-Type':  'application/json',
-    };
-    if (_consumerAccessToken) {
-      headers['Authorization'] = 'Bearer ' + _consumerAccessToken;
-    } else {
-      // Fall back to anon bearer so the request shape is valid. The
-      // SECURITY DEFINER RPC will return ok:false / reason:unauthenticated
-      // because auth.uid() resolves to null.
-      headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
-    }
-    if (extra) Object.assign(headers, extra);
-    return headers;
-  }
-
-  function isConsumerSignedIn() {
-    return !!_consumerAccessToken;
-  }
-
-  /**
-   * Trigger a magic-link send. `emailRedirectTo` lands the user back at
-   * `session.homefit.studio/me` with the auth fragment in the hash, plus
-   * an optional `?claim=<planId>` query so the page knows which plan to
-   * attach on landing.
-   */
-  async function signInWithMagicLink(email, options) {
-    if (!email || typeof email !== 'string') {
-      return { ok: false, reason: 'missing_email' };
-    }
-    const claimPlanId = options && options.claimPlanId;
-    const origin = (typeof window !== 'undefined' && window.location)
-      ? window.location.origin
-      : 'https://session.homefit.studio';
-    const redirectTo = origin + '/me'
-      + (claimPlanId ? ('?claim=' + encodeURIComponent(claimPlanId)) : '');
-
-    try {
-      const response = await fetch(
-        SUPABASE_URL + '/auth/v1/otp',
-        {
-          method: 'POST',
-          headers: {
-            'apikey':       SUPABASE_ANON_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email:                       email.trim().toLowerCase(),
-            create_user:                 true,
-            email_redirect_to:           redirectTo,
-            // Belt-and-braces: Supabase accepts either snake_case or the
-            // newer `options.emailRedirectTo` envelope shape from the JS
-            // client. We send the snake_case top-level form which is the
-            // canonical REST endpoint signature.
-          }),
-        },
-      );
-      if (!response.ok) {
-        let detail = '';
-        try { detail = await response.text(); } catch (_) {}
-        return { ok: false, reason: 'http-' + response.status, detail };
-      }
-      return { ok: true, redirectTo };
-    } catch (err) {
-      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
-    }
-  }
-
-  async function signOutConsumer() {
-    if (!_consumerAccessToken) {
-      _persistSession(null);
-      return { ok: true };
-    }
-    try {
-      await fetch(
-        SUPABASE_URL + '/auth/v1/logout',
-        {
-          method: 'POST',
-          headers: {
-            'apikey':        SUPABASE_ANON_KEY,
-            'Authorization': 'Bearer ' + _consumerAccessToken,
-            'Content-Type':  'application/json',
-          },
-        },
-      );
-    } catch (_) {
-      // Even on network failure we clear the local session — the JWT
-      // expires server-side within an hour anyway.
-    }
-    _persistSession(null);
-    return { ok: true };
-  }
-
-  /**
-   * `claim_plan(p_plan_id)` — SECURITY DEFINER (authenticated). Inherits
-   * consent from the practitioner-proxy on first claim, idempotent on
-   * repeat. Returns `{ok, already_claimed, consumer_user_id,
-   * practice_client_id, inherited_consent}` or `{ok: false, reason}`.
-   */
-  async function claimPlan(planId) {
-    if (!planId) return { ok: false, reason: 'missing_plan_id' };
-    if (!_consumerAccessToken) return { ok: false, reason: 'not_signed_in' };
-    try {
-      const response = await fetch(
-        SUPABASE_URL + '/rest/v1/rpc/claim_plan',
-        {
-          method: 'POST',
-          headers: _consumerHeaders(),
-          body: JSON.stringify({ p_plan_id: planId }),
-        },
-      );
-      if (response.status === 401) {
-        // JWT expired or otherwise rejected — drop the local session and
-        // let the caller redirect to /me sign-in.
-        _persistSession(null);
-        return { ok: false, reason: 'session_expired' };
-      }
-      if (!response.ok) {
-        let detail = '';
-        try { detail = await response.text(); } catch (_) {}
-        return { ok: false, reason: 'http-' + response.status, detail };
-      }
-      const result = await response.json();
-      return result || { ok: false, reason: 'empty_response' };
-    } catch (err) {
-      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
-    }
-  }
-
-  async function getMyPlans() {
-    if (!_consumerAccessToken) return null;
-    try {
-      const response = await fetch(
-        SUPABASE_URL + '/rest/v1/rpc/list_my_plans',
-        {
-          method: 'POST',
-          headers: _consumerHeaders(),
-          body: JSON.stringify({}),
-        },
-      );
-      if (response.status === 401) {
-        _persistSession(null);
-        return null;
-      }
-      if (!response.ok) return null;
-      return await response.json();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  async function getMyRelationships() {
-    if (!_consumerAccessToken) return null;
-    try {
-      const response = await fetch(
-        SUPABASE_URL + '/rest/v1/rpc/list_my_practitioner_relationships',
-        {
-          method: 'POST',
-          headers: _consumerHeaders(),
-          body: JSON.stringify({}),
-        },
-      );
-      if (response.status === 401) {
-        _persistSession(null);
-        return null;
-      }
-      if (!response.ok) return null;
-      return await response.json();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  async function setMyConsent(practiceClientId, consentPatch) {
-    if (!practiceClientId) return { ok: false, reason: 'missing_practice_client_id' };
-    if (!_consumerAccessToken) return { ok: false, reason: 'not_signed_in' };
-    if (!consentPatch || typeof consentPatch !== 'object') {
-      return { ok: false, reason: 'invalid_consent_shape' };
-    }
-    try {
-      const response = await fetch(
-        SUPABASE_URL + '/rest/v1/rpc/set_my_consent',
-        {
-          method: 'POST',
-          headers: _consumerHeaders(),
-          body: JSON.stringify({
-            p_practice_client_id: practiceClientId,
-            p_consent:            consentPatch,
-          }),
-        },
-      );
-      if (response.status === 401) {
-        _persistSession(null);
-        return { ok: false, reason: 'session_expired' };
-      }
-      if (!response.ok) {
-        let detail = '';
-        try { detail = await response.text(); } catch (_) {}
-        return { ok: false, reason: 'http-' + response.status, detail };
-      }
-      const result = await response.json();
-      return result || { ok: false, reason: 'empty_response' };
-    } catch (err) {
-      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Safe Mode Transparency — Phase B (2026-05-22)
-  // -------------------------------------------------------------------
-  async function getLiveSessions(practiceSlug, premisesSlug) {
-    if (!practiceSlug || !premisesSlug || isLocalSurface()) return null;
-    try {
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/get_live_sessions`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_practice_slug: String(practiceSlug).toLowerCase(),
-            p_premises_slug: String(premisesSlug).toLowerCase(),
-          }),
-        },
-      );
-      if (!response.ok) return null;
-      const rows = await response.json();
-      if (!Array.isArray(rows)) return null;
-      // The RPC returns at most one 'premises' row (the one we asked
-      // for) + one row per active session there. Practice + premises
-      // metadata is duplicated on every row; sample it from the head.
-      const head = rows[0] || {};
-      return {
-        practiceId: head.practice_id || null,
-        practiceName: head.practice_name || null,
-        practiceSlug: head.practice_slug || practiceSlug,
-        premisesSlug: head.premises_slug || premisesSlug,
-        practiceLogoUrl: head.practice_logo_url || null,
-        premises: rows
-          .filter((r) => r && r.kind === 'premises')
-          .map((r) => ({
-            id: r.premises_id,
-            name: r.premises_name,
-            slug: r.premises_slug,
-            polygon: Array.isArray(r.premises_polygon)
-              ? r.premises_polygon
-              : [],
-          })),
-        sessions: rows
-          .filter((r) => r && r.kind === 'session')
-          .map((r) => ({
-            sessionId: r.session_id,
-            trainerId: r.trainer_id,
-            firstName: r.first_name,
-            lastName: r.last_name,
-            avatarUrl: r.avatar_url,
-            startedAt: r.started_at,
-            heartbeatAt: r.last_heartbeat_at,
-            latitude: r.last_latitude,
-            longitude: r.last_longitude,
-            manualMode: r.manual_mode === true,
-            premisesId: r.premises_id,
-            premisesName: r.premises_name,
-          })),
-      };
-    } catch (_) {
-      return null;
-    }
-  }
-
   window.HomefitApi = Object.freeze({
     getPlanFull,
-    getHandoutForPlan,
-    recordArtifactOpened,
-    getPracticeProfile,
-    getPracticePublicMembers,
-    reportPremises,
     recordPlanOpened,
     startAnalyticsSession,
     logAnalyticsEvent,
@@ -1364,18 +615,6 @@
     revokeAnalyticsConsent,
     getPlanSharingContext,
     clientSelfGrantConsent,
-    getLiveSessions,
-    getPremisesActiveRoster,
-    reportSession,
-    // Wave 2 — claim flow + consumer identity.
-    signInWithMagicLink,
-    signOutConsumer,
-    restoreConsumerSession,
-    isConsumerSignedIn,
-    claimPlan,
-    getMyPlans,
-    getMyRelationships,
-    setMyConsent,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,
