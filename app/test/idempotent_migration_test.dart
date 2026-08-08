@@ -26,6 +26,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:raidme/services/local_storage_service.dart';
 
+// The current schema version, sourced from the production constant so this
+// test doesn't need manual updates when the migration chain advances.
+const _kCurrentDbVersion = LocalStorageService.currentDbVersion;
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -99,7 +103,7 @@ void main() {
 
         // Sanity: user_version landed at the current schema version.
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 42);
+        expect(version.first['user_version'], _kCurrentDbVersion);
 
         await svc.close();
       },
@@ -116,7 +120,7 @@ void main() {
           factory: databaseFactoryFfi,
         );
         final version = await svc.db.rawQuery('PRAGMA user_version');
-        expect(version.first['user_version'], 42);
+        expect(version.first['user_version'], _kCurrentDbVersion);
 
         // Spot-check a few of the columns the v3+ migration branches
         // touch — they must all be present after _createTables.

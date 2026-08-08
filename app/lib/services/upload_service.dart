@@ -663,8 +663,9 @@ class UploadService {
     void emit(PublishProgress p) {
       try {
         onProgress?.call(p);
-      } catch (_) {
+      } catch (e) {
         // Never let a UI consumer's exception derail the publish path.
+        debugPrint('UploadService.emit: UI sink threw: $e');
       }
     }
 
@@ -1238,7 +1239,11 @@ class UploadService {
           for (final item in listing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint(
+            'UploadService: media listing failed (will re-upload all): $e',
+          );
+        }
 
         // Per-exercise records of which thumb variants this fast-path
         // re-uploaded for a dirty exercise. After the media-bucket pass
@@ -1380,7 +1385,11 @@ class UploadService {
           for (final item in listing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint(
+            'UploadService: media listing failed (will re-upload all): $e',
+          );
+        }
 
         for (final exercise in nonRestExercises) {
           final filePath =
@@ -2143,7 +2152,11 @@ class UploadService {
       for (final item in listing) {
         existingRaw.add('$practiceId/${session.id}/${item.name}');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint(
+        'UploadService: raw-archive listing failed (will re-upload all): $e',
+      );
+    }
 
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;

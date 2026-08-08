@@ -28,6 +28,7 @@ const List<String> _kMonths = <String>[
 /// Takes [clientName] for API compatibility with the earlier
 /// `{clientName} · {datetime}` variant; the parameter is currently
 /// ignored — callers can drop it on the next clean-up pass.
+@Deprecated('clientName is no longer used; call formatSessionTimestamp directly.')
 // ignore: unused_element_parameter
 String formatSessionTitle(String clientName, DateTime dt) {
   return formatSessionTimestamp(dt);

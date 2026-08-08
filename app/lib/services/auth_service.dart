@@ -238,6 +238,8 @@ class AuthService {
   /// Apple's SDK returns an `identityToken` (JWT) that Supabase verifies
   /// against the Services ID configured as the OAuth client on the Apple
   /// side. No access token is surfaced to the client.
+  ///
+  /// See `docs/BACKLOG.md` for the re-enablement checklist.
   // ignore: unused_element
   Future<void> signInWithApple() async {
     final credential = await SignInWithApple.getAppleIDCredential(
