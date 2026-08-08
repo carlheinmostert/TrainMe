@@ -24,6 +24,11 @@ class LocalStorageService {
   static const _dbName = 'raidme.db';
   static const _dbVersion = 42;
 
+  /// The current SQLite schema version. Tests can reference this instead of
+  /// hardcoding the magic number so they don't silently pass against a stale
+  /// version after migrations advance.
+  static const int currentDbVersion = _dbVersion;
+
   Database? _db;
 
   /// The database instance. Throws if [init] hasn't been called.
@@ -1588,9 +1593,10 @@ class LocalStorageService {
         if (await file.exists()) {
           await file.delete();
         }
-      } catch (_) {
+      } catch (e) {
         // Best-effort — if we can't delete the file, still clear the row
         // so we don't keep retrying on every startup.
+        debugPrint('LocalStorageService.purgeOldArchives: failed to delete file: $e');
       }
       purgedIds.add(row['id'] as String);
     }
@@ -1841,6 +1847,7 @@ class LocalStorageService {
       whereArgs: [exerciseId],
     );
     if (rows.isNotEmpty) {
+      // Sets not loaded — only file paths are needed for deletion cleanup.
       final ex = ExerciseCapture.fromMap(rows.first);
       _deleteFileIfExists(PathResolver.resolve(ex.rawFilePath));
       if (ex.convertedFilePath != null) {
@@ -1920,16 +1927,16 @@ class LocalStorageService {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  /// Best-effort file deletion. Failures are silently ignored — the file
-  /// may have been cleaned up by the OS or a previous attempt.
+  /// Best-effort file deletion. Failures are logged but not re-thrown — the
+  /// file may have been cleaned up by the OS or a previous attempt.
   void _deleteFileIfExists(String path) {
     try {
       final file = File(path);
       if (file.existsSync()) {
         file.deleteSync();
       }
-    } catch (_) {
-      // Non-critical — log in production, ignore during POV.
+    } catch (e) {
+      debugPrint('LocalStorageService._deleteFileIfExists: failed to delete $path: $e');
     }
   }
 
