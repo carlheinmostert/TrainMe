@@ -1314,6 +1314,22 @@ export function auditChipTone(kind: string): AuditChipTone {
   }
 }
 
+/** Maps an AuditChipTone to its Tailwind colour classes. Shared between the
+ *  dashboard preview card and the full audit page so tone → colour is never
+ *  duplicated. */
+export function auditChipClass(tone: AuditChipTone): string {
+  switch (tone) {
+    case 'coral':
+      return 'bg-brand-tint-bg text-brand';
+    case 'sage':
+      return 'bg-emerald-500/15 text-emerald-400';
+    case 'red':
+      return 'bg-red-500/15 text-red-400';
+    default:
+      return 'bg-surface-raised text-ink-muted';
+  }
+}
+
 /** A single row emitted by `list_practice_audit`. The jsonb `meta` bag is
  *  kind-specific; callers key into it defensively.
  *

@@ -63,8 +63,11 @@ export function ClientDetailPanel({
   const [avatar, setAvatar] = useState(initialConsent.avatar);
   const [savedConsent, setSavedConsent] = useState(initialConsent);
   const [toast, setToast] = useState<Toast>(null);
-  const [pending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => clearTimeout(toastTimerRef.current ?? undefined), []);
   // Keep a stable alias so the rest of the component's f-strings stay
   // readable. The live name is `displayName`; rename updates it.
   const clientName = displayName;
@@ -111,7 +114,8 @@ export function ClientDetailPanel({
         msg = `Couldn't delete — ${e.message}`;
       }
       setToast({ text: msg, tone: 'error' });
-      window.setTimeout(() => setToast(null), 4000);
+      clearTimeout(toastTimerRef.current ?? undefined);
+      toastTimerRef.current = window.setTimeout(() => setToast(null), 4000);
       return;
     }
 
@@ -137,24 +141,21 @@ export function ClientDetailPanel({
   }
 
   async function handleSave() {
-    startTransition(async () => {
-      try {
-        const supabase = getBrowserClient();
-        const api = createPortalApi(supabase);
-        await api.setClientVideoConsent(clientId, grayscale, original, avatar);
-        setSavedConsent({
-          line_drawing: true,
-          grayscale,
-          original,
-          avatar,
-        });
-        setToast({ text: 'Saved.', tone: 'info' });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Something went wrong.';
-        setToast({ text: `Couldn’t save — ${msg}`, tone: 'error' });
-      }
-      window.setTimeout(() => setToast(null), 2500);
-    });
+    setIsPending(true);
+    try {
+      const supabase = getBrowserClient();
+      const api = createPortalApi(supabase);
+      await api.setClientVideoConsent(clientId, grayscale, original, avatar);
+      setSavedConsent({ line_drawing: true, grayscale, original, avatar });
+      setToast({ text: 'Saved.', tone: 'info' });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Something went wrong.';
+      setToast({ text: `Couldn't save — ${msg}`, tone: 'error' });
+    } finally {
+      setIsPending(false);
+      clearTimeout(toastTimerRef.current ?? undefined);
+      toastTimerRef.current = window.setTimeout(() => setToast(null), 2500);
+    }
   }
 
   // Wave 40.3 — granted-count for the collapsed-state header chip.
@@ -325,12 +326,12 @@ export function ClientDetailPanel({
           <button
             type="button"
             onClick={handleSave}
-            disabled={!dirty || pending}
+            disabled={!dirty || isPending}
             className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-surface-bg transition hover:bg-brand-light disabled:cursor-not-allowed disabled:bg-surface-raised disabled:text-ink-disabled"
           >
-            {pending ? 'Saving\u2026' : 'Save'}
+            {isPending ? 'Saving\u2026' : 'Save'}
           </button>
-          {!dirty && !pending && (
+          {!dirty && !isPending && (
             <p className="text-xs text-ink-dim">
               Toggles match what&rsquo;s saved. Flip one to enable Save.
             </p>
@@ -515,7 +516,7 @@ function EditableClientName({
       return;
     }
     if (trimmed === '') {
-      setError('Name can’t be empty.');
+      setError("Name can't be empty.");
       return;
     }
     startSave(async () => {
@@ -531,15 +532,15 @@ function EditableClientName({
           if (e.kind === 'duplicate') {
             setError('Another client in this practice already uses that name.');
           } else if (e.kind === 'empty') {
-            setError('Name can’t be empty.');
+            setError("Name can't be empty.");
           } else if (e.kind === 'not-member') {
-            setError('You don’t have permission to rename this client.');
+            setError("You don't have permission to rename this client.");
           } else {
             setError('Client not found. Try refreshing.');
           }
         } else {
           const msg = e instanceof Error ? e.message : 'Something went wrong.';
-          setError(`Couldn’t rename — ${msg}`);
+          setError(`Couldn't rename — ${msg}`);
         }
         // Stay in edit mode so the practitioner can fix + retry.
       }

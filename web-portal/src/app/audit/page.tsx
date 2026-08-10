@@ -6,6 +6,7 @@ import { getServerClient } from '@/lib/supabase-server';
 import {
   createPortalApi,
   createPortalAuditApi,
+  auditChipClass,
   auditChipTone,
   AUDIT_EVENT_KINDS,
   type AuditChipTone,
@@ -445,7 +446,7 @@ function buildSubtitle(
 function KindChip({ kind, tone }: { kind: string; tone: AuditChipTone }) {
   return (
     <span
-      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${chipClass(tone)}`}
+      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${auditChipClass(tone)}`}
     >
       {kindLabel(kind)}
     </span>
@@ -666,19 +667,6 @@ function kindLabel(kind: string): string {
   };
   if (map[kind]) return map[kind];
   return kind.replaceAll('.', ' ').replaceAll('_', ' ');
-}
-
-function chipClass(tone: AuditChipTone): string {
-  switch (tone) {
-    case 'coral':
-      return 'bg-brand-tint-bg text-brand';
-    case 'sage':
-      return 'bg-emerald-500/15 text-emerald-400';
-    case 'red':
-      return 'bg-red-500/15 text-red-400';
-    default:
-      return 'bg-surface-raised text-ink-muted';
-  }
 }
 
 function buildDescription(row: AuditRow): string {
