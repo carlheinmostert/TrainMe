@@ -160,6 +160,18 @@ class ApiClient {
   /// seam until those seams fold in.
   Future<T> guardAuth<T>(Future<T> Function() op) => _guardAuth(op);
 
+  /// Coerces a Supabase RPC result to a single `Map<String, dynamic>?`.
+  /// PostgREST can return either a bare Map or a List-of-one-Map depending
+  /// on RPC return-type semantics; tolerates both shapes.
+  Map<String, dynamic>? _extractSingleRow(dynamic result) {
+    if (result is Map<String, dynamic>) return result;
+    if (result is List && result.isNotEmpty) {
+      final first = result.first;
+      if (first is Map<String, dynamic>) return first;
+    }
+    return null;
+  }
+
   /// Fires true when an RPC detects the server-side session has been
   /// revoked (`session_not_found` / 403) and we've forced a local
   /// sign-out to recover. Cleared when the user signs back in via the
@@ -343,7 +355,8 @@ class ApiClient {
           })
           .whereType<PracticeMembership>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.listMyPractices: $e');
       return const [];
     }
   }
@@ -1346,13 +1359,7 @@ class ApiClient {
         params: {'p_practice_id': practiceId},
       ),
     );
-    Map<String, dynamic>? row;
-    if (result is Map<String, dynamic>) {
-      row = result;
-    } else if (result is List && result.isNotEmpty) {
-      final first = result.first;
-      if (first is Map<String, dynamic>) row = first;
-    }
+    final row = _extractSingleRow(result);
     if (row == null) {
       throw StateError('referral_dashboard_stats returned no row');
     }
@@ -1377,13 +1384,7 @@ class ApiClient {
           params: {'p_plan_id': planId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _extractSingleRow(result);
       if (row == null) return null;
       return PlanAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1405,13 +1406,7 @@ class ApiClient {
           params: {'p_client_id': clientId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _extractSingleRow(result);
       if (row == null) return null;
       return ClientAnalyticsSummary.fromJson(row);
     } catch (e) {

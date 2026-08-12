@@ -829,10 +829,8 @@ class SyncService {
       name: cached.name,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
     // Best-effort immediate push — if offline, this is a quick no-op.
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return cached;
   }
 
@@ -855,9 +853,7 @@ class SyncService {
       newName: trimmed,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return updated;
   }
 
@@ -884,9 +880,7 @@ class SyncService {
       newTitle: trimmed,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return true;
   }
 
@@ -909,9 +903,7 @@ class SyncService {
       clientId: clientId,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return cascadeTs;
   }
 
@@ -932,9 +924,7 @@ class SyncService {
       clientId: clientId,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
   }
 
   /// Local-first consent write.
@@ -983,9 +973,7 @@ class SyncService {
       analyticsAllowed: nextAnalytics,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return updated;
   }
 
@@ -1019,9 +1007,7 @@ class SyncService {
       avatarPath: avatarPath,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return updated;
   }
 
@@ -1069,9 +1055,7 @@ class SyncService {
       value: value,
       nowMs: nowMs,
     );
-    await _storage.enqueuePendingOp(op);
-    await _refreshPendingCount();
-    unawaited(flush());
+    await _enqueueAndFlush(op);
     return updated;
   }
 
@@ -1093,6 +1077,15 @@ class SyncService {
   /// forever). ~30 attempts ≈ a full day of reconnect cycles at the
   /// [_retryCooldown] tick rate.
   static const int _maxAttempts = 30;
+
+  /// Enqueue [op], refresh the pending-count notifier, and kick off a
+  /// best-effort immediate flush. Centralises the three-line sequence that
+  /// every `queue*` write method needs so it isn't repeated at every site.
+  Future<void> _enqueueAndFlush(PendingOp op) async {
+    await _storage.enqueuePendingOp(op);
+    await _refreshPendingCount();
+    unawaited(flush());
+  }
 
   /// Try to push every queued op. Each op is independent — a failure
   /// on op N doesn't block op N+1. Idempotent: running twice in a row

@@ -9,6 +9,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'helpers/sqflite_test_setup.dart';
 
 import 'package:raidme/models/exercise_capture.dart';
 import 'package:raidme/services/local_storage_service.dart';
@@ -26,9 +27,7 @@ class _ThrowingDeleteStorage extends LocalStorageService {
 }
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-  });
+  setUpAll(setUpSqfliteFfi);
 
   group('reindexAfterRemove', () {
     test('removes the row at index and reindexes positions', () {
@@ -163,6 +162,13 @@ void main() {
         await storage.saveExercise(ex);
 
         await storage.deleteExercise(ex.id);
+
+        final rows = await storage.db.query(
+          'exercises',
+          where: 'id = ?',
+          whereArgs: [ex.id],
+        );
+        expect(rows, isEmpty, reason: 'Row must be gone after deleteExercise');
       },
     );
   });
