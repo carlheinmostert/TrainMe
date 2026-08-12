@@ -652,6 +652,20 @@ class UploadService {
   /// PR-C (2026-05-15) — optional [onProgress] callback fires on every
   /// phase boundary and per-file tick inside the upload phase. Drives
   /// the new [PublishProgressSheet] UI. Existing callers that don't pass
+  /// Lists all file names currently in the `media` bucket under [planId]/
+  /// and returns their full storage paths as a set. Used to skip re-uploads
+  /// of already-present files. Returns an empty set on any error so the
+  /// caller falls back to uploading everything.
+  Future<Set<String>> _listExistingMediaFiles(String planId) async {
+    try {
+      final listing = await _api.listMedia(prefix: planId);
+      return {for (final item in listing) '$planId/${item.name}'};
+    } catch (e) {
+      debugPrint('UploadService: listMedia failed for $planId ($e), uploading everything');
+      return const {};
+    }
+  }
+
   /// the callback work unchanged.
   Future<PublishResult> uploadPlan(
     Session session, {
@@ -663,8 +677,9 @@ class UploadService {
     void emit(PublishProgress p) {
       try {
         onProgress?.call(p);
-      } catch (_) {
+      } catch (e) {
         // Never let a UI consumer's exception derail the publish path.
+        debugPrint('UploadService: progress callback threw: $e');
       }
     }
 
@@ -729,7 +744,7 @@ class UploadService {
       'uploadPlan: trainer=$trainerId practice=$practiceId '
       'session.practiceId=$sessionPracticeId cached=$cachedPracticeId',
     );
-    final nonRestExercises = session.exercises.where((e) => !e.isRest);
+    final nonRestExercises = session.exercises.where((e) => !e.isRest).toList();
     final nonRestCount = nonRestExercises.length;
     final totalDurationSeconds = nonRestExercises.fold<int>(
       0,
@@ -1145,8 +1160,6 @@ class UploadService {
       // reads the records via the throw.
       final mediaFailures = <UploadFailureRecord>[];
 
-      final nonRestExercises =
-          session.exercises.where((e) => !e.isRest).toList();
       // Fast-path eligibility: every non-rest exercise must have its raw
       // archive already uploaded AND no pending thumb-regeneration.
       // `thumbnailsDirty` is set by `ConversionService.regenerateHeroThumbnails`
@@ -1232,13 +1245,7 @@ class UploadService {
         // upload pass for the variant so older plans get the file
         // populated on the next publish — independent of whether the main
         // mp4 / _thumb.jpg already exist.
-        final existingFiles = <String>{};
-        try {
-          final listing = await _api.listMedia(prefix: session.id);
-          for (final item in listing) {
-            existingFiles.add('${session.id}/${item.name}');
-          }
-        } catch (_) {}
+        final existingFiles = await _listExistingMediaFiles(session.id);
 
         // Per-exercise records of which thumb variants this fast-path
         // re-uploaded for a dirty exercise. After the media-bucket pass
@@ -1374,13 +1381,7 @@ class UploadService {
         }
       } else {
         // Some exercises are new — list + upload as needed.
-        final existingFiles = <String>{};
-        try {
-          final listing = await _api.listMedia(prefix: session.id);
-          for (final item in listing) {
-            existingFiles.add('${session.id}/${item.name}');
-          }
-        } catch (_) {}
+        final existingFiles = await _listExistingMediaFiles(session.id);
 
         for (final exercise in nonRestExercises) {
           final filePath =

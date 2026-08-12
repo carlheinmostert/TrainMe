@@ -19,6 +19,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'helpers/sqflite_test_setup.dart';
 
 import 'package:raidme/models/exercise_capture.dart';
 import 'package:raidme/models/exercise_set.dart';
@@ -26,9 +27,7 @@ import 'package:raidme/models/session.dart';
 import 'package:raidme/services/local_storage_service.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-  });
+  setUpAll(setUpSqfliteFfi);
 
   group('ExerciseCapture.withPersistenceDefaults', () {
     ExerciseCapture seed({

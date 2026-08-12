@@ -25,6 +25,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'helpers/sqflite_test_setup.dart';
 
 import 'package:raidme/models/exercise_capture.dart';
 import 'package:raidme/models/exercise_set.dart';
@@ -35,9 +36,7 @@ void main() {
   // Spin up the ffi variant once for the whole group. This lets us
   // `openDatabase(':memory:')` without touching `path_provider`, which
   // isn't wired up under `flutter test`.
-  setUpAll(() {
-    sqfliteFfiInit();
-  });
+  setUpAll(setUpSqfliteFfi);
 
   group('saveExercise dirty-state stamp', () {
     late LocalStorageService storage;
