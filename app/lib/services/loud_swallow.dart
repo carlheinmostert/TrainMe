@@ -83,34 +83,16 @@ Future<T?> loudSwallow<T>(
   try {
     return await body();
   } catch (e, st) {
-    // Fire-and-forget the server-side log. NEVER await it — the caller
-    // must see its result (or rethrow) on the original timeline.
-    unawaited(_postErrorLog(
+    _logCaught(
+      error: e,
+      stackTrace: st,
       severity: severity,
       kind: kind,
       source: source,
-      message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
-    ));
-    // Always leave a local breadcrumb. Release-build safe (unlike debugPrint).
-    unawaited(_appendLocalLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      stackTop: _stackTop(st),
+      message: message,
       meta: meta,
-    ));
-    // In debug mode also shout to console so the author sees it during
-    // development without having to tail a file.
-    if (kDebugMode) {
-      // ignore: avoid_print
-      debugPrint('[loudSwallow $severity/$kind @ $source] $e');
-    }
+      callerLabel: 'loudSwallow',
+    );
     if (!swallow) rethrow;
     return null;
   }
@@ -131,28 +113,16 @@ void loudSwallowSync(
   try {
     body();
   } catch (e, st) {
-    unawaited(_postErrorLog(
+    _logCaught(
+      error: e,
+      stackTrace: st,
       severity: severity,
       kind: kind,
       source: source,
-      message: message ?? e.toString(),
-      meta: {
-        ...?meta,
-        'stack_top': _stackTop(st),
-        'error_type': e.runtimeType.toString(),
-      },
-    ));
-    unawaited(_appendLocalLog(
-      severity: severity,
-      kind: kind,
-      source: source,
-      message: message ?? e.toString(),
-      stackTop: _stackTop(st),
+      message: message,
       meta: meta,
-    ));
-    if (kDebugMode) {
-      debugPrint('[loudSwallowSync $severity/$kind @ $source] $e');
-    }
+      callerLabel: 'loudSwallowSync',
+    );
     if (!swallow) rethrow;
   }
 }
@@ -160,6 +130,51 @@ void loudSwallowSync(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/// Shared catch-block body for [loudSwallow] and [loudSwallowSync].
+/// Fires both log paths (server RPC + local file) and emits a debug-mode
+/// console line. The `rethrow` decision stays at the call site because
+/// Dart requires `rethrow` inside a `catch` block.
+void _logCaught({
+  required Object error,
+  required StackTrace stackTrace,
+  required String severity,
+  required String kind,
+  required String source,
+  required String? message,
+  required Map<String, Object?>? meta,
+  required String callerLabel,
+}) {
+  final stackTop = _stackTop(stackTrace);
+  // Fire-and-forget the server-side log. NEVER await it — the caller
+  // must see its result (or rethrow) on the original timeline.
+  unawaited(_postErrorLog(
+    severity: severity,
+    kind: kind,
+    source: source,
+    message: message ?? error.toString(),
+    meta: {
+      ...?meta,
+      'stack_top': stackTop,
+      'error_type': error.runtimeType.toString(),
+    },
+  ));
+  // Always leave a local breadcrumb. Release-build safe (unlike debugPrint).
+  unawaited(_appendLocalLog(
+    severity: severity,
+    kind: kind,
+    source: source,
+    message: message ?? error.toString(),
+    stackTop: stackTop,
+    meta: meta,
+  ));
+  // In debug mode also shout to console so the author sees it during
+  // development without having to tail a file.
+  if (kDebugMode) {
+    // ignore: avoid_print
+    debugPrint('[$callerLabel $severity/$kind @ $source] $error');
+  }
+}
 
 /// First few lines of the stack trace. We ship a trimmed prefix (not the
 /// full trace) in both the RPC call and the local log so payload sizes
