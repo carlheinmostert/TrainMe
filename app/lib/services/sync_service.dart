@@ -1268,7 +1268,10 @@ class SyncService {
           analyticsAllowed: analytics,
         );
         if (!ok) {
-          throw Exception('set_client_video_consent returned false');
+          throw Exception(
+            'set_client_video_consent returned false for clientId=$clientId — '
+            'check ApiClient logs for the underlying Supabase error',
+          );
         }
         await _markCachedClientClean(clientId);
         return true;
