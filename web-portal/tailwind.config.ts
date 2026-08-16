@@ -55,8 +55,8 @@ const config: Config = {
         rest: '#86EFAC',   // 1.2.0 — sage; mirrors tokens.json color.semantic.rest
       },
       fontFamily: {
-        heading: ['Montserrat', 'system-ui', 'sans-serif'],
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        heading: ['var(--font-montserrat)', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
       // D-09: typography scale mirrors tokens.json typography.scale.

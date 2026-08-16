@@ -296,7 +296,7 @@ Surfaces required to match:
 - `support@homefit.studio` mailbox — referenced as the App Store support URL; Carl to set up at Hostinger alongside `privacy@`.
 - PayFast production cutover (blocked on Carl's merchant account).
 - Dead-code sweep (PR #10 flagged `_PrepFlashWrapper`, `_TimerRingPainter`, `_PulseMarkPainter` etc.).
-- Test plan Phase 1 — no tests exist for business-logic RPCs yet.
+- Test plan Phase 1 — no tests exist for business-logic RPCs yet. Utility-function coverage added: `app/test/utils_test.dart` (Flutter — `duration_format`, `session_title`); web portal vitest suite at `web-portal/src/__tests__/` covering `safe-next`, `bundles`, `env`, `referral-share` (run with `npm test` from `web-portal/`). Vitest config at `web-portal/vitest.config.ts`.
 - **When SIWA / Google re-enabled** (post-MVP): the Supabase auth redirect allowlist already includes `studio.homefit.app://login-callback` + `studio.homefit.app://**` (added 2026-05-10 alongside Resend SMTP wire-up so magic-link deep-linking would work for TestFlight users); only the Apple/Google OAuth client config still needs the bundle ID. See also `docs/BACKLOG_GOOGLE_SIGNIN.md`.
 
 **Blocked on Carl:**

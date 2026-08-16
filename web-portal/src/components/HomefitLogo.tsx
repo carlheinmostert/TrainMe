@@ -27,6 +27,45 @@
  *
  * No invented shapes. No icons, letters, or decorative curves.
  */
+
+/**
+ * Shared matrix geometry — 11 rects in the canonical pill-matrix layout.
+ * The `yOffset` shifts all rect Y coordinates uniformly so both the
+ * matrix-only and lockup variants share a single source of truth without
+ * duplicating the 11-element markup.
+ *
+ * In `HomefitLogo` the offset is 0 (rects sit at their canonical Y coords).
+ * In `HomefitLogoLockup` the offset is +4.5 to make room for the wordmark row.
+ */
+function LogoMatrix({ yOffset = 0 }: { yOffset?: number }) {
+  const t = (y: number) => y + yOffset;
+  return (
+    <g>
+      {/* Left ghost pills: outer→inner, progressively larger + lighter */}
+      <rect x="0"    y={t(2.75)} width="2.5" height="1.5" rx="0.5" fill="#4B5563" />
+      <rect x="4"    y={t(2.45)} width="3.5" height="2.1" rx="0.7" fill="#6B7280" />
+      <rect x="9"    y={t(2.15)} width="4.5" height="2.7" rx="0.9" fill="#9CA3AF" />
+
+      {/* Circuit tint band (coral @ 15%) */}
+      <rect x="14.5" y={t(1)}    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15" />
+
+      {/* Ex2 / Ex3 — 2×2 grid (2 exercises × 2 cycles), solid coral */}
+      <rect x="15"   y={t(2)}    width="5" height="3" rx="1" fill="#FF6B35" />
+      <rect x="15"   y={t(6.5)}  width="5" height="3" rx="1" fill="#FF6B35" />
+      <rect x="21.5" y={t(2)}    width="5" height="3" rx="1" fill="#FF6B35" />
+      <rect x="21.5" y={t(6.5)}  width="5" height="3" rx="1" fill="#FF6B35" />
+
+      {/* Rest — sage */}
+      <rect x="28"   y={t(2)}    width="5" height="3" rx="1" fill="#86EFAC" />
+
+      {/* Right ghost pills: inner→outer, mirror of left */}
+      <rect x="34.5" y={t(2.15)} width="4.5" height="2.7" rx="0.9" fill="#9CA3AF" />
+      <rect x="40.5" y={t(2.45)} width="3.5" height="2.1" rx="0.7" fill="#6B7280" />
+      <rect x="45.5" y={t(2.75)} width="2.5" height="1.5" rx="0.5" fill="#4B5563" />
+    </g>
+  );
+}
+
 export function HomefitLogo({
   className,
   'aria-hidden': ariaHidden = true,
@@ -41,27 +80,7 @@ export function HomefitLogo({
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden={ariaHidden}
     >
-      {/* Left ghost pills: outer→inner, progressively larger + lighter */}
-      <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563" />
-      <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280" />
-      <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF" />
-
-      {/* Circuit tint band (coral @ 15%) */}
-      <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15" />
-
-      {/* Ex2 / Ex3 — 2×2 grid (2 exercises × 2 cycles), solid coral */}
-      <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35" />
-      <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35" />
-      <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35" />
-      <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35" />
-
-      {/* Rest — sage */}
-      <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC" />
-
-      {/* Right ghost pills: inner→outer, mirror of left */}
-      <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF" />
-      <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280" />
-      <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563" />
+      <LogoMatrix />
     </svg>
   );
 }
@@ -105,18 +124,7 @@ export function HomefitLogoLockup({
       </text>
 
       {/* Matrix — identical geometry to HomefitLogo, translated +4.5 on Y. */}
-      <rect x="0"    y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563" />
-      <rect x="4"    y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280" />
-      <rect x="9"    y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF" />
-      <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15" />
-      <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35" />
-      <rect x="15"   y="11"   width="5" height="3" rx="1" fill="#FF6B35" />
-      <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35" />
-      <rect x="21.5" y="11"   width="5" height="3" rx="1" fill="#FF6B35" />
-      <rect x="28"   y="6.5"  width="5" height="3" rx="1" fill="#86EFAC" />
-      <rect x="34.5" y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF" />
-      <rect x="40.5" y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280" />
-      <rect x="45.5" y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563" />
+      <LogoMatrix yOffset={4.5} />
     </svg>
   );
 }
