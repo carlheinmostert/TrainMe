@@ -261,12 +261,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // the intent accordingly.
   if (paymentStatus !== 'COMPLETE') {
     const newStatus = paymentStatus === 'CANCELLED' ? 'cancelled' : 'failed';
-    await admin.from('pending_payments').update({
+    const { error: statusUpdateErr } = await admin.from('pending_payments').update({
       status: newStatus,
       pf_payment_id: pfPaymentId || null,
       completed_at: new Date().toISOString(),
       notes: `PayFast payment_status=${paymentStatus}`,
     }).eq('id', mPaymentId).eq('status', 'pending');
+    if (statusUpdateErr) {
+      console.error('[payfast-webhook] status flip failed', { mPaymentId, newStatus, error: statusUpdateErr });
+    }
     return new Response('ok', { status: 200 });
   }
 
@@ -277,12 +280,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
       expected: expectedAmount,
       received: amountGross,
     });
-    await admin.from('pending_payments').update({
+    const { error: mismatchUpdateErr } = await admin.from('pending_payments').update({
       status: 'failed',
       pf_payment_id: pfPaymentId || null,
       completed_at: new Date().toISOString(),
       notes: `amount mismatch: expected ${expectedAmount} got ${amountGross}`,
     }).eq('id', mPaymentId).eq('status', 'pending');
+    if (mismatchUpdateErr) {
+      console.error('[payfast-webhook] amount mismatch status flip failed', { mPaymentId, error: mismatchUpdateErr });
+    }
     return new Response('amount mismatch', { status: 400 });
   }
 

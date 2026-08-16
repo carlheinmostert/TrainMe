@@ -1238,7 +1238,9 @@ class UploadService {
           for (final item in listing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('upload_service: media listing failed for fast-path (prefix=${session.id}): $e — assuming no existing files');
+        }
 
         // Per-exercise records of which thumb variants this fast-path
         // re-uploaded for a dirty exercise. After the media-bucket pass
@@ -1380,7 +1382,9 @@ class UploadService {
           for (final item in listing) {
             existingFiles.add('${session.id}/${item.name}');
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('upload_service: media listing failed for slow-path (prefix=${session.id}): $e — assuming no existing files');
+        }
 
         for (final exercise in nonRestExercises) {
           final filePath =
@@ -1563,8 +1567,8 @@ class UploadService {
           filesTotal: filesTotal,
         );
       }
-      final optionalArtifactsHadFailures =
-          optionalArtifactFailureList.isNotEmpty;
+      // The throw above means optionalArtifactFailureList is always empty here.
+      const optionalArtifactsHadFailures = false;
 
       // PR-C — uploads complete; transition to the "Saving plan" row.
       emit(PublishProgress.markActive(PublishPhase.savingPlan));
@@ -1833,20 +1837,12 @@ class UploadService {
       // `refund_credit` RPC is idempotent on `plan_id`, so a double-fire
       // is safe.
       if (creditConsumed) {
-        refundApplied = await _refundCredits(
-          practiceId: practiceId,
-          planId: session.id,
-          credits: creditsToCharge,
-        );
+        refundApplied = await _refundCredits(planId: session.id);
         if (refundApplied != true) {
           // Single retry — most refund misses are transient socket
           // drops. The RPC's idempotency guard means a second call
           // against an already-refunded plan is a no-op.
-          refundApplied = await _refundCredits(
-            practiceId: practiceId,
-            planId: session.id,
-            credits: creditsToCharge,
-          );
+          refundApplied = await _refundCredits(planId: session.id);
         }
       }
 
@@ -2143,7 +2139,9 @@ class UploadService {
       for (final item in listing) {
         existingRaw.add('$practiceId/${session.id}/${item.name}');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('upload_service: raw-archive listing failed (prefix=$practiceId/${session.id}): $e — assuming no existing files');
+    }
 
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
@@ -2392,14 +2390,9 @@ class UploadService {
         continue;
       }
       final ext = p.extension(absRaw).toLowerCase();
-      // Default to .jpg when the camera handed us something exotic —
-      // the file content is fine, the bucket only cares about the path
-      // segment for RLS, and get_plan_full's signed URL hard-codes
-      // .jpg as the suffix.
-      final normalisedExt =
-          (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
-              ? '.jpg'
-              : '.jpg';
+      // Always normalise to .jpg — get_plan_full hard-codes this suffix for
+      // signed URL generation; the bucket path only needs to be consistent.
+      const normalisedExt = '.jpg';
       final mime = (ext == '.png')
           ? 'image/png'
           : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
@@ -2709,13 +2702,12 @@ class UploadService {
   /// temporarily off by one publish's worth of credits; support can
   /// reconcile via the `plan_issuances` audit rows.
   Future<bool> _refundCredits({
-    required String practiceId,
     required String planId,
-    required int credits,
   }) async {
     // [ApiClient.refundCredit] already swallows RPC errors — best-effort
     // semantics are preserved; see docstring above for the ledger
-    // reconciliation contract.
+    // reconciliation contract. The RPC determines the refund amount from
+    // the plan_issuances row, so practiceId and credits need not be forwarded.
     return _api.refundCredit(planId: planId);
   }
 
