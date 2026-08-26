@@ -141,6 +141,14 @@
   const SUPABASE_URL = _cfg.supabaseUrl;
   const SUPABASE_ANON_KEY = _cfg.supabaseAnonKey;
 
+  function _rpcHeaders() {
+    return {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    };
+  }
+
   /**
    * Wave 4 Phase 1 — unified player prototype.
    *
@@ -344,9 +352,7 @@
       {
         method: 'POST',
         headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
+          ..._rpcHeaders(),
         },
         body: JSON.stringify({ p_plan_id: planId }),
       },
@@ -389,9 +395,7 @@
         {
           method: 'POST',
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
+            ..._rpcHeaders(),
           },
           body: JSON.stringify({ p_plan_id: planId }),
         },
@@ -427,9 +431,7 @@
         {
           method: 'POST',
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
+            ..._rpcHeaders(),
           },
           body: JSON.stringify({
             p_plan_id: planId,
@@ -463,9 +465,7 @@
         {
           method: 'POST',
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
+            ..._rpcHeaders(),
           },
           body: JSON.stringify({
             p_session_id: sessionId,
@@ -494,9 +494,7 @@
         {
           method: 'POST',
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
+            ..._rpcHeaders(),
           },
           body: JSON.stringify({
             p_session_id: sessionId,
@@ -523,9 +521,7 @@
         {
           method: 'POST',
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
+            ..._rpcHeaders(),
           },
           body: JSON.stringify({
             p_plan_id: planId,
@@ -570,9 +566,7 @@
         {
           method: 'POST',
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
+            ..._rpcHeaders(),
           },
           body: JSON.stringify({
             p_plan_id: planId,
@@ -608,9 +602,7 @@
         {
           method: 'POST',
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
+            ..._rpcHeaders(),
           },
           body: JSON.stringify({ p_plan_id: planId }),
         },

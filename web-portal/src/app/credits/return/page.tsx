@@ -67,7 +67,9 @@ async function maybeApplyOptimisticSandboxCredit(
   // rebate row (5% lifetime rebate with a 1-credit goodwill floor on the
   // referrer's first rebate from each referee) are booked atomically in
   // a single DB transaction.
-  const costPerCreditZar = Number(pending.amount_zar) / Number(pending.credits);
+  const creditsNum = Number(pending.credits);
+  if (!creditsNum || creditsNum <= 0) return { applied: false, reason: 'invalid credits' };
+  const costPerCreditZar = Number(pending.amount_zar) / creditsNum;
   const result = await admin.applyPendingPaymentWithRebates(pid, {
     practice_id: pending.practice_id,
     credits: pending.credits,
