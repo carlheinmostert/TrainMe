@@ -484,6 +484,7 @@ async function handleVideoError(evt) {
       }
     }
   } catch (err) {
+    _urlRefreshInFlight = false;
     console.warn('[homefit] URL refresh failed:', err);
   } finally {
     if (refreshLabel) {
@@ -1253,15 +1254,16 @@ function buildPrepOverlay(slide) {
   if (!slide) {
     return `
     <div class="prep-overlay" hidden>
-      <div class="prep-overlay-number">15</div>
+      <div class="prep-overlay-number">${PREP_SECONDS}</div>
     </div>
   `;
   }
+  const prepSec = prepSecondsFor(slide);
   if (!window.HomefitHero || !window.HomefitHero.resolve) {
     // Defensive — exercise_hero.js failed to load.
     return `
     <div class="prep-overlay" hidden>
-      <div class="prep-overlay-number">15</div>
+      <div class="prep-overlay-number">${prepSec}</div>
     </div>
   `;
   }
@@ -1273,7 +1275,7 @@ function buildPrepOverlay(slide) {
         <div class="hero-not-available-name">${escapeHTML(slide.name || 'Exercise')}</div>
         <div class="hero-not-available-sub">${escapeHTML(hero.treatment.toUpperCase())} not available</div>
       </div>
-      <div class="prep-overlay-number">15</div>
+      <div class="prep-overlay-number">${prepSec}</div>
     </div>
   `;
   }
