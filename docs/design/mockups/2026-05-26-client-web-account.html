@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — client web account (claim + signed-in My Workouts)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <!--
+    ======================================================================
+      2026-05-26 — client web account (session.homefit.studio/me)
+    ======================================================================
+      Sibling of docs/design/mockups/2026-05-26-my-workouts-artifacts.html
+      (mobile) — establishes the spanning consumer identity that links
+      otherwise-separate practice client-rows. Magic-link only for now;
+      claim attaches the current plan (page already knows plan_id from
+      its arriving URL). Card pattern + coral-tint provenance banner
+      mirror the mobile twin (R-10-style parity).
+
+      Two states in one file:
+        1. Claim / sign-in — first taste of the account
+        2. Signed-in My Workouts — the consumer's "all my plans" surface
+    ======================================================================
+  -->
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+
+      --success: #22c55e;
+      --rest: #86efac;
+
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --radius-full: 9999px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #060709;
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 96px;
+      gap: 28px;
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Page header                                                   */
+    /* -------------------------------------------------------------- */
+    .page-header {
+      max-width: 980px;
+      width: 100%;
+      text-align: center;
+      padding: 8px 0 4px;
+    }
+
+    .page-header .eyebrow {
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--brand-default);
+      margin-bottom: 8px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 28px;
+      letter-spacing: -0.5px;
+      margin: 0 0 10px;
+    }
+
+    .page-header p {
+      max-width: 720px;
+      margin: 0 auto;
+      color: var(--ink-secondary);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Two-up layout                                                 */
+    /* -------------------------------------------------------------- */
+    .compare {
+      width: 100%;
+      max-width: 980px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+
+    @media (max-width: 920px) {
+      .compare { grid-template-columns: 1fr; }
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .stage-label {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Browser frame (mobile Safari-style)                           */
+    /* -------------------------------------------------------------- */
+    .browser {
+      width: 380px;
+      max-width: 100%;
+      background: var(--surface-bg);
+      border-radius: 22px;
+      border: 1px solid var(--surface-border);
+      box-shadow: 0 24px 56px rgba(0, 0, 0, 0.55), 0 0 0 6px #14161e;
+      overflow: hidden;
+    }
+
+    .url-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      background: #14161e;
+      border-bottom: 1px solid var(--surface-border);
+    }
+
+    .url-bar .traffic {
+      display: flex;
+      gap: 6px;
+    }
+
+    .url-bar .traffic span {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #2c2f3a;
+    }
+
+    .url-bar .url {
+      flex: 1;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--ink-secondary);
+      letter-spacing: 0.1px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .url-bar .url .lock {
+      width: 10px;
+      height: 10px;
+      stroke: var(--ink-muted);
+      fill: none;
+      stroke-width: 1.6;
+      flex-shrink: 0;
+    }
+
+    .url-bar .url .host {
+      color: var(--ink-primary);
+      font-weight: 500;
+    }
+
+    .url-bar .url .path {
+      color: var(--ink-secondary);
+    }
+
+    .body {
+      padding: 18px 18px 24px;
+      min-height: 620px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Header inside the web page                                    */
+    /* -------------------------------------------------------------- */
+    .web-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 2px 8px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+
+    .web-header .lockup {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .web-header .lockup .matrix {
+      width: 84px;
+      height: auto;
+      display: block;
+    }
+
+    .web-header h1.page-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.2px;
+      margin: 0;
+      color: var(--ink-primary);
+    }
+
+    .avatar-chip {
+      width: 32px;
+      height: 32px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--brand-default) 0%, var(--brand-dark) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 12px;
+      color: #fff;
+      letter-spacing: 0.3px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .settings-link {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--ink-muted);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .settings-link .gear {
+      width: 11px;
+      height: 11px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.6;
+    }
+
+    .settings-link strong {
+      color: var(--ink-secondary);
+      font-weight: 500;
+    }
+
+    .settings-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: -8px;
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  CLAIM STATE — explainer card + magic-link form                */
+    /* -------------------------------------------------------------- */
+    .explainer {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 16px 16px 14px;
+    }
+
+    .explainer h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.2px;
+      margin: 0 0 6px;
+      color: var(--ink-primary);
+      line-height: 1.3;
+    }
+
+    .explainer p {
+      margin: 0 0 12px;
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      line-height: 1.55;
+    }
+
+    .explainer ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .explainer ul li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      line-height: 1.45;
+    }
+
+    .explainer ul li .tick {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 2px;
+    }
+
+    .explainer ul li .tick svg {
+      width: 8px;
+      height: 8px;
+      stroke: var(--brand-default);
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Active-plan banner — shows the plan this claim will attach */
+    .attaching-banner {
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .attaching-banner .icon {
+      width: 14px;
+      height: 14px;
+      margin-top: 2px;
+      flex-shrink: 0;
+      stroke: var(--brand-light);
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .attaching-banner .text {
+      font-size: 11.5px;
+      color: var(--ink-primary);
+      line-height: 1.45;
+    }
+
+    .attaching-banner .text .quiet {
+      color: var(--ink-secondary);
+    }
+
+    /* Magic-link form */
+    .magic-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .magic-form label {
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .magic-form input[type="email"] {
+      width: 100%;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-family: var(--font-body);
+      font-size: 14px;
+      color: var(--ink-primary);
+      outline: none;
+    }
+
+    .magic-form input[type="email"]:focus {
+      border-color: var(--brand-tint-border);
+      box-shadow: 0 0 0 3px var(--brand-tint-bg);
+    }
+
+    .magic-form input[type="email"]::placeholder {
+      color: var(--ink-muted);
+    }
+
+    .magic-form button {
+      width: 100%;
+      background: var(--brand-default);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 13px 14px;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 120ms ease-out;
+    }
+
+    .magic-form button:hover { background: var(--brand-dark); }
+
+    .magic-form .returning {
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      line-height: 1.5;
+      margin: 2px 0 0;
+      text-align: center;
+    }
+
+    .magic-form .returning strong {
+      color: var(--ink-primary);
+      font-weight: 500;
+    }
+
+    .footer-note {
+      margin-top: auto;
+      padding-top: 8px;
+      text-align: center;
+      font-size: 10.5px;
+      color: var(--ink-muted);
+      letter-spacing: 0.2px;
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  SIGNED-IN STATE — plan cards                                  */
+    /* -------------------------------------------------------------- */
+    .plans-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .plan-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      transition: transform 120ms ease-out, border-color 120ms ease-out;
+    }
+
+    .plan-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.10);
+    }
+
+    .plan-card .card-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+    }
+
+    /* Artifact-kind glyph */
+    .kind-glyph {
+      width: 38px;
+      height: 38px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .kind-glyph svg {
+      width: 18px;
+      height: 18px;
+      stroke: var(--brand-default);
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .kind-glyph.handout svg {
+      stroke: var(--brand-light);
+    }
+
+    .plan-card .card-meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .plan-card .card-kind {
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 10.5px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin: 0 0 2px;
+    }
+
+    .plan-card .card-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.1px;
+      color: var(--ink-primary);
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .plan-card .card-sub {
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      margin: 4px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .plan-card .card-sub .dot {
+      width: 3px;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--ink-disabled);
+      flex-shrink: 0;
+    }
+
+    .plan-card .chev {
+      width: 16px;
+      height: 16px;
+      stroke: var(--ink-muted);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex-shrink: 0;
+    }
+
+    /* Coral-tint provenance banner at the BOTTOM of each card */
+    .provenance {
+      background: var(--brand-tint-bg);
+      border-top: 1px solid var(--brand-tint-border);
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .provenance .av {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #3a3f4d 0%, #1f2230 100%);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 8px;
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .provenance .text {
+      font-size: 11px;
+      color: var(--ink-primary);
+      letter-spacing: 0.1px;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .provenance .text .who {
+      color: var(--brand-light);
+      font-weight: 600;
+    }
+
+    .provenance .text .practice {
+      color: var(--ink-secondary);
+    }
+
+    .provenance .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--rest);
+      box-shadow: 0 0 0 2px rgba(134, 239, 172, 0.18);
+      flex-shrink: 0;
+    }
+
+    .list-footnote {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--ink-muted);
+      line-height: 1.5;
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Annotation panel (4 cards)                                    */
+    /* -------------------------------------------------------------- */
+    .annotations {
+      max-width: 980px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    @media (max-width: 720px) {
+      .annotations { grid-template-columns: 1fr; }
+    }
+
+    .annot {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 18px 18px 16px;
+      position: relative;
+    }
+
+    .annot .badge {
+      position: absolute;
+      top: -10px;
+      left: 16px;
+      background: var(--brand-default);
+      color: #fff;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    .annot h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.1px;
+      margin: 4px 0 8px;
+      color: var(--ink-primary);
+    }
+
+    .annot p {
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .annot p + p {
+      margin-top: 8px;
+    }
+
+    .annot strong { color: var(--ink-primary); font-weight: 600; }
+
+    .annot .callout {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-left: 3px solid var(--brand-default);
+      background: var(--brand-tint-bg);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 11.5px;
+      color: var(--ink-primary);
+      line-height: 1.5;
+    }
+
+    .annot .callout strong { color: var(--brand-light); }
+
+    /* -------------------------------------------------------------- */
+    /*  Section divider                                               */
+    /* -------------------------------------------------------------- */
+    .divider {
+      max-width: 980px;
+      width: 100%;
+      margin: 12px 0 -4px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .divider .line {
+      flex: 1;
+      height: 1px;
+      background: var(--surface-border);
+    }
+
+    .divider .label {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <header class="page-header">
+    <div class="eyebrow">2026-05-26 · client web account</div>
+    <h1>session.homefit.studio/me</h1>
+    <p>
+      The spanning consumer identity that links otherwise-separate practice
+      client-rows. Magic-link only for now; claiming attaches the current
+      plan from the URL the consumer arrived on. Card pattern + coral-tint
+      provenance banner mirror the mobile My Workouts twin.
+    </p>
+  </header>
+
+  <div class="divider">
+    <div class="line"></div>
+    <div class="label">Two states · side by side</div>
+    <div class="line"></div>
+  </div>
+
+  <section class="compare">
+
+    <!-- =============================================================
+         FRAME 1 — Claim / sign-in
+         ============================================================= -->
+    <div class="stage">
+      <div class="stage-label">State 1 — Claim / sign-in</div>
+      <div class="browser">
+
+        <div class="url-bar">
+          <div class="traffic"><span></span><span></span><span></span></div>
+          <div class="url">
+            <svg class="lock" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2"/>
+              <path d="M8 11V8a4 4 0 1 1 8 0v3"/>
+            </svg>
+            <span class="host">session.homefit.studio</span><span class="path">/me</span>
+          </div>
+        </div>
+
+        <div class="body">
+
+          <div class="web-header">
+            <div class="lockup">
+              <svg class="matrix" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+                <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+                <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+                <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+              </svg>
+            </div>
+            <h1 class="page-title">My Workouts</h1>
+          </div>
+
+          <div class="explainer">
+            <h2>All the plans your practitioners share, in one place.</h2>
+            <p>
+              Save the plan you just opened to your own home for workouts.
+              Sign in once and every plan from every practitioner you work
+              with shows up here.
+            </p>
+            <ul>
+              <li>
+                <span class="tick">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 12 10 18 20 6"/></svg>
+                </span>
+                Live updates when your practitioner edits the plan
+              </li>
+              <li>
+                <span class="tick">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 12 10 18 20 6"/></svg>
+                </span>
+                Works on any phone, tablet or laptop
+              </li>
+              <li>
+                <span class="tick">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 12 10 18 20 6"/></svg>
+                </span>
+                Nothing shared with your practitioner without your say-so
+              </li>
+            </ul>
+          </div>
+
+          <div class="attaching-banner">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+            </svg>
+            <div class="text">
+              We'll save <strong>this plan</strong> to your home as soon as
+              you sign in.
+              <span class="quiet">Knee rehab · from Margaret Vorster.</span>
+            </div>
+          </div>
+
+          <form class="magic-form" onsubmit="return false;">
+            <label for="email-claim">Your email</label>
+            <input type="email" id="email-claim" placeholder="you@example.com" autocomplete="email" />
+            <button type="submit">Send me a link</button>
+            <p class="returning">
+              Already have an account? Enter the email you used &mdash; we'll
+              send a sign-in link.
+            </p>
+          </form>
+
+          <div class="footer-note">
+            We use magic-link sign-in &mdash; no password to forget.
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- =============================================================
+         FRAME 2 — Signed-in My Workouts (web)
+         ============================================================= -->
+    <div class="stage">
+      <div class="stage-label">State 2 — Signed-in My Workouts</div>
+      <div class="browser">
+
+        <div class="url-bar">
+          <div class="traffic"><span></span><span></span><span></span></div>
+          <div class="url">
+            <svg class="lock" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2"/>
+              <path d="M8 11V8a4 4 0 1 1 8 0v3"/>
+            </svg>
+            <span class="host">session.homefit.studio</span><span class="path">/me</span>
+          </div>
+        </div>
+
+        <div class="body">
+
+          <div class="web-header">
+            <div class="lockup">
+              <svg class="matrix" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+                <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+                <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+                <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+              </svg>
+            </div>
+            <h1 class="page-title">My Workouts</h1>
+            <div class="avatar-chip" aria-label="Elaine Bradshaw">EB</div>
+          </div>
+
+          <div class="settings-row">
+            <a class="settings-link" href="#" onclick="return false;">
+              <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              Settings <strong>&middot; 3 practitioners linked</strong>
+            </a>
+          </div>
+
+          <div class="plans-list">
+
+            <!-- Card 1 — Workout player from Margaret -->
+            <div class="plan-card" role="link" tabindex="0">
+              <div class="card-top">
+                <div class="kind-glyph">
+                  <!-- Play / player glyph -->
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"/>
+                    <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/>
+                  </svg>
+                </div>
+                <div class="card-meta">
+                  <p class="card-kind">Workout player</p>
+                  <h3 class="card-title">Knee rehab — phase 2</h3>
+                  <p class="card-sub">
+                    9 exercises<span class="dot"></span>~22 min<span class="dot"></span>updated 2 days ago
+                  </p>
+                </div>
+                <svg class="chev" viewBox="0 0 24 24" aria-hidden="true">
+                  <polyline points="9 6 15 12 9 18"/>
+                </svg>
+              </div>
+              <div class="provenance">
+                <div class="av">MV</div>
+                <div class="text">
+                  from <span class="who">Margaret Vorster</span> <span class="practice">&middot; Cape Biokinetics</span>
+                </div>
+                <div class="live-dot" aria-label="live-linked"></div>
+              </div>
+            </div>
+
+            <!-- Card 2 — Workout handout from James -->
+            <div class="plan-card" role="link" tabindex="0">
+              <div class="card-top">
+                <div class="kind-glyph handout">
+                  <!-- Document / handout glyph -->
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 3 14 8 19 8"/>
+                    <line x1="8" y1="13" x2="16" y2="13"/>
+                    <line x1="8" y1="17" x2="13" y2="17"/>
+                  </svg>
+                </div>
+                <div class="card-meta">
+                  <p class="card-kind">Workout handout</p>
+                  <h3 class="card-title">Morning mobility flow</h3>
+                  <p class="card-sub">
+                    6 exercises<span class="dot"></span>~12 min<span class="dot"></span>updated 5 days ago
+                  </p>
+                </div>
+                <svg class="chev" viewBox="0 0 24 24" aria-hidden="true">
+                  <polyline points="9 6 15 12 9 18"/>
+                </svg>
+              </div>
+              <div class="provenance">
+                <div class="av">JM</div>
+                <div class="text">
+                  from <span class="who">James</span> <span class="practice">&middot; Flex Studio</span>
+                </div>
+                <div class="live-dot" aria-label="live-linked"></div>
+              </div>
+            </div>
+
+            <!-- Card 3 — Workout player from Margaret (upper body) -->
+            <div class="plan-card" role="link" tabindex="0">
+              <div class="card-top">
+                <div class="kind-glyph">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"/>
+                    <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/>
+                  </svg>
+                </div>
+                <div class="card-meta">
+                  <p class="card-kind">Workout player</p>
+                  <h3 class="card-title">Upper body strength</h3>
+                  <p class="card-sub">
+                    11 exercises<span class="dot"></span>~28 min<span class="dot"></span>updated 1 week ago
+                  </p>
+                </div>
+                <svg class="chev" viewBox="0 0 24 24" aria-hidden="true">
+                  <polyline points="9 6 15 12 9 18"/>
+                </svg>
+              </div>
+              <div class="provenance">
+                <div class="av">MV</div>
+                <div class="text">
+                  from <span class="who">Margaret Vorster</span> <span class="practice">&middot; Cape Biokinetics</span>
+                </div>
+                <div class="live-dot" aria-label="live-linked"></div>
+              </div>
+            </div>
+
+          </div>
+
+          <p class="list-footnote">
+            These plans live-update when your practitioner edits them.
+          </p>
+
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <div class="divider">
+    <div class="line"></div>
+    <div class="label">Design notes</div>
+    <div class="line"></div>
+  </div>
+
+  <!-- ===============================================================
+       Annotation panel — 4 cards
+       =============================================================== -->
+  <section class="annotations">
+
+    <article class="annot">
+      <div class="badge">01</div>
+      <h3>Spanning identity</h3>
+      <p>
+        The consumer account sits <strong>above</strong> the practice
+        client-rows. One claim, and every plan from every practitioner the
+        consumer works with shows up in the same list &mdash; bridged by
+        the email on file.
+      </p>
+      <p>
+        The DB-side shape (a <code>client_accounts</code> table, an alias
+        on <code>auth.users</code>, or something else) is open question
+        #1 in <code>docs/ARTIFACT_SYSTEM.md</code>. The
+        <strong>consumer's experience</strong>, though, is concrete and
+        visible here: one home, three practitioners linked, plans
+        side-by-side regardless of which practice published them.
+      </p>
+    </article>
+
+    <article class="annot">
+      <div class="badge">02</div>
+      <h3>Magic-link only for now</h3>
+      <p>
+        No password. Apple / Google deferred &mdash; the magic-link path
+        is enough for the spanning-identity proof. Resend SMTP +
+        Supabase auth already shipped for the practitioner app; the
+        consumer path reuses the same wiring.
+      </p>
+      <p>
+        The page already knows the <code>plan_id</code> from the URL
+        the consumer arrived on, so claim <strong>attaches the current
+        plan</strong> to the new account. No silent identity token
+        (rejected &mdash; that would tag non-claimers and break the
+        POPIA moat we get from anonymous consumption).
+      </p>
+    </article>
+
+    <article class="annot">
+      <div class="badge">03</div>
+      <h3>Card parity with mobile</h3>
+      <p>
+        Same card pattern as the mobile My Workouts mockup &mdash;
+        artifact-kind glyph + title + meta row + a coral-tint
+        <strong>provenance banner</strong> along the bottom showing the
+        practitioner avatar, name, practice, and a live-link dot.
+      </p>
+      <div class="callout">
+        <strong>R-10-style parity.</strong> The consumer's "all my
+        plans" surface is one design language across mobile and web.
+        When the mobile card changes, the web card changes in the same
+        PR.
+      </div>
+    </article>
+
+    <article class="annot">
+      <div class="badge">04</div>
+      <h3>Live-linked, not snapshotted</h3>
+      <p>
+        Claiming a plan never freezes it. The consumer always sees the
+        practitioner's latest version &mdash; the sage live-dot at the
+        end of the provenance banner is the visible promise.
+      </p>
+      <p>
+        Pre-claim engagement stays anonymous: analytics events captured
+        before the claim are attributed to the
+        <code>client_sessions</code> row, not to the consumer account.
+        <strong>Claim-forward attribution only</strong> &mdash; see
+        the Analytics section of <code>docs/ARTIFACT_SYSTEM.md</code>.
+      </p>
+    </article>
+
+  </section>
+
+</body>
+</html>
