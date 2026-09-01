@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:raidme/models/exercise_capture.dart';
+import 'package:raidme/models/session.dart';
 import 'package:raidme/services/local_storage_service.dart';
 import 'package:raidme/widgets/studio_exercise_card.dart';
 
@@ -152,6 +153,14 @@ void main() {
         );
         addTearDown(storage.close);
 
+        await storage.saveSession(
+          Session(
+            id: 's1',
+            clientName: 'Test Client',
+            createdAt: DateTime.now(),
+          ),
+        );
+
         final ex = ExerciseCapture(
           id: 'ok-1',
           position: 0,
@@ -162,7 +171,27 @@ void main() {
         );
         await storage.saveExercise(ex);
 
+        // Verify the row exists before deleting.
+        final before = await storage.db.query(
+          'exercises',
+          where: 'id = ?',
+          whereArgs: [ex.id],
+        );
+        expect(before, hasLength(1));
+
         await storage.deleteExercise(ex.id);
+
+        // Verify the row is gone after deleting.
+        final after = await storage.db.query(
+          'exercises',
+          where: 'id = ?',
+          whereArgs: [ex.id],
+        );
+        expect(
+          after,
+          isEmpty,
+          reason: 'deleteExercise must remove the row from SQLite',
+        );
       },
     );
   });

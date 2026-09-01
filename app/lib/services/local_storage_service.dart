@@ -2220,12 +2220,25 @@ class LocalStorageService {
 
   /// FIFO read of every pending op, oldest first. Used by SyncService
   /// to drain the queue.
+  ///
+  /// Rows with an unrecognised [PendingOp] type (e.g. written by a newer
+  /// app version and then downgraded) are skipped with a warning rather
+  /// than crashing the entire queue.
   Future<List<PendingOp>> getPendingOps() async {
     final rows = await db.query(
       'pending_ops',
       orderBy: 'created_at ASC',
     );
-    return rows.map((r) => PendingOp.fromMap(r)).toList(growable: false);
+    final ops = <PendingOp>[];
+    for (final r in rows) {
+      try {
+        ops.add(PendingOp.fromMap(r));
+      } catch (e) {
+        debugPrint('LocalStorageService.getPendingOps: skipping row '
+            '${r['id']} — $e');
+      }
+    }
+    return ops;
   }
 
   /// Count of pending ops. Cheap scalar used for the "N pending" chip
