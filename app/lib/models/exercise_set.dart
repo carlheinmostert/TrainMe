@@ -138,16 +138,7 @@ class ExerciseSet {
 
   /// Deserialize from a SQLite row. Snake-case keys.
   factory ExerciseSet.fromMap(Map<String, dynamic> map) {
-    return ExerciseSet(
-      id: map['id'] as String,
-      position: (map['position'] as num).toInt(),
-      reps: (map['reps'] as num).toInt(),
-      holdSeconds: (map['hold_seconds'] as num?)?.toInt() ?? 0,
-      holdPosition: HoldPosition.fromWire(map['hold_position'] as String?),
-      weightKg: (map['weight_kg'] as num?)?.toDouble(),
-      breatherSecondsAfter:
-          (map['breather_seconds_after'] as num?)?.toInt() ?? 60,
-    );
+    return ExerciseSet._fromFields(map, id: map['id'] as String);
   }
 
   /// Serialize to a SQLite-friendly map. Includes [id] but NOT
@@ -185,15 +176,24 @@ class ExerciseSet {
   /// from the trainer device, but the value identity (position, reps,
   /// etc.) is what matters for diffs.
   factory ExerciseSet.fromRpcJson(Map<String, dynamic> json) {
+    return ExerciseSet._fromFields(json, id: const Uuid().v4());
+  }
+
+  /// Shared field parser for [fromMap] and [fromRpcJson]. Both have
+  /// identical snake-case field names; they differ only in how [id] is
+  /// resolved (read from the row vs. minted fresh).
+  factory ExerciseSet._fromFields(Map<String, dynamic> fields,
+      {required String id}) {
     return ExerciseSet(
-      id: const Uuid().v4(),
-      position: (json['position'] as num).toInt(),
-      reps: (json['reps'] as num).toInt(),
-      holdSeconds: (json['hold_seconds'] as num?)?.toInt() ?? 0,
-      holdPosition: HoldPosition.fromWire(json['hold_position'] as String?),
-      weightKg: (json['weight_kg'] as num?)?.toDouble(),
+      id: id,
+      position: (fields['position'] as num).toInt(),
+      reps: (fields['reps'] as num).toInt(),
+      holdSeconds: (fields['hold_seconds'] as num?)?.toInt() ?? 0,
+      holdPosition:
+          HoldPosition.fromWire(fields['hold_position'] as String?),
+      weightKg: (fields['weight_kg'] as num?)?.toDouble(),
       breatherSecondsAfter:
-          (json['breather_seconds_after'] as num?)?.toInt() ?? 60,
+          (fields['breather_seconds_after'] as num?)?.toInt() ?? 60,
     );
   }
 

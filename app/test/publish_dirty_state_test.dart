@@ -22,6 +22,10 @@
 // These tests pin the behaviour:
 //   1. Capturing a new exercise on a published session → dirty.
 //   2. Conversion-status-only updates → NOT dirty; a per-set reps bump → dirty.
+//   3. Hold-position change → dirty (regression for the _setsListEqual bug that
+//      omitted holdPosition from the field comparison).
+//   4. Soft-trim window change → dirty (regression for the _isUserContentDelta
+//      omission of startOffsetMs / endOffsetMs).
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -208,6 +212,125 @@ void main() {
           reason: 'A per-set reps change is a user content edit → must stamp',
         );
         expect(afterEdit.hasUnpublishedContentChanges, isTrue);
+      },
+    );
+
+    test(
+      'hold-position change → dirty (regression: holdPosition was missing from '
+      '_setsListEqual)',
+      () async {
+        final sentAt = DateTime.now().subtract(const Duration(minutes: 5));
+        final session = Session(
+          id: 'session-holdpos-1',
+          clientName: 'Test Client',
+          createdAt: sentAt.subtract(const Duration(hours: 1)),
+          sentAt: sentAt,
+          planUrl: 'https://session.homefit.studio/p/fake-uuid',
+          version: 1,
+        );
+        await storage.saveSession(session);
+
+        final firstSet = ExerciseSet.create(
+          position: 1,
+          reps: 10,
+          holdSeconds: 30,
+          holdPosition: HoldPosition.perRep,
+          breatherSecondsAfter: 30,
+        );
+        final ex = ExerciseCapture(
+          id: 'ex-holdpos-1',
+          position: 0,
+          rawFilePath: 'raw/dummy.mp4',
+          mediaType: MediaType.video,
+          createdAt: DateTime.now(),
+          sessionId: session.id,
+          sets: <ExerciseSet>[firstSet],
+          videoRepsPerLoop: 3,
+        );
+        await storage.saveExercise(ex);
+
+        // Clear the stamp (simulate post-publish stable state).
+        await storage.db.update(
+          'sessions',
+          {'last_content_edit_at': null},
+          where: 'id = ?',
+          whereArgs: [session.id],
+        );
+
+        // Flip hold mode from perRep → endOfSet — same hold_seconds, different
+        // semantics (per_rep vs. one pause at the end of the set).
+        final edited = ex.copyWith(
+          sets: <ExerciseSet>[
+            firstSet.copyWith(holdPosition: HoldPosition.endOfSet),
+          ],
+        );
+        await storage.saveExercise(edited);
+
+        final after = await storage.getSession(session.id);
+        expect(
+          after!.lastContentEditAt,
+          isNotNull,
+          reason:
+              'holdPosition change must dirty the session — it shifts the '
+              'per-set duration on both the mobile preview and the web player',
+        );
+        expect(after.hasUnpublishedContentChanges, isTrue);
+      },
+    );
+
+    test(
+      'soft-trim window change → dirty (regression: startOffsetMs/endOffsetMs '
+      'were missing from _isUserContentDelta)',
+      () async {
+        final sentAt = DateTime.now().subtract(const Duration(minutes: 5));
+        final session = Session(
+          id: 'session-trim-1',
+          clientName: 'Test Client',
+          createdAt: sentAt.subtract(const Duration(hours: 1)),
+          sentAt: sentAt,
+          planUrl: 'https://session.homefit.studio/p/fake-uuid',
+          version: 1,
+        );
+        await storage.saveSession(session);
+
+        final firstSet = ExerciseSet.create(
+          position: 1,
+          reps: 10,
+          breatherSecondsAfter: 30,
+        );
+        final ex = ExerciseCapture(
+          id: 'ex-trim-1',
+          position: 0,
+          rawFilePath: 'raw/dummy.mp4',
+          mediaType: MediaType.video,
+          createdAt: DateTime.now(),
+          sessionId: session.id,
+          sets: <ExerciseSet>[firstSet],
+          videoRepsPerLoop: 3,
+        );
+        await storage.saveExercise(ex);
+
+        // Clear the stamp (simulate post-publish stable state).
+        await storage.db.update(
+          'sessions',
+          {'last_content_edit_at': null},
+          where: 'id = ?',
+          whereArgs: [session.id],
+        );
+
+        // Apply a soft-trim window — start/end both change from null to values.
+        final trimmed = ex.copyWith(startOffsetMs: 500, endOffsetMs: 4500);
+        await storage.saveExercise(trimmed);
+
+        final after = await storage.getSession(session.id);
+        expect(
+          after!.lastContentEditAt,
+          isNotNull,
+          reason:
+              'Soft-trim changes what the client sees — startOffsetMs/endOffsetMs '
+              'changes must dirty the session',
+        );
+        expect(after.hasUnpublishedContentChanges, isTrue);
       },
     );
   });

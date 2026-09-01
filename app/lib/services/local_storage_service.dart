@@ -1740,16 +1740,23 @@ class LocalStorageService {
   /// Returns true when [next] differs from [prev] in any field that the
   /// practitioner would recognise as a user-authored edit to plan content.
   ///
-  /// Included: name, position, sets list (deep — every reps/hold/weight/
-  /// breather change counts), restHoldSeconds, mediaType, prepSeconds,
+  /// Included: name, position, sets list (deep — every reps/hold/holdPosition/
+  /// weight/breather change counts), restHoldSeconds, mediaType, prepSeconds,
   /// includeAudio, preferredTreatment, notes, circuitId, videoRepsPerLoop,
-  /// rotationQuarters, aspectRatio.
+  /// rotationQuarters, aspectRatio, startOffsetMs, endOffsetMs.
   ///
   /// Excluded (deliberately): conversionStatus, convertedFilePath,
   /// thumbnailPath, videoDurationMs, archiveFilePath, archivedAt,
   /// rawArchiveUploadedAt, rawFilePath. These are pipeline byproducts
   /// and fire many times during conversion; treating them as edits
   /// would perma-dirty every session mid-capture.
+  ///
+  /// Also excluded: focusFrameOffsetMs, heroCropOffset, bodyFocus,
+  /// thumbnailsDirty — these affect the practitioner-facing preview and
+  /// the web-player lobby thumbnail, but their dirty-state is managed
+  /// separately via the [ExerciseCapture.thumbnailsDirty] flag and the
+  /// publish fast-path; treating them as full session edits would
+  /// incorrectly re-open the 14-day publish-lock window.
   static bool _isUserContentDelta(
     ExerciseCapture prev,
     ExerciseCapture next,
@@ -1765,8 +1772,8 @@ class LocalStorageService {
     if (prev.circuitId != next.circuitId) return true;
     // Per-set PLAN — any change in the sets list is a user-content
     // edit. Compare element-wise via [ExerciseSet]'s value equality so
-    // additions, deletions, position swaps, reps/hold/weight/breather
-    // edits all dirty the session.
+    // additions, deletions, position swaps, reps/hold/holdPosition/
+    // weight/breather edits all dirty the session.
     if (!_setsListEqual(prev.sets, next.sets)) return true;
     // Wave 24 — changing the number of reps captured in the source
     // video is a semantic content edit; it shifts the per-rep / per-set
@@ -1779,6 +1786,10 @@ class LocalStorageService {
     // the session via the `existing == null` branch in `saveExercise`.
     if (prev.rotationQuarters != next.rotationQuarters) return true;
     if (prev.aspectRatio != next.aspectRatio) return true;
+    // Wave 20 — soft-trim window changes what the client sees (the
+    // looping playback range). Both in- and out-points are user edits.
+    if (prev.startOffsetMs != next.startOffsetMs) return true;
+    if (prev.endOffsetMs != next.endOffsetMs) return true;
     return false;
   }
 
@@ -1793,6 +1804,7 @@ class LocalStorageService {
       if (x.position != y.position ||
           x.reps != y.reps ||
           x.holdSeconds != y.holdSeconds ||
+          x.holdPosition != y.holdPosition ||
           x.weightKg != y.weightKg ||
           x.breatherSecondsAfter != y.breatherSecondsAfter) {
         return false;
