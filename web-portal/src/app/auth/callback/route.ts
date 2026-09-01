@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
+import { safeNext } from '@/lib/safe-next';
 
 const REFERRAL_COOKIE = 'homefit_referral_code';
 const CONSENT_COOKIE = 'homefit_referral_consent';
@@ -12,17 +13,6 @@ const CONSENT_COOKIE = 'homefit_referral_consent';
 // Extended 2026-04-19 to claim referral codes captured at /r/{code} or
 // /sign-up. Failure to claim is silent — we never block a user from
 // reaching their dashboard over a dodgy referral link.
-/**
- * Same-origin app path? `next` arrives via the magic-link URL, so it's
- * attacker-shaped — clamp to a leading-`/` non-protocol-relative path
- * before redirecting. Anything else collapses to /dashboard.
- */
-function safeNext(raw: string | null): string {
-  if (!raw) return '/dashboard';
-  if (!raw.startsWith('/')) return '/dashboard';
-  if (raw.startsWith('//')) return '/dashboard';
-  return raw;
-}
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
