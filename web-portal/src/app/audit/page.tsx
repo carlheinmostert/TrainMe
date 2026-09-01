@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import {
@@ -19,7 +18,7 @@ import {
 } from '@/components/AuditFilterBar';
 import { AuditCsvButton } from '@/components/AuditCsvButton';
 import { ClientTime } from '@/components/ClientTime';
-import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { resolveActivePractice } from '@/lib/server-page-utils';
 import { webPlayerBaseUrl } from '@/lib/env';
 
 /**
@@ -73,14 +72,7 @@ export default async function AuditPage({
   if (!user) redirect('/');
 
   const params = await searchParams;
-  // Resolution order: explicit `?practice=` (in-portal Link), then the
-  // `hf_active_practice` cookie set by middleware on the most recent
-  // app→portal handoff. Middleware 302-strips the param after setting
-  // the cookie, so without this fallback the dashboard tile click
-  // bounces here, finds no param, and redirects back to /dashboard.
-  const cookieStore = await cookies();
-  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
-  const practiceId = params.practice ?? cookiePractice;
+  const practiceId = await resolveActivePractice(params.practice);
 
   const portalApi = createPortalApi(supabase);
   if (!practiceId) {

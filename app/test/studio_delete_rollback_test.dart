@@ -25,6 +25,26 @@ class _ThrowingDeleteStorage extends LocalStorageService {
   }
 }
 
+/// Creates a minimal [ExerciseCapture] with only the fields that vary
+/// across tests specified — avoids repeating boilerplate in every group.
+ExerciseCapture _exercise(
+  String id, {
+  int position = 0,
+  String? name,
+  String? rawFilePath,
+  String sessionId = 's1',
+}) {
+  return ExerciseCapture(
+    id: id,
+    position: position,
+    name: name,
+    rawFilePath: rawFilePath ?? 'raw/$id.mp4',
+    mediaType: MediaType.video,
+    createdAt: DateTime(2026, 5, 23),
+    sessionId: sessionId,
+  );
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -33,30 +53,9 @@ void main() {
   group('reindexAfterRemove', () {
     test('removes the row at index and reindexes positions', () {
       final list = [
-        ExerciseCapture(
-          id: 'a',
-          position: 0,
-          rawFilePath: 'raw/a.mp4',
-          mediaType: MediaType.video,
-          createdAt: DateTime.now(),
-          sessionId: 's1',
-        ),
-        ExerciseCapture(
-          id: 'b',
-          position: 1,
-          rawFilePath: 'raw/b.mp4',
-          mediaType: MediaType.video,
-          createdAt: DateTime.now(),
-          sessionId: 's1',
-        ),
-        ExerciseCapture(
-          id: 'c',
-          position: 2,
-          rawFilePath: 'raw/c.mp4',
-          mediaType: MediaType.video,
-          createdAt: DateTime.now(),
-          sessionId: 's1',
-        ),
+        _exercise('a', position: 0),
+        _exercise('b', position: 1),
+        _exercise('c', position: 2),
       ];
 
       final next = reindexAfterRemove(list, 1);
@@ -67,22 +66,8 @@ void main() {
 
     test('does not mutate the input list', () {
       final list = [
-        ExerciseCapture(
-          id: 'a',
-          position: 0,
-          rawFilePath: 'raw/a.mp4',
-          mediaType: MediaType.video,
-          createdAt: DateTime.now(),
-          sessionId: 's1',
-        ),
-        ExerciseCapture(
-          id: 'b',
-          position: 1,
-          rawFilePath: 'raw/b.mp4',
-          mediaType: MediaType.video,
-          createdAt: DateTime.now(),
-          sessionId: 's1',
-        ),
+        _exercise('a', position: 0),
+        _exercise('b', position: 1),
       ];
 
       reindexAfterRemove(list, 0);
@@ -98,24 +83,8 @@ void main() {
         final storage = _ThrowingDeleteStorage();
 
         final original = [
-          ExerciseCapture(
-            id: 'a',
-            position: 0,
-            name: 'Squat',
-            rawFilePath: 'raw/a.mp4',
-            mediaType: MediaType.video,
-            createdAt: DateTime.now(),
-            sessionId: 's1',
-          ),
-          ExerciseCapture(
-            id: 'b',
-            position: 1,
-            name: 'Lunge',
-            rawFilePath: 'raw/b.mp4',
-            mediaType: MediaType.video,
-            createdAt: DateTime.now(),
-            sessionId: 's1',
-          ),
+          _exercise('a', position: 0, name: 'Squat'),
+          _exercise('b', position: 1, name: 'Lunge'),
         ];
 
         var current = List<ExerciseCapture>.from(original);
@@ -152,14 +121,7 @@ void main() {
         );
         addTearDown(storage.close);
 
-        final ex = ExerciseCapture(
-          id: 'ok-1',
-          position: 0,
-          rawFilePath: '/tmp/raidme-test-ok-1.mp4',
-          mediaType: MediaType.video,
-          createdAt: DateTime.now(),
-          sessionId: 's1',
-        );
+        final ex = _exercise('ok-1', rawFilePath: '/tmp/raidme-test-ok-1.mp4');
         await storage.saveExercise(ex);
 
         await storage.deleteExercise(ex.id);
@@ -174,33 +136,19 @@ void main() {
         position: 0,
         rawFilePath: '',
         mediaType: MediaType.rest,
-        createdAt: DateTime.now(),
+        createdAt: DateTime(2026, 5, 23),
         sessionId: 's1',
       );
       expect(exerciseHasMissingMedia(rest), isFalse);
     });
 
     test('empty raw path → broken', () {
-      final ex = ExerciseCapture(
-        id: 'a',
-        position: 0,
-        rawFilePath: '',
-        mediaType: MediaType.video,
-        createdAt: DateTime.now(),
-        sessionId: 's1',
-      );
+      final ex = _exercise('a', rawFilePath: '');
       expect(exerciseHasMissingMedia(ex), isTrue);
     });
 
     test('non-existent file path → broken', () {
-      final ex = ExerciseCapture(
-        id: 'a',
-        position: 0,
-        rawFilePath: '/tmp/raidme-no-such-file-12345.mp4',
-        mediaType: MediaType.video,
-        createdAt: DateTime.now(),
-        sessionId: 's1',
-      );
+      final ex = _exercise('a', rawFilePath: '/tmp/raidme-no-such-file-12345.mp4');
       expect(exerciseHasMissingMedia(ex), isTrue);
     });
   });

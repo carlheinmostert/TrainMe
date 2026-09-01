@@ -1783,10 +1783,13 @@ export class PortalShareKitApi {
         p_event_kind: eventKind,
         p_meta: meta ? (meta as never) : undefined,
       });
-    } catch {
+    } catch (err) {
       // Swallow — analytics must never break the share UX. If the RPC is
       // down the user's copy/download still works, they just don't show
-      // up in the funnel dashboard.
+      // up in the funnel dashboard. Log in dev for observability.
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[PortalShareKitApi.logEvent]', err);
+      }
     }
   }
 }

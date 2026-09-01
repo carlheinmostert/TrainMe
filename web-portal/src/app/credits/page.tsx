@@ -1,12 +1,11 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { BUNDLES, zar } from '@/lib/bundles';
 import { BuyBundleButton } from '@/components/BuyBundleButton';
-import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { resolveActivePractice } from '@/lib/server-page-utils';
 
 type SearchParams = { practice?: string };
 
@@ -25,15 +24,7 @@ export default async function CreditsPage({
   if (!user) redirect('/?next=/credits');
 
   const params = await searchParams;
-  // Resolution order: explicit `?practice=` (e.g. coming through an
-  // in-portal Link), then the `hf_active_practice` cookie set by
-  // middleware on the most recent app→portal handoff. The mobile
-  // credits chip opens this page with `?practice=<uuid>` — middleware
-  // strips the param and pins the cookie, then redirects here, so
-  // this fallback is the load-bearing one for the app→portal flow.
-  const cookieStore = await cookies();
-  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
-  const practiceId = params.practice ?? cookiePractice;
+  const practiceId = await resolveActivePractice(params.practice);
 
   // Owner-only gate. Per CLAUDE.md tenancy model: owners buy credits,
   // practitioners consume them. The /credits/purchase API route also
