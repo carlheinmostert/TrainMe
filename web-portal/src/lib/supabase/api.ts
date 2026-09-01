@@ -220,7 +220,10 @@ export class PortalApi {
       .eq('trainer_id', userId)
       .order('joined_at', { ascending: true });
 
-    if (error || !data) return [];
+    if (error || !data) {
+      if (error) console.error('[listMyPractices] RPC failed:', error.message);
+      return [];
+    }
 
     return data
       .map((row) => {
@@ -250,7 +253,10 @@ export class PortalApi {
       .eq('practice_id', practiceId)
       .order('joined_at', { ascending: true });
 
-    if (error || !data) return [];
+    if (error || !data) {
+      if (error) console.error('[listPracticeMembers] query failed:', error.message);
+      return [];
+    }
     return data as MemberRow[];
   }
 
@@ -272,7 +278,10 @@ export class PortalApi {
       'list_practice_members_with_profile',
       { p_practice_id: practiceId },
     );
-    if (error || !data) return [];
+    if (error || !data) {
+      if (error) console.error('[listPracticeMembersWithProfile] RPC failed:', error.message);
+      return [];
+    }
     const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
     return rows.map((r) => ({
       trainerId: String(r.trainer_id ?? ''),
@@ -669,8 +678,8 @@ export class PortalApi {
     });
     if (!error) return;
     const code = (error as { code?: string }).code;
-    if (code === 'P0002') throw new DeleteClientError('not-found', error.message);
-    if (code === '42501') throw new DeleteClientError('not-member', error.message);
+    if (code === 'P0002') throw new RestoreClientError('not-found', error.message);
+    if (code === '42501') throw new RestoreClientError('not-member', error.message);
     throw new Error(error.message);
   }
 }
@@ -704,11 +713,10 @@ export class RenamePracticeError extends Error {
 }
 
 /**
- * Categorised failure from [PortalApi.deleteClient] /
- * [PortalApi.restoreClient]. Mirrors the mobile surface so both
- * twins show the same voice ("Client not found" / "You don't have
- * permission"). Only the 42501 / P0002 SQLSTATEs are named — other
- * errors surface as a plain [Error] with the server message.
+ * Categorised failure from [PortalApi.deleteClient]. Mirrors the mobile
+ * surface so both twins show the same voice ("Client not found" / "You
+ * don't have permission"). Only the 42501 / P0002 SQLSTATEs are named —
+ * other errors surface as a plain [Error] with the server message.
  */
 export class DeleteClientError extends Error {
   constructor(
@@ -717,6 +725,21 @@ export class DeleteClientError extends Error {
   ) {
     super(message);
     this.name = 'DeleteClientError';
+  }
+}
+
+/**
+ * Categorised failure from [PortalApi.restoreClient]. Same kind shape as
+ * [DeleteClientError] but a distinct class so callers can `instanceof`-check
+ * unambiguously.
+ */
+export class RestoreClientError extends Error {
+  constructor(
+    public readonly kind: 'not-found' | 'not-member',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RestoreClientError';
   }
 }
 

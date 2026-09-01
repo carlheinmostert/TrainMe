@@ -479,6 +479,14 @@ class ExerciseCapture {
   /// Whether this exercise is a rest period.
   bool get isRest => mediaType == MediaType.rest;
 
+  /// Safe enum deserialization — guards against out-of-range index values
+  /// from an older DB schema or corrupted row. Falls back to [fallback]
+  /// instead of throwing a RangeError.
+  static T _decodeEnum<T>(List<T> values, int index, T fallback) {
+    if (index < 0 || index >= values.length) return fallback;
+    return values[index];
+  }
+
   /// Deserialize from a SQLite row. Sets are attached separately by the
   /// LocalStorageService loader (one query per session bucketed by
   /// exercise id), since they live in their own table.
@@ -492,9 +500,9 @@ class ExerciseCapture {
       rawFilePath: map['raw_file_path'] as String,
       convertedFilePath: map['converted_file_path'] as String?,
       thumbnailPath: map['thumbnail_path'] as String?,
-      mediaType: MediaType.values[map['media_type'] as int],
-      conversionStatus:
-          ConversionStatus.values[map['conversion_status'] as int],
+      mediaType: _decodeEnum(MediaType.values, map['media_type'] as int, MediaType.photo),
+      conversionStatus: _decodeEnum(
+          ConversionStatus.values, map['conversion_status'] as int, ConversionStatus.pending),
       sets: sets,
       restHoldSeconds: map['rest_hold_seconds'] as int?,
       notes: map['notes'] as String?,

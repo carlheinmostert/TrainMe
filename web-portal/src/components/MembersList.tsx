@@ -85,7 +85,7 @@ export function MembersList({
 
   async function handleAdd(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!isOwner) return;
+    if (!isOwner || addPending) return;
     const trimmed = email.trim();
     if (trimmed.length === 0) {
       fireToast({ tone: 'error', text: 'Enter an email.' });

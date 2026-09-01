@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../config.dart';
 import '../services/auth_service.dart';
 import '../utils/duration_format.dart';
+import '../utils/timestamp_parse.dart';
 import 'exercise_capture.dart';
 
 /// A capture session — one bio + one client sitting.
@@ -251,24 +252,14 @@ class Session {
       circuitNames: names,
       preferredRestIntervalSeconds: map['preferred_rest_interval'] as int?,
       practiceId: map['practice_id'] as String?,
-      firstOpenedAt: _parseTimestamp(map['first_opened_at']),
-      lastOpenedAt: _parseTimestamp(map['last_opened_at']),
+      firstOpenedAt: parseTimestamp(map['first_opened_at']),
+      lastOpenedAt: parseTimestamp(map['last_opened_at']),
       createdByUserId: map['created_by_user_id'] as String?,
       clientId: map['client_id'] as String?,
       crossfadeLeadMs: map['crossfade_lead_ms'] as int?,
       crossfadeFadeMs: map['crossfade_fade_ms'] as int?,
-      unlockCreditPrepaidAt: _parseTimestamp(map['unlock_credit_prepaid_at']),
+      unlockCreditPrepaidAt: parseTimestamp(map['unlock_credit_prepaid_at']),
     );
-  }
-
-  /// Accept either an ISO-8601 string (remote Supabase JSON) or a
-  /// millisecondsSinceEpoch int (future local SQLite mirror) or null.
-  static DateTime? _parseTimestamp(Object? value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is String) return DateTime.tryParse(value);
-    return null;
   }
 
   /// Serialize to a map suitable for SQLite insertion.
