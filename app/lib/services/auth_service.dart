@@ -280,7 +280,7 @@ class AuthService {
     // banner so it doesn't persist into the sign-in screen.
     _api.sessionExpired.value = false;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _getPrefs();
       await prefs.remove(_selectedPracticeIdPrefsKey);
     } catch (e) {
       debugPrint('AuthService.signOut: clearing selected practice failed: $e');
@@ -318,6 +318,9 @@ class AuthService {
   static const String _selectedPracticeIdPrefsKey =
       'homefit.selected_practice_id';
 
+  static Future<SharedPreferences> _getPrefs() =>
+      SharedPreferences.getInstance();
+
   /// Pick which practice the signed-in user is acting on behalf of.
   ///
   /// Updates [currentPracticeId] immediately (so every `ValueListenableBuilder`
@@ -338,7 +341,7 @@ class AuthService {
       currentPracticeId.value = practiceId;
     }
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _getPrefs();
       await prefs.setString(_selectedPracticeIdPrefsKey, practiceId);
     } catch (e) {
       debugPrint('AuthService.selectPractice: persist failed: $e');
@@ -384,7 +387,7 @@ class AuthService {
       // could decide the fallback anyway.
       String? persisted;
       try {
-        final prefs = await SharedPreferences.getInstance();
+        final prefs = await _getPrefs();
         persisted = prefs.getString(_selectedPracticeIdPrefsKey);
       } catch (e) {
         debugPrint(
@@ -415,7 +418,7 @@ class AuthService {
       // launch, even when the bootstrap RPC was the tiebreaker.
       if (chosen != null && chosen.isNotEmpty) {
         try {
-          final prefs = await SharedPreferences.getInstance();
+          final prefs = await _getPrefs();
           await prefs.setString(_selectedPracticeIdPrefsKey, chosen);
         } catch (e) {
           debugPrint(
