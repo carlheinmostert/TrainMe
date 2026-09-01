@@ -49,6 +49,23 @@ class ConversionService extends ChangeNotifier {
     return _instance!;
   }
 
+  // ---------------------------------------------------------------------------
+  // Test seams — @visibleForTesting, not part of the public API.
+  // ---------------------------------------------------------------------------
+
+  /// Clears the singleton so tests can call [initialize] again with a fresh
+  /// instance. Must not be called in production code.
+  @visibleForTesting
+  static void resetInstanceForTest() => _instance = null;
+
+  /// Exposes the internal queue length for test assertions.
+  @visibleForTesting
+  int get queueLengthForTest => _queue.length;
+
+  /// Exposes the internal processing flag for test assertions.
+  @visibleForTesting
+  bool get processingForTest => _processing;
+
   /// Native iOS platform channel for video conversion.
   /// Uses AVAssetReader/Writer for H.264/265 I/O and Accelerate for
   /// pixel processing -- bypasses OpenCV's codec limitations on iOS.
