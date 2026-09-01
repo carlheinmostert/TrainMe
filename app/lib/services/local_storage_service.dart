@@ -24,6 +24,11 @@ class LocalStorageService {
   static const _dbName = 'raidme.db';
   static const _dbVersion = 42;
 
+  /// Exposed for tests that need to assert the schema version. Always matches
+  /// the production [_dbVersion] — changing the schema MUST bump both.
+  @visibleForTesting
+  static int get currentDbVersion => _dbVersion;
+
   Database? _db;
 
   /// The database instance. Throws if [init] hasn't been called.

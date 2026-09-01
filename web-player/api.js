@@ -179,6 +179,29 @@
   }
 
   /**
+   * Build a standard Supabase RPC POST request. All anon-role RPCs use
+   * the same headers; extracting here eliminates the copy-paste across
+   * every call site and makes future header changes a single-line edit.
+   */
+  function _supabasePost(rpcName, params, extraOptions) {
+    return fetch(
+      `${SUPABASE_URL}/rest/v1/rpc/${rpcName}`,
+      Object.assign(
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(params),
+        },
+        extraOptions,
+      ),
+    );
+  }
+
+  /**
    * Coerce a numeric-ish value to a finite number, or `def` when the
    * value is null/undefined/NaN/non-finite. Used by the per-set
    * normaliser below — server may send strings (numeric jsonb is rare
@@ -339,18 +362,7 @@
    */
   async function getPlanFull(planId) {
     if (isLocalSurface()) return getPlanFullLocal(planId);
-    const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
-      {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ p_plan_id: planId }),
-      },
-    );
+    const response = await _supabasePost('get_plan_full', { p_plan_id: planId });
     if (!response.ok) throw new Error('Plan not found');
     const payload = await response.json();
     if (!payload || !payload.plan) throw new Error('Plan not found');
@@ -384,18 +396,7 @@
     if (!planId) return;
     if (isLocalSurface()) return;
     try {
-      await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/record_plan_opened`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ p_plan_id: planId }),
-        },
-      );
+      await _supabasePost('record_plan_opened', { p_plan_id: planId });
     } catch (err) {
       // Engagement signal is non-critical — log + continue.
       try { console.warn('[homefit] record_plan_opened failed:', err); } catch (_) {}
@@ -422,21 +423,10 @@
     if (!planId) return null;
     if (isLocalSurface()) return null;
     try {
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/start_analytics_session`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_plan_id: planId,
-            p_user_agent_bucket: userAgentBucket || 'other',
-          }),
-        },
-      );
+      const response = await _supabasePost('start_analytics_session', {
+        p_plan_id: planId,
+        p_user_agent_bucket: userAgentBucket || 'other',
+      });
       if (!response.ok) return null;
       const result = await response.json();
       // The RPC returns the UUID directly (scalar) or null.
@@ -458,23 +448,15 @@
     if (isLocalSurface()) return;
     try {
       const keepalive = !!(options && options.keepalive);
-      await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
+      await _supabasePost(
+        'log_analytics_event',
         {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_session_id: sessionId,
-            p_event_kind: eventKind,
-            p_exercise_id: exerciseId || null,
-            p_event_data: eventData || null,
-          }),
-          keepalive,
+          p_session_id: sessionId,
+          p_event_kind: eventKind,
+          p_exercise_id: exerciseId || null,
+          p_event_data: eventData || null,
         },
+        keepalive ? { keepalive: true } : undefined,
       );
     } catch (err) {
       try { console.warn('[homefit] log_analytics_event failed:', err); } catch (_) {}
@@ -489,21 +471,10 @@
     if (!sessionId) return;
     if (isLocalSurface()) return;
     try {
-      await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/set_analytics_consent`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_session_id: sessionId,
-            p_granted: !!granted,
-          }),
-        },
-      );
+      await _supabasePost('set_analytics_consent', {
+        p_session_id: sessionId,
+        p_granted: !!granted,
+      });
     } catch (err) {
       try { console.warn('[homefit] set_analytics_consent failed:', err); } catch (_) {}
     }
@@ -518,21 +489,10 @@
     if (!planId) return;
     if (isLocalSurface()) return;
     try {
-      await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/revoke_analytics_consent`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_plan_id: planId,
-            p_session_id: sessionId || null,
-          }),
-        },
-      );
+      await _supabasePost('revoke_analytics_consent', {
+        p_plan_id: planId,
+        p_session_id: sessionId || null,
+      });
     } catch (err) {
       try { console.warn('[homefit] revoke_analytics_consent failed:', err); } catch (_) {}
     }
@@ -565,21 +525,10 @@
     }
     if (isLocalSurface()) return { ok: false, reason: 'local-surface' };
     try {
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_plan_id: planId,
-            p_kind: kind,
-          }),
-        },
-      );
+      const response = await _supabasePost('client_self_grant_consent', {
+        p_plan_id: planId,
+        p_kind: kind,
+      });
       if (!response.ok) {
         let body = '';
         try { body = await response.text(); } catch (_) { /* ignore */ }
@@ -603,18 +552,7 @@
   async function getPlanSharingContext(planId) {
     if (!planId) return null;
     try {
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ p_plan_id: planId }),
-        },
-      );
+      const response = await _supabasePost('get_plan_sharing_context', { p_plan_id: planId });
       if (!response.ok) return null;
       const rows = await response.json();
       // RPC returns TABLE — PostgREST wraps as an array. Grab first row.
