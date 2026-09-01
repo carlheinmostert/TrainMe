@@ -23,6 +23,7 @@
 // the order the fields arrive. Same algorithm, same helper.
 
 import crypto from 'node:crypto';
+import { requireEnv } from './env';
 
 export type PayFastField =
   | 'merchant_id'
@@ -168,10 +169,14 @@ export function getMerchantConfig(): {
   };
 }
 
+/**
+ * Returns the portal's base URL for building PayFast return/cancel/notify URLs.
+ * Uses requireEnv so a missing APP_URL fails loudly rather than silently
+ * routing PayFast callbacks to localhost in a misconfigured production deploy.
+ */
 export function getAppUrl(): string {
-  return (
-    process.env.APP_URL ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    'http://localhost:3000'
+  return requireEnv(
+    'APP_URL',
+    process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,
   );
 }
