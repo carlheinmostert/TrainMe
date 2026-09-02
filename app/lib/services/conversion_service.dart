@@ -45,6 +45,7 @@ class ConversionService extends ChangeNotifier {
 
   /// Create and store the singleton. Call once from main().
   static ConversionService initialize(LocalStorageService storage) {
+    if (_instance != null) return _instance!;
     _instance = ConversionService._(storage: storage);
     return _instance!;
   }
