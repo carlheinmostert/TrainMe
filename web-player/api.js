@@ -195,13 +195,9 @@
    * Coerce a numeric-ish value to a finite number, OR explicit null
    * when the source is null/undefined. Used for `weight_kg` which
    * carries a load-bearing null = bodyweight signal.
+   * Convenience alias: _coerceNum(v, null).
    */
-  function _coerceNumOrNull(v) {
-    if (v === null || v === undefined) return null;
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    return n;
-  }
+  function _coerceNumOrNull(v) { return _coerceNum(v, null); }
 
   /**
    * Wave 41 per-set normaliser. The server sends each exercise with a
@@ -306,6 +302,12 @@
     };
   }
 
+  function _buildPlanFromPayload(payload) {
+    const exercises = (payload.exercises || []).map(_normaliseExercise);
+    exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    return { ...payload, exercises };
+  }
+
   async function getPlanFullLocal(planId) {
     const effectiveId = planId || getLocalPlanId();
     if (!effectiveId) throw new Error('Plan not found');
@@ -316,9 +318,7 @@
     if (!response.ok) throw new Error('Plan not found');
     const payload = await response.json();
     if (!payload || !payload.plan) throw new Error('Plan not found');
-    const exercises = (payload.exercises || []).map(_normaliseExercise);
-    exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    return { ...payload, exercises };
+    return _buildPlanFromPayload(payload);
   }
 
   /**
@@ -359,10 +359,7 @@
     // always being present (nullable ones explicitly null rather than
     // undefined). Keeps downstream code branch-light. Shared with the
     // mobile WebView path via _normaliseExercise.
-    const exercises = (payload.exercises || []).map(_normaliseExercise);
-    exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-
-    return { ...payload, exercises };
+    return _buildPlanFromPayload(payload);
   }
 
   /**
