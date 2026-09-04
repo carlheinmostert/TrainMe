@@ -161,7 +161,8 @@
       const host = window.location.hostname;
       // Wave 4 Phase 1: Dart `shelf` loopback → 127.0.0.1 / localhost.
       // Wave 4 Phase 2: `homefit-local://plan/...` custom scheme → 'plan'.
-      if (host !== '127.0.0.1' && host !== 'localhost' && host !== 'plan') return false;
+      // '0.0.0.0' kept in sync with _isLocalSurfaceHost above.
+      if (host !== '127.0.0.1' && host !== 'localhost' && host !== '0.0.0.0' && host !== 'plan') return false;
       const params = new URLSearchParams(window.location.search || '');
       return params.get('src') === 'local';
     } catch (_) {
@@ -201,6 +202,16 @@
     const n = Number(v);
     if (!Number.isFinite(n)) return null;
     return n;
+  }
+
+  // Canonical Supabase request headers — used by every RPC call below.
+  // Centralised here so the anon key appears exactly once in network calls.
+  function _buildHeaders() {
+    return {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    };
   }
 
   /**
@@ -388,11 +399,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/record_plan_opened`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _buildHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -426,11 +433,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/start_analytics_session`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _buildHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_user_agent_bucket: userAgentBucket || 'other',
@@ -462,11 +465,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _buildHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_event_kind: eventKind,
@@ -493,11 +492,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/set_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _buildHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_granted: !!granted,
@@ -522,11 +517,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/revoke_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _buildHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_session_id: sessionId || null,
@@ -569,11 +560,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _buildHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_kind: kind,
@@ -607,11 +594,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _buildHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
