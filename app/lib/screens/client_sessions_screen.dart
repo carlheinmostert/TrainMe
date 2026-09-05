@@ -1018,7 +1018,7 @@ class _ConsentChip extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF86EFAC).withValues(alpha: 0.15),
+                  color: HomefitColors.rest.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -1027,7 +1027,7 @@ class _ConsentChip extends StatelessWidget {
                     fontFamily: 'Inter',
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF86EFAC),
+                    color: HomefitColors.rest,
                   ),
                 ),
               ),
