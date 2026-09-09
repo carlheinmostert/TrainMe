@@ -343,7 +343,8 @@ class ApiClient {
           })
           .whereType<PracticeMembership>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.listMyPractices failed: $e');
       return const [];
     }
   }
@@ -367,7 +368,8 @@ class ApiClient {
       if (result is num) return result.toInt();
       if (result is String) return int.tryParse(result);
       return null;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.practiceCreditBalance failed: $e');
       return null;
     }
   }
@@ -404,7 +406,8 @@ class ApiClient {
           })
           .whereType<PlanClientLink>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ApiClient.listPlanClientLinks failed: $e');
       return const [];
     }
   }
@@ -1346,13 +1349,7 @@ class ApiClient {
         params: {'p_practice_id': practiceId},
       ),
     );
-    Map<String, dynamic>? row;
-    if (result is Map<String, dynamic>) {
-      row = result;
-    } else if (result is List && result.isNotEmpty) {
-      final first = result.first;
-      if (first is Map<String, dynamic>) row = first;
-    }
+    final row = _singleRow(result);
     if (row == null) {
       throw StateError('referral_dashboard_stats returned no row');
     }
@@ -1377,13 +1374,7 @@ class ApiClient {
           params: {'p_plan_id': planId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _singleRow(result);
       if (row == null) return null;
       return PlanAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1405,13 +1396,7 @@ class ApiClient {
           params: {'p_client_id': clientId},
         ),
       );
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map<String, dynamic>) row = first;
-      }
+      final row = _singleRow(result);
       if (row == null) return null;
       return ClientAnalyticsSummary.fromJson(row);
     } catch (e) {
@@ -1496,24 +1481,11 @@ class ReferralStats {
   );
 
   factory ReferralStats.fromJson(Map<String, dynamic> json) {
-    num asNum(dynamic v) {
-      if (v is num) return v;
-      if (v is String) return num.tryParse(v) ?? 0;
-      return 0;
-    }
-
-    int asInt(dynamic v) {
-      if (v is int) return v;
-      if (v is num) return v.toInt();
-      if (v is String) return int.tryParse(v) ?? 0;
-      return 0;
-    }
-
     return ReferralStats(
-      rebateBalanceCredits: asNum(json['rebate_balance_credits']),
-      lifetimeRebateCredits: asNum(json['lifetime_rebate_credits']),
-      refereeCount: asInt(json['referee_count']),
-      qualifyingSpendTotalZar: asNum(json['qualifying_spend_total_zar']),
+      rebateBalanceCredits: _asNum(json['rebate_balance_credits']),
+      lifetimeRebateCredits: _asNum(json['lifetime_rebate_credits']),
+      refereeCount: _asInt(json['referee_count']),
+      qualifyingSpendTotalZar: _asNum(json['qualifying_spend_total_zar']),
     );
   }
 }
@@ -1724,6 +1696,24 @@ int _asInt(dynamic v) {
   if (v is num) return v.toInt();
   if (v is String) return int.tryParse(v) ?? 0;
   return 0;
+}
+
+num _asNum(dynamic v) {
+  if (v is num) return v;
+  if (v is String) return num.tryParse(v) ?? 0;
+  return 0;
+}
+
+/// Normalises the two shapes Supabase RPCs can return for a single-row result
+/// (`Map<String,dynamic>` directly, or `List` of maps). Returns the first row
+/// as a typed map, or null if the result is empty / an unexpected shape.
+Map<String, dynamic>? _singleRow(dynamic result) {
+  if (result is Map<String, dynamic>) return result;
+  if (result is List && result.isNotEmpty) {
+    final first = result.first;
+    if (first is Map<String, dynamic>) return first;
+  }
+  return null;
 }
 
 int? _asNullableInt(dynamic v) {
