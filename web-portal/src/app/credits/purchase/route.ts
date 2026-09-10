@@ -54,7 +54,12 @@ export async function POST(request: Request) {
     bundleKey = body.bundleKey ?? body.bundle ?? '';
     practiceId = body.practiceId ?? body.practice ?? '';
   } else {
-    const form = await request.formData();
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return NextResponse.json({ error: 'invalid form body' }, { status: 400 });
+    }
     bundleKey = String(form.get('bundle') ?? form.get('bundleKey') ?? '');
     practiceId = String(form.get('practice') ?? form.get('practiceId') ?? '');
   }
