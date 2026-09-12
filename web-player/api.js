@@ -123,12 +123,7 @@
     // diverge, api.js will throw at module load before `isLocalSurface()`
     // gets a chance to short-circuit, and the embedded preview will surface
     // the catch-all "No internet connection" in app.js.
-    const _isLocalSurfaceHost = _host === '127.0.0.1'
-      || _host === 'localhost'
-      || _host === '0.0.0.0'
-      || _host.startsWith('127.')
-      || _host === 'plan';
-    if (!_isLocalSurfaceHost && (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey)) {
+    if (!_isLocalHost(_host) && (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey)) {
       throw new Error(
         'homefit.studio web player: window.HOMEFIT_CONFIG missing or '
         + 'incomplete. Verify /config.js was emitted by web-player/build.sh '
@@ -156,12 +151,24 @@
    * to the Supabase RPC — nothing changes when `window.location.hostname`
    * is not a loopback address. Keeps a single bundle serving both surfaces.
    */
+  // Single authoritative host check used by both the early-exit block above
+  // and isLocalSurface() below. Keep this list in sync with the comment at
+  // the top of the early-exit block — the two callers must agree on what
+  // counts as a local surface.
+  function _isLocalHost(host) {
+    return host === '127.0.0.1'
+      || host === 'localhost'
+      || host === '0.0.0.0'
+      || host.startsWith('127.')
+      || host === 'plan';
+  }
+
   function isLocalSurface() {
     try {
       const host = window.location.hostname;
       // Wave 4 Phase 1: Dart `shelf` loopback → 127.0.0.1 / localhost.
       // Wave 4 Phase 2: `homefit-local://plan/...` custom scheme → 'plan'.
-      if (host !== '127.0.0.1' && host !== 'localhost' && host !== 'plan') return false;
+      if (!_isLocalHost(host)) return false;
       const params = new URLSearchParams(window.location.search || '');
       return params.get('src') === 'local';
     } catch (_) {
