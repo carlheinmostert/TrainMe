@@ -452,23 +452,26 @@ async function handleVideoError(evt) {
     // Coalesce multiple errors into a single re-fetch
     if (!_urlRefreshInFlight) {
       _urlRefreshInFlight = true;
-      const fresh = await fetchPlan(planId);
-      if (fresh && fresh.exercises) {
-        // Update the exercises array in our slides with fresh URLs
-        const freshExMap = {};
-        fresh.exercises.forEach(function (ex) { freshExMap[ex.id] = ex; });
-        slides.forEach(function (s, idx) {
-          const f = freshExMap[s.id];
-          if (!f) return;
-          s.line_drawing_url = f.line_drawing_url;
-          s.grayscale_url = f.grayscale_url;
-          s.original_url = f.original_url;
-          s.grayscale_segmented_url = f.grayscale_segmented_url;
-          s.original_segmented_url = f.original_segmented_url;
-          s.mask_url = f.mask_url;
-        });
+      try {
+        const fresh = await fetchPlan(planId);
+        if (fresh && fresh.exercises) {
+          // Update the exercises array in our slides with fresh URLs
+          const freshExMap = {};
+          fresh.exercises.forEach(function (ex) { freshExMap[ex.id] = ex; });
+          slides.forEach(function (s, idx) {
+            const f = freshExMap[s.id];
+            if (!f) return;
+            s.line_drawing_url = f.line_drawing_url;
+            s.grayscale_url = f.grayscale_url;
+            s.original_url = f.original_url;
+            s.grayscale_segmented_url = f.grayscale_segmented_url;
+            s.original_segmented_url = f.original_segmented_url;
+            s.mask_url = f.mask_url;
+          });
+        }
+      } finally {
+        _urlRefreshInFlight = false;
       }
-      _urlRefreshInFlight = false;
     }
 
     // Re-resolve the URL for this video's slide

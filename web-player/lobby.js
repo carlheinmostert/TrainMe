@@ -1227,10 +1227,13 @@
       // into ONE plan re-fetch.
       if (!_lobbyRefreshInFlight) {
         _lobbyRefreshInFlight = true;
-        const fresh = await api.reFetchPlan();
-        _lobbyRefreshInFlight = false;
-        if (fresh && fresh.slides) {
-          slides = fresh.slides;
+        try {
+          const fresh = await api.reFetchPlan();
+          if (fresh && fresh.slides) {
+            slides = fresh.slides;
+          }
+        } finally {
+          _lobbyRefreshInFlight = false;
         }
       } else {
         // Another error already kicked off the re-fetch — wait a tick

@@ -225,6 +225,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // --- 4. Look up intent + amount match ---------------------------------
+  if (!mPaymentId) {
+    return new Response('missing m_payment_id', { status: 400 });
+  }
+
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('[payfast-webhook] service role env missing');
     return new Response('server misconfigured', { status: 500 });
@@ -232,10 +236,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  if (!mPaymentId) {
-    return new Response('missing m_payment_id', { status: 400 });
-  }
 
   const { data: pending, error: lookupErr } = await admin
     .from('pending_payments')
