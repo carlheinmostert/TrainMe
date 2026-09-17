@@ -1,12 +1,11 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { BUNDLES, zar } from '@/lib/bundles';
 import { BuyBundleButton } from '@/components/BuyBundleButton';
-import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { resolvePracticeId } from '@/lib/resolve-practice-id';
 
 type SearchParams = { practice?: string };
 
@@ -31,9 +30,7 @@ export default async function CreditsPage({
   // credits chip opens this page with `?practice=<uuid>` — middleware
   // strips the param and pins the cookie, then redirects here, so
   // this fallback is the load-bearing one for the app→portal flow.
-  const cookieStore = await cookies();
-  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
-  const practiceId = params.practice ?? cookiePractice;
+  const practiceId = await resolvePracticeId(params.practice);
 
   // Owner-only gate. Per CLAUDE.md tenancy model: owners buy credits,
   // practitioners consume them. The /credits/purchase API route also
@@ -51,7 +48,7 @@ export default async function CreditsPage({
     <main className="flex min-h-screen flex-col">
       <BrandHeader
         showSignOut
-        practiceId={practiceId}
+        practiceId={practiceId ?? undefined}
         isOwner={isOwner}
         userEmail={user.email ?? ''}
         practices={practices}
@@ -106,7 +103,7 @@ export default async function CreditsPage({
                   <BuyBundleButton
                     bundleKey={b.key}
                     bundleName={b.name}
-                    practiceId={practiceId}
+                    practiceId={practiceId ?? ''}
                   />
                 </article>
               );

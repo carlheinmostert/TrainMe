@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
@@ -8,7 +7,7 @@ import { NetworkEarningsCard } from '@/components/NetworkEarningsCard';
 import { ShareKit } from '@/components/ShareKit/ShareKit';
 import { referralUrl } from '@/lib/referral-share';
 import { appUrl } from '@/lib/env';
-import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
+import { resolvePracticeId } from '@/lib/resolve-practice-id';
 import type { ShareKitSlots } from '@/lib/share-kit/templates';
 
 type SearchParams = { practice?: string };
@@ -44,14 +43,7 @@ export default async function NetworkPage({
 
   const api = createPortalApi(supabase);
   const params = await searchParams;
-  // Resolution order: explicit `?practice=` (in-portal Link), then the
-  // `hf_active_practice` cookie set by middleware on the most recent
-  // app→portal handoff. Middleware 302-strips the param after setting
-  // the cookie, so without this fallback the dashboard tile click
-  // bounces here, finds no param, and redirects back to /dashboard.
-  const cookieStore = await cookies();
-  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
-  const practiceId = params.practice ?? cookiePractice;
+  const practiceId = await resolvePracticeId(params.practice);
 
   // Membership gate — mirror /clients / /credits / /audit.
   if (!practiceId) {
