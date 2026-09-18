@@ -1563,8 +1563,9 @@ class UploadService {
           filesTotal: filesTotal,
         );
       }
-      final optionalArtifactsHadFailures =
-          optionalArtifactFailureList.isNotEmpty;
+      // The throw above fires when optionalArtifactFailureList is non-empty,
+      // so at this point the list is always empty and this is always false.
+      const optionalArtifactsHadFailures = false;
 
       // PR-C — uploads complete; transition to the "Saving plan" row.
       emit(PublishProgress.markActive(PublishPhase.savingPlan));

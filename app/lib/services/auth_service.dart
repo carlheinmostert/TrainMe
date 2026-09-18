@@ -153,10 +153,7 @@ class AuthService {
   /// Email is normalised to `trim().toLowerCase()` so case-inconsistent
   /// typing doesn't create duplicate auth users downstream.
   Future<void> sendMagicLink(String email) async {
-    final normalized = email.trim().toLowerCase();
-    if (normalized.isEmpty || !normalized.contains('@')) {
-      throw const AuthException('Enter a valid email address.');
-    }
+    final normalized = _normalizeEmail(email);
     await _api.sendMagicLink(
       email: normalized,
       emailRedirectTo: AppConfig.oauthRedirectUrl,
@@ -173,10 +170,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    final normalized = email.trim().toLowerCase();
-    if (normalized.isEmpty || !normalized.contains('@')) {
-      throw const AuthException('Enter a valid email address.');
-    }
+    final normalized = _normalizeEmail(email);
     if (password.isEmpty) {
       throw const AuthException('Enter a password.');
     }
@@ -437,5 +431,20 @@ class AuthService {
       debugPrint('AuthService.ensurePracticeMembership failed: $e');
       debugPrint('$stack');
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  /// Trim + lowercase an email and validate that it looks like an address.
+  /// Throws [AuthException] on failure so callers can forward it to the UI
+  /// without any further formatting.
+  String _normalizeEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty || !normalized.contains('@')) {
+      throw const AuthException('Enter a valid email address.');
+    }
+    return normalized;
   }
 }
