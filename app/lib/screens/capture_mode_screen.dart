@@ -1180,6 +1180,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   }
 
   void _onCaptureLanded(ExerciseCapture exercise) {
+    if (!mounted) return;
     setState(() {
       _lastCapture = exercise;
       _captureCount++;

@@ -78,7 +78,7 @@ class ConversionService extends ChangeNotifier {
   /// Handle callbacks from the native platform channel (e.g. progress).
   Future<dynamic> _handleNativeCallback(MethodCall call) async {
     if (call.method == 'onProgress') {
-      final args = call.arguments as Map?;
+      final args = call.arguments as Map<String, dynamic>?;
       if (args != null) {
         debugPrint(
             'Native video conversion progress: '

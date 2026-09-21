@@ -305,7 +305,7 @@ class ApiClient {
   /// Returns `[]` on any error so UI can render a shell without crashing.
   Future<List<PracticeMembership>> listMyPractices() async {
     try {
-      final userId = raw.auth.currentUser?.id;
+      final userId = currentUserId;
       if (userId == null) return const [];
       // Wrap in a cast<dynamic>() so _guardAuth's T-inference doesn't
       // narrow to a concrete List type — the subsequent `is! List`
@@ -770,14 +770,14 @@ class ApiClient {
   /// List files in the media bucket under [prefix]. Used by the publish
   /// skip-if-unchanged optimisation to avoid re-uploading identical files.
   Future<List<FileObject>> listMedia({required String prefix}) async {
-    return await _guardAuth(
+    return _guardAuth(
       () => raw.storage.from(mediaBucket).list(path: prefix),
     );
   }
 
   /// List files in the raw-archive bucket under [prefix].
   Future<List<FileObject>> listRawArchive({required String prefix}) async {
-    return await _guardAuth(
+    return _guardAuth(
       () => raw.storage.from(rawArchiveBucket).list(path: prefix),
     );
   }
