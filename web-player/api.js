@@ -1,86 +1,3 @@
-/**
- * homefit.studio — Web Player data-access layer
- * =============================================
- * The ONE module that enumerates every Supabase operation the web player
- * (anon role) is allowed to perform. `app.js` MUST route all network I/O
- * through this module — direct `fetch('.../rest/v1/...')` calls elsewhere
- * are a layering violation (see `docs/DATA_ACCESS_LAYER.md`).
- *
- * ## The rule
- *
- *   - Anon web player is allowed to do exactly ONE thing: call
- *     `get_plan_full(p_plan_id)` via PostgREST's /rest/v1/rpc endpoint.
- *   - No direct table reads. Milestone C RLS denies them anyway.
- *   - If a future anon-safe RPC is added, add the method here first,
- *     then use it from `app.js`.
- *
- * ## Three-treatment playback (2026-04-19)
- *
- * The RPC now returns per-exercise `line_drawing_url` (always),
- * `grayscale_url`, and `original_url`. The latter two are signed URLs
- * into the private `raw-archive` bucket, present only when the client
- * (subject of the video) has granted that treatment. This module
- * normalises to always-present-but-nullable keys so `app.js` never
- * needs to check `undefined` vs `null`.
- *
- * ## Segmented-color raw variant (Option 1-augment, 2026-04-23)
- *
- * Milestone P extended `get_plan_full` with two more per-exercise keys:
- *   - grayscale_segmented_url
- *   - original_segmented_url
- * Both point at the dual-output segmented-color mp4 written alongside
- * the line drawing (`*.segmented.mp4`), consent-gated the same way as
- * the untouched grayscale/original URLs. This module normalises those
- * to explicit null when absent; `app.js` prefers the segmented URL and
- * falls back to the untouched original when the segmented file is
- * missing (legacy captures, older plans, 404 on playback).
- *
- * ## Mask sidecar (Milestone P2, 2026-04-23)
- *
- * Milestone P2 added ONE more per-exercise key:
- *   - mask_url
- * A signed URL to the Vision person-segmentation mask mp4 written out
- * as a grayscale H.264 sidecar (`*.mask.mp4`) during the same native
- * conversion pass. Consent-gated on (grayscale OR original) — the mask
- * is useless without at least one body treatment available. TODAY the
- * mask has no consumer: `app.js` is untouched and just ignores the
- * field. Storing it now is insurance so future playback-time
- * compositing (tunable backgroundDim, other effects) can be built
- * against already-published plans without re-capture. This module
- * normalises `mask_url` to explicit null when absent.
- *
- * ## Soft-trim window (Milestone X / Wave 20)
- *
- * Milestone X added two more per-exercise keys:
- *   - start_offset_ms
- *   - end_offset_ms
- * Practitioner-controlled in/out window per exercise. Both null = no
- * trim, full clip plays. Both set = `app.js` clamps the `<video>`
- * element's `currentTime` to `[start, end]` (in ms) and loops within
- * that window. The same trim applies to ALL THREE treatments since
- * they share source timing — switching treatment must NOT reset trim.
- * NO re-conversion: the underlying media file stays full-length; trim
- * is purely a playback-time clamp. This module normalises both keys
- * to explicit null when absent.
- *
- * ## Per-set PLAN (Wave 41 — current)
- *
- * `get_plan_full` now returns one row per exercise carrying:
- *   - sets: [{position, reps, hold_seconds, weight_kg,
- *            breather_seconds_after}, ...]   (empty for rest)
- *   - rest_seconds: integer | null           (rest exercises only)
- * The legacy top-level `reps` / `sets` (int) / `hold_seconds` /
- * `inter_set_rest_seconds` / `custom_duration_seconds` keys have been
- * REMOVED from the RPC. This module coerces every set field to a
- * number where applicable and leaves `weight_kg` as either a number or
- * null (null = bodyweight). Rest exercises always carry an empty
- * `sets: []`; their duration lives in `rest_seconds`.
- *
- * Exposed on `window.HomefitApi` so `app.js` (a plain script, not an
- * ES module) can reach it. When the web player gains a bundler this
- * turns into a proper `export`.
- */
-
 (function () {
   'use strict';
 
@@ -159,9 +76,10 @@
   function isLocalSurface() {
     try {
       const host = window.location.hostname;
-      // Wave 4 Phase 1: Dart `shelf` loopback → 127.0.0.1 / localhost.
+      // Wave 4 Phase 1: Dart `shelf` loopback → 127.0.0.1 / localhost / 0.0.0.0 / 127.x.
       // Wave 4 Phase 2: `homefit-local://plan/...` custom scheme → 'plan'.
-      if (host !== '127.0.0.1' && host !== 'localhost' && host !== 'plan') return false;
+      if (host !== '127.0.0.1' && host !== 'localhost' && host !== '0.0.0.0'
+          && !host.startsWith('127.') && host !== 'plan') return false;
       const params = new URLSearchParams(window.location.search || '');
       return params.get('src') === 'local';
     } catch (_) {
@@ -197,10 +115,7 @@
    * carries a load-bearing null = bodyweight signal.
    */
   function _coerceNumOrNull(v) {
-    if (v === null || v === undefined) return null;
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    return n;
+    return _coerceNum(v, null);
   }
 
   /**
@@ -328,6 +243,21 @@
   }
 
   /**
+   * Returns the standard headers for anonymous Supabase RPC calls.
+   * The anon key acts as both the `apikey` identifier and the
+   * `Authorization` bearer — PostgREST requires both fields even for
+   * public (anon-role) RPCs. Centralised here so every anon call
+   * stays in lockstep when the key source changes.
+   */
+  function _anonHeaders() {
+    return {
+      'apikey':        SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+      'Content-Type':  'application/json',
+    };
+  }
+
+  /**
    * `get_plan_full(p_plan_id)` — SECURITY DEFINER RPC that bypasses RLS
    * and (as a side effect) stamps `plans.first_opened_at` on the first
    * anonymous fetch.
@@ -349,11 +279,7 @@
       `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
       {
         method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: _anonHeaders(),
         body: JSON.stringify({ p_plan_id: planId }),
       },
     );
@@ -401,11 +327,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/record_artifact_opened`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_plan_id: planId, p_kind: kind }),
         },
       );
@@ -452,11 +374,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/record_plan_opened`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -490,11 +408,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/start_analytics_session`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_user_agent_bucket: userAgentBucket || 'other',
@@ -526,11 +440,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_event_kind: eventKind,
@@ -557,11 +467,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/set_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_granted: !!granted,
@@ -586,11 +492,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/revoke_analytics_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_session_id: sessionId || null,
@@ -633,11 +535,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_plan_id: planId,
             p_kind: kind,
@@ -671,11 +569,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_plan_id: planId }),
         },
       );
@@ -718,11 +612,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_practice_profile`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_slug: slug }),
         },
       );
@@ -790,11 +680,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_practice_public_members`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({ p_practice_id: practiceId }),
         },
       );
@@ -860,11 +746,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/report_premises`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_premises_id: premisesId,
             p_reason: String(reason).slice(0, 500),
@@ -907,11 +789,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_premises_active_roster`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_practice_slug: String(practiceSlug).toLowerCase(),
             p_premises_slug: String(premisesSlug).toLowerCase(),
@@ -949,11 +827,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/report_session`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_session_id: sessionId,
             p_reason: String(reason).slice(0, 500),
@@ -1294,11 +1168,7 @@
         `${SUPABASE_URL}/rest/v1/rpc/get_live_sessions`,
         {
           method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
+          headers: _anonHeaders(),
           body: JSON.stringify({
             p_practice_slug: String(practiceSlug).toLowerCase(),
             p_premises_slug: String(premisesSlug).toLowerCase(),
