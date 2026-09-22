@@ -282,7 +282,7 @@ Future<void> _appendLocalLog({
       'sha': AppConfig.buildSha,
     };
     final encoded = '${_safeJsonString(line)}\n';
-    await File(path).writeAsString(
+    await file.writeAsString(
       encoded,
       mode: FileMode.append,
       flush: false,
