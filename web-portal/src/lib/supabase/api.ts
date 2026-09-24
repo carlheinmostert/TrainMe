@@ -404,7 +404,10 @@ export class PortalApi {
     const { data, error } = await this.supabase.rpc('practice_credit_balance', {
       p_practice_id: practiceId,
     });
-    if (error || data === null) return 0;
+    if (error || data === null) {
+      if (error) console.error('[getPracticeBalance] RPC error:', error.message);
+      return 0;
+    }
     return typeof data === 'number' ? data : 0;
   }
 
@@ -1547,7 +1550,9 @@ export class PortalReferralApi {
       p_consent_to_naming: consentToNaming,
     });
     if (error) {
-      if (isMissingRpc(error)) return false;
+      if (!isMissingRpc(error)) {
+        console.error('[claimCode] unexpected RPC error:', error.message, error.code);
+      }
       return false;
     }
     return data === true;
