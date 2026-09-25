@@ -16,57 +16,33 @@ class HomefitHaptics {
   static const _channel = MethodChannel('homefit/haptics');
 
   /// Light impact — subtle tap.
-  static Future<String> light() async {
-    try {
-      final r = await _channel.invokeMethod<String>('lightImpact');
-      return r ?? 'no-result';
-    } catch (e) {
-      HapticFeedback.lightImpact();
-      return 'fallback: $e';
-    }
-  }
+  static Future<String> light() => _invoke('lightImpact', HapticFeedback.lightImpact);
 
   /// Medium impact — standard tap.
-  static Future<String> medium() async {
-    try {
-      final r = await _channel.invokeMethod<String>('mediumImpact');
-      return r ?? 'no-result';
-    } catch (e) {
-      HapticFeedback.mediumImpact();
-      return 'fallback: $e';
-    }
-  }
+  static Future<String> medium() => _invoke('mediumImpact', HapticFeedback.mediumImpact);
 
   /// Heavy impact — strong thud.
-  static Future<String> heavy() async {
-    try {
-      final r = await _channel.invokeMethod<String>('heavyImpact');
-      return r ?? 'no-result';
-    } catch (e) {
-      HapticFeedback.heavyImpact();
-      return 'fallback: $e';
-    }
-  }
+  static Future<String> heavy() => _invoke('heavyImpact', HapticFeedback.heavyImpact);
 
   /// Selection click — crisp micro-tap.
-  static Future<String> selection() async {
-    try {
-      final r = await _channel.invokeMethod<String>('selectionClick');
-      return r ?? 'no-result';
-    } catch (e) {
-      HapticFeedback.selectionClick();
-      return 'fallback: $e';
-    }
-  }
+  static Future<String> selection() => _invoke('selectionClick', HapticFeedback.selectionClick);
 
   /// Full diagnostic — returns a multi-line report from the native side
   /// including engine state + a test fire.
-  static Future<String> diagnose() async {
+  static Future<String> diagnose() => _invoke('diagnose', null);
+
+  // ---------------------------------------------------------------------------
+
+  /// Invokes [method] on the native haptics channel. On failure, calls [fallback]
+  /// (if provided) and returns a 'fallback:' string. [fallback] is null only
+  /// for the diagnostics call, which has no meaningful Flutter-level fallback.
+  static Future<String> _invoke(String method, Future<void> Function()? fallback) async {
     try {
-      final r = await _channel.invokeMethod<String>('diagnose');
+      final r = await _channel.invokeMethod<String>(method);
       return r ?? 'no-result';
     } catch (e) {
-      return 'channel error: $e';
+      if (fallback != null) await fallback();
+      return fallback != null ? 'fallback: $e' : 'channel error: $e';
     }
   }
 }
