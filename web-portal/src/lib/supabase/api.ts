@@ -1096,13 +1096,17 @@ export class AdminApi {
    * sent). Returns null when not found; callers decide the UX.
    */
   async findPendingPayment(pid: string): Promise<PendingPaymentRow | null> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from('pending_payments')
       .select(
         'id, practice_id, credits, amount_zar, status, bundle_key, pf_payment_id, notes, completed_at, created_at',
       )
       .eq('id', pid)
       .maybeSingle();
+    if (error) {
+      console.error('[findPendingPayment] DB error:', error);
+      return null;
+    }
     return (data as PendingPaymentRow | null) ?? null;
   }
 
@@ -1122,7 +1126,7 @@ export class AdminApi {
       .insert(ledgerRow);
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: updateErr } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1131,6 +1135,7 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (updateErr) console.error('[applyPendingPayment] pending_payments UPDATE failed:', updateErr);
 
     return { applied: true };
   }
@@ -1170,7 +1175,7 @@ export class AdminApi {
     );
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: updateErr2 } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1179,6 +1184,7 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (updateErr2) console.error('[applyPendingPaymentWithRebates] pending_payments UPDATE failed:', updateErr2);
 
     return { applied: true };
   }
@@ -1777,16 +1783,18 @@ export class PortalShareKitApi {
     meta?: Record<string, unknown>,
   ): Promise<void> {
     try {
-      await this.supabase.rpc('log_share_event', {
+      const { error } = await this.supabase.rpc('log_share_event', {
         p_practice_id: practiceId,
         p_channel: channel,
         p_event_kind: eventKind,
         p_meta: meta ? (meta as never) : undefined,
       });
-    } catch {
+      if (error) console.warn('[logEvent] share_event RPC error:', error);
+    } catch (err) {
       // Swallow — analytics must never break the share UX. If the RPC is
       // down the user's copy/download still works, they just don't show
       // up in the funnel dashboard.
+      console.warn('[logEvent] share_event network error:', err);
     }
   }
 }
