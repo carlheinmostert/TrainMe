@@ -5998,7 +5998,7 @@ async function init() {
     // -- Wave 17: initialise analytics + wire close handler. --
     // Fire-and-forget — analytics init is async but must never block the
     // player render path or the Start Workout button.
-    initAnalytics();
+    initAnalytics().catch(err => console.warn('[homefit] analytics init failed:', err));
     installAnalyticsCloseHandler();
 
   } catch (err) {
