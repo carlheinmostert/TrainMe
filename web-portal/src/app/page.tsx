@@ -30,15 +30,6 @@ export default async function HomePage({
   const params = await searchParams;
   const next = safeNext(params.next);
 
-  // Diagnostic — Wave 32. Captured in Vercel runtime logs so Carl can
-  // confirm the redirect chain on his next mobile QA run. Cheap to keep.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[redirect-chain] home/page → signed-in: ${Boolean(user)}, next: ${
-      params.next ?? '(none)'
-    }, redirect to: ${user ? next : '(render sign-in)'}`,
-  );
-
   if (user) {
     redirect(next);
   }

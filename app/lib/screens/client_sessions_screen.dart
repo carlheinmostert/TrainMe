@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/client.dart';
 import '../models/session.dart';
 import '../services/api_client.dart';
+import '../services/loud_swallow.dart';
 import '../services/auth_service.dart';
 import '../services/conversion_service.dart';
 import '../models/exercise_capture.dart';
@@ -184,7 +185,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         _loadError = null;
       });
       // Wave 17 — kick off analytics fetch for published sessions.
-      _fetchAnalytics();
+      unawaited(_fetchAnalytics());
     } catch (e) {
       final text = e.toString();
       final truncated = text.substring(0, min(200, text.length));
@@ -206,12 +207,20 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     final published = _sessions.where((s) => s.isPublished).toList();
     if (published.isEmpty) return;
     for (final session in published) {
-      final summary =
-          await ApiClient.instance.getPlanAnalyticsSummary(session.id);
+      final summary = await loudSwallow(
+        () => ApiClient.instance.getPlanAnalyticsSummary(session.id),
+        kind: 'get_plan_analytics_summary_failed',
+        source: 'ClientSessionsScreen._fetchAnalytics',
+        severity: 'warn',
+        meta: {'plan_id': session.id},
+        swallow: true,
+      );
       if (!mounted) return;
-      setState(() {
-        _analyticsCache[session.id] = summary;
-      });
+      if (summary != null) {
+        setState(() {
+          _analyticsCache[session.id] = summary;
+        });
+      }
     }
   }
 
