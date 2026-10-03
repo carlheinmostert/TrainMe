@@ -387,7 +387,10 @@ const TREATMENTS = ['line', 'bw', 'original'];
 function treatmentFromWire(wire) {
   if (wire === 'grayscale') return 'bw';
   if (wire === 'original') return 'original';
-  return 'line';
+  // NULL/undefined maps to 'bw' — canonical default per 2026-05-15 publish-flow
+  // refactor (PR-B). Kept in sync with exercise_hero.js.
+  if (wire === 'line') return 'line';
+  return 'bw';
 }
 
 /**
@@ -484,6 +487,7 @@ async function handleVideoError(evt) {
       }
     }
   } catch (err) {
+    _urlRefreshInFlight = false; // always reset so future errors can retry
     console.warn('[homefit] URL refresh failed:', err);
   } finally {
     if (refreshLabel) {
@@ -5998,7 +6002,9 @@ async function init() {
     // -- Wave 17: initialise analytics + wire close handler. --
     // Fire-and-forget — analytics init is async but must never block the
     // player render path or the Start Workout button.
-    initAnalytics();
+    initAnalytics().catch(function (err) {
+      try { console.warn('[homefit] initAnalytics failed:', err); } catch (_) {}
+    });
     installAnalyticsCloseHandler();
 
   } catch (err) {

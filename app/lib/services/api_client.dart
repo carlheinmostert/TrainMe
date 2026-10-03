@@ -343,7 +343,8 @@ class ApiClient {
           })
           .whereType<PracticeMembership>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('ApiClient.listMyPractices failed: $e\n$st');
       return const [];
     }
   }
@@ -367,7 +368,8 @@ class ApiClient {
       if (result is num) return result.toInt();
       if (result is String) return int.tryParse(result);
       return null;
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('ApiClient.practiceCreditBalance failed: $e\n$st');
       return null;
     }
   }
@@ -404,7 +406,8 @@ class ApiClient {
           })
           .whereType<PlanClientLink>()
           .toList(growable: false);
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('ApiClient.listPlanClientLinks failed: $e\n$st');
       return const [];
     }
   }
@@ -597,7 +600,8 @@ class ApiClient {
         () => raw.rpc('refund_credit', params: {'p_plan_id': planId}),
       );
       return result == true;
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('ApiClient.refundCredit failed for plan $planId: $e\n$st');
       return false;
     }
   }

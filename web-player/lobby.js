@@ -1187,6 +1187,8 @@
         if (img.dataset.posterSrc) {
           img.dataset.posterSrc = dataUrl;
         }
+      }).catch(function () {
+        // Image load failed — leave the uncropped src in place.
       });
     });
   }
@@ -1238,6 +1240,9 @@
         await new Promise((resolve) => {
           setTimeout(() => {
             cb('heroErrorRetry', resolve);
+            // Always resolve so the Promise doesn't hang when the
+            // circuit-breaker trips and cb() never calls its arg.
+            resolve();
           }, 50);
         });
       }

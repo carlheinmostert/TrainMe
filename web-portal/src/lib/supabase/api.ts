@@ -332,12 +332,13 @@ export class PortalApi {
     practiceId: string,
     userId: string,
   ): Promise<'owner' | 'practitioner' | null> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from('practice_members')
       .select('role')
       .eq('practice_id', practiceId)
       .eq('trainer_id', userId)
       .maybeSingle();
+    if (error) throw new Error(error.message);
     return (data?.role as 'owner' | 'practitioner' | undefined) ?? null;
   }
 
@@ -1096,13 +1097,14 @@ export class AdminApi {
    * sent). Returns null when not found; callers decide the UX.
    */
   async findPendingPayment(pid: string): Promise<PendingPaymentRow | null> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from('pending_payments')
       .select(
         'id, practice_id, credits, amount_zar, status, bundle_key, pf_payment_id, notes, completed_at, created_at',
       )
       .eq('id', pid)
       .maybeSingle();
+    if (error) throw new Error(error.message);
     return (data as PendingPaymentRow | null) ?? null;
   }
 
@@ -1122,7 +1124,7 @@ export class AdminApi {
       .insert(ledgerRow);
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: statusErr } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1131,6 +1133,11 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (statusErr) {
+      // Ledger row was written; best-effort to log the status-flip failure
+      // rather than silently returning applied:true with inconsistent state.
+      console.error('[applyPendingPayment] status flip failed:', statusErr.message);
+    }
 
     return { applied: true };
   }
@@ -1170,7 +1177,7 @@ export class AdminApi {
     );
     if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
-    await this.supabase
+    const { error: statusErr } = await this.supabase
       .from('pending_payments')
       .update({
         status: 'complete',
@@ -1179,6 +1186,9 @@ export class AdminApi {
       })
       .eq('id', pid)
       .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+    if (statusErr) {
+      console.error('[applyPendingPaymentWithRebates] status flip failed:', statusErr.message);
+    }
 
     return { applied: true };
   }
