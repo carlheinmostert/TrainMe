@@ -877,6 +877,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         clearVideoDurationMs: true,
       );
       exercises[dataIndex] = replaced;
+      if (!mounted) return;
       setState(() {
         _touchAndPush(_session.copyWith(exercises: exercises));
       });
@@ -1055,7 +1056,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     _saveExerciseOrder();
-    if (!mounted) return;
     if (!mounted) return;
     // ignore: use_build_context_synchronously
     showUndoSnackBar(

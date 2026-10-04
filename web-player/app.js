@@ -3939,6 +3939,7 @@ function resumeTimer() {
   pauseStartedAt = null;
 
   isTimerRunning = true;
+  clearWorkoutTimer();
   workoutTimer = setInterval(onTimerTick, 1000);
   // Resume video playback alongside the timer — BUT ONLY if we're in a
   // set phase. During a breather the video is meant to be paused on

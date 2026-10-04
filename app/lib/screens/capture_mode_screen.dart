@@ -682,15 +682,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   // ---------------------------------------------------------------------------
 
   Future<void> _capturePhoto() async {
-    if (_cameraController == null ||
-        !_cameraController!.value.isInitialized ||
-        _isRecording) {
-      return;
-    }
+    final ctrl = _cameraController;
+    if (ctrl == null || !ctrl.value.isInitialized || _isRecording) return;
 
     try {
       HomefitHaptics.medium();
-      final xFile = await _cameraController!.takePicture();
+      final xFile = await ctrl.takePicture();
       final exercise = await _persistCapture(xFile.path, MediaType.photo);
       if (exercise != null) {
         _onCaptureLanded(exercise);
@@ -808,11 +805,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   }
 
   Future<void> _startVideoRecording() async {
-    if (_cameraController == null ||
-        !_cameraController!.value.isInitialized ||
-        _isRecording) {
-      return;
-    }
+    final ctrl = _cameraController;
+    if (ctrl == null || !ctrl.value.isInitialized || _isRecording) return;
 
     // Best-effort haptic — iOS suppresses vibration while AVCaptureSession
     // holds the mic (hardware-level, no workaround). Fires on the first
@@ -835,7 +829,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           };
 
     try {
-      await _cameraController!.startVideoRecording();
+      await ctrl.startVideoRecording();
       if (!mounted) return;
       setState(() {
         _isRecording = true;
